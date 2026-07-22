@@ -32,13 +32,10 @@ export {
     type FlowchartLaneFields,
     type FlowchartTriggerFields,
     type FlowchartEvidenceFields,
-    type FlowchartDeclaredField,
     type FlowchartLaneLiteral,
     type FlowchartLinkKindLiteral,
     type FlowchartOrientationLiteral,
     type FlowchartLinkModeLiteral,
-    type FlowchartInspectorModeLiteral,
-    type FlowchartFieldKindLiteral,
 } from "./flowchart/index.js";
 export {
     Map,

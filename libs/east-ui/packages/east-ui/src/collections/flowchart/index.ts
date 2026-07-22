@@ -32,10 +32,7 @@ import {
     FlowchartLinkKindType,
     FlowchartOrientationType,
     FlowchartLinkModeType,
-    FlowchartInspectorModeType,
     FlowchartEvidenceType,
-    FlowchartFieldDefType,
-    FlowchartFieldValueType,
     FlowchartStateType,
     FlowchartLinkType,
     FlowchartLaneType,
@@ -49,11 +46,7 @@ export {
     FlowchartLinkKindType,
     FlowchartOrientationType,
     FlowchartLinkModeType,
-    FlowchartInspectorModeType,
     FlowchartEvidenceType,
-    FlowchartFieldKindType,
-    FlowchartFieldDefType,
-    FlowchartFieldValueType,
     FlowchartStateType,
     FlowchartLinkType,
     FlowchartLaneType,
@@ -76,8 +69,6 @@ export const FlowchartRootType: StructType<{
     links: ArrayType<FlowchartLinkType>,
     lanes: ArrayType<FlowchartLaneType>,
     triggers: ArrayType<FlowchartTriggerType>,
-    stateFieldDefs: ArrayType<FlowchartFieldDefType>,
-    linkFieldDefs: ArrayType<FlowchartFieldDefType>,
     orientation: OptionType<FlowchartOrientationType>,
     freshness: OptionType<FlowchartFreshnessType>,
     minimap: OptionType<BooleanType>,
@@ -86,7 +77,9 @@ export const FlowchartRootType: StructType<{
     height: OptionType<StringType>,
     maxHeight: OptionType<StringType>,
     slice: OptionType<SliceChromeType>,
-    inspector: OptionType<FlowchartInspectorModeType>,
+    stateHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    triggerHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     onSelectState: OptionType<FunctionType<[StringType], NullType>>,
     onSelectLink: OptionType<FunctionType<[StringType], NullType>>,
     onSelectTrigger: OptionType<FunctionType<[StringType], NullType>>,
@@ -95,13 +88,12 @@ export const FlowchartRootType: StructType<{
     onCreateLink: OptionType<FunctionType<[FlowchartLinkCreateEventType], NullType>>,
     onDeleteLink: OptionType<FunctionType<[StringType], NullType>>,
     canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
+    onAddLane: OptionType<FunctionType<[], NullType>>,
 }> = StructType({
     states: ArrayType(FlowchartStateType),
     links: ArrayType(FlowchartLinkType),
     lanes: ArrayType(FlowchartLaneType),
     triggers: ArrayType(FlowchartTriggerType),
-    stateFieldDefs: ArrayType(FlowchartFieldDefType),
-    linkFieldDefs: ArrayType(FlowchartFieldDefType),
     orientation: OptionType(FlowchartOrientationType),
     freshness: OptionType(FlowchartFreshnessType),
     minimap: OptionType(BooleanType),
@@ -110,7 +102,9 @@ export const FlowchartRootType: StructType<{
     height: OptionType(StringType),
     maxHeight: OptionType(StringType),
     slice: OptionType(SliceChromeType),
-    inspector: OptionType(FlowchartInspectorModeType),
+    stateHover: OptionType(FunctionType([StringType], UIComponentType)),
+    linkHover: OptionType(FunctionType([StringType], UIComponentType)),
+    triggerHover: OptionType(FunctionType([StringType], UIComponentType)),
     onSelectState: OptionType(FunctionType([StringType], NullType)),
     onSelectLink: OptionType(FunctionType([StringType], NullType)),
     onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
@@ -119,6 +113,7 @@ export const FlowchartRootType: StructType<{
     onCreateLink: OptionType(FunctionType([FlowchartLinkCreateEventType], NullType)),
     onDeleteLink: OptionType(FunctionType([StringType], NullType)),
     canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+    onAddLane: OptionType(FunctionType([], NullType)),
 });
 
 /**
@@ -145,11 +140,6 @@ export type FlowchartOrientationLiteral = "LR" | "TD";
 /** String shorthand for {@link FlowchartLinkModeType}. */
 export type FlowchartLinkModeLiteral = "draw" | "connect";
 
-/** String shorthand for {@link FlowchartInspectorModeType}. */
-export type FlowchartInspectorModeLiteral = "float" | "none";
-
-/** String shorthand for {@link FlowchartFieldKindType}. */
-export type FlowchartFieldKindLiteral = "text" | "chips" | "count";
 
 // ============================================================================
 // Row fields
@@ -236,31 +226,6 @@ export interface FlowchartTriggerFields {
 }
 
 /**
- * A declared (developer-defined) field over an entity's ROW struct.
- *
- * @remarks
- * The extension mechanism from the spec: declared fields get inspector
- * rows, hover-card rows, fact echo and filter chips automatically — and
- * never invent new canvas marks. `value` is a BUILD-TIME accessor
- * (reified via `mapRows` into per-row values), not a render-time
- * callback. For `kind: "chips"` it must return an `ArrayType<StringType>`
- * value; for "text" / "count" a `StringType` value.
- *
- * @typeParam R - The entity's row struct
- */
-export interface FlowchartDeclaredField<R extends StructType = StructType> {
-    /** Row label on hover cards and the inspector. */
-    label: string;
-    /** Presentation kind (default "text"). */
-    kind?: FlowchartFieldKindLiteral;
-    /** Build-time accessor from the row to the field's value(s). */
-    value: (row: ExprType<R>) =>
-        SubtypeExprOrValue<StringType> | SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Optional slice fieldId that echo-promote pins an `in` filter into. */
-    sliceField?: string;
-}
-
-/**
  * A literal lanes input — plain `{ key, label? }` entries in band order.
  */
 export type FlowchartLaneLiteral = { key: string; label?: string };
@@ -311,11 +276,6 @@ export interface FlowchartConfig<
     /** Row mapper from a trigger row — omit when rows are already `Flowchart.Types.Trigger`. */
     trigger?: (row: ExprType<T>) => FlowchartTriggerFields | ExprType<FlowchartTriggerType>;
 
-    /** Declared fields on STATES — keyed config; requires the `state` mapper. */
-    stateFields?: Record<string, FlowchartDeclaredField<S>>;
-    /** Declared fields on LINKS — keyed config; requires the `link` mapper. */
-    linkFields?: Record<string, FlowchartDeclaredField<L>>;
-
     /** Initial orientation — "LR" (default) | "TD"; the eyebrow segment toggles it (view state, never a chip). */
     orientation?: SubtypeExprOrValue<FlowchartOrientationType> | FlowchartOrientationLiteral;
     /** Optional eyebrow freshness chip. */
@@ -336,8 +296,12 @@ export interface FlowchartConfig<
     /** Slice affordances (default `["filter","search"]`; search = "⌕ find state"). `"brush"` is a build-time error — a flowchart has no continuous 1-D axis. */
     affordances?: SliceAffordanceLiteral[];
 
-    /** Inspector placement — "float" (default) | "none". The inspector is the only mutation surface. */
-    inspector?: SubtypeExprOrValue<FlowchartInspectorModeType> | FlowchartInspectorModeLiteral;
+    /** Optional hover-card content builder for STATES — receives the hovered state's key and returns arbitrary UI, evaluated lazily on hover; absent ⇒ no state hover card. */
+    stateHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional hover-card content builder for LINKS — receives the hovered link's key; absent ⇒ no link hover card. */
+    linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional hover-card content builder for TRIGGERS — receives the hovered trigger's key; absent ⇒ no trigger hover card. */
+    triggerHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
     /** Optional state-click callback (node key). */
     onSelectState?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
     /** Optional link-click callback (link key). */
@@ -355,6 +319,8 @@ export interface FlowchartConfig<
     onDeleteLink?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
     /** Optional connection validator — `(from, to)` BEFORE the draft snaps; false forbids the pair. A throwing validator logs and ALLOWS (fail-open). */
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
+    /** Optional add-lane callback — its presence renders the dashed "+ LANE" tail affordance (full lane height); absent ⇒ no affordance. */
+    onAddLane?: SubtypeExprOrValue<FunctionType<[], NullType>>;
 }
 
 // ============================================================================
@@ -370,33 +336,6 @@ function kindOption(
     return East.value(some(kind), OptionType(FlowchartLinkKindType));
 }
 
-/** Reifies one entity's declared fields into `{ id, values }` rows. */
-function fieldValues<R extends StructType>(
-    row: ExprType<R>,
-    defs: Record<string, FlowchartDeclaredField<R>> | undefined,
-): ExprType<ArrayType<FlowchartFieldValueType>> {
-    const entries = Object.entries(defs ?? {});
-    return East.value(entries.map(([id, def]) => ({
-        id,
-        values: (def.kind ?? "text") === "chips"
-            ? East.value(def.value(row) as SubtypeExprOrValue<ArrayType<StringType>>, ArrayType(StringType))
-            : East.value([East.value(def.value(row) as SubtypeExprOrValue<StringType>, StringType)], ArrayType(StringType)),
-    })), ArrayType(FlowchartFieldValueType));
-}
-
-/** Lowers declared-field definitions into their East rows. */
-function fieldDefs(
-    defs: Record<string, FlowchartDeclaredField<never>> | undefined,
-): ExprType<ArrayType<FlowchartFieldDefType>> {
-    const entries = Object.entries(defs ?? {});
-    return East.value(entries.map(([id, def]) => ({
-        id,
-        label: def.label,
-        kind: variant(def.kind ?? "text", null),
-        sliceField: def.sliceField !== undefined ? some(def.sliceField) : none,
-    })), ArrayType(FlowchartFieldDefType));
-}
-
 function buildRoot(
     states: SubtypeExprOrValue<ArrayType<StructType>>,
     links: SubtypeExprOrValue<ArrayType<StructType>>,
@@ -404,9 +343,6 @@ function buildRoot(
     config: FlowchartConfig<StructType, StructType, StructType, StructType>,
 ): ExprType<UIComponentType> {
     const stateMapper = config.state;
-    if (stateMapper === undefined && config.stateFields !== undefined) {
-        throw new Error("Flowchart: `stateFields` requires the `state` mapper — pre-resolved State rows already carry their reified fields.");
-    }
     const resolvedStates = stateMapper === undefined
         ? East.value(states as SubtypeExprOrValue<ArrayType<FlowchartStateType>>, ArrayType(FlowchartStateType))
         : mapRows(East.value(states) as ExprType<ArrayType<StructType>>, FlowchartStateType, (row) => {
@@ -418,14 +354,10 @@ function buildRoot(
                 lane: r.lane,
                 members: r.members !== undefined ? r.members : none,
                 notes: r.notes !== undefined ? some(r.notes) : none,
-                fields: fieldValues(row, config.stateFields),
             }, FlowchartStateType);
         });
 
     const linkMapper = config.link;
-    if (linkMapper === undefined && config.linkFields !== undefined) {
-        throw new Error("Flowchart: `linkFields` requires the `link` mapper — pre-resolved Link rows already carry their reified fields.");
-    }
     const resolvedLinks = linkMapper === undefined
         ? East.value(links as SubtypeExprOrValue<ArrayType<FlowchartLinkType>>, ArrayType(FlowchartLinkType))
         : mapRows(East.value(links) as ExprType<ArrayType<StructType>>, FlowchartLinkType, (row) => {
@@ -445,7 +377,6 @@ function buildRoot(
                         unit: r.evidence.unit !== undefined ? some(r.evidence.unit) : none,
                     }, FlowchartEvidenceType))
                     : none,
-                fields: fieldValues(row, config.linkFields),
             }, FlowchartLinkType);
         });
 
@@ -504,8 +435,6 @@ function buildRoot(
         links: resolvedLinks,
         lanes: resolvedLanes,
         triggers: resolvedTriggers,
-        stateFieldDefs: fieldDefs(config.stateFields as Record<string, FlowchartDeclaredField<never>> | undefined),
-        linkFieldDefs: fieldDefs(config.linkFields as Record<string, FlowchartDeclaredField<never>> | undefined),
         orientation: config.orientation !== undefined
             ? some(typeof config.orientation === "string" ? variant(config.orientation, null) : config.orientation)
             : none,
@@ -523,9 +452,9 @@ function buildRoot(
         height: config.height !== undefined ? some(config.height) : none,
         maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
-        inspector: config.inspector !== undefined
-            ? some(typeof config.inspector === "string" ? variant(config.inspector, null) : config.inspector)
-            : none,
+        stateHover: config.stateHover !== undefined ? some(East.value(config.stateHover, FunctionType([StringType], UIComponentType))) : none,
+        linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
+        triggerHover: config.triggerHover !== undefined ? some(East.value(config.triggerHover, FunctionType([StringType], UIComponentType))) : none,
         onSelectState: config.onSelectState !== undefined ? some(config.onSelectState) : none,
         onSelectLink: config.onSelectLink !== undefined ? some(config.onSelectLink) : none,
         onSelectTrigger: config.onSelectTrigger !== undefined ? some(config.onSelectTrigger) : none,
@@ -536,6 +465,7 @@ function buildRoot(
         onCreateLink: config.onCreateLink !== undefined ? some(config.onCreateLink) : none,
         onDeleteLink: config.onDeleteLink !== undefined ? some(config.onDeleteLink) : none,
         canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
+        onAddLane: config.onAddLane !== undefined ? some(config.onAddLane) : none,
     }), UIComponentType);
 }
 
@@ -636,12 +566,6 @@ export const Flowchart = {
         Orientation: FlowchartOrientationType,
         /** Link-authoring mode — draw | connect ({@link FlowchartLinkModeType}). */
         LinkMode: FlowchartLinkModeType,
-        /** Inspector placement — float | none ({@link FlowchartInspectorModeType}). */
-        InspectorMode: FlowchartInspectorModeType,
-        /** Declared-field definition ({@link FlowchartFieldDefType}). */
-        FieldDef: FlowchartFieldDefType,
-        /** Declared-field per-row value ({@link FlowchartFieldValueType}). */
-        FieldValue: FlowchartFieldValueType,
         /** Eyebrow freshness chip ({@link FlowchartFreshnessType}). */
         Freshness: FlowchartFreshnessType,
         /** Link-creation event ({@link FlowchartLinkCreateEventType}). */

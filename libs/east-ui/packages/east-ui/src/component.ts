@@ -164,10 +164,8 @@ import {
     FlowchartLinkType,
     FlowchartLaneType,
     FlowchartTriggerType,
-    FlowchartFieldDefType,
     FlowchartFreshnessType,
     FlowchartOrientationType,
-    FlowchartInspectorModeType,
     FlowchartLinkModeType,
     FlowchartLinkCreateEventType,
 } from "./collections/flowchart/types.js";
@@ -1168,16 +1166,15 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Flowchart — state-transition flowchart (states in ordered phase
     // lanes, H/V-routed links, optional per-link decision triggers).
-    // Hover cards / inspector / highlight are DERIVED surfaces, so no
-    // field recurses through `node`; mirror this shape with
-    // `FlowchartRootType` in `collections/flowchart/index.ts`.
+    // The `*Hover` builders return arbitrary UI via the recursion `node`;
+    // mirror this shape with `FlowchartRootType` in
+    // `collections/flowchart/index.ts` (which spells those fields with the
+    // resolved `UIComponentType`).
     Flowchart: StructType({
         states: ArrayType(FlowchartStateType),
         links: ArrayType(FlowchartLinkType),
         lanes: ArrayType(FlowchartLaneType),
         triggers: ArrayType(FlowchartTriggerType),
-        stateFieldDefs: ArrayType(FlowchartFieldDefType),
-        linkFieldDefs: ArrayType(FlowchartFieldDefType),
         orientation: OptionType(FlowchartOrientationType),
         freshness: OptionType(FlowchartFreshnessType),
         minimap: OptionType(BooleanType),
@@ -1186,7 +1183,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         height: OptionType(StringType),
         maxHeight: OptionType(StringType),
         slice: OptionType(SliceChromeType),
-        inspector: OptionType(FlowchartInspectorModeType),
+        stateHover: OptionType(FunctionType([StringType], node)),
+        linkHover: OptionType(FunctionType([StringType], node)),
+        triggerHover: OptionType(FunctionType([StringType], node)),
         onSelectState: OptionType(FunctionType([StringType], NullType)),
         onSelectLink: OptionType(FunctionType([StringType], NullType)),
         onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
@@ -1195,6 +1194,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onCreateLink: OptionType(FunctionType([FlowchartLinkCreateEventType], NullType)),
         onDeleteLink: OptionType(FunctionType([StringType], NullType)),
         canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+        onAddLane: OptionType(FunctionType([], NullType)),
     }),
 
     // Map — interactive geographic basemap + H3 / area overlay. The

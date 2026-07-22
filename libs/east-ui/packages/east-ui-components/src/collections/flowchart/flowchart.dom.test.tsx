@@ -36,7 +36,6 @@ const state = (key: string, lane: string, members: bigint | null = null): Flowch
     lane,
     members: members !== null ? some(members) : none,
     notes: none,
-    fields: [{ id: "grade", values: ["A"] }],
 });
 
 const link = (from: string, to: string, kind: "planned" | "observed" = "planned"): FlowchartValue["links"][number] => ({
@@ -46,7 +45,6 @@ const link = (from: string, to: string, kind: "planned" | "observed" = "planned"
     kind: some(variant(kind, null)),
     trigger: from === "RCT" ? some("press") : none,
     evidence: some({ volume: some(199.5), count: some(13866n), measuredAt: some(new Date("2026-06-30T00:00:00Z")), unit: some("kt") }),
-    fields: [{ id: "vessels", values: ["R", "T"] }],
 });
 
 function mkValue(): FlowchartValue {
@@ -55,8 +53,6 @@ function mkValue(): FlowchartValue {
         links: [link("RCT", "P*"), link("P*", "PRD", "observed"), link("RCT", "RCT"), link("PRD", "GONE")],
         lanes: [{ key: "reaction", label: some("Reaction") }, { key: "press", label: none }],
         triggers: [{ key: "press", label: "press", letter: none, owner: some("press-scheduler"), queue: some(["RCT"]), outcomes: none }],
-        stateFieldDefs: [{ id: "grade", label: "Grade", kind: variant("text", null), sliceField: some("grade") }],
-        linkFieldDefs: [{ id: "vessels", label: "Vessels", kind: variant("chips", null), sliceField: none }],
         orientation: some(variant("LR", null)),
         freshness: some({ label: "evidence-2026.06", date: some(new Date("2026-06-30T00:00:00Z")) }),
         minimap: none,
@@ -65,7 +61,9 @@ function mkValue(): FlowchartValue {
         height: some("480"),
         maxHeight: none,
         slice: none,
-        inspector: none,
+        stateHover: none,
+        linkHover: none,
+        triggerHover: none,
         onSelectState: none,
         onSelectLink: none,
         onSelectTrigger: none,
@@ -74,6 +72,7 @@ function mkValue(): FlowchartValue {
         onCreateLink: none,
         onDeleteLink: none,
         canConnect: none,
+        onAddLane: none,
     } as unknown as FlowchartValue;
 }
 
@@ -88,9 +87,9 @@ describe("EastChakraFlowchart", () => {
         expect(container.querySelector("[data-flowchart-eyebrow]")).not.toBeNull();
         const footer = container.querySelector("[data-flowchart-footer]");
         expect(footer).not.toBeNull();
-        // Derived counts: 3 rendered links (self-loop folds to ↻); ghost adds
-        // unresolved. textContent concatenates spans without whitespace.
-        expect(footer?.textContent?.replace(/\s+/g, "")).toContain("3links");
+        // The footer counts narrowed ROWS (4, incl. the ↻-folded self-loop);
+        // the ghost adds unresolved. textContent concatenates spans.
+        expect(footer?.textContent?.replace(/\s+/g, "")).toContain("4links");
         expect(footer?.textContent).toContain("1 unresolved");
         // Orientation segment + freshness chip decode.
         expect(container.textContent).toContain("LR");

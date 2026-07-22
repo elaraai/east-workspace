@@ -8,8 +8,8 @@
  * `Flowchart` design spec: 44px eyebrow (slice cluster left; orientation
  * segment + freshness chip right), body canvas (lane bands, node cards,
  * H/V links), 38px derived-count footer. Node cards are 116×40 r6 with a
- * mono 12/700 code line and a 10.5px muted label; hover cards are paper /
- * rule-strong / shadow-md / r6; the inspector floats at 320px.
+ * mono 12/700 code line and a 10.5px muted label; the hover-card SHELL is
+ * paper / rule-strong / shadow-md / r6 (its body is dev-defined UI).
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -24,18 +24,39 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "legend", "legendTitle", "legendRow",
         "minimap",
         "footer", "footerStrong", "footerNeg", "footerSplit",
-        "hoverCard", "hoverHead", "hoverCode", "hoverKind",
-        "hoverRow", "hoverRowKey", "hoverRowVal", "hoverFoot",
-        "inspector", "inspectorHead", "inspectorEyebrow", "inspectorTitle",
-        "inspectorSubtitle", "inspectorEvidence", "inspectorEvidenceLabel",
-        "inspectorEvidenceValue", "inspectorEvidenceUnit", "inspectorMeta",
-        "inspectorFields", "inspectorFieldsLabel", "inspectorFieldRow",
-        "inspectorFieldKey", "inspectorFieldVal", "inspectorChips", "inspectorChip",
-        "inspectorNotes",
+        "hoverCard",
     ],
     base: {
-        /* Bare like Table / Planner — identity chrome is host composition. */
+        /* Bare like Table / Planner — identity chrome is host composition.
+         * The --fc-* variables mirror the design spec's literal DS tokens
+         * (--ink-2 / --ink-3 / --ink-4 / --paper / --paper-2 / --rule-strong /
+         * --info / --brand / --brand-d / --brand-dd / --neg), with the spec's
+         * dark-mode values — SVG geometry consumes them directly. */
         root: {
+            "--fc-ink":         "{colors.brand.700}",
+            "--fc-ink3":        "{colors.gray.600}",
+            "--fc-ink4":        "{colors.gray.500}",
+            "--fc-paper":       "{colors.white}",
+            "--fc-lane":        "{colors.gray.50}",
+            "--fc-rule-strong": "{colors.gray.300}",
+            "--fc-info":        "{colors.brand.600}",
+            "--fc-brand":       "{colors.brand.500}",
+            "--fc-brand-d":     "{colors.brand.600}",
+            "--fc-brand-dd":    "{colors.brand.700}",
+            "--fc-neg":         "#b85a4a",
+            _dark: {
+                "--fc-ink":         "{colors.gray.300}",
+                "--fc-ink3":        "{colors.gray.400}",
+                "--fc-ink4":        "{colors.gray.500}",
+                "--fc-paper":       "{colors.gray.900}",
+                "--fc-lane":        "{colors.gray.800}",
+                "--fc-rule-strong": "{colors.gray.600}",
+                "--fc-info":        "#6fb3bb",
+                "--fc-brand":       "{colors.brand.500}",
+                "--fc-brand-d":     "#5ba9b3",
+                "--fc-brand-dd":    "#79c4cd",
+                "--fc-neg":         "#d98a7c",
+            },
             background: "bg.surface",
             display: "flex",
             flexDirection: "column",
@@ -63,6 +84,9 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             minWidth: 0,
             flex: "1 1 auto",
             overflow: "hidden",
+            /* Spec eyebrow anatomy: chips first, then a COMPACT find-state
+             * field — never a full-width search box. */
+            "& input": { maxWidth: "128px" },
         },
         /* Right zone, fixed: orientation segment then the freshness chip. */
         eyebrowRight: {
@@ -263,209 +287,21 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },
 
         /* ── hover card — paper · rule-strong · shadow-md · r6 ────────── */
+        /* Hover-card SHELL — paper · rule-strong · shadow-md · r6 per the
+         * spec; the BODY is dev-defined UI (stateHover / linkHover /
+         * triggerHover builders). */
         hoverCard: {
             position: "absolute",
             zIndex: 10,
-            width: "260px",
+            minWidth: "180px",
+            maxWidth: "320px",
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "6px",
             boxShadow: "md",
-            paddingBottom: "6px",
-            pointerEvents: "auto",
-        },
-        hoverHead: {
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            gap: "2",
-            padding: "8px 12px 6px",
-            borderBottomWidth: "1px",
-            borderColor: "border.subtle",
-        },
-        hoverCode: {
-            fontFamily: "mono",
-            fontSize: "12px",
-            fontWeight: "700",
-            color: "fg",
-        },
-        hoverKind: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "1px",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-        /* key/value glance rows — numerals mono tabular */
-        hoverRow: {
-            display: "flex",
-            gap: "3",
-            padding: "3px 12px",
-            fontSize: "10.5px",
-        },
-        hoverRowKey: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "1px",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            width: "64px",
-            flexShrink: 0,
-            paddingTop: "1px",
-        },
-        hoverRowVal: {
-            color: "fg",
-            fontVariantNumeric: "tabular-nums",
-            minWidth: 0,
-        },
-        /* paper-2 footer with the keyboard route */
-        hoverFoot: {
-            marginTop: "4px",
-            padding: "5px 12px 0",
-            borderTopWidth: "1px",
-            borderColor: "border.subtle",
-            background: "bg.panel",
-            fontFamily: "mono",
-            fontSize: "9px",
-            color: "fg.subtle",
-            paddingBottom: "5px",
-            marginBottom: "-6px",
-            borderBottomRadius: "6px",
-        },
-
-        /* ── inspector — floats beside the frame, 320px ───────────────── */
-        inspector: {
-            position: "absolute",
-            top: "12px",
-            right: "12px",
-            bottom: "12px",
-            width: "320px",
-            zIndex: 9,
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "6px",
-            boxShadow: "md",
-            overflow: "auto",
-            padding: "14px 16px",
-        },
-        inspectorHead: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "6px",
-            "& > button": {
-                cursor: "pointer",
-                color: "fg.subtle",
-                fontSize: "14px",
-                lineHeight: 1,
-                _hover: { color: "fg" },
-            },
-        },
-        inspectorEyebrow: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "1.5px",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-        inspectorTitle: {
-            fontFamily: "mono",
-            fontSize: "16px",
-            fontWeight: "700",
-            fontVariantNumeric: "tabular-nums",
-            color: "fg",
-        },
-        inspectorSubtitle: {
-            fontSize: "11px",
-            color: "fg.muted",
-            marginTop: "1px",
-        },
-        inspectorEvidence: {
-            marginTop: "12px",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            borderRadius: "6px",
             padding: "10px 12px",
-            background: "bg.panel",
-        },
-        inspectorEvidenceLabel: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "1.5px",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-        inspectorEvidenceValue: {
-            fontFamily: "mono",
-            fontSize: "22px",
-            fontWeight: "700",
-            fontVariantNumeric: "tabular-nums",
-            color: "fg",
-            display: "flex",
-            alignItems: "baseline",
-            gap: "1.5",
-        },
-        inspectorEvidenceUnit: {
-            fontSize: "11px",
-            fontWeight: "600",
-            color: "fg.muted",
-        },
-        inspectorMeta: {
-            fontSize: "10.5px",
-            color: "fg.muted",
-            marginTop: "2px",
-        },
-        inspectorFields: { marginTop: "12px" },
-        inspectorFieldsLabel: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "1.5px",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            marginBottom: "6px",
-        },
-        inspectorFieldRow: { marginBottom: "8px" },
-        inspectorFieldKey: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "1px",
-            textTransform: "uppercase",
-            color: "fg.muted",
-            marginBottom: "2px",
-        },
-        inspectorFieldVal: {
-            fontSize: "11px",
-            color: "fg",
-            fontVariantNumeric: "tabular-nums",
-        },
-        inspectorChips: {
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "4px",
-        },
-        inspectorChip: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            color: "fg",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "4px",
-            padding: "1px 6px",
-            background: "bg.surface",
-        },
-        inspectorNotes: {
-            marginTop: "12px",
-            fontSize: "11px",
-            color: "fg.muted",
-            lineHeight: "1.45",
+            pointerEvents: "auto",
         },
     },
 });

@@ -21,8 +21,6 @@ export type FlowchartStateValue = ValueTypeOf<typeof Flowchart.Types.State>;
 export type FlowchartLinkValue = ValueTypeOf<typeof Flowchart.Types.Link>;
 export type FlowchartLaneValue = ValueTypeOf<typeof Flowchart.Types.Lane>;
 export type FlowchartTriggerValue = ValueTypeOf<typeof Flowchart.Types.Trigger>;
-export type FlowchartFieldDefValue = ValueTypeOf<typeof Flowchart.Types.FieldDef>;
-export type FlowchartFieldValue = ValueTypeOf<typeof Flowchart.Types.FieldValue>;
 export type FlowchartEvidenceValue = ValueTypeOf<typeof Flowchart.Types.Evidence>;
 
 /** Spec line classes (unresolved is derived, never authored). */
@@ -38,7 +36,6 @@ export interface ModelNode {
     /** State-class member count (the ×N badge). */
     members: bigint | undefined;
     notes: string | undefined;
-    fields: ReadonlyArray<FlowchartFieldValue>;
     /** Aggregated `↻ n` in-place transition count (self-loop links). */
     inPlace: number;
     /** True for the derived "No state row" ghost. */
@@ -55,9 +52,10 @@ export interface ModelLink {
     /** Trigger key (0..1) — the lettered diamond. */
     trigger: string | undefined;
     evidence: FlowchartEvidenceValue | undefined;
-    fields: ReadonlyArray<FlowchartFieldValue>;
     /** Stroke weight from evidence volume — log scale 1.6 / 2 / 2.5, floor 1.4. */
     weight: number;
+    /** Pre-formatted evidence badge ("199.5 kt · 13,866"); undefined ⇒ no badge. */
+    badgeText: string | undefined;
 }
 
 export interface ModelLane {
@@ -91,14 +89,26 @@ const unwrap = <T,>(opt: { type: "some"; value: T } | { type: "none"; value: nul
 
 /**
  * Stroke weight from evidence volume — the spec's log ladder:
- * 1.6 / 2 / 2.5 px, floor 1.4 for links without volume.
+ * 1.6 / 2 / 2.5 px, floor 1.4 for links without volume. Normalised
+ * min→max in log space so the observed range spreads across the tiers.
  */
-export function evidenceWeight(volume: number | undefined, maxVolume: number): number {
+export function evidenceWeight(volume: number | undefined, minVolume: number, maxVolume: number): number {
     if (volume === undefined || volume <= 0 || maxVolume <= 0) return 1.4;
-    const t = Math.log1p(volume) / Math.log1p(maxVolume); // 0..1
-    if (t >= 0.85) return 2.5;
-    if (t >= 0.45) return 2;
+    if (maxVolume <= minVolume) return 2;
+    const t = (Math.log1p(volume) - Math.log1p(minVolume)) / (Math.log1p(maxVolume) - Math.log1p(minVolume));
+    if (t >= 0.8) return 2.5;
+    if (t >= 0.4) return 2;
     return 1.6;
+}
+
+/** Compact volume formatting for badges. */
+export function fmtVolume(v: number): string {
+    return v >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+/** Grouped count formatting for badges. */
+export function fmtCount(n: bigint): string {
+    return Number(n).toLocaleString();
 }
 
 /** Default link key when none is authored. */
@@ -140,7 +150,6 @@ export function buildModel(value: {
             laneOrder: nextLaneOrder(li),
             members: unwrap(s.members),
             notes: unwrap(s.notes),
-            fields: s.fields,
             inPlace: 0,
             ghost: false,
         };
@@ -150,10 +159,11 @@ export function buildModel(value: {
 
     // Links: self-loops fold into `↻ n`; unknown endpoints derive ghosts.
     const links: ModelLink[] = [];
-    const maxVolume = Math.max(0, ...value.links.map(l => {
-        const ev = unwrap(l.evidence);
-        return ev ? (unwrap(ev.volume) ?? 0) : 0;
-    }));
+    const volumes = value.links
+        .map(l => { const ev = unwrap(l.evidence); return ev ? unwrap(ev.volume) : undefined; })
+        .filter((v): v is number => v !== undefined && v > 0);
+    const maxVolume = volumes.length > 0 ? Math.max(...volumes) : 0;
+    const minVolume = volumes.length > 0 ? Math.min(...volumes) : 0;
     const ensureGhost = (key: string, nearLane: number): void => {
         if (nodesByKey.has(key)) return;
         const li = Math.min(Math.max(nearLane, 0), Math.max(lanes.length - 1, 0));
@@ -164,7 +174,6 @@ export function buildModel(value: {
             laneOrder: nextLaneOrder(li),
             members: undefined,
             notes: undefined,
-            fields: [],
             inPlace: 0,
             ghost: true,
         };
@@ -193,6 +202,9 @@ export function buildModel(value: {
         else if (cls === "observed") observed += 1;
         else unresolved += 1;
         const ev = unwrap(l.evidence);
+        const vol = ev ? unwrap(ev.volume) : undefined;
+        const cnt = ev ? unwrap(ev.count) : undefined;
+        const unit = ev ? unwrap(ev.unit) : undefined;
         links.push({
             key: unwrap(l.key) ?? linkKey(l.from, l.to, i),
             from: l.from,
@@ -200,8 +212,10 @@ export function buildModel(value: {
             cls,
             trigger: unwrap(l.trigger),
             evidence: ev,
-            fields: l.fields,
-            weight: cls === "unresolved" ? 1.4 : evidenceWeight(ev ? unwrap(ev.volume) : undefined, maxVolume),
+            weight: cls === "unresolved" ? 1.4 : evidenceWeight(vol, minVolume, maxVolume),
+            badgeText: vol !== undefined
+                ? `${fmtVolume(vol)}${unit !== undefined ? ` ${unit}` : ""}${cnt !== undefined ? ` · ${fmtCount(cnt)}` : ""}`
+                : undefined,
         });
     });
 

@@ -39,8 +39,11 @@ describeEast("Flowchart", (test) => {
         $(Assert.equal(root.freshness.hasTag("none"), true));
         $(Assert.equal(root.legend.hasTag("none"), true));
         $(Assert.equal(root.minimap.hasTag("none"), true));
-        $(Assert.equal(root.inspector.hasTag("none"), true));
         $(Assert.equal(root.slice.hasTag("none"), true));
+        $(Assert.equal(root.stateHover.hasTag("none"), true));
+        $(Assert.equal(root.linkHover.hasTag("none"), true));
+        $(Assert.equal(root.triggerHover.hasTag("none"), true));
+        $(Assert.equal(root.onAddLane.hasTag("none"), true));
         $(Assert.equal(root.linkMode.hasTag("none"), true));
         $(Assert.equal(root.onSelectState.hasTag("none"), true));
         $(Assert.equal(root.canConnect.hasTag("none"), true));
@@ -81,38 +84,6 @@ describeEast("Flowchart", (test) => {
         $(Assert.equal(root.triggers.get(0n).key, "press"));
         $(Assert.equal(root.triggers.get(0n).owner.unwrap("some"), "press-scheduler"));
         $(Assert.equal(root.triggers.get(0n).letter.hasTag("none"), true));
-    });
-
-    test("declared fields reify per row and record their definitions", $ => {
-        const flow = $.let(Flowchart.Root(
-            [{ code: "RCT", name: "Reacting", phase: "reaction", grade: "A" }],
-            {
-                state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-                stateFields: {
-                    grade: { label: "Grade", value: s => s.grade, sliceField: "grade" },
-                },
-                links: [{ src: "RCT", dst: "RCT", vessels: ["R", "T"] }],
-                link: l => ({ from: l.src, to: l.dst }),
-                linkFields: {
-                    vessels: { label: "Vessels", kind: "chips", value: l => l.vessels },
-                },
-                lanes: [{ key: "reaction" }],
-            },
-        ));
-        const root = $.let(flow.unwrap().unwrap("Flowchart"));
-
-        // Definitions carry label / kind / sliceField in declaration order.
-        $(Assert.equal(root.stateFieldDefs.get(0n).id, "grade"));
-        $(Assert.equal(root.stateFieldDefs.get(0n).label, "Grade"));
-        $(Assert.equal(root.stateFieldDefs.get(0n).kind.hasTag("text"), true));
-        $(Assert.equal(root.stateFieldDefs.get(0n).sliceField.unwrap("some"), "grade"));
-        $(Assert.equal(root.linkFieldDefs.get(0n).kind.hasTag("chips"), true));
-        $(Assert.equal(root.linkFieldDefs.get(0n).sliceField.hasTag("none"), true));
-        // Values reify per row: text = one value; chips = N values.
-        $(Assert.equal(root.states.get(0n).fields.get(0n).id, "grade"));
-        $(Assert.equal(root.states.get(0n).fields.get(0n).values.get(0n), "A"));
-        $(Assert.equal(root.links.get(0n).fields.get(0n).values.length(), 2n));
-        $(Assert.equal(root.links.get(0n).fields.get(0n).values.get(1n), "T"));
     });
 
     test("brush affordance is a build-time error", $ => {

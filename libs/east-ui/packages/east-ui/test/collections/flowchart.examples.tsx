@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Flowchart, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
+import { Flowchart, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 
 export const flowchartMinimal = example({
     keywords: ["Flowchart", "states", "links", "lanes", "minimal", "planned", "observed"],
@@ -39,8 +39,8 @@ export const flowchartMinimal = example({
 });
 
 export const flowchartPlant = example({
-    keywords: ["Flowchart", "triggers", "evidence", "slice", "declared fields", "state class", "in-place", "unresolved", "freshness"],
-    description: "Batch-plant flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, and a bound slice with declared fields",
+    keywords: ["Flowchart", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness", "onAddLane"],
+    description: "Batch-plant flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice, dev-defined hover cards, and the + LANE affordance",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const KindType = Flowchart.Types.Kind;
@@ -71,11 +71,11 @@ export const flowchartPlant = example({
                 { id: "l2", src: "STL", dst: "RCT", kind: planned, trigger: none, vol: some(88.1), n: some(6210n), at: stamp, grade: "A", vessels: ["R"] },
                 { id: "l3", src: "RCT", dst: "RCT", kind: planned, trigger: none, vol: none, n: some(2n), at: stamp, grade: "A", vessels: ["R"] },
                 { id: "l4", src: "RCT", dst: "P*", kind: planned, trigger: some("press"), vol: some(199.5), n: some(13866n), at: stamp, grade: "A", vessels: ["R", "T"] },
-                { id: "l5", src: "P*", dst: "PRD", kind: planned, trigger: none, vol: some(199.5), n: some(13866n), at: stamp, grade: "A", vessels: ["T"] },
+                { id: "l5", src: "P*", dst: "PRD", kind: planned, trigger: none, vol: some(197.9), n: some(13791n), at: stamp, grade: "A", vessels: ["T"] },
                 { id: "l6", src: "PRD", dst: "CUR", kind: observed, trigger: none, vol: some(12.4), n: some(512n), at: stamp, grade: "B", vessels: ["T"] },
                 { id: "l7", src: "CUR", dst: "BLD", kind: planned, trigger: some("blend"), vol: some(96.0), n: some(4403n), at: stamp, grade: "A", vessels: ["T"] },
-                { id: "l8", src: "BLD", dst: "RTP", kind: planned, trigger: none, vol: some(96.0), n: some(4403n), at: stamp, grade: "A", vessels: ["T"] },
-                { id: "l9", src: "RTP", dst: "PKD", kind: planned, trigger: none, vol: some(95.2), n: some(4361n), at: stamp, grade: "A", vessels: [] },
+                { id: "l8", src: "BLD", dst: "RTP", kind: planned, trigger: none, vol: some(94.7), n: some(4350n), at: stamp, grade: "A", vessels: ["T"] },
+                { id: "l9", src: "RTP", dst: "PKD", kind: planned, trigger: none, vol: some(93.8), n: some(4311n), at: stamp, grade: "A", vessels: [] },
                 { id: "l10", src: "PKD", dst: "TFP", kind: planned, trigger: none, vol: none, n: none, at: stamp, grade: "A", vessels: [] },
             ], ArrayType(LinkRow)));
             const cfg = Slice.config(LinkRow, {
@@ -87,6 +87,21 @@ export const flowchartPlant = example({
                 searchFieldIds: ["src", "dst"],
             });
             const slice = $.let(Slice.bind([LinkRow], "flowchart-plant", cfg, Slice.state({}), links, none));
+            // Hover content is DEV-DEFINED (the Schematic contract): the
+            // builder receives the hovered key and returns arbitrary UI.
+            const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
+                const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));
+                return (
+                    <VStack gap="1" align="stretch">
+                        <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`${row.src} → ${row.dst}`}</Text>
+                        <Text textStyle="caption" color="fg.muted">{East.str`grade ${row.grade} · ${row.vessels.length()} vessels`}</Text>
+                    </VStack>
+                );
+            }));
+            const stateHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
+                <Text fontFamily="mono" textStyle="body-sm">{East.str`state ${key}`}</Text>
+            )));
+            const onAddLane = $.const(East.function([], NullType, (_$) => null));
             return (
                 <Flowchart
                     states={states}
@@ -106,13 +121,10 @@ export const flowchartPlant = example({
                         { id: "blend", name: "blend", who: "blend-planner" },
                     ]}
                     trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
-                    linkFields={{
-                        vessels: { label: "Vessels", kind: "chips", value: l => l.vessels },
-                        grade: { label: "Grade", value: l => l.grade, sliceField: "grade" },
-                    }}
+                    linkHover={linkHover} stateHover={stateHover}
+                    onAddLane={onAddLane}
                     slice={slice} affordances={["filter", "search"]}
                     freshness={{ label: "evidence-2026.06", date: stamp }}
-                    height="640"
                 />
             );
         }}</Reactive>

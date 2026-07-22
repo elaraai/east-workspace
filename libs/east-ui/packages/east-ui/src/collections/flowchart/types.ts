@@ -81,30 +81,6 @@ export const FlowchartLinkModeType = VariantType({
 export type FlowchartLinkModeType = typeof FlowchartLinkModeType;
 
 /**
- * Inspector placement.
- *
- * @remarks
- * The inspector is the ONLY mutation surface (hover cards are read-only
- * glances that route to it via ⏎). `float` mounts it beside the frame;
- * `none` disables it (selection callbacks still fire). Rail docking into
- * a host shell is future scope.
- *
- * @property float - Floats beside the frame (default)
- * @property none - No inspector; selection callbacks only
- */
-export const FlowchartInspectorModeType = VariantType({
-    /** Floats beside the frame (default) */
-    float: NullType,
-    /** No inspector; selection callbacks only */
-    none: NullType,
-});
-
-/**
- * Type representing inspector placements.
- */
-export type FlowchartInspectorModeType = typeof FlowchartInspectorModeType;
-
-/**
  * Imported evidence carried by a link — never hand-authored.
  *
  * @remarks
@@ -135,75 +111,6 @@ export const FlowchartEvidenceType = StructType({
 export type FlowchartEvidenceType = typeof FlowchartEvidenceType;
 
 /**
- * Declared-field presentation kind.
- *
- * @property text - One value rendered as a text row
- * @property chips - N values rendered as a chip set
- * @property count - One numeric value rendered mono tabular
- */
-export const FlowchartFieldKindType = VariantType({
-    /** One value rendered as a text row */
-    text: NullType,
-    /** N values rendered as a chip set */
-    chips: NullType,
-    /** One numeric value rendered mono tabular */
-    count: NullType,
-});
-
-/**
- * Type representing declared-field kinds.
- */
-export type FlowchartFieldKindType = typeof FlowchartFieldKindType;
-
-/**
- * A declared (developer-defined) field DEFINITION.
- *
- * @remarks
- * Declared fields are the extension mechanism: typed fields on states or
- * links that automatically get inspector rows, hover-card rows, fact echo
- * and filter chips — and NEVER invent new canvas marks. Surfaces list core
- * fields first, then declared fields in declaration order.
- *
- * @property id - Field identity (the config key)
- * @property label - Row label on hover cards and the inspector
- * @property kind - Presentation kind (text / chips / count)
- * @property sliceField - Slice fieldId that echo-promote pins a filter into
- */
-export const FlowchartFieldDefType = StructType({
-    /** Field identity (the config key) */
-    id: StringType,
-    /** Row label on hover cards and the inspector */
-    label: StringType,
-    /** Presentation kind (text / chips / count) */
-    kind: FlowchartFieldKindType,
-    /** Slice fieldId that echo-promote pins a filter into */
-    sliceField: OptionType(StringType),
-});
-
-/**
- * Type representing declared-field definitions.
- */
-export type FlowchartFieldDefType = typeof FlowchartFieldDefType;
-
-/**
- * A declared field's reified per-row VALUE.
- *
- * @property id - The definition this value belongs to
- * @property values - One value for text / count; N for chips
- */
-export const FlowchartFieldValueType = StructType({
-    /** The definition this value belongs to */
-    id: StringType,
-    /** One value for text / count; N for chips */
-    values: ArrayType(StringType),
-});
-
-/**
- * Type representing declared-field values.
- */
-export type FlowchartFieldValueType = typeof FlowchartFieldValueType;
-
-/**
  * One state — a node in the flowchart.
  *
  * @remarks
@@ -218,7 +125,6 @@ export type FlowchartFieldValueType = typeof FlowchartFieldValueType;
  * @property lane - The lane (ordered phase) this state belongs to
  * @property members - State-class member count → the ×N badge
  * @property notes - Free-text notes surfaced on hover / inspector
- * @property fields - Reified declared-field values (declaration order)
  */
 export const FlowchartStateType = StructType({
     /** Short mono code — the node identity ("RCT") */
@@ -231,8 +137,6 @@ export const FlowchartStateType = StructType({
     members: OptionType(IntegerType),
     /** Free-text notes surfaced on hover / inspector */
     notes: OptionType(StringType),
-    /** Reified declared-field values (declaration order) */
-    fields: ArrayType(FlowchartFieldValueType),
 });
 
 /**
@@ -255,7 +159,6 @@ export type FlowchartStateType = typeof FlowchartStateType;
  * @property kind - planned (default) | observed
  * @property trigger - 0..1 decision trigger key → diamond
  * @property evidence - Imported evidence (weight, badges, provenance)
- * @property fields - Reified declared-field values (declaration order)
  */
 export const FlowchartLinkType = StructType({
     /** Stable identity (selection / delete events); default derived from endpoints */
@@ -270,8 +173,6 @@ export const FlowchartLinkType = StructType({
     trigger: OptionType(StringType),
     /** Imported evidence (weight, badges, provenance) */
     evidence: OptionType(FlowchartEvidenceType),
-    /** Reified declared-field values (declaration order) */
-    fields: ArrayType(FlowchartFieldValueType),
 });
 
 /**
