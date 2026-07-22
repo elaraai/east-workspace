@@ -494,8 +494,9 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     style={{ cursor: "pointer" }}
                                     onClick={() => dispatchEast("onAddLane", () => onAddLaneFn())}
                                 >
+                                    {/* transparent (not none) fill — the whole affordance is clickable */}
                                     <rect x={layout.laneTail.x} y={layout.laneTail.y} width={layout.laneTail.w} height={layout.laneTail.h}
-                                        rx={6} fill="none" stroke={RULE_STRONG} strokeDasharray="4 4" />
+                                        rx={6} fill="transparent" stroke={RULE_STRONG} strokeDasharray="4 4" />
                                     <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 30} textAnchor="middle"
                                         style={{ fontSize: 14, fill: INK_4 }}>+</text>
                                     <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 52} textAnchor="middle"
@@ -600,71 +601,6 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 );
                             })}
 
-                            {/* connection points — occupied handles always (7px ring,
-                                1.4px stroke, centred on the border); all four at 9px on
-                                hover / selection */}
-                            {[...layout.nodes.values()].map(rect => {
-                                const nodeActive = (hover?.kind === "state" && hover.key === rect.key)
-                                    || (selection?.kind === "state" && selection.key === rect.key)
-                                    || draft !== null;
-                                const occupied = layout.handles.get(rect.key) ?? [];
-                                const occupiedSides = new Set(occupied.map(h => h.side));
-                                const extra = nodeActive
-                                    ? (["left", "right", "top", "bottom"] as const).filter(s => !occupiedSides.has(s))
-                                    : [];
-                                return (
-                                    <g key={`ports-${rect.key}`} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
-                                        {occupied.map(h => {
-                                            const attached = h.links.map(k => linksByKey.get(k)).filter((x): x is ModelLink => x !== undefined);
-                                            const r = nodeActive ? 4.5 : RING_R;
-                                            const isOut = h.side === "right" || h.side === "bottom";
-                                            return (
-                                                <circle
-                                                    key={h.side}
-                                                    cx={h.pt.x} cy={h.pt.y} r={r}
-                                                    fill={PAPER}
-                                                    stroke={portColor(attached, selectedLink)}
-                                                    strokeWidth={1.4}
-                                                    style={linkMode !== undefined && isOut ? { cursor: "crosshair" } : undefined}
-                                                    onPointerDown={linkMode !== undefined && isOut ? (e) => beginDraft(rect.key, e) : undefined}
-                                                />
-                                            );
-                                        })}
-                                        {extra.map(side => (
-                                            <circle
-                                                key={side}
-                                                cx={rect[side].x} cy={rect[side].y} r={4.5}
-                                                fill={PAPER}
-                                                stroke={INK}
-                                                strokeWidth={1.4}
-                                                style={linkMode !== undefined && (side === "right" || side === "bottom") ? { cursor: "crosshair" } : undefined}
-                                                onPointerDown={linkMode !== undefined && (side === "right" || side === "bottom") ? (e) => beginDraft(rect.key, e) : undefined}
-                                            />
-                                        ))}
-                                    </g>
-                                );
-                            })}
-
-                            {/* connect draft */}
-                            {draft !== null && (() => {
-                                const from = layout.nodes.get(draft.from);
-                                if (!from) return null;
-                                const start = layout.orientation === "TD" ? from.bottom : from.right;
-                                return (
-                                    <g>
-                                        <path
-                                            d={`M${start.x} ${start.y} L${draft.x} ${draft.y}`}
-                                            fill="none"
-                                            stroke={draft.over !== null && !draft.allowed ? NEG : BRAND_D}
-                                            strokeWidth={1.6}
-                                            strokeDasharray="5 4"
-                                        />
-                                        {draft.over !== null && !draft.allowed && (
-                                            <text x={draft.x + 10} y={draft.y - 6} style={{ fontSize: 12, fill: NEG }}>⊘</text>
-                                        )}
-                                    </g>
-                                );
-                            })()}
                         </svg>
 
                         {/* node cards — HTML above the SVG */}
@@ -700,6 +636,87 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 </Box>
                             );
                         })}
+
+                        {/* connector overlay — ABOVE the node borders per the spec's
+                            z-order (below hover cards); rings on occupied handles, all
+                            four revealed on hover/selection, 16×16 hit targets on the
+                            out-handles when authoring is enabled */}
+                        <svg
+                            width={layout.width}
+                            height={layout.height}
+                            viewBox={`0 0 ${layout.width} ${layout.height}`}
+                            style={{ position: "absolute", inset: 0, display: "block", pointerEvents: "none" }}
+                        >
+                            {[...layout.nodes.values()].map(rect => {
+                                const nodeActive = (hover?.kind === "state" && hover.key === rect.key)
+                                    || (selection?.kind === "state" && selection.key === rect.key)
+                                    || draft !== null;
+                                const occupied = layout.handles.get(rect.key) ?? [];
+                                const occupiedSides = new Set(occupied.map(h => h.side));
+                                const extra = nodeActive
+                                    ? (["left", "right", "top", "bottom"] as const).filter(s => !occupiedSides.has(s))
+                                    : [];
+                                const outSides: ReadonlyArray<"left" | "right" | "top" | "bottom"> = ["right", "bottom"];
+                                return (
+                                    <g key={`ports-${rect.key}`} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
+                                        {/* invisible 16×16 hit targets — the drag-to-connect affordance */}
+                                        {linkMode !== undefined && outSides.map(side => (
+                                            <circle
+                                                key={`hit-${side}`}
+                                                cx={rect[side].x} cy={rect[side].y} r={8}
+                                                fill="transparent"
+                                                style={{ pointerEvents: "all", cursor: "crosshair" }}
+                                                onPointerEnter={() => setHover({ kind: "state", key: rect.key })}
+                                                onPointerDown={(e) => beginDraft(rect.key, e)}
+                                            />
+                                        ))}
+                                        {occupied.map(h => {
+                                            const attached = h.links.map(k => linksByKey.get(k)).filter((x): x is ModelLink => x !== undefined);
+                                            const r = nodeActive ? 4.5 : RING_R;
+                                            return (
+                                                <circle
+                                                    key={h.side}
+                                                    cx={h.pt.x} cy={h.pt.y} r={r}
+                                                    fill={PAPER}
+                                                    stroke={portColor(attached, selectedLink)}
+                                                    strokeWidth={1.4}
+                                                />
+                                            );
+                                        })}
+                                        {extra.map(side => (
+                                            <circle
+                                                key={side}
+                                                cx={rect[side].x} cy={rect[side].y} r={4.5}
+                                                fill={PAPER}
+                                                stroke={INK}
+                                                strokeWidth={1.4}
+                                            />
+                                        ))}
+                                    </g>
+                                );
+                            })}
+
+                            {/* connect draft */}
+                            {draft !== null && (() => {
+                                const from = layout.nodes.get(draft.from);
+                                if (!from) return null;
+                                const start = layout.orientation === "TD" ? from.bottom : from.right;
+                                return (
+                                    <g>
+                                        <path
+                                            d={`M${start.x} ${start.y} L${draft.x} ${draft.y}`}
+                                            fill="none"
+                                            stroke={draft.over !== null && !draft.allowed ? NEG : BRAND_D}
+                                            strokeWidth={1.6}
+                                            strokeDasharray="5 4"
+                                        />
+                                        {draft.over !== null && !draft.allowed && (
+                                            <text x={draft.x + 10} y={draft.y - 6} style={{ fontSize: 12, fill: NEG }}>⊘</text>
+                                        )}
+                                    </g>
+                                );
+                            })()}
+                        </svg>
 
                         {/* legend — planned / observed / trigger / in-place */}
                         {legendOn && (

@@ -13,6 +13,9 @@ describeEast("Flowchart", (test) => {
         flowchartMinimal: ex.flowchartMinimal,
         flowchartPlant: ex.flowchartPlant,
         flowchartConnect: ex.flowchartConnect,
+        flowchartBuilder: ex.flowchartBuilder,
+        flowchartHoverCards: ex.flowchartHoverCards,
+        flowchartDrawerDetail: ex.flowchartDrawerDetail,
     });
 
     test("creates a flowchart with bare defaults", $ => {
