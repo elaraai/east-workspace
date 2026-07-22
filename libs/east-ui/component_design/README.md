@@ -29,11 +29,14 @@ the `component_design/` root links `../app_design_system/…` + `./spec.css`.)
 
 - **Seed / re-seed** from the reference pages: `make design-html-all` (from
   `libs/east-ui/`). The seeder writes **flat** into the `component_design/`
-  root — it is a **bootstrap** for new/changed patterns, not the filing
-  system. After a seed, move each new file into its category subdir and add
-  one `../` to its two CSS links (root `../app_design_system` → `../../`,
-  `./spec.css` → `../spec.css`). It does **not** touch already-filed subdir
-  files, so hand edits are safe.
+  root as `<page>__<pattern|bsys>__<id>.html` — it is a **bootstrap** for
+  new/changed patterns, not the filing system. After a seed, file each new
+  one: (1) move it into its category subdir, (2) rename it to a clean `<id>`
+  (drop the `<page>__<type>__` provenance prefix; the origin page still
+  lives in the file's `<title>`), and (3) add one `../` to its two CSS links
+  (root `../app_design_system` → `../../`, `./spec.css` → `../spec.css`).
+  The seeder does **not** touch already-filed subdir files, so hand edits
+  are safe.
 - **Add PNGs** for a visual pass: `DESIGN_PNG=1 make design-html-all`
   (`.png` files are gitignored, never committed).
 - **Browse**: `make design-html-serve` → http://localhost:5175/component_design/
