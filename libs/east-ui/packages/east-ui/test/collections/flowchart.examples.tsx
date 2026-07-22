@@ -134,7 +134,7 @@ export const flowchartPlant = example({
 
 export const flowchartConnect = example({
     keywords: ["Flowchart", "connect", "linkMode", "onCreateLink", "onDeleteLink", "canConnect", "authoring"],
-    description: "Link authoring — connect mode with a canConnect veto; drag an out-handle to another state to author a transition, Del removes the selected link",
+    description: "Link authoring — connect mode with a canConnect veto; drag any handle to another state to author a transition, Del removes the selected link",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LinkRow = StructType({ src: StringType, dst: StringType });
@@ -177,7 +177,7 @@ export const flowchartConnect = example({
 
 export const flowchartBuilder = example({
     keywords: ["Flowchart", "Reactive", "State", "builder", "add", "onAddLane", "onCreateLink", "onDeleteLink", "interactive", "edit", "phases"],
-    description: "Interactive builder — State-bound lanes, states and links: + LANE appends a phase, Add state drops a node into the newest phase, drag an out-handle to author a link (Del removes the selected one)",
+    description: "Interactive builder — State-bound lanes, states and links: + LANE appends a phase, Add state drops a node into the newest phase, drag any handle to author a link (Del removes the selected one)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LaneRow = StructType({ key: StringType, label: StringType });
@@ -225,7 +225,7 @@ export const flowchartBuilder = example({
                 <VStack gap="3" align="stretch">
                     <HStack gap="3">
                         <Button size="sm" variant="outline" onClick={addState}>Add state</Button>
-                        <Text textStyle="caption" color="fg.muted">+ LANE adds a phase · drag an out-handle to link · Del removes the selected link</Text>
+                        <Text textStyle="caption" color="fg.muted">+ LANE adds a phase · drag any handle to link · Del removes the selected link</Text>
                     </HStack>
                     <Flowchart
                         states={states.read()} state={s => ({ key: s.code, label: s.name, lane: s.phase })}

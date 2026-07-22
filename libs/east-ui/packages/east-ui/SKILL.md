@@ -567,7 +567,7 @@ Task → Which tag?
 │   │   │   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome at compact density (default ["filter","search"]; search = "⌕ find state"; "brush" is a build-time error — no continuous 1D axis); the footer derives `N links · narrowed from M · −%` + the planned/observed split
 │   │   │   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
-│   │   │   ├─ linkMode + onCreateLink + onDeleteLink + canConnect (optional) — drag-to-connect authoring from the fixed out-handles ("draw" | "connect"; canConnect(from, to) vetoes BEFORE the draft snaps and fails OPEN; Del deletes the selected link)
+│   │   │   ├─ linkMode + onCreateLink + onDeleteLink + canConnect (optional) — drag-to-connect authoring from ANY handle ("draw" | "connect"; links join at the closest FACING handle pair; canConnect(from, to) vetoes BEFORE the draft snaps and fails OPEN; Del deletes the selected link)
 │   │   │   ├─ onAddLane (optional) — its presence renders the dashed full-height "+ LANE" tail affordance (click fires it); absent ⇒ no affordance
 │   │   │   └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320); default content-sized
 │   │   └─ Factories: (tables are plain rows + mappers; closed-set fields are typed values via Flowchart.Types.* — State, Link, Lane, Trigger, Evidence, Kind, Orientation, LinkMode, LinkCreateEvent)

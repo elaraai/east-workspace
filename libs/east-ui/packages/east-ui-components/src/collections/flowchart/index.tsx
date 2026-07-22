@@ -251,7 +251,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     }, [hoverCard, hoverFnFor]);
 
     // Connect-drag draft.
-    const [draft, setDraft] = useState<{ from: string; x: number; y: number; over: string | null; allowed: boolean } | null>(null);
+    const [draft, setDraft] = useState<{ from: string; side: "left" | "right" | "top" | "bottom"; x: number; y: number; over: string | null; allowed: boolean } | null>(null);
     const draftRef = useRef<typeof draft>(null);
     draftRef.current = draft;
 
@@ -328,12 +328,12 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         return r ? { x: e.clientX - r.left, y: e.clientY - r.top } : { x: 0, y: 0 };
     }, []);
 
-    const beginDraft = useCallback((from: string, e: React.PointerEvent) => {
+    const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
         if (linkMode === undefined) return;
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
-        setDraft({ from, x: p.x, y: p.y, over: null, allowed: false });
+        setDraft({ from, side, x: p.x, y: p.y, over: null, allowed: false });
         const move = (ev: PointerEvent): void => {
             const q = svgPoint(ev);
             const l = layout;
@@ -455,12 +455,13 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             style={{ position: "absolute", inset: 0, display: "block" }}
                         >
                             <defs>
-                                {/* Fixed 6.5px filled arrowheads (userSpaceOnUse — never
-                                    scale with stroke); refX 10 so the TIP sits exactly at
-                                    the path end, which is trimmed to the ring edge. */}
+                                {/* Fixed 12px filled arrowheads — the spec sheet's visual
+                                    size — userSpaceOnUse so they never scale with stroke;
+                                    refX 10 puts the TIP exactly at the path end, which is
+                                    trimmed to the ring edge. */}
                                 {([["ink", INK], ["info", INFO], ["neg", NEG], ["brand", BRAND_D]] as const).map(([id, color]) => (
                                     <marker key={id} id={`fc-mk-${id}-${storageKey}`} viewBox="0 0 10 10" refX={10} refY={5}
-                                        markerWidth={6.5} markerHeight={6.5} markerUnits="userSpaceOnUse" orient="auto">
+                                        markerWidth={12} markerHeight={12} markerUnits="userSpaceOnUse" orient="auto">
                                         <path d="M0 0L10 5L0 10z" fill={color} />
                                     </marker>
                                 ))}
@@ -656,18 +657,19 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 const extra = nodeActive
                                     ? (["left", "right", "top", "bottom"] as const).filter(s => !occupiedSides.has(s))
                                     : [];
-                                const outSides: ReadonlyArray<"left" | "right" | "top" | "bottom"> = ["right", "bottom"];
+
                                 return (
                                     <g key={`ports-${rect.key}`} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
-                                        {/* invisible 16×16 hit targets — the drag-to-connect affordance */}
-                                        {linkMode !== undefined && outSides.map(side => (
+                                        {/* invisible 16×16 hit targets — ANY handle is the
+                                            drag-to-connect affordance */}
+                                        {linkMode !== undefined && (["left", "right", "top", "bottom"] as const).map(side => (
                                             <circle
                                                 key={`hit-${side}`}
                                                 cx={rect[side].x} cy={rect[side].y} r={8}
                                                 fill="transparent"
                                                 style={{ pointerEvents: "all", cursor: "crosshair" }}
                                                 onPointerEnter={() => setHover({ kind: "state", key: rect.key })}
-                                                onPointerDown={(e) => beginDraft(rect.key, e)}
+                                                onPointerDown={(e) => beginDraft(rect.key, side, e)}
                                             />
                                         ))}
                                         {occupied.map(h => {
@@ -700,7 +702,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             {draft !== null && (() => {
                                 const from = layout.nodes.get(draft.from);
                                 if (!from) return null;
-                                const start = layout.orientation === "TD" ? from.bottom : from.right;
+                                const start = from[draft.side];
                                 return (
                                     <g>
                                         <path
