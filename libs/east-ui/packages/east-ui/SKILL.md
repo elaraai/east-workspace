@@ -555,6 +555,22 @@ Task → Which tag?
 │   │       ├─ Schematic.circle(r) / .polyline(verts, {width}) / .polygon(verts) / .rect() — item footprints + zone geometry
 │   │       ├─ Schematic.outline() / .hatch() — zone boundary patterns
 │   │       └─ Schematic.solid() / .dashed() — link / net stroke styles
+│   ├─ <Flowchart states={…} links={…} lanes={…} /> — state-transition flowchart: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); hover cards / floating inspector / dim-ladder highlight are BUILT-IN surfaces derived from core + declared fields, never builder props; view lenses are saved slice cohorts
+│   │   ├─ Props:
+│   │   │   ├─ states + links + lanes (required) — the three tables (lanes accept a literal [{ key, label? }] array; array order = band order)
+│   │   │   ├─ state / link / lane / trigger (optional) — row mappers to { key, label?, lane, members?, notes? } / { key?, from, to, kind?, trigger?, evidence? } / { key, label? } / { key, label, letter?, owner?, queue?, outcomes? }; omit when rows are already Flowchart.Types.*
+│   │   │   ├─ triggers (optional) — decision registry; a link's `trigger` names one (0..1 per link ⇒ the lettered diamond at the longest-run midpoint; clicking it highlights governed links)
+│   │   │   ├─ link `kind` "planned" (solid, default) | "observed" (dashed 5/4); DERIVED marks: a from/to ref with no state row ⇒ the neg-dashed ghost "No state row" node (unresolved, counted in the footer); from == to folds to the `↻ n` badge (never routed); `members` ⇒ the ×N state-class badge
+│   │   │   ├─ link `evidence` { volume?, count?, measuredAt?, unit? } — stroke weight (log 1.6 / 2 / 2.5 px, floor 1.4) + paper-filled run badges + hover/inspector provenance (imported, never hand-authored)
+│   │   │   ├─ stateFields / linkFields (optional) — DECLARED fields ({ id: { label, value: build-time accessor, kind?: "text"|"chips"|"count", sliceField? } }): automatic inspector rows, hover-card rows and filter chips — never new canvas marks; require the matching row mapper
+│   │   │   ├─ orientation (optional) — "LR" (default) | "TD" initial; the eyebrow segment toggles it (view state, never a filter chip; TD swaps the handle axes); freshness (optional) — eyebrow chip { label, date? }
+│   │   │   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states
+│   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["filter","search"]; search = "⌕ find state"; "brush" is a build-time error — no continuous 1D axis); the footer derives `N links · narrowed from M · −%` + the planned/observed split
+│   │   │   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
+│   │   │   ├─ inspector (optional) — "float" (default) | "none"; the read-only floating inspector is the detail surface (hover cards cap at 5 rows and route to it via ⏎; touch taps select + open it directly)
+│   │   │   ├─ linkMode + onCreateLink + onDeleteLink + canConnect (optional) — drag-to-connect authoring from the fixed out-handles ("draw" | "connect"; canConnect(from, to) vetoes BEFORE the draft snaps and fails OPEN; Del deletes the selected link)
+│   │   │   └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320); default content-sized
+│   │   └─ Factories: (tables are plain rows + mappers; closed-set fields are typed values via Flowchart.Types.* — State, Link, Lane, Trigger, Evidence, Kind, Orientation, LinkMode, LinkCreateEvent)
 │   ├─ <Map markers={…} center={Map.at(lat,lng)} zoom={n} /> — interactive geographic basemap; read-only / selection-only
 │   │   ├─ Props:
 │   │   │   ├─ markers + center + zoom (required) — marker rows + initial camera
@@ -1353,6 +1369,10 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   bars inside an axis-bearing `<Chart>` (numeric x, categorical y — grid,
   legend, tooltip, stacking); `Chart.Column` is the vertical twin (formerly
   named `Chart.Bar`).
+- **Flowchart vs Schematic** — `<Schematic>` is a world-coordinate 2D canvas
+  (data carries x/y; zones, footprints, camera); `<Flowchart>` derives its
+  whole layout from lanes + links (no coordinates) for state-transition /
+  process-flow reading, with decision triggers and evidence on the links.
 - **Library vs Deck** — `<Library>` is the draggable palette (DnD source);
   `<Deck>` is the status-coloured display board (popover VIEW state, no drag).
 - **Card vs Box** — `<Box>` is structural-only; `<Card>` carries chrome.

@@ -159,6 +159,18 @@ import {
     MapLabelType,
 } from "./collections/map/types.js";
 import { BlendRootType } from "./collections/blend/types.js";
+import {
+    FlowchartStateType,
+    FlowchartLinkType,
+    FlowchartLaneType,
+    FlowchartTriggerType,
+    FlowchartFieldDefType,
+    FlowchartFreshnessType,
+    FlowchartOrientationType,
+    FlowchartInspectorModeType,
+    FlowchartLinkModeType,
+    FlowchartLinkCreateEventType,
+} from "./collections/flowchart/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -1151,6 +1163,37 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         zoneHover: OptionType(FunctionType([StringType], node)),
         linkHover: OptionType(FunctionType([StringType], node)),
         onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
+        canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+    }),
+
+    // Flowchart — state-transition flowchart (states in ordered phase
+    // lanes, H/V-routed links, optional per-link decision triggers).
+    // Hover cards / inspector / highlight are DERIVED surfaces, so no
+    // field recurses through `node`; mirror this shape with
+    // `FlowchartRootType` in `collections/flowchart/index.ts`.
+    Flowchart: StructType({
+        states: ArrayType(FlowchartStateType),
+        links: ArrayType(FlowchartLinkType),
+        lanes: ArrayType(FlowchartLaneType),
+        triggers: ArrayType(FlowchartTriggerType),
+        stateFieldDefs: ArrayType(FlowchartFieldDefType),
+        linkFieldDefs: ArrayType(FlowchartFieldDefType),
+        orientation: OptionType(FlowchartOrientationType),
+        freshness: OptionType(FlowchartFreshnessType),
+        minimap: OptionType(BooleanType),
+        legend: OptionType(BooleanType),
+        density: OptionType(DensityType),
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
+        slice: OptionType(SliceChromeType),
+        inspector: OptionType(FlowchartInspectorModeType),
+        onSelectState: OptionType(FunctionType([StringType], NullType)),
+        onSelectLink: OptionType(FunctionType([StringType], NullType)),
+        onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
+        onTracePath: OptionType(FunctionType([StringType], NullType)),
+        linkMode: OptionType(FlowchartLinkModeType),
+        onCreateLink: OptionType(FunctionType([FlowchartLinkCreateEventType], NullType)),
+        onDeleteLink: OptionType(FunctionType([StringType], NullType)),
         canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
     }),
 
