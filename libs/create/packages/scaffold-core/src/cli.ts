@@ -4,12 +4,13 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import { scaffold, type Features, type ProjectKind } from "./scaffold.js";
 import type { PackageSpec } from "./packages.js";
+import { updateStack, type UpdateResult } from "./update.js";
 
 interface FeatureManifest {
   features: Record<string, { default?: boolean; allOf?: string[] }>;
@@ -32,6 +33,26 @@ export async function runCreateCli(kind: ProjectKind, moduleUrl: string): Promis
   }
 
   const version = (JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as { version: string }).version;
+
+  // `--update`: bump an existing project's whole @elaraai/* stack to THIS
+  // package's version (the lockstep stack version) instead of scaffolding.
+  if (args.includes("--update")) {
+    const target = args.find((a) => !a.startsWith("-")) ?? ".";
+    const install = args.includes("--no-install")
+      ? false
+      : args.includes("--install")
+        ? true
+        : Boolean(process.stdout.isTTY);
+    try {
+      const result = updateStack({ cwd: resolve(target), version, install });
+      printUpdateNextSteps(result, install);
+    } catch (err) {
+      console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    return;
+  }
+
   const templateDir = join(pkgRoot, "templates", kind);
   const name = args.find((a) => !a.startsWith("-")) ?? ".";
   const install = args.includes("--install")
@@ -182,8 +203,14 @@ function printHelp(kind: ProjectKind): void {
   console.log(`Usage: npm create @elaraai/${kind} <project-name> [-- <options>]`);
   console.log(`       create-${kind} <project-name|.> [options]`);
   console.log("");
+  console.log("Update an existing project's @elaraai/* stack (run inside the project):");
+  console.log(`  npm create @elaraai/${kind}@<version> -- --update   (@latest for newest)`);
+  console.log("  Rewrites every @elaraai/* dependency to <version> and regenerates the lock,");
+  console.log("  keeping the stack in lockstep without an ERESOLVE on bump.");
+  console.log("");
   console.log("Options:");
-  console.log("  --install | --no-install     install dependencies after scaffolding (default: TTY)");
+  console.log("  --update                     bump this project's @elaraai/* deps instead of scaffolding");
+  console.log("  --install | --no-install     install dependencies after scaffolding / updating (default: TTY)");
   console.log("  --eslint | --no-eslint       include ESLint with the East lint rules (default: yes)");
   console.log("  --editor-diagnostics | --no-editor-diagnostics   include the East tsserver plugin for editor squiggles (default: yes)");
   if (kind === "e3") {
@@ -217,4 +244,19 @@ function printNextSteps(
     else console.log("  npm install");
   }
   console.log(kind === "e3" ? "  npm run start" : "  npm run test");
+}
+
+function printUpdateNextSteps(result: UpdateResult, installed: boolean): void {
+  if (result.changed.length > 0) {
+    console.log("");
+    for (const dep of result.changed) {
+      console.log(`  ${dep.name}  ${dep.from} -> ${dep.to}`);
+    }
+  }
+  if (!installed) {
+    // updateStack already dropped the stale lock, so a plain install resolves.
+    console.log("");
+    console.log("Next steps:");
+    console.log("  npm install");
+  }
 }

@@ -202,7 +202,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     // space returns between tiles.
     const dayCellCss: SystemStyleObject = gutterActive
         ? { ...styles.cell, marginInline: `${D.gap / 2}px` }
-        : styles.cell;
+        : { ...styles.cell };
 
     const headerNode = (
         <Box css={{ ...rowGridCss, paddingTop: `${D.padTop}px` }} style={{ gridTemplateColumns: gridColumns }}>

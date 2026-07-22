@@ -3,6 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import type { keepPreviousData } from '@tanstack/react-query';
 import type { DatasetStatusDetail } from '@elaraai/e3-api-client';
 import type { option } from '@elaraai/east';
 
@@ -29,4 +30,10 @@ export interface QueryOverrides {
     refetchOnMount?: boolean | 'always';
     retry?: boolean | number;
     retryDelay?: number | ((attempt: number) => number);
+    /**
+     * Value to show while a new query key loads. `keepPreviousData` holds the
+     * previous result on screen so a key change (e.g. an edit producing a new
+     * content hash) does not flash the loading state.
+     */
+    placeholderData?: typeof keepPreviousData;
 }

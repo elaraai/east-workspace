@@ -26,7 +26,10 @@ export const InputPreview = memo(function InputPreview({
     const displayName = path.replace(/^\.inputs\./, '');
 
     return (
-        <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
+        // `height` rather than `flex`, matching the sibling previews: the host
+        // mount is not always a flex container, and a `flex` bound would then
+        // silently fall back to auto height and grow with the content.
+        <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
             <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" justify="space-between">
                 <Text fontSize="sm" fontWeight="medium" color="fg">{displayName}</Text>
             </Flex>

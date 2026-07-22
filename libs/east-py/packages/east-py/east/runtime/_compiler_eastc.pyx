@@ -360,7 +360,20 @@ cpdef object compile_eastc_from_json(bytes json_data, list platform_list, bint i
             _eastc.east_value_release(c_ir_val)
         raise RuntimeError("east_json_decode_ir failed for IR")
 
-    cdef object result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+    # Install before compiling: compile-time errors name the offending node by
+    # source location, which only resolves while this map is the current one.
+    if source_map != NULL:
+        _eastc.east_set_source_map(source_map)
+
+    cdef object result
+    try:
+        result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+    except BaseException:
+        if source_map != NULL:
+            _eastc.east_set_source_map(NULL)
+            _eastc.east_source_map_free(source_map)
+            free(source_map)
+        raise
 
     # Attach source map to the compiled function if present
     cdef uintptr_t sm_compiled_ptr
@@ -406,7 +419,20 @@ cpdef object compile_eastc_from_beast2(bytes beast2_data, list platform_list, bi
             free(source_map)
         raise RuntimeError("east_beast2_decode_ir failed for IR")
 
-    cdef object result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+    # Install before compiling: compile-time errors name the offending node by
+    # source location, which only resolves while this map is the current one.
+    if source_map != NULL:
+        _eastc.east_set_source_map(source_map)
+
+    cdef object result
+    try:
+        result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+    except BaseException:
+        if source_map != NULL:
+            _eastc.east_set_source_map(NULL)
+            _eastc.east_source_map_free(source_map)
+            free(source_map)
+        raise
 
     # Attach source map to the compiled function if present
     cdef uintptr_t sm_compiled_ptr

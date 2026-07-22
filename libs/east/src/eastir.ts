@@ -29,8 +29,13 @@ export class EastIR<Inputs extends any[], Output extends any> {
    * @param platform - Array of platform function implementations
    */
   compile(platform: PlatformFunction[]): (...inputs: { [K in keyof Inputs]: ValueTypeOf<Inputs[K]> }) => ValueTypeOf<Output> {
-    // Analyse the IR
-    const analyzed_ir = analyzeIR(this.ir, platform);
+    // Analyse the IR under this IR's map: the analyzer names offending nodes
+    // by loc_id, which only resolves to a source location while the map that
+    // interned it is active.
+    const analyze_fn = () => analyzeIR(this.ir, platform);
+    const analyzed_ir = this.source_map
+      ? with_source_map(this.source_map, analyze_fn)
+      : analyze_fn();
 
     // compile the function (with no variables in environment)
     const platformFns = Object.fromEntries(platform.map(fn => [fn.name, fn.fn]));
@@ -101,8 +106,13 @@ export class AsyncEastIR<Inputs extends any[], Output extends any> {
    * @param platform - Array of platform function implementations
    */
   compile(platform: PlatformFunction[]): (...inputs: { [K in keyof Inputs]: ValueTypeOf<Inputs[K]> }) => Promise<ValueTypeOf<Output>> {
-    // Analyse the IR
-    const analyzed_ir = analyzeIR(this.ir, platform);
+    // Analyse the IR under this IR's map: the analyzer names offending nodes
+    // by loc_id, which only resolves to a source location while the map that
+    // interned it is active.
+    const analyze_fn = () => analyzeIR(this.ir, platform);
+    const analyzed_ir = this.source_map
+      ? with_source_map(this.source_map, analyze_fn)
+      : analyze_fn();
 
     // compile the function (with no variables in environment)
     const platformFns = Object.fromEntries(platform.map(fn => [fn.name, fn.fn]));

@@ -55,6 +55,8 @@ import {
   stepDetectInputChanges,
   stepInvalidateTasks,
   stepCheckVersionConsistency,
+  stepGetRunSet,
+  stepTaskForced,
 } from '../steps.js';
 import type { Mutable } from '../types.js';
 
@@ -842,16 +844,17 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
 
       // Check for stuck state: non-terminal tasks remain but none are ready or running.
-      // When a filter is active, only the filtered task is relevant — non-filtered
-      // tasks are expected to remain pending.
-      const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+      // When a filter is active, only its run set (the target and the
+      // dependency closure needed to produce it) is relevant — tasks outside it
+      // are expected to remain pending.
+      const runSet = stepGetRunSet(state);
       const stuckTasks = [...state.tasks.entries()]
         .filter(([name, ts]) => {
           if (ts.status !== 'pending' && ts.status !== 'ready' && ts.status !== 'deferred') {
             return false;
           }
-          // When a filter is active, non-filtered tasks staying pending is expected
-          if (filterValue !== null && name !== filterValue) {
+          // Tasks outside the filter's run set staying pending is expected
+          if (runSet !== null && !runSet.has(name)) {
             return false;
           }
           return true;
@@ -1092,7 +1095,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const startTime = Date.now();
 
     const execOptions: TaskExecuteOptions = {
-      force: execution.state.force,
+      // Scoped like the cache bypass in stepPrepareTask: a filtered run forces
+      // only the target, so a launched dependency still honours its own cache.
+      force: stepTaskForced(execution.state, taskName),
       verbose: options.verbose,
       signal: options.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,

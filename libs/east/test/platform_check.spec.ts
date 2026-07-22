@@ -41,7 +41,7 @@ interface CheckCase {
     /** Registered-side declaration (what the implementation registers). */
     registered: { inputs: EastType[]; output: EastType };
     /** Expected analyzer message; null for the well-typed control case. */
-    error: ((locId: bigint) => string) | null;
+    error: ((location: string) => string) | null;
 }
 
 const cases: CheckCase[] = [
@@ -49,25 +49,25 @@ const cases: CheckCase[] = [
         name: "arg_count",
         ir: { inputs: [IntegerType], output: IntegerType },
         registered: { inputs: [IntegerType, IntegerType], output: IntegerType },
-        error: (locId) =>
-            `Platform function '${NAME}' expects 2 arguments but got 1 at loc_id ${locId}`,
+        error: (location) =>
+            `Platform function '${NAME}' expects 2 arguments but got 1 at ${location}`,
     },
     {
         name: "input_type",
         ir: { inputs: [ArrayType(IntegerType)], output: IntegerType },
         registered: { inputs: [ArrayType(FloatType)], output: IntegerType },
-        error: (locId) =>
+        error: (location) =>
             `Platform function '${NAME}' argument 1 requires exact type match. ` +
             `Expected type .Array .Float but got .Array .Integer. ` +
-            `Insert an As node if subtyping is intended. at loc_id ${locId}`,
+            `Insert an As node if subtyping is intended. at ${location}`,
     },
     {
         name: "return_type",
         ir: { inputs: [IntegerType], output: IntegerType },
         registered: { inputs: [IntegerType], output: StructType({ a: IntegerType }) },
-        error: (locId) =>
+        error: (location) =>
             `Platform function '${NAME}' return type expected to be ` +
-            `.Struct [(name="a", type=.Integer)] but IR has .Integer at loc_id ${locId}`,
+            `.Struct [(name="a", type=.Integer)] but IR has .Integer at ${location}`,
     },
     {
         name: "match",
@@ -133,7 +133,12 @@ for (const c of cases) {
         } else {
             const locId = extractPlatformLocId(eir.ir);
             assert.ok(locId !== null, "fixture IR must contain a Platform node");
-            assert.equal(thrown, c.error(locId));
+            // The message must name a source location, not the id: resolve it
+            // through the same map the fixture exports, so the other runtimes
+            // can reach the identical string from the serialized map.
+            const [location] = eir.source_map!.resolve(locId);
+            assert.ok(location, "the Platform node's loc_id must resolve through the exported map");
+            assert.equal(thrown, c.error(`${location.filename}:${location.line}:${location.column}`));
         }
 
         if (process.env.EXPORT_TEST_IR) {

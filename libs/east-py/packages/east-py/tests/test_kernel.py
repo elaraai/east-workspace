@@ -16,9 +16,12 @@ from east import (
     FloatType,
     IntegerType,
     KernelTraceError,
+    OptionType,
     StringType,
     StructType,
     kernel,
+    none,
+    some,
     where,
 )
 from east.kernel import _eligible, try_push_down
@@ -244,3 +247,53 @@ def test_traced_matches_python_path(name, invoke, fn):
         assert sorted(traced.keys()) == sorted(python_result.keys())
     else:
         assert list(traced) == list(python_result)
+
+
+# ─── options: `none` lifts into traced kernels (issue #376) ──────────────────
+
+
+def test_kernel_where_some_none_traces_and_runs():
+    # `none` as the else arm — its type resolves from the `some` sibling.
+    k = kernel(ROW, lambda r: where(r.sku == "A-1", some(r.price), none))
+    rows = _rows()
+    assert [k(rows[i]) for i in range(len(rows))] == [some(2.5), none, some(10.0)]
+
+
+def test_kernel_where_none_some_traces_and_runs():
+    # `none` as the THEN arm (first) — where() must lift the sibling first.
+    k = kernel(ROW, lambda r: where(r.sku == "A-1", none, some(r.price)))
+    rows = _rows()
+    assert [k(rows[i]) for i in range(len(rows))] == [none, some(150.0), none]
+
+
+def test_kernel_bare_none_reports_missing_type_context():
+    # A bare `none` has no type to infer — the type-from-context diagnostic must
+    # fire. It was dead code because `none.value` is east_null, not Python None,
+    # so callers got a generic "cannot lift" instead.
+    with pytest.raises(KernelTraceError, match="needs a type from context"):
+        kernel(ROW, lambda r: none)
+
+
+def test_option_lambda_pushes_down_natively():
+    # The point of #376: an option-returning lambda must trace into a native
+    # kernel rather than fall back to the per-element python path.
+    ef = EastFunction(
+        lambda el, idx: where(el.sku == "A-1", some(el.price), none),
+        [ROW, IntegerType],
+        OptionType(FloatType),
+    )
+    assert try_push_down(ef) is not None
+
+
+def test_map_with_option_result_runs_native():
+    out = _rows().map(
+        lambda r: where(r.sku == "A-1", some(r.price), none),
+        out=OptionType(FloatType),
+    )
+    assert list(out) == [some(2.5), none, some(10.0)]
+
+
+def test_filter_map_some_none_pushes_down():
+    # filter_map keeps `some`, drops `none`; it infers the inner type (no out=).
+    kept = _rows().filter_map(lambda r: where(r.sku == "A-1", some(r.price), none))
+    assert list(kept) == [2.5, 10.0]

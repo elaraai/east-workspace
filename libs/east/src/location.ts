@@ -62,6 +62,38 @@ export function printLocations(locations: Location[]): string {
  * @param filename - The file path from the stack frame
  * @returns true if the frame should be included, false to filter it out
  */
+/**
+ * Directories holding East's own modules, given the URL of this module.
+ *
+ * Both the compiled and the original tree are returned, because `stack`
+ * reports the compiled path normally and the original one under
+ * `--enable-source-maps` — a frame is East's either way.
+ *
+ * @param moduleUrl - `import.meta.url` of this module, or undefined where the
+ *   bundler does not provide one (a CJS or browser bundle, which has no East
+ *   tree to point at)
+ * @returns Directory prefixes to treat as East's own, empty when unknowable
+ *
+ * @remarks
+ * Exported for testing. An empty result means frame filtering falls back to
+ * the `node_modules` rule, which is the correct answer for a bundle: East's
+ * code shares a file with its caller there, so no path can separate them.
+ */
+export function eastOwnDirs(moduleUrl: string | undefined): readonly string[] {
+  if (moduleUrl === undefined || moduleUrl === '') return [];
+  const path = normalizeSeparators(stripFileUrl(moduleUrl));
+  const slash = path.lastIndexOf('/');
+  if (slash === -1) return [];
+  const dir = path.slice(0, slash);
+  const root = dir.endsWith('/dist/src') ? dir.slice(0, -'/dist/src'.length)
+    : dir.endsWith('/src') ? dir.slice(0, -'/src'.length)
+      : null;
+  return root === null ? [`${dir}/`] : [`${root}/src/`, `${root}/dist/src/`];
+}
+
+/** East's own module directories in this environment (see {@link eastOwnDirs}). */
+const EAST_OWN_DIRS: readonly string[] = eastOwnDirs(import.meta.url as string | undefined);
+
 function shouldIncludeFrame(filename: string): boolean {
   // Skip Node.js internal modules (e.g., node:internal/modules/...)
   if (filename.startsWith('node:')) return false;
@@ -69,6 +101,14 @@ function shouldIncludeFrame(filename: string): boolean {
   // Skip node_modules - filters out third-party packages including East
   // when installed as a dependency. Handles both Unix and Windows paths.
   if (filename.includes('/node_modules/') || filename.includes('\\node_modules\\')) return false;
+
+  // Skip East's own modules however they were loaded. The node_modules rule
+  // covers an installed East but not a linked or in-repo one, which would
+  // otherwise head every trace with East internals instead of user code — and
+  // bake East's own line numbers into serialized source maps. East's specs sit
+  // in the same tree but are callers of the library, not part of it.
+  const path = normalizeSeparators(stripFileUrl(filename));
+  if (!/\.spec\.[cm]?[jt]s$/.test(path) && EAST_OWN_DIRS.some(dir => path.startsWith(dir))) return false;
 
   return true;
 }
@@ -257,12 +297,49 @@ export class SourceMap {
 
 let _currentMap: SourceMap | null = null;
 
+/**
+ * Matches the `loc_id <n>` that compile-time error messages embed.
+ *
+ * Errors raised while building or lowering IR name the offending node by its
+ * loc_id, because an id is all the IR carries. Any message that does so must
+ * use exactly this form so {@link resolveLocIds} can give it meaning.
+ */
+const LOC_ID_IN_MESSAGE = /\bloc_id (\d+)\b/g;
+
+/**
+ * Replace every `loc_id <n>` in an error message with the source location it
+ * names.
+ *
+ * @param message - Error message that may embed loc_ids
+ * @param map - Source map to resolve them against
+ * @returns The message with each id replaced by `file:line:column`, or by
+ *   `an unknown location` where the map has no entry for it
+ *
+ * @remarks
+ * An id the map cannot resolve still names nothing the reader can act on, so
+ * it is described rather than printed.
+ */
+export function resolveLocIds(message: string, map: SourceMap): string {
+  return message.replace(LOC_ID_IN_MESSAGE, (_whole, id: string) => {
+    const [location] = map.resolve(BigInt(id));
+    return location ? `${location.filename}:${location.line}:${location.column}` : 'an unknown location';
+  });
+}
+
 /** Run `fn` with `map` as the current scope's source map. Re-entrant safe. */
 export function with_source_map<T>(map: SourceMap, fn: () => T): T {
   const prev = _currentMap;
   _currentMap = map;
-  try { return fn(); }
-  finally { _currentMap = prev; }
+  try {
+    return fn();
+  } catch (e: unknown) {
+    // The map that gives a loc_id meaning is only in scope here, so this is the
+    // last point at which an error carrying one can be made readable.
+    if (e instanceof Error) e.message = resolveLocIds(e.message, map);
+    throw e;
+  } finally {
+    _currentMap = prev;
+  }
 }
 
 /** Wraps `fn` in a new `with_source_map` only if no map is currently active.

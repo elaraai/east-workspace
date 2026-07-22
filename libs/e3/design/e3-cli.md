@@ -62,7 +62,7 @@ Error: 'dev.gret' not found in workspace 'dev'. Did you mean:
 
 ```bash
 e3 task list <repo> <ws>                        # List tasks with execution status
-e3 task logs <repo> <ws.task> [--follow]        # View / follow logs
+e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow]   # Tail / page / follow logs
 ```
 
 ## Dataflow

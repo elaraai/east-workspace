@@ -38,6 +38,7 @@ import { ValueTree } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { VirtualRows } from "../virtual-rows.js";
+import { parseCssSize } from "../../style/parse-size.js";
 import {
     EastChakraStringInput,
     EastChakraIntegerInput,
@@ -748,11 +749,30 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const tabbableId = focusId !== undefined && rows.some(r => r.id === focusId)
         ? focusId
         : rows[0]!.id;
+    // The sized flex-column WRAPPER takes the component's bound and the frame
+    // fills the remainder (`fillParent`) — otherwise a percentage / `fill`
+    // height would resolve against the auto-height wrapper and silently unbind,
+    // leaving every row rendered instead of the visible window.
+    const heightCss = parseCssSize(height);
+    const maxHeightCss = parseCssSize(maxHeight);
+    const frameFills = heightCss !== undefined || maxHeightCss !== undefined;
     return (
-        <Box role="tree" aria-label="Value tree" ref={rootElRef}>
+        <Box
+            role="tree"
+            aria-label="Value tree"
+            ref={rootElRef}
+            {...(frameFills && {
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 0,
+                height: heightCss,
+                maxHeight: maxHeightCss,
+            })}
+        >
             <VirtualRows
-                height={height}
-                maxHeight={maxHeight}
+                height={frameFills ? undefined : height}
+                maxHeight={frameFills ? undefined : maxHeight}
+                fillParent={frameFills}
                 count={rows.length}
                 estimateSize={() => ROW_H}
                 overscan={8}

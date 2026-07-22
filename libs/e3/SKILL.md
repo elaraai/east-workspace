@@ -102,7 +102,7 @@ Task → What do you need?
 │
 ├─ Tasks (inspect / logs)
 │   ├─ List with status     → e3 task list <repo> <ws>
-│   └─ View / follow logs   → e3 task logs <repo> <ws.task> [--follow]
+│   └─ View / follow logs   → e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow]
 │
 ├─ Development workflow
 │   ├─ Watch + auto-deploy  → e3 watch <src.ts> <repo> <ws> [--start]
@@ -417,7 +417,10 @@ e3 history . counter -w main --limit 10
 
 ```bash
 e3 task list <repo> <ws>                    # List tasks with execution status
-e3 task logs <repo> <ws.task> [--follow]    # View / follow a task's logs
+e3 task logs <repo> <ws.task>               # Last 200 lines of a task's logs
+e3 task logs <repo> <ws.task> -n 50         # Last 50 lines
+e3 task logs <repo> <ws.task> --all         # The whole log
+e3 task logs <repo> <ws.task> --follow      # Tail, then follow live output
 ```
 
 ### Dataflow

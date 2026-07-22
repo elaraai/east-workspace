@@ -29,7 +29,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Reactive, ValueTree } from "@elaraai/east-ui";
+import { Box, Reactive, ValueTree } from "@elaraai/east-ui";
 
 export const valueTreeBasic = example({
     keywords: ["ValueTree", "value", "tree", "inspector", "leaf", "struct", "read-only"],
@@ -341,6 +341,37 @@ export const valueTreeVirtualized = example({
                 $(bind.write(next));
             }));
             return <ValueTree value={series} onUpdate={onUpdate} style={{ height: "320px" }} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const valueTreeFillsBoundedParent = example({
+    keywords: ["ValueTree", "virtualized", "height", "100%", "fill", "parent", "bounded", "scroll", "preview"],
+    description: "A tree told to fill a bounded parent scrolls inside it instead of growing to its content",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The host-preview shape: a fixed-height frame that hands the tree
+            // a percentage bound. The tree must resolve that against the frame
+            // and virtualize, not fall back to auto height and render every row.
+            const SeriesType = DictType(StringType, ArrayType(FloatType));
+            const bind = $.let(State.bind([SeriesType], "vt_fill_series", new Map<string, number[]>()));
+            $.if(bind.read().size().equals(0n), $ => {
+                const seeded = $.let(East.Array.range(0n, 40n).toDict(
+                    (_$, i) => East.str`sensor ${i}`,
+                    (_$, i) => East.Array.range(0n, 6n).map((_$2, j) => j.toFloat().add(i.toFloat())),
+                ));
+                $(bind.write(seeded));
+            });
+            const series = $.let(bind.read());
+            const onUpdate = $.const(East.function([SeriesType], NullType, ($, next) => {
+                $(bind.write(next));
+            }));
+            return (
+                <Box height="280px" overflow="hidden">
+                    <ValueTree value={series} onUpdate={onUpdate} style={{ height: "100%" }} />
+                </Box>
+            );
         }}</Reactive>
     )),
     inputs: [],

@@ -560,6 +560,11 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     /* Compile */
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
+    /* Install the decoded map before compiling: a compile error names the
+     * offending node by source location, which only resolves while its map is
+     * the current one. */
+    if (decoded_source_map) east_set_source_map(decoded_source_map);
+
     IRNode *body = ir->data.function.body;
     char *compile_err = NULL;
     EastCompiledFn *fn = east_compile_checked(body, platform, builtins, &compile_err);
@@ -575,10 +580,10 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         return 1;
     }
 
-    /* Attach source map (from JSON wrapper or beast2 decode) */
+    /* Hand the map to the compiled function, which owns it from here (it is
+     * already installed as the current map, from before the compile). */
     if (decoded_source_map) {
         fn->source_map = decoded_source_map;
-        east_set_source_map(fn->source_map);
     }
 
     /* Set parameter names so east_call can bind arguments */

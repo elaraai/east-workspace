@@ -16,7 +16,7 @@
 import { useMemo } from 'react';
 import { Box, Flex, Text, HStack, Spinner, chakra, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronLeft, faDatabase, faBolt } from '@fortawesome/free-solid-svg-icons';
+import { faChevronLeft, faDatabase, faBolt, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { useE3Context } from '../context/E3Context';
 import { SidebarToggle } from './SidebarToggle';
@@ -24,17 +24,49 @@ import { useWorkspaceStatus, formatApiError } from '@elaraai/e3-ui-components';
 import type { TaskStatusInfo, DatasetStatusInfo } from '@elaraai/e3-api-client';
 import { StatusIndicator, type StatusTone } from './StatusIndicator';
 
+/**
+ * Tone per task status.
+ *
+ * `info` is reserved for the one task state that is actually doing something,
+ * so a blue dot always means "running now". `ready` is idle — it may never run
+ * — and reads as neutral. `stale-running` is a dead process, a failure rather
+ * than the healthy blocked-on-upstream that `waiting` describes.
+ */
 function getTaskStatusTone(status: TaskStatusInfo['status']['type']): StatusTone {
     switch (status) {
         case 'up-to-date': return 'success';
-        case 'ready': return 'info';
-        case 'waiting': return 'warning';
         case 'in-progress': return 'info';
+        case 'ready': return 'neutral';
+        case 'waiting': return 'warning';
         case 'failed':
-        case 'error': return 'danger';
-        case 'stale-running': return 'warning';
+        case 'error':
+        case 'stale-running': return 'danger';
         default: return 'neutral';
     }
+}
+
+/**
+ * Glyph for the two states worth interrupting a scan for, or undefined to keep
+ * the dot.
+ *
+ * A dot can only vary in hue, and hue is the first channel lost to a glance or
+ * to colour-blindness — a fading 6px circle is not enough to say "this one is
+ * running" or "this one is broken". Shape carries those two; everything else
+ * stays a dot, because a list where every row shouts says nothing.
+ */
+function getTaskStatusIcon(status: TaskStatusInfo['status']['type']): IconDefinition | undefined {
+    switch (status) {
+        case 'in-progress': return faSpinner;
+        case 'failed':
+        case 'error':
+        case 'stale-running': return faTriangleExclamation;
+        default: return undefined;
+    }
+}
+
+/** The spinner turns only while the task is actually executing. */
+function isTaskRunning(status: TaskStatusInfo['status']['type']): boolean {
+    return status === 'in-progress';
 }
 
 function getInputStatusTone(status: DatasetStatusInfo['status']['type']): StatusTone {
@@ -72,18 +104,40 @@ interface NavItemProps {
     label: string;
     tone: StatusTone;
     statusLabel: string;
+    /** Glyph in place of the dot, for running / broken rows. */
+    icon?: IconDefinition | undefined;
+    /** Spin the glyph — the row is doing work right now. */
+    running?: boolean;
     active: boolean;
     itemStyle: SystemStyleObject;
     onClick: () => void;
 }
 
 /** A prominent navList item — the recipe `item` slot directly (12px uppercase,
- *  brand-tint active pill); label takes the row, status dot trails. */
-function NavItem({ label, tone, statusLabel, active, itemStyle, onClick }: NavItemProps) {
+ *  brand-tint active pill); label takes the row, status dot trails.
+ *
+ *  A dot alone is enough for the states you scan past, but not for the one you
+ *  came to find: failures spell themselves out (the status pattern's own
+ *  dot-plus-word form), so a broken task is readable rather than a red speck. */
+function NavItem({ label, tone, statusLabel, icon, running = false, active, itemStyle, onClick }: NavItemProps) {
+    const failed = tone === 'danger';
     return (
-        <chakra.button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} css={itemStyle} title={label}>
+        <chakra.button
+            type="button"
+            onClick={onClick}
+            aria-current={active ? 'page' : undefined}
+            css={itemStyle}
+            title={`${label} — ${statusLabel}`}
+        >
             <Box as="span" flex="1" textAlign="left" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{label}</Box>
-            <StatusIndicator tone={tone} label={statusLabel} hideLabel />
+            <StatusIndicator
+                tone={tone}
+                label={statusLabel}
+                size={failed ? 'md' : 'sm'}
+                hideLabel={!failed}
+                {...(icon !== undefined && { icon })}
+                spinning={running}
+            />
         </chakra.button>
     );
 }
@@ -158,6 +212,8 @@ export function WorkspaceTree() {
                             label={task.name}
                             tone={getTaskStatusTone(task.status.type)}
                             statusLabel={task.status.type}
+                            icon={getTaskStatusIcon(task.status.type)}
+                            running={isTaskRunning(task.status.type)}
                             active={selection.type === 'task' && selection.task === task.name}
                             itemStyle={styles.item}
                             onClick={() => setSelection({ type: 'task', workspace: currentWorkspace, task: task.name })}

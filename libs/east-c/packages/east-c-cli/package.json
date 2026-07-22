@@ -1,8 +1,12 @@
 {
   "name": "@elaraai/east-c-cli",
   "version": "1.0.42",
-  "description": "Pulls in the native east-c binary for your platform via optional dependencies. The matching per-platform package (@elaraai/east-c-cli-<target>) provides the `east-c` bin directly.",
+  "description": "Provides the `east-c` bin. A tiny launcher resolves the native binary for your platform from the matching per-platform package (@elaraai/east-c-cli-<target>), pulled in via optional dependencies.",
+  "bin": {
+    "east-c": "bin/east-c.mjs"
+  },
   "files": [
+    "bin",
     "README.md",
     "LICENSE.md",
     "CONTRIBUTING.md",

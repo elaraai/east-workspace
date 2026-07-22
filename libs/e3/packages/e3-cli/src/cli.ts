@@ -44,7 +44,7 @@ import { callCommand } from './commands/call.js';
 import { mutateCommand } from './commands/mutate.js';
 import { historyCommand } from './commands/history.js';
 import { compactCommand } from './commands/compact.js';
-import { logsCommand } from './commands/logs.js';
+import { logsCommand, DEFAULT_TAIL_LINES } from './commands/logs.js';
 import { datasetStatusCommand } from './commands/dataset-status.js';
 import { findCommand } from './commands/find.js';
 import { convertCommand } from './commands/convert.js';
@@ -262,6 +262,8 @@ program
       .description('View logs for a task')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<path>', 'Task path (<ws>.<task>)')
+      .option('-n, --lines <n>', `Show the last <n> lines (default: ${DEFAULT_TAIL_LINES})`)
+      .option('--all', 'Show the whole log instead of the last lines')
       .option('--follow', 'Follow log output')
       .action(withDefaultRepo(logsCommand))
   );

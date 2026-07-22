@@ -39,8 +39,15 @@ class EastNull:
         return "null"
 
     def __eq__(self, other: object) -> bool:
-        """EastNull equals only itself."""
-        return isinstance(other, EastNull)
+        """EastNull equals another EastNull or Python ``None``.
+
+        Both represent NullType's single value: construction/coercion produce
+        the ``east_null`` sentinel while some decode/serialization paths carry a
+        bare ``None``. Treating them as equal keeps a decoded ``none`` equal to
+        the ``none`` constant, and matches ``__hash__`` (which already hashes as
+        ``None``).
+        """
+        return other is None or isinstance(other, EastNull)
 
     def __hash__(self) -> int:
         """Hash for use in sets/dicts."""

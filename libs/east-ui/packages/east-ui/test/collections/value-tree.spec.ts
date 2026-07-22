@@ -48,6 +48,7 @@ describeEast("ValueTree", (test) => {
         valueTreeKitchenSink: ex.valueTreeKitchenSink,
         valueTreeKitchenSinkEditable: ex.valueTreeKitchenSinkEditable,
         valueTreeVirtualized: ex.valueTreeVirtualized,
+        valueTreeFillsBoundedParent: ex.valueTreeFillsBoundedParent,
     });
 
     // ------------------------------------------------------------------
