@@ -32,6 +32,7 @@ import {
     computeLayout, type FlowchartLayout, type LinkRoute,
     BADGE_H, RING_R,
 } from "./layout.js";
+import { dropTargetAt, existingLink, nearestHandle } from "./connect.js";
 
 const flowchartEqual = equalFor(Flowchart.Types.Flowchart);
 
@@ -250,10 +251,22 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         }
     }, [hoverCard, hoverFnFor]);
 
-    // Connect-drag draft.
-    const [draft, setDraft] = useState<{ from: string; side: "left" | "right" | "top" | "bottom"; x: number; y: number; over: string | null; allowed: boolean } | null>(null);
+    // Connect-drag draft (one object; pure helpers live in connect.ts).
+    const [draft, setDraft] = useState<{
+        from: string; side: "left" | "right" | "top" | "bottom";
+        x: number; y: number; over: string | null; allowed: boolean; dup: string | undefined;
+    } | null>(null);
     const draftRef = useRef<typeof draft>(null);
     draftRef.current = draft;
+    // One pulse mechanism for both outcomes: a drop that would duplicate an
+    // existing link pulses IT; a successful create pulses the new link once
+    // its row arrives. Matched by endpoints, auto-cleared.
+    const [pulse, setPulse] = useState<{ from: string; to: string; seq: number } | null>(null);
+    useEffect(() => {
+        if (pulse === null) return;
+        const t = setTimeout(() => setPulse(null), 1100);
+        return () => clearTimeout(t);
+    }, [pulse]);
 
     // ── measure ───────────────────────────────────────────────────────────
     const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -333,33 +346,37 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
-        setDraft({ from, side, x: p.x, y: p.y, over: null, allowed: false });
+        setDraft({ from, side, x: p.x, y: p.y, over: null, allowed: false, dup: undefined });
         const move = (ev: PointerEvent): void => {
             const q = svgPoint(ev);
-            const l = layout;
-            let over: string | null = null;
-            if (l) {
-                for (const [key, r] of l.nodes) {
-                    if (q.x >= r.x && q.x <= r.x + r.w && q.y >= r.y && q.y <= r.y + r.h) { over = key; break; }
-                }
-            }
             const fromKey = draftRef.current?.from ?? from;
-            const allowed = over !== null && canConnect(fromKey, over);
-            setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed }));
+            // The WHOLE node (plus DROP_PAD) is the target — nobody has to
+            // land a 7px ring.
+            const over = layout ? dropTargetAt(layout, q, fromKey) : null;
+            const dup = over !== null ? existingLink(model, fromKey, over) : undefined;
+            const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
+            setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
         };
         const up = (): void => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
             const d = draftRef.current;
             setDraft(null);
-            if (d && d.over !== null && d.allowed && onCreateLinkFn) {
+            if (!d || d.over === null) return;
+            if (d.dup !== undefined) {
+                // Already connected — absorb the drop and pulse the existing link.
+                setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
+                return;
+            }
+            if (d.allowed && onCreateLinkFn) {
                 const payload = { from: d.from, to: d.over };
                 dispatchEast("onCreateLink", () => onCreateLinkFn(payload));
+                setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
             }
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
-    }, [linkMode, svgPoint, layout, canConnect, onCreateLinkFn]);
+    }, [linkMode, svgPoint, layout, model, canConnect, onCreateLinkFn]);
 
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
@@ -703,21 +720,49 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 const from = layout.nodes.get(draft.from);
                                 if (!from) return null;
                                 const start = from[draft.side];
+                                const target = draft.over !== null ? layout.nodes.get(draft.over) : undefined;
+                                const landable = draft.allowed || draft.dup !== undefined;
+                                const end = target !== undefined && landable
+                                    ? nearestHandle(target, { x: draft.x, y: draft.y })
+                                    : { x: draft.x, y: draft.y };
                                 return (
                                     <g>
                                         <path
-                                            d={`M${start.x} ${start.y} L${draft.x} ${draft.y}`}
+                                            d={`M${start.x} ${start.y} L${end.x} ${end.y}`}
                                             fill="none"
-                                            stroke={draft.over !== null && !draft.allowed ? NEG : BRAND_D}
+                                            stroke={draft.over !== null && !landable ? NEG : BRAND_D}
                                             strokeWidth={1.6}
                                             strokeDasharray="5 4"
                                         />
-                                        {draft.over !== null && !draft.allowed && (
+                                        {draft.over !== null && !landable && (
                                             <text x={draft.x + 10} y={draft.y - 6} style={{ fontSize: 12, fill: NEG }}>⊘</text>
                                         )}
                                     </g>
                                 );
                             })()}
+
+                            {/* one-shot connection pulse — the existing link on a
+                                duplicate drop, or the new link once its row arrives;
+                                SMIL restarts per seq via the element key */}
+                            {pulse !== null && orderedRoutes.map(r => {
+                                const l = linksByKey.get(r.key);
+                                if (!l || l.from !== pulse.from || l.to !== pulse.to) return null;
+                                return (
+                                    // CSS keyframe (not SMIL — whose begin is relative to
+                                    // the SVG document timeline, so late-inserted animates
+                                    // never play): starts on mount, restarts per seq key.
+                                    <path
+                                        key={`pulse-${pulse.seq}-${r.key}`}
+                                        d={r.d}
+                                        fill="none"
+                                        stroke={BRAND}
+                                        strokeWidth={11}
+                                        strokeLinecap="round"
+                                        opacity={0}
+                                        style={{ pointerEvents: "none", animation: "fc-connect-pulse 0.9s ease-out forwards" }}
+                                    />
+                                );
+                            })}
                         </svg>
 
                         {/* legend — planned / observed / trigger / in-place */}
