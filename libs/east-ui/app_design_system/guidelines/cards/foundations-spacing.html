@@ -1,0 +1,20 @@
+<!-- @dsCard group="Foundations" viewport="700x160" subtitle="4px spacing scale · square-ish radii · fast flat motion" name="Spacing, radii, motion" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { background: var(--paper); margin: 0; padding: 14px 18px; font-family: var(--font-mono); }
+.sec { display: grid; grid-template-columns: 82px 1fr; gap: 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.sec:last-child { border-bottom: 0; }
+.k { font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.bar { background: var(--brand-tint); border: 1px solid var(--brand); height: 14px; display: inline-block; vertical-align: middle; }
+.spx { font-size: 9px; color: var(--ink-4); margin: 0 10px 0 4px; }
+.r { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); background: var(--paper-2); height: 26px; padding: 0 10px; font-size: 9.5px; color: var(--ink-3); margin-right: 8px; }
+.v { font-size: 10.5px; color: var(--ink-3); }
+</style></head><body>
+<div class="sec"><span class="k">Spacing</span><span>
+  <span class="bar" style="width:4px"></span><span class="spx">4</span><span class="bar" style="width:8px"></span><span class="spx">8</span><span class="bar" style="width:12px"></span><span class="spx">12</span><span class="bar" style="width:16px"></span><span class="spx">16</span><span class="bar" style="width:24px"></span><span class="spx">24</span><span class="bar" style="width:32px"></span><span class="spx">32</span><span class="bar" style="width:48px"></span><span class="spx">48</span>
+</span></div>
+<div class="sec"><span class="k">Radii</span><span>
+  <span class="r" style="border-radius:3px">chip 3–4</span><span class="r" style="border-radius:6px">button 6</span><span class="r" style="border-radius:10px">frame 10</span><span class="r" style="border-radius:999px;width:26px;padding:0">av</span><span class="v">· --r-full for avatars/dots only</span>
+</span></div>
+<div class="sec"><span class="k">Motion</span><span class="v">120 / 200 / 360ms · ease-out (0.16, 1, 0.3, 1) · no bounces, no hover lift</span></div>
+</body></html>

@@ -1,0 +1,22 @@
+<!-- @dsCard group="Colors" viewport="700x170" subtitle="Ink, paper, rules — the only text/surface/border colors" name="Semantic ink & paper" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { background: var(--paper); margin: 0; padding: 14px 18px; }
+.g { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
+.sw { border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; font-family: var(--font-mono); }
+.sw .t { height: 34px; } .sw .m { padding: 4px 6px; font-size: 9px; line-height: 1.35; }
+.sw .n { color: var(--ink); font-weight: 600; display: block; } .sw .u { color: var(--ink-4); }
+</style></head><body>
+<div class="g">
+  <div class="sw"><div class="t" style="background:var(--ink)"></div><div class="m"><span class="n">--ink</span><span class="u">text</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--ink-2)"></div><div class="m"><span class="n">--ink-2</span><span class="u">strong 2°</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--ink-3)"></div><div class="m"><span class="n">--ink-3</span><span class="u">secondary</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--ink-4)"></div><div class="m"><span class="n">--ink-4</span><span class="u">labels</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--ink-5)"></div><div class="m"><span class="n">--ink-5</span><span class="u">faint</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--paper);border-bottom:1px solid var(--rule)"></div><div class="m"><span class="n">--paper</span><span class="u">card</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--paper-2)"></div><div class="m"><span class="n">--paper-2</span><span class="u">page/band</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--paper-3)"></div><div class="m"><span class="n">--paper-3</span><span class="u">well</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--rule)"></div><div class="m"><span class="n">--rule</span><span class="u">divider</span></div></div>
+  <div class="sw"><div class="t" style="background:var(--rule-strong)"></div><div class="m"><span class="n">--rule-strong</span><span class="u">edge</span></div></div>
+</div>
+</body></html>

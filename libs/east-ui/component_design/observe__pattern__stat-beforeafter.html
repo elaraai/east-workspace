@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · stat-beforeafter</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="stat-beforeafter" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>BeforeAfter</span></div>
+      <p class="pattern-blurb">Time-axis view of one metric across before-state / now / projected post-commit / deadline. The causal-comparison stat — what shifted, what we expect to shift, what we'll measure against. Formerly <span class="mono">Comparison.BeforeAfter</span>; the underlying shape is a stat, not a diff primitive.</p>
+      <div class="frame">
+        <div class="ba-timeline">
+          <div class="ba-rail">
+            <span class="ba-tick" style="left: 8%;">Mon 09-09</span>
+            <span class="ba-tick" style="left: 38%;">Today</span>
+            <span class="ba-tick commit" style="left: 62%;">▼ Apply</span>
+            <span class="ba-tick" style="left: 92%;">Fri 09-19</span>
+            <span class="ba-marker" style="left: 8%;"></span>
+            <span class="ba-marker" style="left: 38%;"></span>
+            <span class="ba-marker now" style="left: 38%;"></span>
+            <span class="ba-marker commit" style="left: 62%;"></span>
+            <span class="ba-marker" style="left: 92%;"></span>
+          </div>
+          <div class="ba-card-row">
+            <div class="ba-card">
+              <div class="ba-when">5 days ago</div>
+              <div class="ba-val">$1.94M</div>
+              <div class="ba-sub">baseline · pre-edit</div>
+            </div>
+            <div class="ba-card now">
+              <div class="ba-when">Now · do-nothing</div>
+              <div class="ba-val">$1.94M</div>
+              <div class="ba-sub">SLA risk wk2 <span class="num neg">−$140k</span></div>
+            </div>
+            <div class="ba-card commit">
+              <div class="ba-when">Post-Apply · projected</div>
+              <div class="ba-val">$2.02M</div>
+              <div class="ba-sub"><span class="deltapill up" style="font-size: 10px; padding: 1px 6px;">▲ +$80k</span> · 82% conf</div>
+            </div>
+            <div class="ba-card">
+              <div class="ba-when">Fri 09-19</div>
+              <div class="ba-val muted">$2.02M ± $6k</div>
+              <div class="ba-sub">deadline · re-evaluate</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+</body>
+</html>

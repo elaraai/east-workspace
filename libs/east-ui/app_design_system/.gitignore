@@ -1,0 +1,7 @@
+# design-sync working dirs (regenerated per sync; see .design-sync/config.json)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+node_modules/

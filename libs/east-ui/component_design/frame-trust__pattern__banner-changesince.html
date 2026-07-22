@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>frame-trust · pattern · banner-changesince</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="banner-changesince" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Banner<span class="ns">.</span>ChangeSinceLastVisit</span></div>
+      <p class="pattern-blurb">Fires when the world has materially changed since the operator's last session. Not "what's new on the dashboard" — "what shifted out from under you while you were away".</p>
+      <div class="frame pad-18">
+        <div class="bn bn-change">
+          <span class="bn-icon">⏵</span>
+          <span class="bn-body">
+            <strong>3 things changed since you last looked (Mon)</strong>
+            <ul class="bn-list">
+              <li>Forecast revised <span class="num neg">+14%</span> · driver: regional event added <a class="btn-link" href="#">view</a></li>
+              <li>Cho's availability changed · sick-leave Wed–Fri <a class="btn-link" href="#">view</a></li>
+              <li>SLA target updated · <span class="num">0.92 → 0.95</span> by Singh <a class="btn-link" href="#">view</a></li>
+            </ul>
+          </span>
+          <span class="bn-actions"><a class="btn-link" href="#">dismiss all</a></span>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>

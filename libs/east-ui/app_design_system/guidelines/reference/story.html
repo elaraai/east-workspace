@@ -1,0 +1,744 @@
+<!doctype html>
+<!-- @dsCard group="UI Kit — Design" name="Story pattern spec" subtitle="Scroll-driven narrative — Story.Root rail + sticky stage, Story.Step, keyframed Story.Stage, Story.Progress, driven by a plain State binding" -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Story — Pattern spec</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="./spec.css">
+<!-- Chart implementation: visx, same bootstrap as observe/slice. Every
+     data-spec-* hook below renders a real chart so the keyframe mocks and
+     the live scroll demo use the exact marks the runtime will use. -->
+<script type="module" src="./charts-visx.js"></script>
+<style>
+  .nav-back {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+
+  /* ============ bsys blocks (same shape as index.html) ============ */
+  .bsys { display: grid; grid-template-columns: 200px 1fr; gap: 0; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper); margin-bottom: 18px; }
+  .bsys-lbl {
+    padding: 16px 18px; background: var(--paper-2); border-right: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
+  .bsys-body { padding: 16px 20px; }
+
+  /* ============ Anatomy diagram (same shape as slice.html sf-anatomy) ============ */
+  .st-anatomy {
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    background: var(--paper); overflow: hidden;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .st-zone {
+    padding: 12px 16px; display: grid; align-items: center;
+    grid-template-columns: 140px 1fr 200px;
+    gap: 14px; min-height: 44px;
+  }
+  .st-zone + .st-zone { border-top: 1px solid var(--rule); }
+  .st-zone .lbl {
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .st-zone .content { color: var(--ink-2); font-size: 11.5px; line-height: 1.5; }
+  .st-zone .dim { text-align: right; color: var(--ink-4); font-size: 10px; letter-spacing: 0.04em; }
+  .st-zone.body { min-height: 96px; background: var(--paper-2); }
+
+  /* ============ Step block (the spec'd drawing + the live demo share these) ============ */
+  .story-step {
+    position: relative;
+    padding: 16px 0 16px 26px;
+    transition: opacity var(--dur-base) var(--ease-out);
+    /* the body slot stretches to the step's full runway */
+    display: flex; flex-direction: column;
+  }
+  /* progress spine */
+  .story-step::before {
+    content: ""; position: absolute; left: 4px; top: 0; bottom: 0;
+    width: 2px; background: var(--rule);
+  }
+  .story-step:first-child::before { top: 22px; }
+  .story-step:last-child::before  { bottom: auto; height: 22px; }
+  .story-step .node {
+    position: absolute; left: 0; top: 18px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--paper); border: 2px solid var(--rule-strong);
+    box-sizing: border-box;
+    transition: all var(--dur-base) var(--ease-out);
+  }
+  .story-step.visited .node { border-color: var(--brand-d); }
+  .story-step.active .node  { border-color: var(--brand-d); background: var(--brand-d); }
+  .story-step .step-eyebrow {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);
+    margin-bottom: 6px;
+  }
+  .story-step.active .step-eyebrow { color: var(--brand-d); }
+  .story-step .step-title {
+    font-family: var(--font-brand); font-size: 17px; font-weight: 600;
+    letter-spacing: -0.01em; line-height: 1.3; color: var(--ink);
+    margin: 0 0 8px;
+  }
+  .story-step .step-body {
+    font-size: 13px; line-height: 1.55; color: var(--ink-2); max-width: 46ch;
+    flex: 1 1 auto; min-height: 0;
+  }
+  .story-step .step-body p { font-size: 13px; line-height: 1.55; margin: 0 0 8px; }
+  .story-step:not(.active) { opacity: 0.45; }
+  .story-step.active { opacity: 1; }
+
+  /* ============ Live demo ============ */
+  .story-demo {
+    position: relative;
+    height: 520px; overflow-y: auto; overflow-x: hidden;
+    background: var(--paper);
+  }
+  .story-demo-grid {
+    display: grid; grid-template-columns: 300px minmax(0, 1fr);
+    gap: 28px; padding: 0 18px;
+  }
+  .story-demo .stage-col { position: relative; }
+  .story-demo .stage-sticky {
+    /* clears the 41px sticky Story.Progress chrome above */
+    position: sticky; top: 57px; padding-bottom: 16px;
+  }
+  .story-stage-frame {
+    position: relative; height: 400px;
+  }
+  .story-stage-frame .keyframe {
+    position: absolute; inset: 0; padding: 8px 0 0;
+    opacity: 0; transition: opacity 240ms var(--ease-out);
+    pointer-events: none;
+  }
+  .story-stage-frame .kf-label {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);
+  }
+  .story-stage-frame .keyframe.on { opacity: 1; pointer-events: auto; }
+  .story-demo .rail-col { padding: 20px 0 0; }
+  /* one step per demo viewport: 520px scrollport − 41px chrome ≈ 479px,
+     so the active step's body owns the full visible height */
+  .story-demo .story-step { min-height: 470px; box-sizing: border-box; }
+  .story-demo .story-step:last-child { min-height: 500px; }
+  .demo-hint {
+    position: absolute; right: 16px; bottom: 12px; z-index: 2;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-4); background: var(--paper);
+    border: 1px solid var(--rule-strong); border-radius: 9999px;
+    padding: 4px 12px; pointer-events: none;
+  }
+
+  /* one-row Story.Progress chrome */
+  .story-chrome {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+    position: sticky; top: 0; z-index: 3;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .story-chrome .title {
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .story-chrome .counter { margin-left: auto; color: var(--ink-4); font-feature-settings: "tnum" 1; }
+  .story-chrome .counter .cur { color: var(--ink); font-weight: 600; }
+  .story-chrome .dots { display: flex; gap: 6px; align-items: center; }
+  .story-chrome .dots span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--rule-strong); transition: background var(--dur-base) var(--ease-out);
+  }
+  .story-chrome .dots span.cur { background: var(--brand-d); }
+  .story-chrome .dots span.seen { background: var(--brand); opacity: 0.5; }
+  .story-chrome .nav-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border: 1px solid var(--rule-strong);
+    border-radius: 4px; background: var(--paper); color: var(--ink-3);
+    font-size: 11px; cursor: pointer; user-select: none;
+  }
+  .story-chrome .nav-btn:hover { border-color: var(--ink-3); color: var(--ink); }
+
+  /* ============ Keyframe strip (Story.Stage small multiples) ============ */
+  .kf-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+  .kf-strip .kf { border-right: 1px solid var(--rule); padding: 14px 16px; min-width: 0; }
+  .kf-strip .kf:last-child { border-right: none; }
+  .kf-strip .kf-head {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);
+    margin-bottom: 8px;
+  }
+  .kf-strip .kf-head .key { color: var(--brand-d); }
+  .kf-strip .kf-patch {
+    margin-top: 10px; padding: 8px 10px;
+    background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px;
+    font-family: var(--font-mono); font-size: 10px; line-height: 1.6;
+    color: var(--ink-2); white-space: pre; overflow: hidden;
+  }
+  .kf-strip .kf-patch .add { color: var(--pos); }
+  .kf-strip .kf-patch .del { color: var(--neg); }
+
+  /* layout variant thumbnails */
+  .layout-thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .layout-thumb { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .layout-thumb .pic { height: 92px; display: grid; gap: 6px; padding: 8px; background: var(--paper-2); }
+  .layout-thumb .pic .txt { background: var(--rule); border-radius: 2px; }
+  .layout-thumb .pic .viz { background: var(--brand-tint); border: 1px solid var(--brand-d); border-radius: 3px; }
+  .layout-thumb .cap {
+    padding: 8px 10px; border-top: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); line-height: 1.5;
+  }
+  .layout-thumb .cap .name { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a>
+    <span class="sep">·</span>
+    <a href="./observe.html">Observe</a>
+    <span class="sep">·</span>
+    <a href="./slice.html">Slice</a>
+    <span class="sep">·</span>
+    <a href="./decide.html">Decide</a>
+    <span class="sep">·</span>
+    <a href="./configure.html">Configure</a>
+    <span class="sep">·</span>
+    <a href="./story.html" class="here">Story</a>
+  </nav>
+
+  <main>
+
+  <section id="mode-story" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.7</span>
+      <h2>Narrate</h2>
+      <span class="anchor-tag">Anchors · <span class="pat">Story<span class="ns">.</span>Root</span> · <span class="pat">Story<span class="ns">.</span>Stage</span></span>
+    </div>
+    <p class="mode-lede">
+      Observe answers "what's happening". Narrate answers "let me walk you through it" —
+      an analysis handed to a stakeholder, a postmortem, a model-run explanation, an onboarding tour.
+      One persistent visual (the <strong>stage</strong>) evolves through keyframes while prose
+      <strong>steps</strong> scroll past in a rail beside it. The reader's scrollbar is the timeline.
+    </p>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Stance — the non-negotiables, before any anatomy
+         ════════════════════════════════════════════════════════════ -->
+    <div class="bsys" id="story-stance">
+      <div class="bsys-lbl">Stance<span class="sub">What separates this from marketing-page scrollytelling.</span></div>
+      <div class="bsys-body">
+        <div class="spec-note" style="margin: 0;">
+          <span class="k">Non-negotiables:</span>
+          <strong>Text never floats over the visual.</strong> Prose lives in a dedicated rail beside the stage — left-aligned, on paper, at body sizes. No centered captions, no translucent cards over the chart, no text-shadow. The Flourish/news-site overlay style is explicitly out: it forces short captions, hides data under the caption, and breaks at every breakpoint.
+          <strong>Native scroll only.</strong> The component observes scroll position (IntersectionObserver semantics); it never hijacks the wheel, never snaps, never animates <span class="mono">scrollTop</span> on its own. A reader can fling past the whole story and nothing fights them. The single exception: clicking a step / progress dot may smooth-scroll to that step, because the reader asked.
+          <strong>The stage owns no chrome.</strong> It is a fixed-height sticky slot; a keyframe is any <span class="mono">SubtypeExprOrValue&lt;UIComponentType&gt;</span> rendered into it, directly on the page background. A keyframe that wants the Card treatment composes <span class="mono">&lt;Card&gt;</span> like anywhere else — there is no <span class="mono">frame</span> prop to learn. The stage's height is fixed per story so keyframe tweens never reflow the page.
+          <strong>Steps and stage are ordinary components.</strong> A step body is any east-ui subtree (<span class="mono">Text</span>, <span class="mono">MetricChip</span>, <span class="mono">Stat.Card</span>, even a <span class="mono">Button</span>). The stage is any east-ui subtree per keyframe — usually a <span class="mono">Chart</span>, but a <span class="mono">Table</span>, <span class="mono">Matrix</span> or <span class="mono">Planner</span> keyframe is equally valid. Story adds narrative state and motion; it owns no visuals of its own.
+          <strong>Every keyframe renders deterministically.</strong> <span class="mono">activeStep</span> forces a static state — the snapshot pipeline renders one PNG per step, and deep links (<span class="mono">#story=q4-review/promo</span>) land on a specific keyframe.
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Story.Root — anatomy + live demo
+         ════════════════════════════════════════════════════════════ -->
+    <article id="story-root" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Story<span class="ns">.</span>Root</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The composed narrative container: optional one-row chrome (<span class="mono">Story.Progress</span>), a prose
+        <strong>rail</strong> with the progress spine, and the sticky <strong>stage</strong>. Scroll drives the active
+        step; the active step drives the stage keyframe. Below is a <em>live</em> mock — scroll inside the frame.
+      </p>
+
+      <!-- Anatomy -->
+      <div class="st-anatomy" style="margin-bottom: 16px;">
+        <div class="st-zone">
+          <span class="lbl">Chrome</span>
+          <span class="content">Story.Progress — eyebrow title · dots · prev/next · counter. Optional; one row; sticky over the story only.</span>
+          <span class="dim">h 40px · sticky</span>
+        </div>
+        <div class="st-zone body">
+          <span class="lbl">Rail</span>
+          <span class="content">N step blocks on the progress spine. Each block: eyebrow (<span class="mono">02 / 06</span>) · title · body. Step length sets pacing — the runway the reader scrolls through per keyframe.</span>
+          <span class="dim">w clamp(280, 34%, 380)px<br>step min-h 52vh</span>
+        </div>
+        <div class="st-zone body">
+          <span class="lbl">Stage</span>
+          <span class="content">Sticky unchromed slot holding the active keyframe — any <span class="mono">UIComponentType</span> value; compose <span class="mono">&lt;Card&gt;</span> inside a keyframe when wanted. Fixed height (<span class="mono">stageHeight</span>, default 420px) — tweens never reflow. Fills the remaining width.</span>
+          <span class="dim">sticky top 16px<br>gap to rail 28px</span>
+        </div>
+      </div>
+
+      <!-- Live demo -->
+      <div class="frame" style="overflow: hidden;">
+        <div class="story-demo" id="demo-scroller">
+          <div class="story-chrome">
+            <span class="title">Q4 demand review</span>
+            <span class="dots" id="demo-dots">
+              <span class="cur"></span><span></span><span></span><span></span>
+            </span>
+            <span class="counter" id="demo-counter"><span class="cur">1</span> / 4</span>
+            <span class="nav-btn" data-demo-nav="-1">↑</span>
+            <span class="nav-btn" data-demo-nav="1">↓</span>
+          </div>
+          <div class="story-demo-grid">
+            <!-- Rail -->
+            <div class="rail-col" id="demo-rail">
+              <div class="story-step active" data-step="0">
+                <span class="node"></span>
+                <div class="step-eyebrow">01 / 04 · Demand</div>
+                <h4 class="step-title">Demand ran hot</h4>
+                <div class="step-body">
+                  <p>Orders climbed steadily from week 6 and never gave the gain back — the exit rate is 34% above the start of the quarter.</p>
+                  <span class="deltapill up" style="font-size: 10.5px;">▲ +34% vs start of Q4</span>
+                </div>
+              </div>
+              <div class="story-step" data-step="1">
+                <span class="node"></span>
+                <div class="step-eyebrow">02 / 04 · Forecast</div>
+                <h4 class="step-title">The plan missed the turn</h4>
+                <div class="step-body">
+                  <p>The committed forecast (dashed) tracked well until week 8, then kept its old slope. By week 16 the gap is 18% — that gap is the whole story.</p>
+                  <span class="deltapill down" style="font-size: 10.5px;">▼ forecast −18% at wk 16</span>
+                </div>
+              </div>
+              <div class="story-step" data-step="2">
+                <span class="node"></span>
+                <div class="step-eyebrow">03 / 04 · Cause</div>
+                <h4 class="step-title">One event explains the spike</h4>
+                <div class="step-body">
+                  <p>The week-8 inflection lands on the retail promo going live. Demand stepped up and <em>stayed</em> up — this was a level shift, not a transient.</p>
+                  <span class="chip compact" style="font-size: 10.5px;"><span class="dot brand"></span>promo live · Nov 14</span>
+                </div>
+              </div>
+              <div class="story-step" data-step="3">
+                <span class="node"></span>
+                <div class="step-eyebrow">04 / 04 · Where</div>
+                <h4 class="step-title">The gap wasn't uniform</h4>
+                <div class="step-body">
+                  <p>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat. Re-forecast NA only — touching the others adds noise, not signal.</p>
+                  <span class="deltapill up" style="font-size: 10.5px;">▲ NA +29%</span>
+                  <span class="deltapill flat" style="font-size: 10.5px; margin-left: 4px;">≈ APAC +2%</span>
+                </div>
+              </div>
+            </div>
+            <!-- Stage -->
+            <div class="stage-col">
+              <div class="stage-sticky">
+                <div class="story-stage-frame" id="demo-stage">
+                  <div class="keyframe on" data-step="0">
+                    <div class="kf-label">Orders · Q4 weekly · actual</div>
+                    <div data-spec-multiline='{"series":[{"data":[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],"stroke":"#3a7780","strokeWidth":2}],"ticks":["wk 1","wk 4","wk 8","wk 12","wk 16"],"yTicks":["800","1000","1200"]}'
+                         style="width: 100%; height: 330px; margin-top: 12px;"></div>
+                  </div>
+                  <div class="keyframe" data-step="1">
+                    <div class="kf-label">Orders · Q4 weekly · actual vs forecast (dashed)</div>
+                    <div data-spec-multiline='{"series":[{"data":[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],"stroke":"#3a7780","strokeWidth":2},{"data":[825,838,850,862,874,886,898,910,922,934,946,958,970,982,994,1006],"stroke":"#6b8080","strokeWidth":1.6,"dasharray":"4 3"}],"ticks":["wk 1","wk 4","wk 8","wk 12","wk 16"],"yTicks":["800","1000","1200"]}'
+                         style="width: 100%; height: 330px; margin-top: 12px;"></div>
+                  </div>
+                  <div class="keyframe" data-step="2">
+                    <div class="kf-label">Orders · Q4 weekly · 1 annotation</div>
+                    <div data-spec-annotated='{"yUnit":"","series":[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],"yMin":800,"yMax":1200,"annotations":[{"at":0.47,"kind":"deploy","callout":"promo live"}],"xTicks":["wk 1","wk 4","wk 8","wk 12","wk 16"]}'
+                         style="width: 100%; height: 330px; margin-top: 12px;"></div>
+                  </div>
+                  <div class="keyframe" data-step="3">
+                    <div class="kf-label">Orders · uplift by region · wk 1–8 vs wk 9–16</div>
+                    <div data-spec-bargroup='{"groups":[[846,1110],[612,668],[418,426]],"strokes":["#3a7780","#5ce5e5"]}'
+                         style="width: 100%; height: 300px; margin-top: 12px;"></div>
+                    <div style="display: flex; gap: 18px; justify-content: center; margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-3);">
+                      <span>NA</span><span>EU</span><span>APAC</span>
+                      <span style="margin-left: 12px;"><span style="display:inline-block;width:10px;height:8px;background:#3a7780;margin-right:4px;"></span>wk 1–8</span>
+                      <span><span style="display:inline-block;width:10px;height:8px;background:#5ce5e5;margin-right:4px;"></span>wk 9–16</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <span class="demo-hint">scroll to drive ↓</span>
+        </div>
+      </div>
+
+      <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Dimensions:</span>
+        <strong>Rail</strong> — width <span class="mono">clamp(280px, 34%, 380px)</span> · rail–stage gap <span class="mono">28px</span> · prose max <span class="mono">46ch</span>.
+        <strong>Step runway</strong> — <span class="mono">stepLength</span>: <span class="mono">compact 36vh</span> · <span class="mono">default 52vh</span> · <span class="mono">long 72vh</span>; first step starts active at load, last step gets +20vh tail so it can complete before the story scrolls out.
+        <strong>Trigger line</strong> — a step activates when its block crosses <span class="mono">38%</span> from the viewport top; within-step <span class="mono">progress ∈ [0,1]</span> is the block's travel through that line.
+        <strong>Stage</strong> — sticky <span class="mono">top: 16px</span> (+ chrome height when <span class="mono">Story.Progress</span> sits above) · height <span class="mono">stageHeight</span> (default <span class="mono">420px</span>) · unchromed slot, keyframes bring their own framing · the stage never resizes between keyframes.
+        <strong>Spine</strong> — 2px <span class="mono">rule</span> at rail-left; node 10px, <span class="mono">rule-strong</span> ring → <span class="mono">brand-d</span> ring when visited → filled when active.
+      </div>
+
+      <div class="spec-note" style="margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Layouts:</span>
+        <strong><span class="mono">rail-left</span> (default)</strong> — prose left, stage right; reading order matches scan order.
+        <strong><span class="mono">rail-right</span></strong> — mirror; for pages whose surrounding chrome already sits left.
+        <strong><span class="mono">stacked</span></strong> — forced under <span class="mono">720px</span>: stage compresses to <span class="mono">min(stageHeight, 280px)</span>, sticks to the top, prose scrolls beneath it full-width. There is no overlay layout.
+      </div>
+      <div class="layout-thumbs" style="margin-top: 12px;">
+        <div class="layout-thumb">
+          <div class="pic" style="grid-template-columns: 90px 1fr;">
+            <div style="display: grid; gap: 5px; align-content: start;"><div class="txt" style="height: 7px; width: 70%;"></div><div class="txt" style="height: 5px;"></div><div class="txt" style="height: 5px; width: 85%;"></div><div class="txt" style="height: 5px; width: 60%; opacity: .5;"></div><div class="txt" style="height: 5px; width: 75%; opacity: .5;"></div></div>
+            <div class="viz"></div>
+          </div>
+          <div class="cap"><span class="name">rail-left</span> · default</div>
+        </div>
+        <div class="layout-thumb">
+          <div class="pic" style="grid-template-columns: 1fr 90px;">
+            <div class="viz"></div>
+            <div style="display: grid; gap: 5px; align-content: start;"><div class="txt" style="height: 7px; width: 70%;"></div><div class="txt" style="height: 5px;"></div><div class="txt" style="height: 5px; width: 85%;"></div><div class="txt" style="height: 5px; width: 60%; opacity: .5;"></div></div>
+          </div>
+          <div class="cap"><span class="name">rail-right</span> · mirrored</div>
+        </div>
+        <div class="layout-thumb">
+          <div class="pic" style="grid-template-rows: 44px 1fr;">
+            <div class="viz"></div>
+            <div style="display: grid; gap: 5px; align-content: start;"><div class="txt" style="height: 6px; width: 40%;"></div><div class="txt" style="height: 5px;"></div><div class="txt" style="height: 5px; width: 80%;"></div></div>
+          </div>
+          <div class="cap"><span class="name">stacked</span> · forced &lt; 720px</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Story.Step
+         ════════════════════════════════════════════════════════════ -->
+    <article id="story-step" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Story<span class="ns">.</span>Step</span>
+      </div>
+      <p class="pattern-blurb">
+        One narrative beat: spine node · eyebrow (<span class="mono">index / total · label</span>) · title ·
+        body. The body is the step's children — any east-ui subtree: chips, stats, even actions. Three visual states;
+        only opacity and the node change, the type never moves.
+      </p>
+      <div class="frame pad-18">
+        <div style="max-width: 420px;">
+          <div class="story-step visited">
+            <span class="node"></span>
+            <div class="step-eyebrow">01 / 04 · Demand</div>
+            <h4 class="step-title">Demand ran hot</h4>
+            <div class="step-body"><p>Visited — read and scrolled past. Dimmed to 0.45, node keeps the brand ring as a "seen" mark.</p></div>
+          </div>
+          <div class="story-step active">
+            <span class="node"></span>
+            <div class="step-eyebrow">02 / 04 · Forecast</div>
+            <h4 class="step-title">The plan missed the turn</h4>
+            <div class="step-body">
+              <p>Active — full ink, brand eyebrow, filled node. The stage shows this step's keyframe. Bodies reuse east-ui display components:</p>
+              <span class="deltapill down" style="font-size: 10.5px;">▼ forecast −18% at wk 16</span>
+              <span class="chip compact" style="font-size: 10.5px; margin-left: 6px;"><span class="dot brand"></span>committed · v3.2</span>
+            </div>
+          </div>
+          <div class="story-step">
+            <span class="node"></span>
+            <div class="step-eyebrow">03 / 04 · Cause</div>
+            <h4 class="step-title">One event explains the spike</h4>
+            <div class="step-body"><p>Upcoming — dimmed, neutral node. Never hidden: the reader can always see the shape of what's left.</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Slots:</span>
+        <strong>Body is the children; <span class="mono">stage</span> is a component prop</strong> — both ultimately <span class="mono">SubtypeExprOrValue&lt;UIComponentType&gt;</span>; no keyframe type exists. <span class="mono">&lt;Story.Step&gt;</span>'s children render in the rail (mounted simultaneously, scrolling past), while exactly one step's <span class="mono">stage</span> renders in the sticky slot at a time — the same prop shape as <span class="mono">Dialog</span>'s <span class="mono">trigger</span>. The split <em>is</em> the pattern — N scrolling prose blocks driving 1 persistent visual; collapse them and you have either an article (no stage) or text floating over a chart (no rail), both rejected above.
+        <strong><span class="mono">body</span> fills the step's full runway</strong> — the slot stretches to the block's height (<span class="mono">stepLength</span>), not just its content. Default flow is top-aligned, but the author's subtree owns the whole rectangle: vertically centre a pull-quote, pin a CTA to the block's foot, or space content across it with ordinary layout props (<span class="mono">VStack justify</span>). The runway is usable space, not dead margin.
+        <strong><span class="mono">stage</span> is optional</strong> — a step without one holds the previous keyframe, the natural shape for two beats narrating the same visual.
+        <strong><span class="mono">eyebrow</span> / <span class="mono">title</span> are prop sugar</strong> — typed shortcuts that guarantee the spec type treatment; a step with only children may compose its own.
+        <span class="k" style="display: block; margin-top: 8px;">Rules:</span>
+        <strong>Type scale</strong> — eyebrow mono <span class="mono">9.5px / 600 / 0.18em caps</span> (brand-d when active, ink-4 otherwise) · title DM Sans <span class="mono">17px / 600 / −0.01em</span> ink · body <span class="mono">13px / 1.55</span> ink-2.
+        <strong>One idea per step.</strong> A step body that needs a scrollbar is two steps. Soft cap: title + ~4 lines + one chip row.
+        <strong>State is opacity only</strong> — inactive 0.45, active 1.0, <span class="mono">200ms ease-out</span>. Text never translates or scales; motion budget belongs to the stage.
+        <strong>Steps are clickable</strong> — clicking an inactive step smooth-scrolls it to the trigger line (the one sanctioned programmatic scroll).
+        <strong>Interactive bodies are allowed</strong> — a final step routinely carries the call to action (<span class="mono">&lt;Button onClick={…}&gt;Open the run →&lt;/Button&gt;</span>).
+      </div>
+    </article>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Story.Stage — keyframes + tween contract
+         ════════════════════════════════════════════════════════════ -->
+    <article id="story-stage" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Story<span class="ns">.</span>Stage</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The sticky slot that holds one <strong>keyframe</strong> per step. A keyframe is an ordinary east-ui
+        subtree; the renderer owns the motion between adjacent keyframes. Authors write four plain charts —
+        the renderer makes them one evolving chart.
+      </p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Keyframe strip · the 4 stage states of the demo above</span>
+          <span class="meta">author each as a plain <span class="mono">&lt;Chart&gt;</span></span>
+        </div>
+        <div class="kf-strip">
+          <div class="kf">
+            <div class="kf-head"><span class="key">demand</span> · kf 1</div>
+            <div data-spec-spark='[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100]' data-area="false" style="width: 100%; height: 64px;"></div>
+            <div class="kf-patch">layers: [actual]</div>
+          </div>
+          <div class="kf">
+            <div class="kf-head"><span class="key">forecast</span> · kf 2</div>
+            <div data-spec-multiline='{"series":[{"data":[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],"stroke":"#3a7780","strokeWidth":1.6},{"data":[825,838,850,862,874,886,898,910,922,934,946,958,970,982,994,1006],"stroke":"#6b8080","strokeWidth":1.2,"dasharray":"3 2"}]}' style="width: 100%; height: 64px;"></div>
+            <div class="kf-patch">layers: [actual,
+ <span class="add">+ forecast]</span></div>
+          </div>
+          <div class="kf">
+            <div class="kf-head"><span class="key">promo</span> · kf 3</div>
+            <div data-spec-annotated='{"yUnit":"","series":[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],"yMin":800,"yMax":1200,"annotations":[{"at":0.47,"kind":"deploy"}]}' style="width: 100%; height: 64px;"></div>
+            <div class="kf-patch">layers: [actual,
+ <span class="del">− forecast,</span>
+ <span class="add">+ refDot(promo)]</span></div>
+          </div>
+          <div class="kf">
+            <div class="kf-head"><span class="key">regions</span> · kf 4</div>
+            <div data-spec-bargroup='{"groups":[[846,1110],[612,668],[418,426]],"strokes":["#3a7780","#5ce5e5"]}' style="width: 100%; height: 64px;"></div>
+            <div class="kf-patch"><span class="del">− Chart.Line</span>
+<span class="add">+ Chart.Bar by region</span>
+→ crossfade</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Tween contract (renderer-owned):</span>
+        <strong>Same mark family, same x-type</strong> → continuous tween: scales/domains animate <span class="mono">360ms ease-out</span>; series are matched <em>by name</em> — matched series tween geometry, entering series fade+draw in, exiting series fade out first.
+        <strong>Annotations</strong> (<span class="mono">refLine / refBand / refDot</span>) enter by sliding from their axis, <span class="mono">240ms</span>, after series settle.
+        <strong>Different component kinds</strong> (Line → Bar, Chart → Table) → crossfade <span class="mono">200ms</span>, old out then new in, frame size constant.
+        <strong>Scrubbed properties</strong> — a keyframe may read the <span class="mono">progress</span> binding (Float 0–1 within the step) for scroll-locked effects: progressive data reveal (<span class="mono">Chart.window(p)</span>), a sweeping refLine. Scrub maps 1:1 to scroll — no easing, no duration; easing a scrub makes the chart lag the reader's hand.
+        <strong>Reduced motion</strong> — <span class="mono">prefers-reduced-motion</span> ⇒ every transition becomes a <span class="mono">120ms</span> crossfade and scrubbed reveals render complete.
+      </div>
+      <div class="spec-note" style="margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Discipline:</span>
+        <strong>Keep one visual anchor across keyframes.</strong> Adjacent keyframes should share an axis, a series, or a frame region — a story where every beat swaps the whole visual is a Carousel wearing a trenchcoat.
+        <strong>Framing belongs to keyframes, not the stage.</strong> Keyframes own their full rectangle; one that wants a border composes <span class="mono">&lt;Card&gt;</span>. Keep adjacent keyframes' framing consistent — all bare or all carded — so the stage reads as one object while it tweens, and give bare stages <span class="mono">≥ 32px</span> clearance from surrounding page chrome.
+        <strong>The stage never carries chrome.</strong> No Slice affordances, no toolbars inside the stage — the narrative <em>is</em> the filter. If the reader needs to explore, the story's last step links out to the Observe surface with the slice pre-bound.
+      </div>
+    </article>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Story.Progress
+         ════════════════════════════════════════════════════════════ -->
+    <article id="story-progress" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Story<span class="ns">.</span>Progress</span>
+      </div>
+      <p class="pattern-blurb">
+        The one-row chrome strip: eyebrow title · per-step dots · counter · prev/next. Optional inside
+        <span class="mono">Story.Root</span>; also mounts standalone anywhere (a page header, a Drawer foot)
+        because it only talks to the <span class="mono">active</span> binding.
+      </p>
+      <div class="frame" style="overflow: hidden;">
+        <div class="story-chrome" style="position: static;">
+          <span class="title">Q4 demand review</span>
+          <span class="dots"><span class="seen"></span><span class="cur"></span><span></span><span></span></span>
+          <span class="counter"><span class="cur">2</span> / 4</span>
+          <span class="nav-btn">↑</span>
+          <span class="nav-btn">↓</span>
+        </div>
+      </div>
+      <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Rules:</span>
+        <strong>One row, never wraps</strong> (§Overflow). Past ~12 steps the dots compress to a 64px segmented meter; the counter stays.
+        <strong>Dots are buttons</strong> — click and prev/next simply write the <span class="mono">active</span> binding; the rail treats the write as navigation and smooth-scrolls.
+        <strong>Keyboard</strong> — when the story has focus: <span class="kbd">↑</span>/<span class="kbd">↓</span> or <span class="kbd">j</span>/<span class="kbd">k</span> step; <span class="kbd">Home</span>/<span class="kbd">End</span> jump. Focus never traps — <span class="kbd">Tab</span> exits normally.
+        <strong>States</strong> — dot 6px: <span class="mono">rule-strong</span> upcoming · <span class="mono">brand @ 0.5</span> seen · <span class="mono">brand-d</span> current.
+      </div>
+    </article>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Wiring — the DX
+         ════════════════════════════════════════════════════════════ -->
+    <div class="bsys" id="story-wiring">
+      <div class="bsys-lbl">Wiring<span class="sub">Story is state. The rail is a writer; everything else may read.</span></div>
+      <div class="bsys-body">
+        <p style="margin: 0 0 14px; font-size: 13px; line-height: 1.55; color: var(--ink-2); max-width: 78ch;">
+          Same idiom as <span class="mono">Stat.Layout</span>: the narrative position is <em>one ordinary state
+          binding</em> — an <span class="mono">IntegerType</span> index, usually from <span class="mono">State.bind</span>,
+          but anything exposing read/write closures works. There is no bespoke handle and nothing to bind when
+          you don't need it: omit the prop and Story keeps the state internal. Pass it only when something
+          <em>outside</em> the story must read or drive the position — then it behaves like any other state:
+          readable in any <span class="mono">&lt;Reactive&gt;</span>, writable from a <span class="mono">Button</span>
+          three components away, snapshot-able, deep-linkable.
+        </p>
+
+        <div style="padding: 14px 16px; background: var(--brand-900); border-radius: 4px; color: rgba(255,255,255,0.9); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7;">
+          <div style="font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.55); margin-bottom: 10px;">Wiring · in code</div>
+<pre style="margin: 0; color: inherit; font: inherit; white-space: pre;"><span style="color: rgba(180, 180, 180, 0.7);">// One legal program: $.const / $.let exist only inside an East.function</span>
+<span style="color: rgba(180, 180, 180, 0.7);">// builder (orderRows / uplift: raw row data).</span>
+<span style="color: rgba(120, 200, 200, 0.95);">const</span> QuarterReview = <span style="color: rgba(120, 200, 200, 0.95);">East.function</span>([], UIComponentType, ($) =&gt; {
+
+<span style="color: rgba(180, 180, 180, 0.7);">  // 0 · Rows are typed once. Every field reference below — chart accessors,</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     Table column keys — is checked against this struct, exactly as in</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     Table / Chart today. Story adds no stringly-typed data surface.</span>
+  <span style="color: rgba(120, 200, 200, 0.95);">const</span> Order  = <span style="color: rgba(120, 200, 200, 0.95);">StructType</span>({ week: IntegerType, actual: FloatType, forecast: FloatType });
+  <span style="color: rgba(120, 200, 200, 0.95);">const</span> orders = $.<span style="color: rgba(120, 200, 200, 0.95);">const</span>(orderRows, <span style="color: rgba(120, 200, 200, 0.95);">ArrayType</span>(Order));
+
+<span style="color: rgba(180, 180, 180, 0.7);">  // 1 · OPTIONAL — plain State bindings. Omit the props and Story manages its</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     position internally; bind only when other surfaces must read or drive</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     it (same idiom as Stat.Layout's selection).</span>
+  <span style="color: rgba(120, 200, 200, 0.95);">const</span> active = $.let(<span style="color: rgba(120, 200, 200, 0.95);">State.bind</span>([IntegerType], <span style="color: rgba(255, 180, 130, 0.95);">"q4-review.step"</span>, 0n));
+  <span style="color: rgba(120, 200, 200, 0.95);">const</span> scrub  = $.let(<span style="color: rgba(120, 200, 200, 0.95);">State.bind</span>([FloatType],   <span style="color: rgba(255, 180, 130, 0.95);">"q4-review.progress"</span>, 0.0));
+
+<span style="color: rgba(180, 180, 180, 0.7);">  // 2 · Shared layers are plain build-time values — declare once, reference</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     from several keyframes. The renderer tweens series matched by name.</span>
+  <span style="color: rgba(120, 200, 200, 0.95);">const</span> actual   = <span style="color: rgba(120, 200, 200, 0.95);">Chart.Line</span>(orders, { x: d =&gt; d.week, y: d =&gt; d.actual },   { name: <span style="color: rgba(255, 180, 130, 0.95);">"actual"</span>,   color: <span style="color: rgba(255, 180, 130, 0.95);">"teal.solid"</span> });
+  <span style="color: rgba(120, 200, 200, 0.95);">const</span> forecast = <span style="color: rgba(120, 200, 200, 0.95);">Chart.Line</span>(orders, { x: d =&gt; d.week, y: d =&gt; d.forecast }, { name: <span style="color: rgba(255, 180, 130, 0.95);">"forecast"</span>, color: <span style="color: rgba(255, 180, 130, 0.95);">"gray.solid"</span>, dash: <span style="color: rgba(255, 180, 130, 0.95);">"4 3"</span> });
+
+<span style="color: rgba(180, 180, 180, 0.7);">  // 3 · Steps are children. &lt;Story.Step&gt; is a real component — its children</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     are the rail body, its stage prop is the keyframe (a UIComponent</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     prop, same shape as Dialog's trigger). The renderer routes bodies →</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     rail and the active stage → the sticky slot, like Tabs shows one panel.</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  // 4 · Anything can read or drive the position — it's just State. A write</span>
+<span style="color: rgba(180, 180, 180, 0.7);">  //     from outside is navigation: the rail smooth-scrolls to that step.</span>
+  <span style="color: rgba(120, 200, 200, 0.95);">return</span> (
+    &lt;<span style="color: rgba(255, 220, 130, 0.95);">VStack</span> gap=<span style="color: rgba(255, 180, 130, 0.95);">"6"</span>&gt;
+      &lt;<span style="color: rgba(255, 220, 130, 0.95);">Story</span> active={active} progress={scrub} layout=<span style="color: rgba(255, 180, 130, 0.95);">"rail-left"</span> stageHeight={420} stepLength=<span style="color: rgba(255, 180, 130, 0.95);">"default"</span>
+             onStepEnter={<span style="color: rgba(120, 200, 200, 0.95);">East.function</span>([StringType], NullType, ($, id) =&gt; { … })}&gt;
+        &lt;<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span> id=<span style="color: rgba(255, 180, 130, 0.95);">"demand"</span> eyebrow=<span style="color: rgba(255, 180, 130, 0.95);">"Demand"</span> title=<span style="color: rgba(255, 180, 130, 0.95);">"Demand ran hot"</span>
+                    stage={&lt;<span style="color: rgba(255, 220, 130, 0.95);">Chart</span> layers={[actual]} grid /&gt;}&gt;
+          &lt;<span style="color: rgba(255, 220, 130, 0.95);">Text</span>&gt;Orders climbed from week 6 and never gave the gain back…&lt;/<span style="color: rgba(255, 220, 130, 0.95);">Text</span>&gt;
+          &lt;<span style="color: rgba(255, 220, 130, 0.95);">MetricChip</span> sentiment=<span style="color: rgba(255, 180, 130, 0.95);">"pos"</span>&gt;▲ +34% vs start of Q4&lt;/<span style="color: rgba(255, 220, 130, 0.95);">MetricChip</span>&gt;
+        &lt;/<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span>&gt;
+        &lt;<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span> id=<span style="color: rgba(255, 180, 130, 0.95);">"forecast"</span> eyebrow=<span style="color: rgba(255, 180, 130, 0.95);">"Forecast"</span> title=<span style="color: rgba(255, 180, 130, 0.95);">"The plan missed the turn"</span>
+                    stage={&lt;<span style="color: rgba(255, 220, 130, 0.95);">Chart</span> layers={[actual, forecast]} grid legend /&gt;}&gt;
+          …
+        &lt;/<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span>&gt;
+        &lt;<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span> id=<span style="color: rgba(255, 180, 130, 0.95);">"promo"</span> eyebrow=<span style="color: rgba(255, 180, 130, 0.95);">"Cause"</span> title=<span style="color: rgba(255, 180, 130, 0.95);">"One event explains the spike"</span>
+                    stage={&lt;<span style="color: rgba(255, 220, 130, 0.95);">Chart</span> layers={[actual, <span style="color: rgba(120, 200, 200, 0.95);">Chart.refDot</span>({ x: 8n, y: 1010, label: <span style="color: rgba(255, 180, 130, 0.95);">"promo live"</span> })]} grid /&gt;}&gt;
+          …
+        &lt;/<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span>&gt;
+        &lt;<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span> id=<span style="color: rgba(255, 180, 130, 0.95);">"regions"</span> eyebrow=<span style="color: rgba(255, 180, 130, 0.95);">"Where"</span> title=<span style="color: rgba(255, 180, 130, 0.95);">"The gap wasn't uniform"</span>
+                    stage={&lt;<span style="color: rgba(255, 220, 130, 0.95);">Chart</span> layers={<span style="color: rgba(120, 200, 200, 0.95);">Chart.Bar</span>(uplift, { x: d =&gt; d.region, y: d =&gt; d.orders, by: d =&gt; d.half })} grid legend /&gt;}&gt;
+          …
+        &lt;/<span style="color: rgba(255, 220, 130, 0.95);">Story.Step</span>&gt;
+      &lt;/<span style="color: rgba(255, 220, 130, 0.95);">Story</span>&gt;
+      &lt;<span style="color: rgba(255, 220, 130, 0.95);">Reactive</span>&gt;{$ =&gt; {
+        <span style="color: rgba(120, 200, 200, 0.95);">const</span> i = $.let(active.read());
+        <span style="color: rgba(120, 200, 200, 0.95);">const</span> next = $.<span style="color: rgba(120, 200, 200, 0.95);">const</span>(<span style="color: rgba(120, 200, 200, 0.95);">East.function</span>([], NullType, $ =&gt; { $(active.write(active.read().add(1n))); }));
+        <span style="color: rgba(120, 200, 200, 0.95);">return</span> &lt;<span style="color: rgba(255, 220, 130, 0.95);">HStack</span> gap=<span style="color: rgba(255, 180, 130, 0.95);">"3"</span>&gt;
+          &lt;<span style="color: rgba(255, 220, 130, 0.95);">Text</span>&gt;{East.str`Reviewing beat ${i.add(1n)} of 4`}&lt;/<span style="color: rgba(255, 220, 130, 0.95);">Text</span>&gt;
+          &lt;<span style="color: rgba(255, 220, 130, 0.95);">Button</span> onClick={next}&gt;Skip ahead →&lt;/<span style="color: rgba(255, 220, 130, 0.95);">Button</span>&gt;
+        &lt;/<span style="color: rgba(255, 220, 130, 0.95);">HStack</span>&gt;;
+      }}&lt;/<span style="color: rgba(255, 220, 130, 0.95);">Reactive</span>&gt;
+      &lt;<span style="color: rgba(255, 220, 130, 0.95);">Story.Progress</span> active={active} count={4} /&gt;
+    &lt;/<span style="color: rgba(255, 220, 130, 0.95);">VStack</span>&gt;
+  );
+});</pre>
+        </div>
+
+        <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+          <span class="k">Binding contract:</span>
+          <strong><span class="mono">active</span></strong> — <span class="mono">IntegerType</span> read/write closures. The scroll driver writes it as steps cross the trigger line; an external write is treated as <em>navigation</em> — the rail smooth-scrolls that step to the trigger line, then resumes observing. Reads track dependencies inside <span class="mono">&lt;Reactive&gt;</span> like any other state.
+          <strong><span class="mono">progress</span></strong> — optional <span class="mono">FloatType</span> binding, 0–1 through the active step. Written by the scroll driver only; consumers read it for scrub effects and never write it.
+          <strong>Defaults</strong> — omit both and Story manages internal state; the component is fully usable with zero wiring. No <span class="mono">Story.bind</span>, no handle type — there is nothing to learn beyond <span class="mono">State.bind</span>.
+        </div>
+        <div class="spec-note" style="margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 10px;">
+          <span class="k">DX rules:</span>
+          <strong>Steps are children.</strong> <span class="mono">&lt;Story&gt;</span> is a children-taking container like <span class="mono">ChipRail</span> / <span class="mono">Stack</span>, and <span class="mono">&lt;Story.Step&gt;</span> is a real component — a <span class="mono">UIComponentType</span> variant arm carrying <span class="mono">id / eyebrow / title</span>, its children as the rail body, and its keyframe on the <span class="mono">stage</span> prop (a UIComponent prop, the established <span class="mono">Dialog.trigger</span> shape). The contract "children must be Story.Steps" is soft, exactly like ChipRail's chip-shaped children — the renderer skips non-step children with a dev warning.
+          <strong>Routing and branching live in the renderer.</strong> Children are runtime values, so Story's renderer — not the IR builder — walks them: bodies render in document order in the rail, the active step's <span class="mono">stage</span> renders in the sticky slot, and the switch on the active index happens at render time, the way Tabs' renderer shows one panel. Authors never write the switch; and because steps are values, a conditional step (<span class="mono">cond.ifElse(&lt;Story.Step…/&gt;, &lt;Story.Step…/&gt;)</span>) is legal.
+          <strong>Inference is inherited, not reinvented.</strong> Keyframes are plain <span class="mono">&lt;Chart&gt;</span> / <span class="mono">&lt;Table&gt;</span> values, so the existing typed surfaces apply unchanged: chart encodings are typed accessors (<span class="mono">d =&gt; d.week</span>) checked against the row struct, Table columns are keyed by the row's fields (<span class="mono">ColumnSpec</span> generic), and shared layers are ordinary build-time consts reused across keyframes. The only strings Story itself introduces are the per-step <span class="mono">id</span>s, used for deep links and snapshot names; because steps are runtime children, <span class="mono">activeStep</span> is a plain <span class="mono">StringType</span> (no static key union — the accepted price of the children form).
+          <strong>East-function handlers</strong> — <span class="mono">onStepEnter / onStepExit(id)</span> fire on transitions in either direction; use for analytics, prefetching a heavy keyframe's data, or pinging a sibling surface.
+          <strong>Scrub is just Reactive.</strong> A keyframe that wants scroll-locked effects wraps its subtree in <span class="mono">&lt;Reactive&gt;</span> and reads the <span class="mono">progress</span> binding — no new mechanism.
+          <strong>Standalone chrome</strong> — <span class="mono">&lt;Story.Progress active={active} /&gt;</span> mounts anywhere (a page header, a Drawer foot) because it shares nothing with the Story but the binding.
+        </div>
+        <div class="spec-note" style="margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 10px;">
+          <span class="k">Static & pipeline:</span>
+          <strong><span class="mono">activeStep="promo"</span></strong> — overrides scroll, renders one deterministic keyframe; the snapshot pipeline emits one PNG per step (<span class="mono">story/q4-review/demand.png</span>, …).
+          <strong>Deep link</strong> — <span class="mono">#story=q4-review/promo</span> writes the <span class="mono">active</span> binding on mount and scrolls the step to the trigger line.
+          <strong>Print</strong> — linearizes: each step renders full-ink with its keyframe inline below it; the spine becomes the left margin rule.
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Disambiguation
+         ════════════════════════════════════════════════════════════ -->
+    <div class="bsys" id="story-vs">
+      <div class="bsys-lbl">Story vs …<span class="sub">Pick the cheapest pattern that fits.</span></div>
+      <div class="bsys-body">
+        <div class="spec-note" style="margin: 0;">
+          <span class="k">Decision rule:</span>
+          <strong>vs <span class="mono">Tabs</span></strong> — Tabs are random-access and stateless between visits; Story is ordered and persistent. If beats can be read in any order, use Tabs.
+          <strong>vs <span class="mono">Carousel</span></strong> — Carousel pages siblings of equal weight with no shared visual; Story evolves <em>one</em> visual. If nothing persists across beats, it's a Carousel.
+          <strong>vs <span class="mono">Stat.Annotated</span></strong> — one chart + event markers needs no narrative chrome. Reach for Story only when the <em>sequence</em> of readings carries the argument.
+          <strong>vs an Observe page</strong> — Story is for the rendered conclusion of an analysis, not for exploration. If the reader should be able to re-slice, give them Observe with a <span class="mono">Slice</span> handle and link to it from the story's last step.
+        </div>
+      </div>
+    </div>
+
+    </section>
+
+  </main>
+</div>
+
+<!-- Live demo driver — design-mock only. The real renderer uses the same
+     semantics: observe (never hijack) scroll, map trigger-line crossings to
+     the active binding, toggle keyframes by class. Initial markup is step 1 active,
+     so static snapshots render correctly without this script. -->
+<script>
+(() => {
+  const scroller = document.getElementById("demo-scroller");
+  if (!scroller) return;
+  const steps  = [...scroller.querySelectorAll(".rail-col .story-step")];
+  const frames = [...scroller.querySelectorAll(".story-stage-frame .keyframe")];
+  const dots   = [...scroller.querySelectorAll("#demo-dots span")];
+  const counter = scroller.querySelector("#demo-counter .cur");
+  let active = 0;
+
+  function setActive(i) {
+    if (i === active || i < 0 || i >= steps.length) return;
+    active = i;
+    scroller.dataset.active = String(i);  // observable state hook for snapshot tests
+    steps.forEach((el, j) => {
+      el.classList.toggle("active", j === i);
+      el.classList.toggle("visited", j < i);
+    });
+    frames.forEach((el, j) => el.classList.toggle("on", j === i));
+    dots.forEach((el, j) => {
+      el.classList.toggle("cur", j === i);
+      el.classList.toggle("seen", j < i);
+    });
+    if (counter) counter.textContent = String(i + 1);
+  }
+
+  // Trigger line at 40% of the demo viewport (spec §Story.Root dimensions).
+  // The real renderer uses IntersectionObserver; this mock uses a scroll
+  // listener so the state is deterministic under headless snapshotting.
+  function onScroll() {
+    const line = scroller.scrollTop + scroller.clientHeight * 0.40;
+    let i = 0;
+    steps.forEach((el, j) => { if (el.offsetTop <= line) i = j; });
+    setActive(i);
+  }
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+
+  // Step click + prev/next = the one sanctioned programmatic scroll.
+  const scrollToStep = (i) => {
+    const el = steps[Math.max(0, Math.min(steps.length - 1, i))];
+    scroller.scrollTo({ top: el.offsetTop - scroller.clientHeight * 0.30, behavior: "smooth" });
+  };
+  steps.forEach((el, i) => el.addEventListener("click", () => scrollToStep(i)));
+  dots.forEach((el, i) => el.addEventListener("click", () => scrollToStep(i)));
+  scroller.querySelectorAll("[data-demo-nav]").forEach((btn) =>
+    btn.addEventListener("click", () => scrollToStep(active + Number(btn.dataset.demoNav))));
+})();
+</script>
+
+</body>
+</html>

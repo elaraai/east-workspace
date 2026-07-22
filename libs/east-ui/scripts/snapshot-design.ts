@@ -4,14 +4,28 @@
  */
 
 /**
- * Renders every `*.html` under `libs/east-ui/design/` in headless Chromium
- * and writes two files per capture to `packages/east-ui-showcase/dist-design/`:
+ * SEEDS `libs/east-ui/component_design/` (the committed, individually-managed
+ * component-design files) by rendering every `*.html` under the design-system
+ * reference pages (`app_design_system/guidelines/reference/`) in headless
+ * Chromium — two files per capture:
  *
- *   - a PNG screenshot of the element (`*.png`)
- *   - a self-contained HTML snippet (`*.html`) — the element's `outerHTML`
- *     with all readable page stylesheets inlined into a `<style>` block, plus
- *     any cross-origin CDN `<link>` tags preserved so the snippet renders
- *     standalone in any browser.
+ *   - an individually-manageable HTML file (`*.html`) — the element's
+ *     `outerHTML`, linking TWO shared stylesheets instead of embedding CSS:
+ *       1. the canonical design-system entry (`app_design_system/styles.css`
+ *          — tokens, fonts, base; override with `DESIGN_CSS_HREF`), and
+ *       2. `component_design/spec.css` — the shared structural rules
+ *          (.pattern/.frame/.btn/…), seeded once from the reference
+ *          `spec.css` minus its `:root` token block (tokens come from 1.)
+ *          and then managed in git like the component files themselves.
+ *     Only the page's OWN inline `<style>` rules are inlined per file;
+ *     cross-origin CDN `<link>` tags are preserved. Token/spec edits
+ *     propagate to every produced file without re-snapshotting.
+ *   - a PNG screenshot of the element (`*.png`) — only when `DESIGN_PNG=1`
+ *     (visual-verify aid; not part of the committed set).
+ *
+ *     Serve or open the produced files with `libs/east-ui/` as the root
+ *     (`make design-html-serve`) so the relative hrefs resolve; `file://`
+ *     works too.
  *
  * Two capture targets per page:
  *   - every `.pattern` element  → `<slug>__pattern__<id-or-index>.{png,html}`
@@ -26,7 +40,8 @@
  * @packageDocumentation
  */
 
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchChromium } from "./snapshot-capture.mts";
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import * as path from "node:path";
@@ -34,8 +49,20 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../");
-const DESIGN_DIR = path.resolve(ROOT, "./design");
-const OUT_DIR = path.join(ROOT, "./dist-design");
+// The verbatim pattern-spec reference pages (the retired top-level `design/`
+// dir was folded into the design system here — this is the single canonical
+// copy).
+const DESIGN_DIR = path.resolve(ROOT, "./app_design_system/guidelines/reference");
+/** The COMMITTED home of individually-managed component designs. This
+ *  script seeds it from the reference pages; after seeding, each file is
+ *  edited in place (git is the history — re-running overwrites). */
+const OUT_DIR = path.join(ROOT, "./component_design");
+/** Stylesheet href written into every produced HTML file, resolved relative
+ *  to `component_design/`. Defaults to the canonical design system's entry. */
+const DESIGN_CSS_HREF = process.env.DESIGN_CSS_HREF ?? "../app_design_system/styles.css";
+/** Write PNG screenshots alongside the HTML (visual-verify aid, not part of
+ *  the committed set). */
+const WRITE_PNG = process.env.DESIGN_PNG === "1";
 
 const MIME: Record<string, string> = {
     ".html": "text/html; charset=utf-8",
@@ -101,10 +128,19 @@ async function captureSelfContainedHtml(
 ): Promise<string> {
     const captured = await el.evaluate(node => {
         const cssText = Array.from(document.styleSheets).map(sheet => {
+            /* Every LINKED same-origin sheet is superseded by the two shared
+             * links the produced file carries (design-system entry +
+             * component_design/spec.css) — only the page's own inline
+             * <style> rules are worth carrying per file. Cross-origin CDN
+             * sheets keep their <link> below. */
+            if (sheet.href) return "";
             try {
-                return Array.from(sheet.cssRules).map(r => (r as CSSRule).cssText).join("\n");
+                return Array.from(sheet.cssRules)
+                    /* A page-local `:root` would override the linked design
+                     * system — tokens are central, never per-file. */
+                    .filter(r => (r as CSSStyleRule).selectorText !== ":root")
+                    .map(r => (r as CSSRule).cssText).join("\n");
             } catch {
-                /* CORS-blocked (cross-origin CDN sheet) — we keep its <link> below. */
                 return "";
             }
         }).filter(Boolean).join("\n\n");
@@ -131,6 +167,8 @@ async function captureSelfContainedHtml(
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${escapeHtml(title)}</title>
+<link rel="stylesheet" href="${escapeHtml(DESIGN_CSS_HREF)}">
+<link rel="stylesheet" href="./spec.css">
 ${links}
 <style>
 ${captured.cssText}
@@ -148,14 +186,14 @@ async function writeSnapshotPair(
     pngPath: string,
     title: string,
 ): Promise<void> {
-    await el.screenshot({ path: pngPath });
+    if (WRITE_PNG) await el.screenshot({ path: pngPath });
     const html = await captureSelfContainedHtml(el, title);
     await fs.writeFile(pngPath.replace(/\.png$/, ".html"), html, "utf8");
 }
 
 /**
  * One PNG per `.pattern` element on the page. Horizontal padding is
- * baked into the `.pattern` CSS rule in `design/spec.css`, so a tight
+ * baked into the `.pattern` CSS rule in the reference `spec.css`, so a tight
  * element screenshot already includes the side gutters.
  */
 async function snapshotPatterns(
@@ -217,10 +255,23 @@ async function main(): Promise<void> {
     const baseUrl = `http://127.0.0.1:${port}`;
     console.log(`[snapshot-design] static server: ${baseUrl}  (root: ${path.relative(ROOT, DESIGN_DIR)})`);
 
+    /* Seed the shared structural stylesheet: the reference spec.css minus its
+     * `:root` token block (tokens come from the linked design system). */
+    await fs.mkdir(OUT_DIR, { recursive: true });
+    const specSrc = await fs.readFile(path.join(DESIGN_DIR, "spec.css"), "utf8");
+    const specShared =
+        "/* component_design/spec.css — shared structural rules for the managed\n" +
+        " * component designs. Seeded from app_design_system/guidelines/reference/\n" +
+        " * spec.css (tokens stripped — they live in app_design_system/); edit\n" +
+        " * HERE from now on. */\n" +
+        specSrc.replace(/:root\s*\{[^}]*\}/g, "/* :root tokens — see ../app_design_system/tokens/ */");
+    await fs.writeFile(path.join(OUT_DIR, "spec.css"), specShared, "utf8");
+    console.log(`[snapshot-design] seeded ${path.relative(ROOT, path.join(OUT_DIR, "spec.css"))} (${(specShared.length / 1024).toFixed(0)} KB shared)`);
+
     let browser: Browser | undefined;
     try {
         console.log(`[snapshot-design] launching chromium…`);
-        browser = await chromium.launch({ headless: true });
+        browser = await launchChromium({ headless: true });
         const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
         await fs.mkdir(OUT_DIR, { recursive: true });
 

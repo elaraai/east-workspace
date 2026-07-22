@@ -1,0 +1,545 @@
+<!doctype html>
+<!-- @dsCard group="UI Kit — Design" name="Experiment pattern spec" subtitle="Causal experiment surface — Experiment.Root registered React component (Ontology-style), bound to a dataset + a staged spec + estimator functions via Data.bind / Func.bind. Visual-first results derived from data + config; Slice-style predicate builders for population & counterfactual." -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Experiment — Pattern spec</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="./spec.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css">
+<!-- Charts are real visx, the same primitives the runtime east-ui-components Chart uses.
+     The forest hook (added to charts-visx.js) draws the raw-vs-adjusted comparison. -->
+<script type="module" src="./charts-visx.js"></script>
+<style>
+  /* ============ nav-back ============ */
+  .nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+
+  /* ============ bsys + anatomy (shared shapes) ============ */
+  .bsys { display: grid; grid-template-columns: 200px 1fr; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper); margin-bottom: 18px; }
+  .bsys-lbl { padding: 16px 18px; background: var(--paper-2); border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); }
+  .bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
+  .bsys-body { padding: 16px 20px; }
+  .cx-anatomy { border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); overflow: hidden; font-family: var(--font-mono); font-size: 11px; }
+  .cx-zone { padding: 12px 16px; display: grid; align-items: center; grid-template-columns: 124px 1fr 176px; gap: 14px; min-height: 44px; }
+  .cx-zone + .cx-zone { border-top: 1px solid var(--rule); }
+  .cx-zone .lbl { font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+  .cx-zone .content { color: var(--ink-2); font-size: 11.5px; line-height: 1.5; }
+  .cx-zone .dim { text-align: right; color: var(--ink-4); font-size: 10px; }
+  .cx-zone.body { min-height: 60px; background: var(--paper-2); }
+
+  /* ============ help icon (Chakra-v3-style hover tip) ============ */
+  .hlp { position: relative; display: inline-flex; vertical-align: middle; }
+  .hlp > i { color: var(--ink-5, var(--ink-4)); font-size: 11px; cursor: help; }
+  .hlp:hover > i { color: var(--brand-d); }
+  .hlp .bub { display: none; position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + 8px); width: 232px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 400; line-height: 1.5; padding: 9px 11px; border-radius: 8px; box-shadow: var(--shadow-lg); z-index: 30; letter-spacing: 0; text-transform: none; font-family: var(--font-body); }
+  .hlp .bub::after { content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--ink); }
+  .hlp .bub b { color: var(--brand-300, #79f8f8); font-weight: 600; }
+  .hlp:hover .bub { display: block; }
+
+  /* ============ the registered widget — live mock ============ */
+  .xp-head { display: flex; align-items: center; gap: 14px; padding: 15px 18px; border-bottom: 1px solid var(--rule); }
+  .xp-q { font-family: var(--font-brand); font-size: 16px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; line-height: 1.35; }
+  .xp-q .slot { color: var(--brand-d); font-weight: 700; }
+  .xp-head .grow { flex: 1 1 auto; }
+
+  .xp-grid { display: grid; grid-template-columns: 286px minmax(0,1fr); align-items: start; }
+  .xp-cfg { border-right: 1px solid var(--rule); }
+  .xp-step { padding: 13px 18px; border-bottom: 1px solid var(--rule); }
+  .xp-step .qn { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
+  .xp-step .qn .n { font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: #fff; background: var(--brand-d); width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .xp-step .qn .t { font-size: 12.5px; font-weight: 600; color: var(--ink); line-height: 1.35; }
+  .xp-pick { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border: 1px solid var(--rule-strong); border-radius: 7px; background: var(--paper); font-size: 12.5px; color: var(--ink); cursor: pointer; }
+  .xp-pick:hover { border-color: var(--brand); }
+  .xp-pick .col { font-family: var(--font-mono); font-weight: 600; }
+  .xp-pick .ty { font-size: 9.5px; color: var(--ink-4); background: var(--paper-2); padding: 1px 5px; border-radius: 4px; }
+  .xp-pick .car { color: var(--ink-4); font-size: 10px; }
+  .xp-mini { font-size: 10.5px; color: var(--ink-4); margin-top: 7px; line-height: 1.4; }
+
+  /* confounder rows with imbalance bar */
+  .xp-conf { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .xp-cf { display: grid; grid-template-columns: 1fr 60px 16px; gap: 9px; align-items: center; padding: 8px 10px; }
+  .xp-cf + .xp-cf { border-top: 1px solid var(--rule); }
+  .xp-cf .nm { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--ink); }
+  .xp-cf .rs { font-size: 10px; color: var(--ink-4); line-height: 1.35; margin-top: 1px; }
+  .xp-imbal { height: 6px; border-radius: 3px; background: var(--paper-2); position: relative; overflow: hidden; }
+  .xp-imbal > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  .xp-cf .imlab { font-size: 8px; font-family: var(--font-mono); letter-spacing: 0.04em; color: var(--ink-4); text-align: center; margin-top: 3px; text-transform: uppercase; }
+  .xp-cf .x { color: var(--ink-4); font-size: 11px; text-align: center; cursor: pointer; }
+  .xp-suggest { font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-d); padding: 8px 10px; cursor: pointer; }
+  .xp-suggest:hover { background: var(--paper-2); }
+
+  /* population — Slice-style filter chips */
+  .filter-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px 4px 11px; border: 1px solid var(--brand-d); border-radius: 9999px; background: var(--brand-tint); font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-dd); font-weight: 600; white-space: nowrap; line-height: 1; }
+  .filter-chip .field { color: var(--brand-d); font-weight: 500; }
+  .filter-chip .op { color: var(--ink-4); margin: 0 1px; }
+  .add-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1px dashed var(--rule-strong); border-radius: 9999px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); font-weight: 600; line-height: 1; cursor: pointer; }
+  .xp-editlink { font-family: var(--font-mono); font-size: 10px; color: var(--brand-d); cursor: pointer; margin-left: 6px; }
+
+  /* advanced disclosure */
+  .xp-adv { border-bottom: 1px solid var(--rule); }
+  .xp-adv > summary { list-style: none; cursor: pointer; padding: 11px 18px; font-size: 11px; font-weight: 600; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
+  .xp-adv > summary::-webkit-details-marker { display: none; }
+  .xp-adv > summary .car { transition: transform 120ms; color: var(--ink-4); }
+  .xp-adv[open] > summary .car { transform: rotate(90deg); }
+  .xp-adv .advbody { padding: 2px 18px 14px; }
+  .xp-advrow { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+  .xp-advrow:last-child { border-bottom: 0; }
+  .xp-advrow .al { font-size: 11.5px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; }
+  .xp-seg { display: flex; width: 100%; border: 1px solid var(--rule-strong); border-radius: 6px; overflow: hidden; }
+  .xp-seg span { flex: 1 1 0; text-align: center; white-space: nowrap; font-size: 10.5px; padding: 5px 8px; color: var(--ink-3); cursor: pointer; border-right: 1px solid var(--rule-strong); font-family: var(--font-mono); }
+  .xp-seg span:last-child { border-right: 0; }
+  .xp-seg span.on { background: var(--brand-d); color: #fff; }
+  .xp-seg span:hover:not(.on) { background: var(--paper-2); color: var(--ink); }
+
+  /* result side */
+  .xp-res { min-width: 0; }
+  .xp-tabbar { display: flex; padding: 0 16px; border-bottom: 1px solid var(--rule); }
+  .xp-tab { font-size: 12px; font-weight: 600; padding: 12px 14px; color: var(--ink-4); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .xp-tab:hover { color: var(--ink-2); }
+  .xp-tab.on { color: var(--brand-d); border-bottom-color: var(--brand-d); }
+  .xp-pane { padding: 18px; display: none; }
+  .xp-pane.on { display: block; }
+
+  /* derived headline — Stat pattern: column · big number · range · one status badge */
+  .xp-headline { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .xp-stat { display: flex; flex-direction: column; gap: 2px; }
+  .xp-stat .lab { font-family: var(--font-mono); font-size: 11px; color: var(--ink-4); letter-spacing: 0.02em; }
+  .xp-stat .vrow { display: flex; align-items: baseline; gap: 9px; }
+  .xp-stat .big { font-family: var(--font-brand); font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+  .xp-stat .rng { font-family: var(--font-mono); font-size: 11px; color: var(--ink-4); }
+  .xp-stat.pos .big { color: var(--pos); } .xp-stat.neg .big { color: var(--neg); } .xp-stat.amber .big { color: var(--warn); }
+  .vbadge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px; }
+  .vbadge.pos { background: color-mix(in srgb, var(--pos) 13%, white); color: var(--pos); }
+  .vbadge.amber { background: color-mix(in srgb, var(--warn) 15%, white); color: var(--warn); }
+  /* caution banner (sign-flip) — calm, full width, not a mismatched pill */
+  .xp-flag { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 8%, white); border: 1px solid color-mix(in srgb, var(--warn) 30%, white); font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+  .xp-flag > i { color: var(--warn); margin-top: 1px; }
+  .xp-flag b { color: var(--ink); }
+
+  .xp-cap { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
+  .xp-counts { display: flex; gap: 16px; margin-top: 14px; font-size: 11px; color: var(--ink-4); }
+  .xp-counts b { color: var(--ink-2); font-weight: 600; }
+
+  /* How-much tab — per-supplier switch + recommended callout + marginal-gain strip */
+  .xp-segrow { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .xp-segrow .lbl2 { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-4); }
+  .xp-vtabs { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 6px; overflow: hidden; }
+  .xp-vtabs span { font-size: 11px; padding: 5px 11px; color: var(--ink-3); cursor: pointer; border-right: 1px solid var(--rule); }
+  .xp-vtabs span:last-child { border-right: 0; }
+  .xp-vtabs span.on { background: var(--brand-d); color: #fff; font-weight: 600; }
+  .xp-dose-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .xp-reco { display: flex; flex-direction: column; gap: 3px; }
+  .xp-reco .rlab { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-4); }
+  .xp-reco .rval { display: flex; align-items: baseline; gap: 8px; }
+  .xp-reco .rval .b { font-family: var(--font-brand); font-size: 24px; font-weight: 700; color: var(--brand-d); letter-spacing: -0.01em; line-height: 1; }
+  .xp-reco .rval .s { font-family: var(--font-mono); font-size: 11px; color: var(--ink-4); }
+  .xp-trade { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+  .xp-trade b { color: var(--ink); }
+
+  /* chart card — frames a visx chart consistently with the rest of the system */
+  .xp-card { border: 1px solid var(--rule); border-radius: 9px; background: var(--paper); padding: 13px 14px 9px; margin-top: 16px; }
+
+  /* balance — BarStrip pattern (label · track + fill · value) */
+  .xp-bars { display: flex; flex-direction: column; gap: 12px; padding: 2px 0; }
+  .xp-barrow { display: grid; grid-template-columns: 128px 1fr 96px; gap: 13px; align-items: center; }
+  .xp-barrow .blab { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .xp-track { position: relative; height: 6px; background: var(--gray-100, #f1f5f5); border-radius: 3px; overflow: hidden; }
+  .xp-track > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  .xp-barrow .bval { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* trust checklist */
+  .xp-checks { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .xp-chk { display: grid; grid-template-columns: 22px 1fr auto; gap: 11px; align-items: start; padding: 11px 13px; }
+  .xp-chk + .xp-chk { border-top: 1px solid var(--rule); }
+  .xp-chk .ic { font-size: 13px; margin-top: 1px; }
+  .xp-chk .ic.ok { color: var(--pos); } .xp-chk .ic.warn { color: var(--warn); }
+  .xp-chk .ti { font-size: 12.5px; font-weight: 600; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+  .xp-chk .de { font-size: 11px; color: var(--ink-4); line-height: 1.45; margin-top: 2px; }
+  .xp-chk .vd { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+  .xp-chk .vd.ok { color: var(--pos); } .xp-chk .vd.warn { color: var(--warn); }
+
+  /* slice-style predicate popover (configuration detail) */
+  .popover { width: 360px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 6px; box-shadow: var(--shadow-md); }
+  .popover-head { padding: 10px 14px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink); font-weight: 600; }
+  .popover-head .x { margin-left: auto; color: var(--ink-4); cursor: pointer; }
+  .popover-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .popover-foot { padding: 10px 14px; border-top: 1px solid var(--rule); background: var(--paper-2); display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; }
+  .popover-foot .actions { margin-left: auto; display: inline-flex; gap: 6px; }
+  .pred-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11px; }
+  .pred-row .conj { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); text-align: right; }
+  .pred-row .clause { padding: 6px 8px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 3px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .pred-row .clause .field { color: var(--brand-dd); font-weight: 600; }
+  .pred-row .clause .op { color: var(--ink-4); }
+  .pred-row .clause .val { color: var(--ink); font-weight: 600; }
+  .pred-grp { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .pred-grp h6 { margin: 0; padding: 7px 12px; background: var(--paper-2); border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; gap: 7px; }
+  .pred-grp h6 .tag { font-size: 9px; padding: 1px 6px; border-radius: 999px; font-weight: 700; }
+  .pred-grp h6 .tag.t { background: var(--brand-d); color: #fff; } .pred-grp h6 .tag.c { background: var(--ink-4); color: #fff; }
+  .pred-grp .pb { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+
+  .api-sig { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7; color: var(--ink-2); background: var(--paper-2); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; overflow-x: auto; white-space: pre; }
+  .api-sig .kw { color: var(--brand-d); } .api-sig .cm { color: var(--ink-4); } .api-sig .st { color: #2b8a6b; } .api-sig .fl { color: var(--warn); }
+  .cx-wire { display: grid; grid-template-columns: 1fr 30px 1fr; }
+  .cx-wire .col { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .cx-wire .col h6 { margin: 0; padding: 9px 12px; background: var(--paper-2); border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+  .cx-wire .col .b { padding: 11px 12px; color: var(--ink-2); font-size: 11px; line-height: 1.55; }
+  .cx-wire .col .pk { color: var(--brand-d); font-weight: 600; }
+  .cx-wire .col .dep { color: var(--ink-4); font-size: 10px; }
+  .cx-wire .br2 { display: flex; align-items: center; justify-content: center; color: var(--rule-strong); }
+  .ok { color: var(--pos); } .no { color: var(--neg); }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a><span class="sep">·</span>
+    <a href="./observe.html">Observe</a><span class="sep">·</span>
+    <a href="./slice.html">Slice</a><span class="sep">·</span>
+    <a href="./decide.html">Decide</a><span class="sep">·</span>
+    <a href="./story.html">Story</a><span class="sep">·</span>
+    <a href="./causal.html" class="here">Experiment</a>
+  </nav>
+
+  <main>
+
+  <section id="mode-experiment" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.9</span>
+      <h2>Experiment</h2>
+      <span class="anchor-tag">Anchors · <span class="pat">Experiment<span class="ns">.</span>Root</span> · <span class="pat">Experiment<span class="ns">.</span>bind</span></span>
+    </div>
+    <p class="mode-lede">
+      Decide answers "what should we do". <strong>Experiment answers "did the thing we tried actually work — or did the
+      numbers just look that way?"</strong> A process engineer frames a plain question against the batch record — <em>did slow
+      cure raise strength?</em> — and the surface does the hard part: it compares <strong>like-for-like</strong> batches
+      (we slow-cure the weaker material on purpose, so the raw average lies), then tries to break the result before anyone
+      trusts it. The process engineer defines the experiment, so <strong>nothing here is pre-written</strong>: the answer is a
+      <em>picture</em> — a forest plot, balance bars, colour — composed from the numbers and the columns they picked.
+    </p>
+
+    <!-- ════════════════════════════════ Stance ═══ -->
+    <div class="bsys" id="exp-stance">
+      <div class="bsys-lbl">Stance<span class="sub">The process engineer defines the experiment — so the answer is derived, never authored.</span></div>
+      <div class="bsys-body">
+        <div class="spec-note" style="margin: 0;">
+          <span class="k">Non-negotiables:</span>
+          <strong>One registered React component, like <span class="mono">Ontology</span> — not a composition of east-ui tags.</strong> The author writes one tag, <span class="mono">Experiment.Root({ … })</span>; the renderer in <span class="mono">@elaraai/e3-ui-components</span> owns the set-up rail, the result deck and the charts (real visx, same primitives as <span class="mono">Chart</span>). The East side carries <em>bindings + options</em>, never a UI subtree.
+          <strong>The result is composed, not written.</strong> Because the process engineer chooses the columns, there is no canned prose. Every word on the result side is one of three things: a <em>column name they picked</em>, a <em>number the function returned</em>, or a <em>status derived by rule</em> (interval clears zero → <span style="color: var(--pos); font-weight: 600;">HIGHER</span>; spans zero → <span style="color: var(--warn); font-weight: 600;">NO CLEAR EFFECT</span>; raw and adjusted disagree in sign → <span style="color: var(--warn); font-weight: 600;">RAW COMPARISON MISLEADING</span>). The picture and the colour carry the meaning.
+          <strong>The confound is the whole point, so the picture shows it.</strong> Slow cure goes on the weaker material, so the raw average is upside-down. The surface puts the <em>raw</em> bar (red, confidently pointing the <em>wrong way</em>) above the <em>like-for-like</em> bar (green, clearing zero the other side) — the sign-flip <em>is</em> the lesson — and below it, a balance row per confounder showing how far apart the two groups started. All derived from the data.
+          <strong>Plain words on the surface; fixed concepts on hover.</strong> The process engineer sees "what did you change?", "what else was different about those batches?". The few statistical ideas — <em>like-for-like</em>, <em>placebo test</em> — are explained in Chakra <span class="mono">&lt;Tooltip&gt;</span>s on a <span class="mono">?</span> icon (the same hover component as everywhere). These are <em>generic</em> concepts, identical across every experiment, so they're safe to author once.
+          <strong>Population &amp; comparison are predicates, built like Slice.</strong> "Only this line", "treated = slow-cured ≥ 24h vs compared-with < 24h" — the same <span class="mono">.pred-row</span> builder Slice uses, so a counterfactual contrast is a predicate the process engineer can read.
+          <strong>Set up, run, commit — durable.</strong> Config is staged; <strong>Run</strong> calls the bound function; <strong>Commit</strong> writes the framed question + answer + trust to a journal dataset. <span class="mono">e3-ui</span> never imports <span class="mono">east-py-datascience</span> — the DoWhy/EconML compute lives in a developer <span class="mono">e3.function</span> reached over <span class="mono">Func.bind</span>.
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ Root + live mock ═══ -->
+    <article id="exp-root" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Experiment<span class="ns">.</span>Root</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        One registered widget. A <strong>set-up rail</strong> turns dataset columns into a question and writes the staged
+        spec; a <strong>result deck</strong> answers it across plain tabs, all picture-and-colour. Below is a <em>live</em>
+        mock — the charts are real visx, the tabs switch, hover a <span class="mono">?</span> for a concept tip.
+      </p>
+
+      <!-- anatomy -->
+      <div class="cx-anatomy" style="margin-bottom: 18px;">
+        <div class="cx-zone"><span class="lbl">Header</span><span class="content">The question, built from the chosen columns — <em>Does {treatment} change {outcome}?</em> — the dataset, and the Run / Commit bar.</span><span class="dim">h 52px</span></div>
+        <div class="cx-zone body"><span class="lbl">Set-up rail</span><span class="content">In order: what did you change? · what did you want it to improve? · what else was different about those batches? (with imbalance bars) · who's in / what's the comparison (Slice predicates). Advanced holds the method, with safe defaults.</span><span class="dim">w 286px · staged</span></div>
+        <div class="cx-zone body"><span class="lbl">Result deck</span><span class="content"><strong>Answer</strong> — derived verdict strip + raw-vs-adjusted forest + balance bars. <strong>Can we trust it?</strong> — refutation checklist + sensitivity. <strong>How much?</strong> — the dose curve. Each reads one bound function's latest result.</span><span class="dim">fills width</span></div>
+        <div class="cx-zone body"><span class="lbl">Journal</span><span class="content">Committed experiments — question · answer · verdict · who · when. Re-open to re-run. Reuses the <span class="mono">DecisionJournal</span> row idiom.</span><span class="dim">optional</span></div>
+      </div>
+
+      <!-- LIVE MOCK -->
+      <div class="frame" id="exp-mock" style="padding: 0; overflow: visible;">
+        <div class="xp-head">
+          <span class="xp-q">Does <span class="slot">slow_cure</span> change <span class="slot">bond_strength</span>?</span>
+          <span class="grow"></span>
+          <span class="status" style="margin-right: 4px;"><span class="dot ok"></span><span class="muted" style="font-size: 11px;">480 batches · 3 lines</span></span>
+          <button class="btn primary compact">Run</button>
+          <button class="btn ghost compact">Commit</button>
+        </div>
+
+        <div class="xp-grid">
+          <!-- SET-UP RAIL -->
+          <div class="xp-cfg">
+            <div class="xp-step">
+              <div class="qn"><span class="n">1</span><span class="t">What did you change?</span></div>
+              <span class="xp-pick"><span class="col">slow_cure</span><span class="ty">yes / no</span><span class="car">▾</span></span>
+              <div class="xp-mini">Treated = <b style="color:var(--ink-2)">yes</b> · compared with <b style="color:var(--ink-2)">no</b> &nbsp;<span class="xp-editlink">change comparison</span></div>
+            </div>
+            <div class="xp-step">
+              <div class="qn"><span class="n">2</span><span class="t">What did you want it to improve?</span></div>
+              <span class="xp-pick"><span class="col">bond_strength</span><span class="ty">number · MPa</span><span class="car">▾</span></span>
+            </div>
+            <div class="xp-step">
+              <div class="qn"><span class="n">3</span><span class="t">What else was different about the cured batches?
+                <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">If the cured batches differ in other ways, that difference can pose as the cure's effect. List them and we compare <b>like with like</b>. Pre-filled from the data with the most unbalanced columns.</span></span>
+              </span></div>
+              <div class="xp-conf">
+                <div class="xp-cf"><div><div class="nm">incoming_grade</div><div class="rs">cured batches started ~8 grade-pts lower</div></div><div><div class="xp-imbal"><i style="width:92%;background:var(--neg);"></i></div><div class="imlab">large gap</div></div><div class="x">×</div></div>
+                <div class="xp-cf"><div><div class="nm">mix_viscosity</div><div class="rs">cured batches slightly thicker</div></div><div><div class="xp-imbal"><i style="width:32%;background:var(--warn);"></i></div><div class="imlab">small</div></div><div class="x">×</div></div>
+                <div class="xp-cf"><div><div class="nm">supplier</div><div class="rs">more Acme in the cured group</div></div><div><div class="xp-imbal"><i style="width:56%;background:var(--warn);"></i></div><div class="imlab">some</div></div><div class="x">×</div></div>
+                <div class="xp-suggest"><i class="fa-solid fa-plus" style="font-size:9px;"></i> add run_date</div>
+              </div>
+            </div>
+            <div class="xp-step">
+              <div class="qn"><span class="n">4</span><span class="t">Which batches?
+                <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Narrow the experiment to a slice of the record — same predicate builder as <b>Slice</b>. Leave open to use every batch.</span></span>
+              </span></div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;">
+                <span class="filter-chip"><span class="field">line</span><span class="op">in</span>A, B<i class="fa-solid fa-xmark" style="font-size:9px;margin-left:3px;"></i></span>
+                <span class="filter-chip"><span class="field">product</span><span class="op">=</span>panel<i class="fa-solid fa-xmark" style="font-size:9px;margin-left:3px;"></i></span>
+                <span class="add-chip"><i class="fa-solid fa-plus" style="font-size:9px;"></i> filter</span>
+              </div>
+            </div>
+            <details class="xp-adv">
+              <summary><i class="fa-solid fa-chevron-right car" style="font-size:9px;"></i> Advanced <span class="muted" style="font-weight:400;font-size:10px;">(sensible defaults — leave it)</span></summary>
+              <div class="advbody">
+                <div class="xp-advrow"><span class="al">How to compare <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">How we balance the groups. <b>Re-weighting</b> upweights rare like-for-like matches; <b>regression</b> models the relationship. Default re-weighting.</span></span></span><span class="xp-seg"><span>regression</span><span class="on">re-weighting</span></span></div>
+                <div class="xp-advrow"><span class="al">Answer for <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub"><b>All</b> batches, or only the ones we actually cured. Default all.</span></span></span><span class="xp-seg"><span class="on">all batches</span><span>only cured</span></span></div>
+                <div class="xp-advrow"><span class="al">Drop un-matchable batches <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Batches with no comparable counterpart can't be compared fairly — trimming drops them. Default on.</span></span></span><span class="xp-seg"><span class="on">on</span><span>off</span></span></div>
+              </div>
+            </details>
+          </div>
+
+          <!-- RESULT DECK -->
+          <div class="xp-res">
+            <div class="xp-tabbar">
+              <span class="xp-tab on" data-tab="answer">Answer</span>
+              <span class="xp-tab" data-tab="trust">Can we trust it?</span>
+              <span class="xp-tab" data-tab="dose">How much?</span>
+            </div>
+
+            <!-- ANSWER — visual-first, every value derived from the result + chosen columns -->
+            <div class="xp-pane on" data-pane="answer">
+              <div class="xp-headline">
+                <div class="xp-stat pos">
+                  <span class="lab">bond_strength</span>
+                  <span class="vrow"><span class="big">+5.2</span><span class="rng">95% CI&nbsp; +3.1 … +7.4</span></span>
+                </div>
+                <span class="vbadge pos"><i class="fa-solid fa-arrow-up" style="font-size:10px;"></i> Higher with slow cure</span>
+              </div>
+              <div class="xp-flag">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <div><b>Raw and like-for-like disagree.</b> In the plain average, <span class="mono">slow_cure</span> batches sit <em>lower</em> on <span class="mono">bond_strength</span> (−3.1) — but they also differ most on <span class="mono">incoming_grade</span> (6.1 vs 8.0). Adjusting for it reverses the result.
+                  <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Composed, not written: this line fires whenever the raw and like-for-like estimates disagree in <b>direction</b>, then fills in the columns + numbers from the result. Optional column metadata (units, higher-is-better) lets it say "worse" instead of "lower".</span></span>
+                </div>
+              </div>
+
+              <div class="xp-card">
+                <div class="xp-cap">Raw average vs. like-for-like <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Each bar is the change in <b>bond_strength</b> with its 95% range. The dashed line is "no effect" — a bar clearing it is a real change.</span></span></div>
+                <div data-spec-forest='{"rows":[{"label":"Raw average","est":-3.1,"lo":-6.0,"hi":-0.2,"tone":"neg","note":"unadjusted"},{"label":"Like-for-like","est":5.2,"lo":3.1,"hi":7.4,"tone":"pos","note":"adjusted for 3 confounders"}],"min":-8,"max":9,"unit":"change in bond_strength (MPa)"}' style="width: 100%; height: 116px;"></div>
+              </div>
+
+              <div class="xp-card">
+                <div class="xp-cap">How unbalanced each one was — cured vs not, before adjusting <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">A longer bar means the cured and not-cured batches started further apart on that column — so it was pulling the raw number around. We adjust each one out.</span></span></div>
+                <div class="xp-bars">
+                  <div class="xp-barrow"><span class="blab">incoming_grade</span><div class="xp-track"><i style="width:90%;background:var(--neg);"></i></div><span class="bval">6.1 vs 8.0</span></div>
+                  <div class="xp-barrow"><span class="blab">supplier = Acme</span><div class="xp-track"><i style="width:55%;background:var(--warn);"></i></div><span class="bval">61% vs 33%</span></div>
+                  <div class="xp-barrow"><span class="blab">mix_viscosity</span><div class="xp-track"><i style="width:24%;background:var(--ink-4);"></i></div><span class="bval">24.6 vs 24.1</span></div>
+                </div>
+              </div>
+
+              <div class="xp-counts"><span><b>480</b> batches <span style="color:var(--ink-4)">(240 cured · 240 not)</span></span><span><b>449</b> compared like-for-like</span><span><b>31</b> had no fair match</span></div>
+            </div>
+
+            <!-- TRUST -->
+            <div class="xp-pane" data-pane="trust">
+              <p style="font-size:12.5px;color:var(--ink-2);line-height:1.55;margin:0 0 14px;">Before trusting the answer we tried to break it. It held on three of four checks — colour shows pass / caution.</p>
+              <div class="xp-checks">
+                <div class="xp-chk"><span class="ic ok"><i class="fa-solid fa-circle-check"></i></span><div><div class="ti">Shuffle test <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Randomly re-label which batches were cured. A real effect should <b>vanish</b>.</span></span></div><div class="de">We shuffled the cure labels; the effect should disappear — and it did.</div></div><span class="vd ok">→ +0.0 ✓</span></div>
+                <div class="xp-chk"><span class="ic ok"><i class="fa-solid fa-circle-check"></i></span><div><div class="ti">Drop-some test</div><div class="de">Re-ran on 100 random 80% samples. A trustworthy effect stays put.</div></div><span class="vd ok">5.0 ± 0.3 ✓</span></div>
+                <div class="xp-chk"><span class="ic ok"><i class="fa-solid fa-circle-check"></i></span><div><div class="ti">Decoy cause</div><div class="de">Added an irrelevant made-up factor; the answer shouldn't budge.</div></div><span class="vd ok">5.2 → 5.1 ✓</span></div>
+                <div class="xp-chk"><span class="ic warn"><i class="fa-solid fa-triangle-exclamation"></i></span><div><div class="ti">Hidden cause <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Something we <b>didn't record</b> could drive both the cure choice and strength. How strong would it need to be to erase the effect?</span></span></div><div class="de">A moderately strong un-recorded cause would be enough to wipe it out — worth noting.</div></div><span class="vd warn">tips at 0.7</span></div>
+              </div>
+              <div class="xp-card">
+                <div class="xp-cap">Effect as a hidden cause is made stronger</div>
+                <div data-spec-arearange='{"lo":[3.1,2.8,2.4,1.9,1.3,0.6,-0.2],"hi":[7.4,7.0,6.5,5.9,5.2,4.4,3.5],"mid":[5.2,4.8,4.4,3.8,3.1,2.3,1.4],"zero":0,"tone":"brand","xTicks":["none","weaker","stronger"],"yTicks":["0","+4","+8"]}' style="width: 100%; height: 104px;"></div>
+              </div>
+            </div>
+
+            <!-- DOSE — the number to act on, not just a shape -->
+            <div class="xp-pane" data-pane="dose">
+              <div class="xp-segrow">
+                <span class="lbl2">Response for</span>
+                <span class="xp-vtabs"><span class="on">all batches</span><span>Acme</span><span>Globex</span></span>
+                <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">The response can differ by supplier. The Answer tab found <b>supplier</b> mattered, so you can check the curve per supplier.</span></span>
+              </div>
+              <div class="xp-card">
+                <div class="xp-cap">bond_strength gained vs. days of slow cure</div>
+                <div data-spec-arearange='{"lo":[-0.1,1.0,2.0,2.7,3.3,3.7,3.9,4.0,4.1],"hi":[0.3,2.0,3.2,4.1,4.7,5.1,5.3,5.45,5.5],"mid":[0.0,1.5,2.6,3.4,4.0,4.4,4.6,4.72,4.8],"tone":"pos","xTicks":["day 0","day 1","day 2","day 3","day 4"],"yTicks":["0","+2.5","+5"],"marks":[{"at":2,"label":"you are here","tone":"muted"},{"at":6,"label":"sweet spot","tone":"pos"}]}' style="width: 100%; height: 256px;"></div>
+              </div>
+              <div class="xp-dose-grid">
+                <div class="xp-card">
+                  <div class="xp-cap">Recommended cure</div>
+                  <div class="xp-reco">
+                    <span class="rlab">≈ 3 days&nbsp;·&nbsp;72 h</span>
+                    <span class="rval"><span class="b">+4.6</span><span class="s">strength &nbsp;·&nbsp; +3.9 … +5.3</span></span>
+                  </div>
+                  <div class="xp-trade">You cure <b>~1 day</b> now. Going to 3 days adds <b>+2.0 strength</b>; a 4th day adds only <b>+0.2</b> for a whole extra oven-day.</div>
+                </div>
+                <div class="xp-card">
+                  <div class="xp-cap">Extra strength from each added day</div>
+                  <div class="xp-bars">
+                    <div class="xp-barrow"><span class="blab">day 1</span><div class="xp-track"><i style="width:100%;background:var(--brand-d);"></i></div><span class="bval">+2.6</span></div>
+                    <div class="xp-barrow"><span class="blab">day 2</span><div class="xp-track"><i style="width:54%;background:var(--brand-d);"></i></div><span class="bval">+1.4</span></div>
+                    <div class="xp-barrow"><span class="blab">day 3</span><div class="xp-track"><i style="width:23%;background:var(--brand);"></i></div><span class="bval">+0.6</span></div>
+                    <div class="xp-barrow"><span class="blab">day 4</span><div class="xp-track"><i style="width:8%;background:var(--ink-4);"></i></div><span class="bval">+0.2</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- journal -->
+        <div class="eyebrow-row" style="border-top:1px solid var(--rule);"><span class="lbl">Committed experiments</span><span class="meta"><span class="num" style="color:var(--ink);font-weight:600;">3</span> on record</span></div>
+        <div style="display:grid;grid-template-columns:1fr 88px 116px 112px;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid var(--rule);font-size:12px;"><div><strong>slow_cure → bond_strength</strong> <span class="muted">· vs incoming_grade, viscosity, supplier</span></div><div class="num pos text-r" style="font-weight:600;">+5.2</div><div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--pos);">higher</div><div class="num text-r muted" style="font-size:11px;">M. Kerr · today</div></div>
+        <div style="display:grid;grid-template-columns:1fr 88px 116px 112px;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid var(--rule);font-size:12px;"><div><strong>extra_anneal → hardness</strong> <span class="muted">· vs line, viscosity</span></div><div class="num text-r" style="font-weight:600;">+0.4</div><div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--warn);">no clear effect</div><div class="num text-r muted" style="font-size:11px;">M. Kerr · Tue</div></div>
+        <div style="display:grid;grid-template-columns:1fr 88px 116px 112px;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid var(--rule);font-size:12px;"><div><strong>new_nozzle → throughput</strong> <span class="muted">· vs line, batch_size</span></div><div class="num pos text-r" style="font-weight:600;">+38</div><div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--pos);">higher</div><div class="num text-r muted" style="font-size:11px;">T. Ode · last wk</div></div>
+      </div>
+      <p class="pattern-blurb" style="margin-top:12px;">Everything above came from one <span class="mono">Experiment.Root</span> call (API below) plus the numbers the bound function returned. No chart code, no hand-written sentences — the widget owns it.</p>
+    </article>
+
+    <!-- ════════════════════════════════ Configuration detail — Slice predicates ═══ -->
+    <article id="exp-predicates" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Experiment<span class="ns">.</span>Comparison</span><span class="pattern-anchor">Configuration detail</span></div>
+      <p class="pattern-blurb">
+        "Which batches?" and "what's the comparison?" are <strong>predicates</strong>, built with the same
+        <span class="mono">.pred-row</span> editor as <a href="./slice.html" style="color:var(--brand-d);">Slice</a>. The
+        simple case is one yes/no column; the counterfactual case lets the process engineer <em>define</em> the treated group and
+        what it's compared against — e.g. a cure-duration threshold, or a matched control line. Below: the open
+        popover the "change comparison" link triggers.
+      </p>
+      <div class="frame" style="padding: 22px; background: var(--paper-2); display: flex; justify-content: center;">
+        <div class="popover">
+          <div class="popover-head"><span>Define the comparison · <span style="color:var(--brand-dd);font-weight:700;">slow_cure</span></span><span class="x"><i class="fa-solid fa-xmark" style="font-size:10px;"></i></span></div>
+          <div class="popover-body">
+            <div class="pred-grp">
+              <h6><span class="tag t">treated</span> the batches that got the treatment</h6>
+              <div class="pb">
+                <div class="pred-row"><span class="conj">when</span><span class="clause"><span class="field">slow_cure</span><span class="op">=</span><span class="val">yes</span></span></div>
+                <div class="pred-row"><span class="conj">and</span><span class="clause"><span class="field">cure_hours</span><span class="op">≥</span><span class="val">24</span></span></div>
+                <span class="add-chip" style="align-self:flex-start;"><i class="fa-solid fa-plus" style="font-size:9px;"></i> clause</span>
+              </div>
+            </div>
+            <div class="pred-grp">
+              <h6><span class="tag c">compared with</span> the counterfactual group</h6>
+              <div class="pb">
+                <div class="pred-row"><span class="conj">when</span><span class="clause"><span class="field">slow_cure</span><span class="op">=</span><span class="val">no</span></span></div>
+                <span class="add-chip" style="align-self:flex-start;"><i class="fa-solid fa-plus" style="font-size:9px;"></i> clause</span>
+              </div>
+            </div>
+            <div style="font-family:var(--font-mono);font-size:10.5px;color:var(--ink-4);line-height:1.5;border-top:1px solid var(--rule);padding-top:10px;">
+              <span style="color:var(--ink-3);">Resolves to</span> <span style="color:var(--ink);font-weight:700;">218 treated · 240 compared</span> <span style="margin-left:6px;">· 22 batches in neither</span>
+            </div>
+          </div>
+          <div class="popover-foot"><a href="#" style="color:var(--brand-d);text-decoration:none;">Reset to yes / no</a><span class="actions"><button class="btn ghost compact">Cancel</button><button class="btn primary compact">Apply</button></span></div>
+        </div>
+      </div>
+      <p class="pattern-blurb" style="margin-top:12px;">The <span class="mono">treated</span> and <span class="mono">compared-with</span> predicates compile to two row-filters over the bound dataset; the spec carries them as East <span class="mono">Predicate</span> values (the Slice predicate type), so the estimator function receives an unambiguous contrast — no free-text, fully re-runnable.</p>
+    </article>
+
+    <!-- ════════════════════════════════ How the answer is composed ═══ -->
+    <div class="bsys" id="exp-derive">
+      <div class="bsys-lbl">How the answer reads<span class="sub">Composed from numbers + columns. No authored prose.</span></div>
+      <div class="bsys-body">
+        <p style="margin:0 0 12px;font-size:13px;line-height:1.6;color:var(--ink-2);">The estimator returns a small typed <span class="mono">Answer</span>. The widget turns it into the picture above by rule — the same rules for every experiment, whatever columns the process engineer picked:</p>
+        <div class="api-sig"><span class="cm">// what the bound function returns — pure numbers + the chosen column names</span>
+Answer = { outcome: <span class="st">"bond_strength"</span>, treatment: <span class="st">"slow_cure"</span>,
+           naive: -3.1, effect: 5.2, lo: 3.1, hi: 7.4,
+           nTreated: 240, nControl: 240, nDropped: 31,
+           balance: [{ col: <span class="st">"incoming_grade"</span>, treated: 6.1, control: 8.0 }, …] }
+
+<span class="cm">// the widget derives every word + colour — no sentence is stored anywhere</span>
+status   = lo &gt; 0 ? <span class="st">"HIGHER"</span> : hi &lt; 0 ? <span class="st">"LOWER"</span> : <span class="st">"NO CLEAR EFFECT"</span>   <span class="cm">// → green / green / amber</span>
+flip     = <span class="fl">sign(naive) !== sign(effect)</span>            <span class="cm">// → the amber "raw &amp; like-for-like disagree" banner</span>
+banner   = flip &amp;&amp; <span class="st">`${treatment} sits ${naive&lt;0?'lower':'higher'} on ${outcome} (${naive}); differs most on ${top(balance).col} (${t} vs ${c})`</span>
+forest   = [ row(<span class="st">"Raw average"</span>, naive…),  row(<span class="st">"Like-for-like"</span>, effect, lo, hi) ]
+balance  = answer.balance.map(bar)              <span class="cm">// one bar per confounder, length = imbalance</span>
+heading  = <span class="st">`Does ${treatment} change ${outcome}?`</span>      <span class="cm">// the only fixed template — two column slots</span></div>
+        <p style="margin:12px 0 0;font-size:12px;line-height:1.55;color:var(--ink-4);">A picture and a colour say it without a paragraph — and they're honest, because they're nothing but the data drawn to scale. The fixed concept tips (<span class="mono">like-for-like</span>, <span class="mono">shuffle test</span>) are the only authored words, and they never mention the process engineer's columns.</p>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ Wiring ═══ -->
+    <div class="bsys" id="exp-wiring">
+      <div class="bsys-lbl">Wiring<span class="sub">Where the datascience dependency lives — and where it doesn't.</span></div>
+      <div class="bsys-body">
+        <p style="margin:0 0 14px;font-size:13px;line-height:1.6;color:var(--ink-2);">The widget speaks <strong>neutral types</strong> and depends only on <span class="mono">e3-types</span>. The developer's package owns the one thin estimator function — and the only <span class="mono">east-py-datascience</span> import anywhere. <span class="mono">Func.bind</span> is the typed channel between them.</p>
+        <div class="cx-wire">
+          <div class="col"><h6>@elaraai/e3-ui · the widget</h6><div class="b"><span class="pk">Experiment.Root</span> — registered via <span class="mono">EastUI.component('Experiment', …)</span>; React renderer in <span class="mono">e3-ui-components</span>. Carries <span class="mono">DiffBindingType</span> (data, spec, journal) + <span class="mono">FuncBindingType</span> (estimate, refute, dose).<br><span class="dep">deps: e3-types only · <span class="no">no datascience ✗</span></span></div></div>
+          <div class="br2">→</div>
+          <div class="col"><h6>developer package · the estimator</h6><div class="b"><span class="pk">e3.function('estimate', …)</span> — body calls <span class="mono">Causal.effect(…)</span>, runs server-side in dataflow.<br><span class="dep">deps: e3-ui <span class="ok">+ east-py-datascience ✓</span></span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════ API ═══ -->
+    <article id="exp-api" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Experiment<span class="ns">.</span>bind</span><span class="pattern-name" style="opacity:.5">&nbsp;·&nbsp;Root</span><span class="pattern-anchor">Surface</span></div>
+      <p class="pattern-blurb"><span class="mono">Experiment.bind({ … })</span> composes the bindings into one handle (mirroring <span class="mono">Decision.bind</span>); <span class="mono">Experiment.Root</span> renders it. Payload is descriptors only.</p>
+      <div class="api-sig"><span class="cm">// e3-ui — the author's surface (inside a ui() task)</span>
+<span class="kw">const</span> data    = $.let(Data.bind(productionBatches));
+<span class="kw">const</span> spec    = $.let(Data.bind(experimentSpec, { mode: <span class="st">'staged'</span> })); <span class="cm">// process engineer edits, staged</span>
+<span class="kw">const</span> est     = $.let(Func.bind(estimateFn));   <span class="cm">// (data, spec) → Answer</span>
+<span class="kw">const</span> trust   = $.let(Func.bind(refuteFn));
+<span class="kw">const</span> dose    = $.let(Func.bind(doseFn));
+<span class="kw">const</span> journal = $.let(Data.bind(experiments));
+
+<span class="kw">const</span> xp = $.let(Experiment.bind({ data, spec, estimate: est, refute: trust, dose, journal }));
+<span class="kw">return</span> Experiment.Root({ handle: xp });
+
+<span class="cm">// developer package — the ONLY east-py-datascience import in the picture</span>
+<span class="kw">const</span> estimateFn = e3.function(<span class="st">'estimate'</span>,
+  East.function([Batches, ExperimentSpec], Answer, ($, data, spec) =&gt;
+    toAnswer(Causal.effect(data, specToConfig(spec)))));   <span class="cm">// ~10-line bridge</span></div>
+    </article>
+
+    <!-- ════════════════════════════════ API we'd add ═══ -->
+    <div class="bsys" id="exp-causal-api">
+      <div class="bsys-lbl">API we'd add<span class="sub">The Causal library is ours to shape.</span></div>
+      <div class="bsys-body">
+        <div class="spec-note" style="margin:0;">
+          <span class="k">Three changes make this clean:</span>
+          <strong>1 · Re-home the Causal <em>type</em> definitions</strong> into a zero-dep module both <span class="mono">east-py-datascience</span> and <span class="mono">e3-ui</span> depend on (the Python impl stays put). Then the neutral <span class="mono">ExperimentSpec ≡ CausalEffectConfig</span> and the bridge is the identity.
+          <strong>2 · Return the <em>naive</em> estimate alongside the adjusted one</strong> (and the per-confounder balance) so the sign-flip picture is drawable directly — today <span class="mono">causal_effect</span> returns only the adjusted effect.
+          <strong>3 · Surface per-segment effects.</strong> The DML path already computes them (<span class="mono">causal_dml_effect</span>); expose <span class="mono">[{ segment, effect, range }]</span> and the widget grows a fourth tab — <em>"which segments does it help most?"</em> — the most decision-relevant view, from the same binding model.
+        </div>
+      </div>
+    </div>
+
+  </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const mock = document.getElementById("exp-mock");
+  if (!mock) return;
+  const tabs  = [...mock.querySelectorAll(".xp-tab")];
+  const panes = [...mock.querySelectorAll(".xp-pane")];
+  tabs.forEach((t) => t.addEventListener("click", () => {
+    const key = t.dataset.tab;
+    tabs.forEach((x) => x.classList.toggle("on", x === t));
+    panes.forEach((p) => p.classList.toggle("on", p.dataset.pane === key));
+    const active = panes.find((p) => p.dataset.pane === key);
+    if (active && window.__specCharts) window.__specCharts.mountIn(active);  // visx mounts blank in hidden panes
+  }));
+  const run = mock.querySelector(".btn.primary");
+  if (run) run.addEventListener("click", () => { const t = run.textContent; run.textContent = "Running…"; run.style.opacity = "0.6"; setTimeout(() => { run.textContent = t; run.style.opacity = "1"; }, 850); });
+})();
+</script>
+
+</body>
+</html>

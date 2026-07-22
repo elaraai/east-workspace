@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>story · pattern · story-root</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+.bsys { display: grid; grid-template-columns: 200px 1fr; gap: 0px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper); margin-bottom: 18px; }
+.bsys-lbl { padding: 16px 18px; background: var(--paper-2); border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); }
+.bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
+.bsys-body { padding: 16px 20px; }
+.st-anatomy { border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); overflow: hidden; font-family: var(--font-mono); font-size: 11px; }
+.st-zone { padding: 12px 16px; display: grid; align-items: center; grid-template-columns: 140px 1fr 200px; gap: 14px; min-height: 44px; }
+.st-zone + .st-zone { border-top: 1px solid var(--rule); }
+.st-zone .lbl { font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.st-zone .content { color: var(--ink-2); font-size: 11.5px; line-height: 1.5; }
+.st-zone .dim { text-align: right; color: var(--ink-4); font-size: 10px; letter-spacing: 0.04em; }
+.st-zone.body { min-height: 96px; background: var(--paper-2); }
+.story-step { position: relative; padding: 16px 0px 16px 26px; transition: opacity var(--dur-base) var(--ease-out); display: flex; flex-direction: column; }
+.story-step::before { content: ""; position: absolute; left: 4px; top: 0px; bottom: 0px; width: 2px; background: var(--rule); }
+.story-step:first-child::before { top: 22px; }
+.story-step:last-child::before { bottom: auto; height: 22px; }
+.story-step .node { position: absolute; left: 0px; top: 18px; width: 10px; height: 10px; border-radius: 50%; background: var(--paper); border: 2px solid var(--rule-strong); box-sizing: border-box; transition: all var(--dur-base) var(--ease-out); }
+.story-step.visited .node { border-color: var(--brand-d); }
+.story-step.active .node { border-color: var(--brand-d); background: var(--brand-d); }
+.story-step .step-eyebrow { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 6px; }
+.story-step.active .step-eyebrow { color: var(--brand-d); }
+.story-step .step-title { font-family: var(--font-brand); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--ink); margin: 0px 0px 8px; }
+.story-step .step-body { font-size: 13px; line-height: 1.55; color: var(--ink-2); max-width: 46ch; flex: 1 1 auto; min-height: 0px; }
+.story-step .step-body p { font-size: 13px; line-height: 1.55; margin: 0px 0px 8px; }
+.story-step:not(.active) { opacity: 0.45; }
+.story-step.active { opacity: 1; }
+.story-demo { position: relative; height: 520px; overflow: hidden auto; background: var(--paper); }
+.story-demo-grid { display: grid; grid-template-columns: 300px minmax(0px, 1fr); gap: 28px; padding: 0px 18px; }
+.story-demo .stage-col { position: relative; }
+.story-demo .stage-sticky { position: sticky; top: 57px; padding-bottom: 16px; }
+.story-stage-frame { position: relative; height: 400px; }
+.story-stage-frame .keyframe { position: absolute; inset: 0px; padding: 8px 0px 0px; opacity: 0; transition: opacity 240ms var(--ease-out); pointer-events: none; }
+.story-stage-frame .kf-label { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); }
+.story-stage-frame .keyframe.on { opacity: 1; pointer-events: auto; }
+.story-demo .rail-col { padding: 20px 0px 0px; }
+.story-demo .story-step { min-height: 470px; box-sizing: border-box; }
+.story-demo .story-step:last-child { min-height: 500px; }
+.demo-hint { position: absolute; right: 16px; bottom: 12px; z-index: 2; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 9999px; padding: 4px 12px; pointer-events: none; }
+.story-chrome { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--rule); background: var(--paper); position: sticky; top: 0px; z-index: 3; font-family: var(--font-mono); font-size: 11px; }
+.story-chrome .title { font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); }
+.story-chrome .counter { margin-left: auto; color: var(--ink-4); font-feature-settings: "tnum"; }
+.story-chrome .counter .cur { color: var(--ink); font-weight: 600; }
+.story-chrome .dots { display: flex; gap: 6px; align-items: center; }
+.story-chrome .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--rule-strong); transition: background var(--dur-base) var(--ease-out); }
+.story-chrome .dots span.cur { background: var(--brand-d); }
+.story-chrome .dots span.seen { background: var(--brand); opacity: 0.5; }
+.story-chrome .nav-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); color: var(--ink-3); font-size: 11px; cursor: pointer; user-select: none; }
+.story-chrome .nav-btn:hover { border-color: var(--ink-3); color: var(--ink); }
+.kf-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0px; }
+.kf-strip .kf { border-right: 1px solid var(--rule); padding: 14px 16px; min-width: 0px; }
+.kf-strip .kf:last-child { border-right-width: medium; border-right-style: none; border-right-color: currentcolor; }
+.kf-strip .kf-head { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 8px; }
+.kf-strip .kf-head .key { color: var(--brand-d); }
+.kf-strip .kf-patch { margin-top: 10px; padding: 8px 10px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; font-family: var(--font-mono); font-size: 10px; line-height: 1.6; color: var(--ink-2); white-space: pre; overflow: hidden; }
+.kf-strip .kf-patch .add { color: var(--pos); }
+.kf-strip .kf-patch .del { color: var(--neg); }
+.layout-thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.layout-thumb { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.layout-thumb .pic { height: 92px; display: grid; gap: 6px; padding: 8px; background: var(--paper-2); }
+.layout-thumb .pic .txt { background: var(--rule); border-radius: 2px; }
+.layout-thumb .pic .viz { background: var(--brand-tint); border: 1px solid var(--brand-d); border-radius: 3px; }
+.layout-thumb .cap { padding: 8px 10px; border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); line-height: 1.5; }
+.layout-thumb .cap .name { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="story-root" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Story<span class="ns">.</span>Root</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The composed narrative container: optional one-row chrome (<span class="mono">Story.Progress</span>), a prose
+        <strong>rail</strong> with the progress spine, and the sticky <strong>stage</strong>. Scroll drives the active
+        step; the active step drives the stage keyframe. Below is a <em>live</em> mock — scroll inside the frame.
+      </p>
+
+      <!-- Anatomy -->
+      <div class="st-anatomy" style="margin-bottom: 16px;">
+        <div class="st-zone">
+          <span class="lbl">Chrome</span>
+          <span class="content">Story.Progress — eyebrow title · dots · prev/next · counter. Optional; one row; sticky over the story only.</span>
+          <span class="dim">h 40px · sticky</span>
+        </div>
+        <div class="st-zone body">
+          <span class="lbl">Rail</span>
+          <span class="content">N step blocks on the progress spine. Each block: eyebrow (<span class="mono">02 / 06</span>) · title · body. Step length sets pacing — the runway the reader scrolls through per keyframe.</span>
+          <span class="dim">w clamp(280, 34%, 380)px<br>step min-h 52vh</span>
+        </div>
+        <div class="st-zone body">
+          <span class="lbl">Stage</span>
+          <span class="content">Sticky unchromed slot holding the active keyframe — any <span class="mono">UIComponentType</span> value; compose <span class="mono">&lt;Card&gt;</span> inside a keyframe when wanted. Fixed height (<span class="mono">stageHeight</span>, default 420px) — tweens never reflow. Fills the remaining width.</span>
+          <span class="dim">sticky top 16px<br>gap to rail 28px</span>
+        </div>
+      </div>
+
+      <!-- Live demo -->
+      <div class="frame" style="overflow: hidden;">
+        <div class="story-demo" id="demo-scroller">
+          <div class="story-chrome">
+            <span class="title">Q4 demand review</span>
+            <span class="dots" id="demo-dots">
+              <span class="cur"></span><span></span><span></span><span></span>
+            </span>
+            <span class="counter" id="demo-counter"><span class="cur">1</span> / 4</span>
+            <span class="nav-btn" data-demo-nav="-1">↑</span>
+            <span class="nav-btn" data-demo-nav="1">↓</span>
+          </div>
+          <div class="story-demo-grid">
+            <!-- Rail -->
+            <div class="rail-col" id="demo-rail">
+              <div class="story-step active" data-step="0">
+                <span class="node"></span>
+                <div class="step-eyebrow">01 / 04 · Demand</div>
+                <h4 class="step-title">Demand ran hot</h4>
+                <div class="step-body">
+                  <p>Orders climbed steadily from week 6 and never gave the gain back — the exit rate is 34% above the start of the quarter.</p>
+                  <span class="deltapill up" style="font-size: 10.5px;">▲ +34% vs start of Q4</span>
+                </div>
+              </div>
+              <div class="story-step" data-step="1">
+                <span class="node"></span>
+                <div class="step-eyebrow">02 / 04 · Forecast</div>
+                <h4 class="step-title">The plan missed the turn</h4>
+                <div class="step-body">
+                  <p>The committed forecast (dashed) tracked well until week 8, then kept its old slope. By week 16 the gap is 18% — that gap is the whole story.</p>
+                  <span class="deltapill down" style="font-size: 10.5px;">▼ forecast −18% at wk 16</span>
+                </div>
+              </div>
+              <div class="story-step" data-step="2">
+                <span class="node"></span>
+                <div class="step-eyebrow">03 / 04 · Cause</div>
+                <h4 class="step-title">One event explains the spike</h4>
+                <div class="step-body">
+                  <p>The week-8 inflection lands on the retail promo going live. Demand stepped up and <em>stayed</em> up — this was a level shift, not a transient.</p>
+                  <span class="chip compact" style="font-size: 10.5px;"><span class="dot brand"></span>promo live · Nov 14</span>
+                </div>
+              </div>
+              <div class="story-step" data-step="3">
+                <span class="node"></span>
+                <div class="step-eyebrow">04 / 04 · Where</div>
+                <h4 class="step-title">The gap wasn't uniform</h4>
+                <div class="step-body">
+                  <p>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat. Re-forecast NA only — touching the others adds noise, not signal.</p>
+                  <span class="deltapill up" style="font-size: 10.5px;">▲ NA +29%</span>
+                  <span class="deltapill flat" style="font-size: 10.5px; margin-left: 4px;">≈ APAC +2%</span>
+                </div>
+              </div>
+            </div>
+            <!-- Stage -->
+            <div class="stage-col">
+              <div class="stage-sticky">
+                <div class="story-stage-frame" id="demo-stage">
+                  <div class="keyframe on" data-step="0">
+                    <div class="kf-label">Orders · Q4 weekly · actual</div>
+                    <div data-spec-multiline="{&quot;series&quot;:[{&quot;data&quot;:[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],&quot;stroke&quot;:&quot;#3a7780&quot;,&quot;strokeWidth&quot;:2}],&quot;ticks&quot;:[&quot;wk 1&quot;,&quot;wk 4&quot;,&quot;wk 8&quot;,&quot;wk 12&quot;,&quot;wk 16&quot;],&quot;yTicks&quot;:[&quot;800&quot;,&quot;1000&quot;,&quot;1200&quot;]}" style="width: 100%; height: 330px; margin-top: 12px;"><svg width="814" height="330" style="display: block;"><line class="visx-line" x1="36" y1="308" x2="808" y2="308" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8" stroke-width="1"></line><line class="visx-line" x1="36" y1="8" x2="36" y2="308" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8" stroke-width="1"></line><text x="30" y="16" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">1200</text><text x="30" y="158" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">1000</text><text x="30" y="308" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">800</text><g class="visx-group" transform="translate(36, 8)"><path class="visx-linepath" d="M0,300C17.155555555555555,291.7808219178082,34.31111111111112,283.56164383561645,51.46666666666667,283.56164383561645C68.62222222222222,283.56164383561645,85.77777777777779,287.67123287671234,102.93333333333334,287.67123287671234C120.08888888888889,287.67123287671234,137.24444444444444,267.1232876712329,154.4,267.1232876712329C171.55555555555557,267.1232876712329,188.7111111111111,271.2328767123288,205.86666666666667,271.2328767123288C223.0222222222222,271.2328767123288,240.17777777777778,260.95890410958907,257.3333333333333,250.68493150684932C274.4888888888889,240.41095890410958,291.64444444444445,227.39726027397262,308.8,209.58904109589042C325.9555555555556,191.78082191780823,343.1111111111111,161.64383561643837,360.26666666666665,143.83561643835617C377.4222222222222,126.02739726027396,394.5777777777778,113.69863013698631,411.73333333333335,102.73972602739727C428.8888888888889,91.78082191780824,446.0444444444444,85.6164383561644,463.2,78.08219178082193C480.35555555555555,70.54794520547946,497.51111111111106,63.013698630136986,514.6666666666666,57.534246575342465C531.8222222222222,52.05479452054794,548.9777777777778,50.000000000000014,566.1333333333333,45.20547945205481C583.2888888888889,40.410958904109606,600.4444444444445,34.24657534246577,617.6,28.767123287671247C634.7555555555556,23.287671232876725,651.9111111111112,17.123287671232898,669.0666666666667,12.328767123287687C686.2222222222223,7.534246575342486,703.3777777777777,0,720.5333333333333,0C737.6888888888889,0,754.8444444444444,34.93150684931507,772,69.86301369863016" fill="transparent" stroke-linecap="round" stroke="#3a7780" stroke-width="2" stroke-opacity="1"></path></g><text x="36" y="326" text-anchor="start" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 1</text><text x="229" y="326" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 4</text><text x="422" y="326" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 8</text><text x="615" y="326" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 12</text><text x="808" y="326" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 16</text></svg></div>
+                  </div>
+                  <div class="keyframe" data-step="1">
+                    <div class="kf-label">Orders · Q4 weekly · actual vs forecast (dashed)</div>
+                    <div data-spec-multiline="{&quot;series&quot;:[{&quot;data&quot;:[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],&quot;stroke&quot;:&quot;#3a7780&quot;,&quot;strokeWidth&quot;:2},{&quot;data&quot;:[825,838,850,862,874,886,898,910,922,934,946,958,970,982,994,1006],&quot;stroke&quot;:&quot;#6b8080&quot;,&quot;strokeWidth&quot;:1.6,&quot;dasharray&quot;:&quot;4 3&quot;}],&quot;ticks&quot;:[&quot;wk 1&quot;,&quot;wk 4&quot;,&quot;wk 8&quot;,&quot;wk 12&quot;,&quot;wk 16&quot;],&quot;yTicks&quot;:[&quot;800&quot;,&quot;1000&quot;,&quot;1200&quot;]}" style="width: 100%; height: 330px; margin-top: 12px;"><svg width="814" height="330" style="display: block;"><line class="visx-line" x1="36" y1="308" x2="808" y2="308" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8" stroke-width="1"></line><line class="visx-line" x1="36" y1="8" x2="36" y2="308" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8" stroke-width="1"></line><text x="30" y="16" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">1200</text><text x="30" y="158" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">1000</text><text x="30" y="308" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">800</text><g class="visx-group" transform="translate(36, 8)"><path class="visx-linepath" d="M0,300C17.155555555555555,291.7808219178082,34.31111111111112,283.56164383561645,51.46666666666667,283.56164383561645C68.62222222222222,283.56164383561645,85.77777777777779,287.67123287671234,102.93333333333334,287.67123287671234C120.08888888888889,287.67123287671234,137.24444444444444,267.1232876712329,154.4,267.1232876712329C171.55555555555557,267.1232876712329,188.7111111111111,271.2328767123288,205.86666666666667,271.2328767123288C223.0222222222222,271.2328767123288,240.17777777777778,260.95890410958907,257.3333333333333,250.68493150684932C274.4888888888889,240.41095890410958,291.64444444444445,227.39726027397262,308.8,209.58904109589042C325.9555555555556,191.78082191780823,343.1111111111111,161.64383561643837,360.26666666666665,143.83561643835617C377.4222222222222,126.02739726027396,394.5777777777778,113.69863013698631,411.73333333333335,102.73972602739727C428.8888888888889,91.78082191780824,446.0444444444444,85.6164383561644,463.2,78.08219178082193C480.35555555555555,70.54794520547946,497.51111111111106,63.013698630136986,514.6666666666666,57.534246575342465C531.8222222222222,52.05479452054794,548.9777777777778,50.000000000000014,566.1333333333333,45.20547945205481C583.2888888888889,40.410958904109606,600.4444444444445,34.24657534246577,617.6,28.767123287671247C634.7555555555556,23.287671232876725,651.9111111111112,17.123287671232898,669.0666666666667,12.328767123287687C686.2222222222223,7.534246575342486,703.3777777777777,0,720.5333333333333,0C737.6888888888889,0,754.8444444444444,34.93150684931507,772,69.86301369863016" fill="transparent" stroke-linecap="round" stroke="#3a7780" stroke-width="2" stroke-opacity="1"></path><path class="visx-linepath" d="M0,295.8904109589041C17.155555555555555,292.2602739726027,34.31111111111112,288.63013698630135,51.46666666666667,285.20547945205476C68.62222222222222,281.78082191780817,85.77777777777779,278.63013698630135,102.93333333333334,275.3424657534247C120.08888888888889,272.054794520548,137.24444444444444,268.76712328767127,154.4,265.47945205479454C171.55555555555557,262.1917808219178,188.7111111111111,258.90410958904107,205.86666666666667,255.61643835616437C223.0222222222222,252.32876712328766,240.17777777777778,249.04109589041093,257.3333333333333,245.75342465753423C274.4888888888889,242.46575342465752,291.64444444444445,239.17808219178082,308.8,235.8904109589041C325.9555555555556,232.6027397260274,343.1111111111111,229.31506849315068,360.26666666666665,226.02739726027397C377.4222222222222,222.73972602739727,394.5777777777778,219.45205479452056,411.73333333333335,216.16438356164386C428.8888888888889,212.87671232876716,446.0444444444444,209.58904109589042,463.2,206.3013698630137C480.35555555555555,203.01369863013696,497.51111111111106,199.72602739726025,514.6666666666666,196.43835616438355C531.8222222222222,193.15068493150685,548.9777777777778,189.86301369863014,566.1333333333333,186.57534246575344C583.2888888888889,183.28767123287673,600.4444444444445,180,617.6,176.7123287671233C634.7555555555556,173.4246575342466,651.9111111111112,170.13698630136986,669.0666666666667,166.84931506849315C686.2222222222223,163.56164383561645,703.3777777777777,160.27397260273972,720.5333333333333,156.986301369863C737.6888888888889,153.6986301369863,754.8444444444444,150.41095890410958,772,147.12328767123287" fill="transparent" stroke-linecap="round" stroke="#6b8080" stroke-width="1.6" stroke-dasharray="4 3" stroke-opacity="1"></path></g><text x="36" y="326" text-anchor="start" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 1</text><text x="229" y="326" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 4</text><text x="422" y="326" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 8</text><text x="615" y="326" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 12</text><text x="808" y="326" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 16</text></svg></div>
+                  </div>
+                  <div class="keyframe" data-step="2">
+                    <div class="kf-label">Orders · Q4 weekly · 1 annotation</div>
+                    <div data-spec-annotated="{&quot;yUnit&quot;:&quot;&quot;,&quot;series&quot;:[820,840,835,860,855,880,930,1010,1060,1090,1115,1130,1150,1170,1185,1100],&quot;yMin&quot;:800,&quot;yMax&quot;:1200,&quot;annotations&quot;:[{&quot;at&quot;:0.47,&quot;kind&quot;:&quot;deploy&quot;,&quot;callout&quot;:&quot;promo live&quot;}],&quot;xTicks&quot;:[&quot;wk 1&quot;,&quot;wk 4&quot;,&quot;wk 8&quot;,&quot;wk 12&quot;,&quot;wk 16&quot;]}" style="width: 100%; height: 330px; margin-top: 12px;"><svg width="814" height="330" style="display: block;"><line class="visx-line" x1="400.02" y1="14" x2="400.02" y2="306" fill="transparent" shape-rendering="crispEdges" stroke="#3a7780" stroke-width="1" stroke-opacity="0.45"></line><text x="34" y="22" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">1200</text><text x="34" y="160" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">1000</text><text x="34" y="306" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">800</text><line class="visx-line" x1="40" y1="306" x2="806" y2="306" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8"></line><line class="visx-line" x1="40" y1="14" x2="40" y2="306" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8"></line><g class="visx-group" transform="translate(40, 14)"><path class="visx-linepath" d="M0,277.4C17.022222222222222,270.1,34.04444444444444,262.8,51.06666666666666,262.8C68.08888888888889,262.8,85.1111111111111,266.45,102.13333333333333,266.45C119.15555555555555,266.45,136.17777777777778,248.2,153.20000000000002,248.2C170.22222222222223,248.2,187.24444444444444,251.85000000000002,204.26666666666665,251.85000000000002C221.28888888888886,251.85000000000002,238.3111111111111,242.72500000000002,255.33333333333331,233.60000000000002C272.35555555555555,224.47500000000002,289.3777777777778,212.9166666666667,306.40000000000003,197.10000000000002C323.4222222222223,181.28333333333336,340.44444444444446,154.51666666666668,357.4666666666667,138.7C374.4888888888889,122.88333333333333,391.5111111111111,111.93333333333331,408.5333333333333,102.19999999999999C425.55555555555554,92.46666666666665,442.5777777777777,86.99166666666667,459.59999999999997,80.30000000000001C476.6222222222222,73.60833333333335,493.6444444444444,66.91666666666667,510.66666666666663,62.050000000000004C527.6888888888889,57.18333333333334,544.7111111111111,55.35833333333335,561.7333333333333,51.100000000000016C578.7555555555556,46.84166666666668,595.7777777777778,41.366666666666674,612.8000000000001,36.5C629.8222222222223,31.633333333333333,646.8444444444444,26.158333333333317,663.8666666666667,21.899999999999988C680.8888888888889,17.641666666666648,697.9111111111112,10.949999999999994,714.9333333333334,10.949999999999994C731.9555555555556,10.949999999999994,748.9777777777778,41.974999999999994,766,73" fill="transparent" stroke-linecap="round" stroke="#3a7780" stroke-width="1.8"></path><circle class="visx-circle" cx="714.9333333333334" cy="10.949999999999994" r="3" fill="#b85a4a" stroke="#ffffff" stroke-width="1"></circle></g><rect x="395.02" y="9" width="10" height="10" fill="#3a7780" stroke="#ffffff" stroke-width="2"></rect><g><rect x="406.02" y="22" width="86" height="16" rx="2" fill="#3a7780"></rect><text x="449.02" y="34" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" font-weight="600" fill="#ffffff">promo live</text></g><text x="40" y="324" text-anchor="start" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 1</text><text x="231.5" y="324" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 4</text><text x="423" y="324" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 8</text><text x="614.5" y="324" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 12</text><text x="806" y="324" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">wk 16</text></svg></div>
+                  </div>
+                  <div class="keyframe" data-step="3">
+                    <div class="kf-label">Orders · uplift by region · wk 1–8 vs wk 9–16</div>
+                    <div data-spec-bargroup="{&quot;groups&quot;:[[846,1110],[612,668],[418,426]],&quot;strokes&quot;:[&quot;#3a7780&quot;,&quot;#5ce5e5&quot;]}" style="width: 100%; height: 300px; margin-top: 12px;"><svg width="814" height="300" style="display: block;"><g class="visx-group" transform="translate(4, 4)"><rect class="visx-bar" x="51.375" y="69.44864864864866" width="98.75000000000001" height="222.55135135135134" fill="#3a7780" rx="1"></rect><rect class="visx-bar" x="152.125" y="0" width="98.75000000000001" height="292" fill="#5ce5e5" rx="1"></rect><rect class="visx-bar" x="303.25" y="131.00540540540538" width="98.75000000000001" height="160.99459459459462" fill="#3a7780" rx="1"></rect><rect class="visx-bar" x="404" y="116.27387387387388" width="98.75000000000001" height="175.72612612612613" fill="#5ce5e5" rx="1"></rect><rect class="visx-bar" x="555.125" y="182.03963963963966" width="98.75000000000001" height="109.96036036036034" fill="#3a7780" rx="1"></rect><rect class="visx-bar" x="655.875" y="179.9351351351351" width="98.75000000000001" height="112.06486486486489" fill="#5ce5e5" rx="1"></rect></g></svg></div>
+                    <div style="display: flex; gap: 18px; justify-content: center; margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-3);">
+                      <span>NA</span><span>EU</span><span>APAC</span>
+                      <span style="margin-left: 12px;"><span style="display:inline-block;width:10px;height:8px;background:#3a7780;margin-right:4px;"></span>wk 1–8</span>
+                      <span><span style="display:inline-block;width:10px;height:8px;background:#5ce5e5;margin-right:4px;"></span>wk 9–16</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <span class="demo-hint">scroll to drive ↓</span>
+        </div>
+      </div>
+
+      <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Dimensions:</span>
+        <strong>Rail</strong> — width <span class="mono">clamp(280px, 34%, 380px)</span> · rail–stage gap <span class="mono">28px</span> · prose max <span class="mono">46ch</span>.
+        <strong>Step runway</strong> — <span class="mono">stepLength</span>: <span class="mono">compact 36vh</span> · <span class="mono">default 52vh</span> · <span class="mono">long 72vh</span>; first step starts active at load, last step gets +20vh tail so it can complete before the story scrolls out.
+        <strong>Trigger line</strong> — a step activates when its block crosses <span class="mono">38%</span> from the viewport top; within-step <span class="mono">progress ∈ [0,1]</span> is the block's travel through that line.
+        <strong>Stage</strong> — sticky <span class="mono">top: 16px</span> (+ chrome height when <span class="mono">Story.Progress</span> sits above) · height <span class="mono">stageHeight</span> (default <span class="mono">420px</span>) · unchromed slot, keyframes bring their own framing · the stage never resizes between keyframes.
+        <strong>Spine</strong> — 2px <span class="mono">rule</span> at rail-left; node 10px, <span class="mono">rule-strong</span> ring → <span class="mono">brand-d</span> ring when visited → filled when active.
+      </div>
+
+      <div class="spec-note" style="margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 10px;">
+        <span class="k">Layouts:</span>
+        <strong><span class="mono">rail-left</span> (default)</strong> — prose left, stage right; reading order matches scan order.
+        <strong><span class="mono">rail-right</span></strong> — mirror; for pages whose surrounding chrome already sits left.
+        <strong><span class="mono">stacked</span></strong> — forced under <span class="mono">720px</span>: stage compresses to <span class="mono">min(stageHeight, 280px)</span>, sticks to the top, prose scrolls beneath it full-width. There is no overlay layout.
+      </div>
+      <div class="layout-thumbs" style="margin-top: 12px;">
+        <div class="layout-thumb">
+          <div class="pic" style="grid-template-columns: 90px 1fr;">
+            <div style="display: grid; gap: 5px; align-content: start;"><div class="txt" style="height: 7px; width: 70%;"></div><div class="txt" style="height: 5px;"></div><div class="txt" style="height: 5px; width: 85%;"></div><div class="txt" style="height: 5px; width: 60%; opacity: .5;"></div><div class="txt" style="height: 5px; width: 75%; opacity: .5;"></div></div>
+            <div class="viz"></div>
+          </div>
+          <div class="cap"><span class="name">rail-left</span> · default</div>
+        </div>
+        <div class="layout-thumb">
+          <div class="pic" style="grid-template-columns: 1fr 90px;">
+            <div class="viz"></div>
+            <div style="display: grid; gap: 5px; align-content: start;"><div class="txt" style="height: 7px; width: 70%;"></div><div class="txt" style="height: 5px;"></div><div class="txt" style="height: 5px; width: 85%;"></div><div class="txt" style="height: 5px; width: 60%; opacity: .5;"></div></div>
+          </div>
+          <div class="cap"><span class="name">rail-right</span> · mirrored</div>
+        </div>
+        <div class="layout-thumb">
+          <div class="pic" style="grid-template-rows: 44px 1fr;">
+            <div class="viz"></div>
+            <div style="display: grid; gap: 5px; align-content: start;"><div class="txt" style="height: 6px; width: 40%;"></div><div class="txt" style="height: 5px;"></div><div class="txt" style="height: 5px; width: 80%;"></div></div>
+          </div>
+          <div class="cap"><span class="name">stacked</span> · forced &lt; 720px</div>
+        </div>
+      </div>
+    </article>
+</body>
+</html>

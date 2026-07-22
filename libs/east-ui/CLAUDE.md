@@ -31,8 +31,9 @@ design / snapshot workflow:
 
 | Target | What it does |
 |---|---|
-| `make design` | Serves `design/` (canonical visual spec, HTML) on :5174. |
-| `make design-html-all` | Snapshots every `.pattern` / `.bsys` in `design/*.html` to `packages/east-ui-showcase/dist-design/`. |
+| `make design` | Serves the canonical visual spec (`app_design_system/guidelines/reference/`) on :5174. |
+| `make design-html-all` | Seeds `component_design/` from every `.pattern` / `.bsys` in the reference pages (committed, individually-managed HTML linking the shared DS CSS). |
+| `make design-html-serve` | Serves `component_design/` + `app_design_system/` on :5175. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 | `make extension` | Builds the VS Code extension. |
@@ -42,11 +43,21 @@ See [`../../docs/conventions/MAKEFILE_TARGETS.md`](../../docs/conventions/MAKEFI
 
 ## Canonical design source
 
-`design/` (this lib) holds the canonical visual design as HTML + CSS
-(`colors_and_type.css`, `spec.css`). The renderer packages **do not**
-maintain their own copy of design tokens — they use Chakra semantic
-tokens (`bg.primary`, `text.muted`, …) which the host app's theme maps
-back to these values.
+`app_design_system/` (this lib) holds the canonical **East Application
+Design System** — semantic tokens (`tokens/`, `base/semantic.css`, entry
+`styles.css`), the 8 core atoms (`components/core/`), the hard-constraint
+guidelines (`guidelines/`), and the verbatim pattern-spec reference pages
+(`guidelines/reference/`, the dimensional source of truth incl. `spec.css`).
+It is synced to claude.ai/design via the `/design-sync` skill (see
+`app_design_system/.design-sync/`). The renderer packages **do not**
+maintain their own copy of design tokens — they use Chakra semantic tokens
+(`bg.primary`, `text.muted`, …) which the host app's theme maps back to
+these values.
+
+`component_design/` holds individually-managed component-design HTML files
+seeded from the reference pages by `make design-html-all`; each links the
+shared DS CSS (`app_design_system/styles.css` + `component_design/spec.css`)
+rather than embedding it.
 
 Per `[Always visually verify]` memory: after every component or example
 change, rebuild + re-snapshot + Read the PNG. That's the whole point of

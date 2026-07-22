@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>frame-trust · pattern · audittrail</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="audittrail" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>AuditTrail</span></div>
+      <p class="pattern-blurb">Linear chain of every state-touching event behind a single output. Each row: timestamp · actor · event · diff. Append-only; the legal record.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Audit · run #42</span><span class="meta muted">14 events · <a class="btn-link" href="#">export CSV</a></span></div>
+        <div class="audit">
+          <div class="ar"><span class="at">16:42:01</span><span class="aa">Patel</span><span class="av">published</span><span class="ax">roster · diff #df-3211</span></div>
+          <div class="ar"><span class="at">16:41:58</span><span class="aa">Patel</span><span class="av">accepted</span><span class="ax">recommendation · run #42</span></div>
+          <div class="ar"><span class="at">16:31:04</span><span class="aa">model</span><span class="av">issued</span><span class="ax">staffing-v3.2.1 · conf 0.78</span></div>
+          <div class="ar"><span class="at">16:30:51</span><span class="aa">system</span><span class="av">computed</span><span class="ax">input hash sha256:7c4f…ab21</span></div>
+          <div class="ar"><span class="at">16:30:48</span><span class="aa">system</span><span class="av">snapshot</span><span class="ax">forecast.v3 · 2m old</span></div>
+          <div class="ar"><span class="at">16:30:48</span><span class="aa">system</span><span class="av">snapshot</span><span class="ax">roster.db · 14m old</span></div>
+          <div class="ar"><span class="at">16:18:22</span><span class="aa">Patel</span><span class="av">flagged</span><span class="ax">personal-leave Wed Sep 18</span></div>
+          <div class="ar"><span class="at">16:18:00</span><span class="aa">Patel</span><span class="av">opened</span><span class="ax">roster builder</span></div>
+          <div class="ar"><span class="at">15:42:11</span><span class="aa">model</span><span class="av">issued</span><span class="ax">recommendation run #41 (superseded)</span></div>
+          <div class="ar"><span class="at">14:00:00</span><span class="aa">system</span><span class="av">trigger</span><span class="ax">scheduled run · weekly cadence</span></div>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>

@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>configure · pattern · planner</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+.lhs-headers { display: grid; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); align-items: center; background: var(--paper-2); min-height: 44px; box-sizing: border-box; }
+.lhs-headers.planner { grid-template-columns: minmax(0px, 1fr) 50px 50px; }
+.lhs-headers.gantt { grid-template-columns: minmax(0px, 1fr) 70px; }
+.lhs-cells { display: grid; gap: 4px; padding: 10px; align-items: center; border-right: 1px solid var(--rule); font-size: 11px; }
+.lhs-cells.planner { grid-template-columns: minmax(0px, 1fr) 50px 50px; }
+.lhs-cells.gantt { grid-template-columns: minmax(0px, 1fr) 70px; }
+.lhs-cells .mono, .lhs-cells .num { font-size: 11px; }
+.lhs-cells .num { text-align: left; }
+.col-h { display: inline-flex; align-items: center; gap: 4px; min-width: 0px; }
+.col-h.end { justify-content: flex-end; }
+.col-icons { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; }
+.col-h.end .col-icons { margin-left: 0px; }
+.col-i { display: inline-flex; align-items: center; gap: 1px; cursor: pointer; color: var(--ink-4); line-height: 1; opacity: 0.4; letter-spacing: 0px; text-transform: none; }
+.col-i:hover { opacity: 0.7; }
+.col-i.active { opacity: 1; }
+.col-i.sort.active { color: var(--brand-dd); }
+.col-i.filter.active { color: var(--brand-d); }
+.col-i sup { font-family: var(--font-mono); font-size: 8px; font-weight: 700; margin-left: 1px; letter-spacing: 0px; line-height: 1; }
+.gantt-deps { position: absolute; inset: 0px 12px 0px calc(232px); pointer-events: none; z-index: 10; }
+.gd-v, .gd-h { position: absolute; background: var(--ink-3); }
+.gd-v { width: 1px; }
+.gd-h { height: 1px; }
+.gd-v.warn, .gd-h.warn { background: var(--warn); }
+.gd-v.dashed { width: 0px; background: transparent; border-left: 1.5px dashed var(--warn); }
+.gd-h.dashed { height: 0px; background: transparent; border-top: 1.5px dashed var(--warn); }
+.gd-arrow { position: absolute; display: block; overflow: visible; }
+.gd-arrow .gd-arrow-fill { fill: var(--ink-3); }
+.gd-arrow.warn .gd-arrow-fill { fill: var(--warn); }
+.gd-label { position: absolute; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; white-space: nowrap; background: var(--paper); padding: 1px 5px; color: var(--warn); border: 1px solid var(--warn); border-radius: 1px; }
+.trace { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-radius: 2px; --t-fs: 10px; --t-c: var(--brand-d); position: relative; display: inline-block; font-family: var(--font-mono); font-feature-settings: "tnum"; vertical-align: middle; }
+.trace > [data-track] { display: none; }
+.trace-out { position: relative; }
+.trace-body { position: relative; }
+.trace-zone { position: absolute; top: 0px; bottom: 0px; z-index: 0; background: var(--paper-2); border-radius: var(--t-radius); }
+.trace-grid { position: relative; z-index: 1; display: grid; grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w)); gap: var(--t-gap); }
+.trace-stub { grid-column: 1; display: flex; align-items: center; font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-4); padding-right: 6px; white-space: nowrap; }
+.trace-step { height: var(--t-step-h); border-radius: var(--t-radius); display: flex; align-items: center; justify-content: center; font-size: var(--t-fs); font-weight: 500; line-height: 1; color: var(--ink-2); background: var(--t-fill, var(--paper-3)); border: 1px solid transparent; position: relative; overflow: hidden; }
+.trace-step.hot { color: var(--paper); }
+.trace-step.future { background: var(--t-faint, var(--paper)); border: 1px dashed var(--t-edge, var(--brand-d)); color: var(--t-edge, var(--brand-dd)); font-style: italic; }
+.trace-step .v { position: relative; z-index: 1; }
+.trace[data-future="hatch"] .trace-step.future .v { text-shadow: 0 0 2px var(--paper), 0 0 2px var(--paper); }
+.trace[data-density="compact"] .trace-step .v { display: none; }
+.trace[data-future="hatch"] .trace-step.future::after { content: ""; position: absolute; inset: 0px; z-index: 0; background: repeating-linear-gradient(-45deg,
+      transparent 0 5px, color-mix(in srgb, var(--t-edge) 9%, transparent) 5px 6px); pointer-events: none; }
+.trace[data-future="fade"] .trace-step.future { border-style: solid; border-color: transparent; opacity: 0.7; }
+.trace-axis { display: grid; grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w)); gap: var(--t-gap); margin-bottom: 5px; }
+.trace-axis .ax { text-align: center; font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-5); }
+.trace-now { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--brand-dd); box-shadow: 0 0 0 1px var(--paper); z-index: 2; pointer-events: none; }
+.trace-now-hint { position: absolute; top: 0px; bottom: 0px; width: 12px; transform: translateX(-6px); cursor: help; z-index: 3; }
+.trace-now-hint::after { content: attr(data-label); position: absolute; top: -22px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; background: var(--ink); color: var(--paper); padding: 2px 6px; border-radius: 3px; opacity: 0; transition: opacity 120ms var(--ease-out); pointer-events: none; }
+.trace-now-hint:hover::after { opacity: 1; }
+.trace[data-density="compact"] { --t-step-w: 15px; --t-step-h: 15px; --t-gap: 1px; --t-stub-w: 26px; }
+.trace[data-density="comfortable"] { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-fs: 10px; }
+.trace[data-density="large"] { --t-step-w: 46px; --t-step-h: 34px; --t-gap: 3px; --t-stub-w: 46px; --t-fs: 12.5px; }
+.trace-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.trace-ctl { display: inline-flex; align-items: center; gap: 8px; }
+.trace-ctl > .cap-eyebrow { color: var(--ink-4); }
+.trace-seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.trace-seg button { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.trace-seg button:last-child { border-right: 0px; }
+.trace-seg button:hover { background: var(--paper-3); color: var(--ink); }
+.trace-seg button.active { background: var(--brand-d); color: rgb(255, 255, 255); }
+.trace-table { width: 100%; border-collapse: collapse; font-feature-settings: "tnum"; }
+.trace-table thead th { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2); white-space: nowrap; }
+.trace-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.trace-table tbody tr:last-child td { border-bottom: 0px; }
+.trace-table .t-tank { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+.trace-table .t-batch { font-size: 12.5px; color: var(--ink-2); }
+.trace-table .t-batch .sub { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px; }
+.trace-table .t-days { font-family: var(--font-mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
+.trace-table .t-days .pred { color: var(--ink-4); }
+</style>
+</head>
+<body>
+<article id="planner" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Planner</span></div>
+      <p class="pattern-blurb">The slot-based scheduling primitive. <strong>Rows × ordered slots</strong>, where rows are typed resources (people, tanks, workstreams, task-types, additive-types) and slots are positions on an axis that can be <span class="mono">datetime</span>, <span class="mono">numeric</span> (day-of-X, hour-of-Y) or <span class="mono">ordinal</span> (phase / stage / week-number). Each cell holds zero or more <strong>events</strong> in one of three states — <span class="mono">committed</span> (audit-locked), <span class="mono">proposed</span> (draggable, dirty-patch owned), or <span class="mono">rejected</span> (kept for diff). Sub-slot buckets (AM/PM, morning/arvo/night) declared with <span class="mono">slotsPerColumn</span>. <span class="mono">Roster</span> and <span class="mono">Gantt</span> are configurations of this chassis; the slot mental model is the same.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">TANK-04 · ferment day 4–11</span>
+          <span class="meta muted">AM / PM · today <span class="mono" style="color: var(--ink); font-weight: 600;">day 7</span></span>
+        </div>
+
+        <div class="planner-grid">
+          <!-- Header row · flat 9-column grid · matches .lhs-headers rhythm (mono 11px / 0.18em / paper-2 / 44px) -->
+          <div style="grid-column: 1 / -1; position: relative; display: grid; grid-template-columns: 240px repeat(8, minmax(0, 1fr)); align-items: center; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2); min-height: 44px; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; padding: 10px 14px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); height: 100%; box-sizing: border-box;">Resource <span style="margin-left: auto; color: var(--ink-5); font-weight: 500;">ferment day →</span></div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">4</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">5</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">6</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">7</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">8</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">9</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">10</div>
+            <div style="padding: 10px 4px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">11</div>
+            <!-- now marker (overlaid on the row, positioned at boundary between day 7 and day 8) -->
+            <div style="position: absolute; left: calc(240px + (100% - 240px) * 0.5); top: 0; bottom: 0; width: 0; border-left: 1px solid var(--brand-d); pointer-events: none; z-index: 2;"></div>
+            <div class="planner-now-hint" data-label="now · ferment-day 7 PM" style="left: calc(240px + (100% - 240px) * 0.5); top: 0; bottom: 0;"></div>
+          </div>
+
+          <div class="planner-row group-head">
+            <div class="planner-rh">Tasks</div>
+            <div class="planner-cells" style="grid-template-columns: 1fr;"></div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">pump-over</span>
+              <span class="meta">recirc · 2× daily</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed model"><span class="grip">⠿</span>? model</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed model"><span class="grip">⠿</span>? model</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">SO₂ check</span>
+              <span class="meta">pH probe · AM only</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">pH 3.4</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed selected">pH 3.3</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>check</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>check</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">racking</span>
+              <span class="meta">1× event · end of ferment</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>rack → barrel</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="planner-row group-head">
+            <div class="planner-rh">Additives</div>
+            <div class="planner-cells" style="grid-template-columns: 1fr;"></div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">DAP</span>
+              <span class="meta">nitrogen · max 1× / day</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">150 ppm</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>100 ppm</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">GoFerm</span>
+              <span class="meta">rehydration · day 1–5</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">30 g/hL</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>20 g/hL</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+                <div class="planner-conflict"></div><div class="planner-conflict-badge">!</div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">SO₂</span>
+              <span class="meta">preservation · end of MLF</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>50 ppm</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">malolactic</span>
+              <span class="meta">inoculation · 1× event</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed model"><span class="grip">⠿</span>? inoc</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow">Event states</span>
+          <span style="margin-left: 8px; display: inline-flex; align-items: center; gap: 12px;">
+            <span class="evt evt-committed">committed</span>
+            <span class="evt evt-proposed"><span class="grip">⠿</span>proposed</span>
+            <span class="evt evt-proposed model"><span class="grip">⠿</span>model</span>
+            <span class="evt evt-proposed removed">removed</span>
+            <span class="evt evt-rejected">rejected</span>
+          </span>
+          <span class="muted" style="margin-left: auto;">drag a proposed event to move · double-click an empty bucket to add · committed events cannot be edited in place</span>
+        </div>
+      </div>
+
+      <div class="spec-note" style="margin: 16px 0 0; padding: 14px 18px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper-2);">
+        <div class="cap-eyebrow" style="margin-bottom: 10px;">Reading the example</div>
+        <div style="font-size: 13px; line-height: 1.6; color: var(--ink-2);">
+          <strong>Axis</strong> is <span class="mono">numeric</span> — day-of-fermentation, not calendar dates. The "now" line at day 7 divides committed past from proposed future. Past cells are read-only; future cells are draggable.<br>
+          <strong>Slots per column</strong> is <span class="mono">['AM', 'PM']</span> — sub-day buckets declared once on the axis. Three slots per column (morning / arvo / night), one slot per column (just date), or an arbitrary labelled array all work the same way.<br>
+          <strong>Conflict marker</strong> on <span class="mono">GoFerm · day 8 AM</span> — DAP and GoFerm are flagged as incompatible additives by a declared invariant (<span class="mono">no-cosolutes-same-bucket</span>). The renderer surfaces the rule's violation as a red ring + corner badge, not host-decorated.<br>
+          <strong>Two flavors of proposed</strong> — the dashed teal events are operator proposals (dirty-patch ownership); the italic ones are the model's suggested actions (day 10 pump-over, day 11 malolactic inoculation). Both narrow into <span class="mono">Commit.Bar</span> on Apply.
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <div>
+          <div class="pattern-section-title">Three event states</div>
+          <table class="pattern-table">
+            <thead><tr><th>State</th><th>Visual</th><th>Behaviour</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="name">committed</td>
+                <td><span class="evt evt-committed">happened</span></td>
+                <td>Audit-locked, read-only. Solid <span class="mono">brand-700</span> fill. No drag handle. Hover shows provenance (run id, actor, timestamp). To change one, reverse it (creates a new committed reversal) and propose a new one — the history is not edited in place.</td>
+              </tr>
+              <tr>
+                <td class="name">proposed</td>
+                <td><span class="evt evt-proposed"><span class="grip">⠿</span>draft</span></td>
+                <td>Dirty-patch ownership. <span class="mono">brand-tint</span> fill, dashed edges, drag handle visible. Drags to move within the surface, off-surface to remove. <span class="mono">Commit.Bar</span> applies. Sub-flavours: <span class="mono">.added</span> (operator), <span class="mono">.model</span> (italic — model's suggestion), <span class="mono">.removed</span> (struck through — proposed deletion of a committed event).</td>
+              </tr>
+              <tr>
+                <td class="name">rejected</td>
+                <td><span class="evt evt-rejected">declined</span></td>
+                <td>A proposal that was reviewed and turned down. Kept for diff context; rendered as <span class="mono">ink-5</span> outline with strike-through. Hidden in regular view; surfaces only in compare / journal contexts.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="pattern-section-title">Five column kinds (left side)</div>
+          <table class="pattern-table">
+            <thead><tr><th>Kind</th><th>Purpose</th><th>Behaviour</th></tr></thead>
+            <tbody>
+              <tr><td class="name">identity</td>  <td>Row name + sub-label</td>  <td>Sticky-left; click selects the row; eyebrow style.</td></tr>
+              <tr><td class="name">resource</td>  <td>The thing the row represents</td><td>Drop target for items dragged from a sibling <span class="mono">Library</span>.</td></tr>
+              <tr><td class="name">capacity</td>  <td>Bounded headroom (hours, kL, FTE)</td><td>Renders as a small bar + numeric. Drives over-capacity markers in the body cells.</td></tr>
+              <tr><td class="name">derived</td>   <td>Computed from body content</td>     <td>Read-only. Recomputes when events change (sum of hours, count of tasks, current fill).</td></tr>
+              <tr><td class="name">action</td>    <td>Per-row controls</td>               <td>Small icon button cluster — pin, hide, edit. Right-aligned within the row header.</td></tr>
+              <tr><td class="name">custom</td>    <td>Hand-rolled by the host</td>         <td>Escape hatch. Renderer does nothing automatic — the host owns layout and behaviour.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="pattern-section-title">Drag &amp; drop event grammar</div>
+          <table class="pattern-table">
+            <thead><tr><th>Event kind</th><th>Shape</th><th>Surfaces that support it</th></tr></thead>
+            <tbody>
+              <tr><td class="name">add</td>    <td>Drop new item into a cell (from a sibling <span class="mono">Library</span> or palette)</td><td>Planner.Point · Planner.Span · Roster · Workbench</td></tr>
+              <tr><td class="name">move</td>   <td>Drag a proposed event from cell A to cell B</td>                                              <td>Planner.Point · Planner.Span · Roster</td></tr>
+              <tr><td class="name">remove</td> <td>Drag a proposed event off the surface (to trash or back to source)</td>                       <td>Planner.Point · Planner.Span · Roster · Workbench</td></tr>
+              <tr><td class="name">resize</td> <td>Drag the start or end edge of a span event</td>                                               <td>Planner.Span · Gantt</td></tr>
+            </tbody>
+          </table>
+          <p class="spec-note" style="margin-top: 10px;">
+            Three actor roles: <strong>source</strong> (Library, palette — drag from), <strong>target</strong> (Planner cells — drag to · within · out), <strong>sink</strong> (trash, return-to-source). Every surface declares its supported subset; the renderer rejects unsupported kinds at type time. <span class="mono">Matrix</span> opts out entirely — its cells render via a free slot, no inherent DnD.
+          </p>
+        </div>
+
+        <p class="spec-note">
+          <span class="k">Invariants:</span>
+          <strong>Committed events are read-only by construction.</strong> Editing the past would corrupt the audit trail. To change a committed event, propose a new one that reverses it (the model can be configured to do this automatically) — both the original and the reversal stay committed.
+          <strong>One axis type per Planner.</strong> Mixing <span class="mono">datetime</span> and <span class="mono">numeric</span> in one surface is forbidden — pick one and stay there.
+          <strong>Sub-slot buckets are labelled.</strong> <span class="mono">slotsPerColumn = ['AM','PM']</span> labels the buckets explicitly. A bare <span class="mono">slotsPerColumn = 2</span> is rejected — operators need to read the bucket name.
+          <strong>Conflict markers come from declared invariants, not the host.</strong> Authoring <span class="mono">invariants: [{ rule, message, severity }]</span> means every screen that uses the same Planner config flags the same violations the same way. Host-decorated red borders are forbidden.
+          <strong>The "now" line is implicit and quiet.</strong> The renderer draws a 1px brand-d vertical rule at the boundary between the last committed-allowed slot and the first proposed-allowed slot. A small brand-d pip caps the top of the rule so the visual reads as a marker, not a generic separator. <strong>No permanent text label</strong> — adding chrome real-estate to host a 3-letter word is wasteful. On hover (across a 12px hit zone around the line), a dark tooltip surfaces the precise position (e.g. <span class="mono">now · ferment-day 7 PM</span>). Configurable per row — some resources have no "now" (e.g. a budget planner where every slot is proposed).
+          <strong>Variants:</strong>
+          <span class="mono">Collections<span class="ns">.</span>Planner.Point</span> — slot-bound events (the winemaker default, Roster's chassis).
+          <span class="mono">Collections<span class="ns">.</span>Planner.Span</span> — multi-slot span events (the Gantt chassis).
+          <span class="mono">Collections<span class="ns">.</span>Planner.Summary</span> — read-only roll-up view; no DnD, no <span class="mono">Commit.Bar</span> ownership; events are grouped by another dimension.
+          <span class="mono">Collections<span class="ns">.</span>Planner.Template</span> — recurring-event templates that materialise into proposed events on contact (specced below).
+        </p>
+
+        <div style="margin-top: 18px;">
+          <div class="pattern-section-title">Variant · <span class="mono">Collections.Planner.Template</span></div>
+          <p style="margin: 6px 0 12px; font-size: 13px; line-height: 1.6; color: var(--ink-2);">
+            A reusable recurring-event pattern. Authored as a <span class="mono">{rule, range, slot, event}</span> tuple; dragged from a sibling palette onto the canvas, it materialises into a set of <span class="mono">proposed</span> events the operator can edit individually. Once instantiated, events lose their template link — each is a peer of every other proposed event for edit / commit / reject. The template itself is configuration, not state; deleting it does not remove the events it materialised.
+          </p>
+
+          <div class="frame" style="margin: 0;">
+            <div class="eyebrow-row">
+              <span class="lbl">Template · <span class="mono">pump-over · 2× daily · ferment-day 1–7</span></span>
+              <span class="meta muted">drag onto the canvas → instantiates 14 proposed events</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 240px 1fr; gap: 0;">
+              <div style="padding: 14px 16px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 10px;">
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Rule</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">every day</span>
+                </div>
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Range</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">ferment-day 1–7</span>
+                </div>
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Slots</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">['AM', 'PM']</span>
+                </div>
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Event</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">pump-over · ✓</span>
+                </div>
+              </div>
+              <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+                <div class="cap-eyebrow muted">Materialises as</div>
+                <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px;">
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d1</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d2</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d3</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d4</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d5</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d6</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d7</div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px;">
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); padding-top: 6px; border-top: 1px solid var(--rule);">
+                  <span style="color: var(--ink); font-weight: 600;">14 proposed events</span> · each independently editable · template link is broken after instantiation
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="spec-note" style="margin-top: 12px;">
+            <span class="k">Use cases:</span>
+            Winemaker dosing schedules (2× daily pump-overs across primary), periodisation cycles (a week of training intensities), maintenance routines (Friday safety checks per quarter), kit prep checklists, MLF nutrient additions.
+            <span class="k">Rule grammar (initial):</span>
+            <span class="mono">every day</span> · <span class="mono">every other day</span> · <span class="mono">weekly on D</span> · <span class="mono">first of month</span> · <span class="mono">days [list]</span>. More complex schedules go through <span class="mono">Cause.SupplyDemand</span> or a custom rule function (<span class="mono">rule: fn(day) → boolean</span>).
+            <span class="k">Templates vs events:</span>
+            A template is configuration with a known set of materialisations. An event is state with provenance. They never co-exist on the canvas: once instantiated, only the events remain. Editing the template after instantiation does <em>not</em> retroactively change the instantiated events — it changes only future instantiations.
+          </p>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>

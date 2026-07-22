@@ -5,7 +5,8 @@
 
 /**
  * Showcase chrome built to the brand-system spec
- * (`libs/east-ui/design/index.html`, `#brand-system` section).
+ * (`libs/east-ui/app_design_system/guidelines/reference/index.html`,
+ * `#brand-system` section).
  *
  * Sidebar recipe: 240 px paper-2 panel · 1 px right rule · mono 12 px
  * uppercase items @ 36 px height · active state = inset brand-tint pill

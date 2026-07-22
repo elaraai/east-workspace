@@ -5,20 +5,21 @@ values into Chakra UI v3 React components.
 
 ## Visual style
 
-**Canonical design source: `libs/east-ui/design/`.** Do not maintain a
-copy of design tokens here — the previous CSS-variable dump in this
-file rotted out of sync with the HTML. Use these `make` targets from
+**Canonical design source: `libs/east-ui/app_design_system/`.** Do not
+maintain a copy of design tokens here — the previous CSS-variable dump in
+this file rotted out of sync with the HTML. Use these `make` targets from
 `libs/east-ui/`:
 
 | Target | What it does |
 |---|---|
-| `make design` | Serves `design/` statically on :5174 for visual review. |
-| `make design-html-all` | Snapshots every `.pattern` / `.bsys` in `design/*.html` to `packages/east-ui-showcase/dist-design/` (gitignored). |
+| `make design` | Serves the reference spec (`app_design_system/guidelines/reference/`) on :5174 for visual review. |
+| `make design-html-all` | Seeds `component_design/` from the reference `.pattern` / `.bsys` elements (committed HTML linking the shared DS CSS). |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 
 Token tables, semantic tokens, typography, dark-theme overrides — all in
-`libs/east-ui/design/colors_and_type.css` and `libs/east-ui/design/spec.css`.
+`libs/east-ui/app_design_system/tokens/` + `base/semantic.css`; the
+dimensional spec is `app_design_system/guidelines/reference/spec.css`.
 Per `[Always visually verify]` memory: after every component or example
 change, re-snapshot and Read the PNG.
 
@@ -387,4 +388,4 @@ barrel export.
 - [`../east-ui/CLAUDE.md`](../east-ui/CLAUDE.md) — East-side component definitions (the IR layer this package renders)
 - `src/forms/input/index.tsx` — canonical reference for the interactive-state renderer pattern
 - [`../east-ui/STANDARDS.md`](../east-ui/STANDARDS.md) — TypeDoc + testing standards (shared with east-ui)
-- `libs/east-ui/design/` — canonical visual design (HTML + CSS)
+- `libs/east-ui/app_design_system/` — canonical visual design (tokens, atoms, guidelines, reference spec)

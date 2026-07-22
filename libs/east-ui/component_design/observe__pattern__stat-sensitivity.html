@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · stat-sensitivity</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="stat-sensitivity" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Sensitivity</span></div>
+      <p class="pattern-blurb">Tornado chart — sorted bidirectional bars showing how each input perturbation moves a target metric. The "what's load-bearing" stat. <span class="mono">Configure.SensitivityView</span> in scheduling surfaces is the model-input specialisation.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Sensitivity of forecast revenue · ±10% perturb each input</span>
+          <span class="meta">top <span class="num" style="color: var(--ink); font-weight: 600;">5</span> drivers</span>
+        </div>
+        <div class="pad-18">
+          <div data-spec-tornado="{&quot;drivers&quot;:[{&quot;label&quot;:&quot;demand_growth&quot;,&quot;down&quot;:-28,&quot;up&quot;:34},{&quot;label&quot;:&quot;price_elasticity&quot;,&quot;down&quot;:-24,&quot;up&quot;:22},{&quot;label&quot;:&quot;supplier_leadtime&quot;,&quot;down&quot;:-18,&quot;up&quot;:14},{&quot;label&quot;:&quot;fx_rate_eur&quot;,&quot;down&quot;:-10,&quot;up&quot;:12},{&quot;label&quot;:&quot;marketing_spend&quot;,&quot;down&quot;:-7,&quot;up&quot;:9}],&quot;max&quot;:40}" style="width: 100%; height: 130px;"><svg width="1142" height="130" style="display: block;"><g><text x="120" y="19.28" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="11.5" fill="#111b22">demand_growth</text><rect x="130" y="9.2" width="1000" height="14" fill="#f6f9f9"></rect><rect x="280" y="9.2" width="350" height="14" fill="#b85a4a" fill-opacity="0.6"></rect><rect x="630" y="9.2" width="425" height="14" fill="#2f7a5b"></rect><line class="visx-line" x1="630" y1="7.199999999999999" x2="630" y2="25.2" fill="transparent" shape-rendering="crispEdges" stroke="#111b22" stroke-width="1"></line></g><g><text x="120" y="43.67999999999999" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="11.5" fill="#111b22">price_elasticity</text><rect x="130" y="33.599999999999994" width="1000" height="14" fill="#f6f9f9"></rect><rect x="330" y="33.599999999999994" width="300" height="14" fill="#b85a4a" fill-opacity="0.6"></rect><rect x="630" y="33.599999999999994" width="275" height="14" fill="#2f7a5b"></rect><line class="visx-line" x1="630" y1="31.599999999999994" x2="630" y2="49.599999999999994" fill="transparent" shape-rendering="crispEdges" stroke="#111b22" stroke-width="1"></line></g><g><text x="120" y="68.08" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="11.5" fill="#111b22">supplier_leadtime</text><rect x="130" y="58" width="1000" height="14" fill="#f6f9f9"></rect><rect x="405" y="58" width="225" height="14" fill="#b85a4a" fill-opacity="0.6"></rect><rect x="630" y="58" width="175" height="14" fill="#2f7a5b"></rect><line class="visx-line" x1="630" y1="56" x2="630" y2="74" fill="transparent" shape-rendering="crispEdges" stroke="#111b22" stroke-width="1"></line></g><g><text x="120" y="92.47999999999999" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="11.5" fill="#111b22">fx_rate_eur</text><rect x="130" y="82.39999999999999" width="1000" height="14" fill="#f6f9f9"></rect><rect x="505" y="82.39999999999999" width="125" height="14" fill="#b85a4a" fill-opacity="0.6"></rect><rect x="630" y="82.39999999999999" width="150" height="14" fill="#2f7a5b"></rect><line class="visx-line" x1="630" y1="80.39999999999999" x2="630" y2="98.39999999999999" fill="transparent" shape-rendering="crispEdges" stroke="#111b22" stroke-width="1"></line></g><g><text x="120" y="116.88" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="11.5" fill="#111b22">marketing_spend</text><rect x="130" y="106.8" width="1000" height="14" fill="#f6f9f9"></rect><rect x="542.5" y="106.8" width="87.5" height="14" fill="#b85a4a" fill-opacity="0.6"></rect><rect x="630" y="106.8" width="112.5" height="14" fill="#2f7a5b"></rect><line class="visx-line" x1="630" y1="104.8" x2="630" y2="122.8" fill="transparent" shape-rendering="crispEdges" stroke="#111b22" stroke-width="1"></line></g></svg></div>
+          <div style="margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display: flex; justify-content: center; gap: 24px;">
+            <span><span style="display: inline-block; width: 10px; height: 8px; background: var(--neg); opacity: 0.6; margin-right: 4px;"></span>down (input −10%)</span>
+            <span><span style="display: inline-block; width: 10px; height: 8px; background: var(--pos); margin-right: 4px;"></span>up (input +10%)</span>
+          </div>
+        </div>
+      </div>
+    </article>
+</body>
+</html>

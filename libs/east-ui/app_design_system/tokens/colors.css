@@ -1,0 +1,129 @@
+/* East — color tokens.
+ * Two layers:
+ *   1. Raw scales (--brand-*, --gray-*, accent hues) — NEVER use directly in components.
+ *   2. Semantic aliases (--ink-*, --paper-*, --rule*, --brand, --pos/--neg/--warn/--info,
+ *      --bg-*, --fg-*) — the ONLY colors components may reference.
+ * Both themes resolve through the same semantic names; a component written
+ * against semantics works in dark mode for free. */
+
+:root {
+  /* ===== RAW: brand deep-teal scale ===== */
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;
+
+  /* ===== RAW: cool green-gray neutrals ===== */
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  /* ===== RAW: chart-only accent hues (see chart conventions) ===== */
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  /* ===== SEMANTIC: ink (text) scale, darkest → lightest ===== */
+  --ink:   #111b22;   /* primary text, headings */
+  --ink-2: #2b4b55;   /* strong secondary text */
+  --ink-3: #4a5f5f;   /* secondary text, ledes */
+  --ink-4: #6b8080;   /* labels, captions, mono eyebrows */
+  --ink-5: #9bb0b0;   /* faintest annotation */
+
+  /* ===== SEMANTIC: paper (surface) scale ===== */
+  --paper:   #ffffff; /* card / component surface */
+  --paper-2: #f8fafa; /* page background, header bands */
+  --paper-3: #f1f5f5; /* wells, inactive fills */
+
+  /* ===== SEMANTIC: rules (borders are structural, never decorative) ===== */
+  --rule:        #e2e8e8;  /* 1px inside-card dividers */
+  --rule-strong: #cbd5d5;  /* page-card edges, input borders */
+
+  /* ===== SEMANTIC: brand ===== */
+  --brand:      #488e97;
+  --brand-d:    #3a7780;  /* interactive brand (buttons, links) */
+  --brand-dd:   #2b4b55;  /* hover / pressed brand */
+  --brand-l:    #94f9f9;
+  --brand-tint: #e8f6f7;  /* selected / dirty fills — the ONLY tinted bg allowed */
+
+  /* ===== SEMANTIC: valence (muted, never saturated) ===== */
+  --pos:  #2f7a5b;
+  --neg:  #b85a4a;
+  --warn: #b8862d;
+  --info: #3a7780;
+
+  /* ===== SEMANTIC: page-level ===== */
+  --bg-primary:   #ffffff;
+  --bg-secondary: var(--gray-50);
+  --bg-tertiary:  var(--gray-100);
+  --bg-inverse:   var(--brand-900);
+  --fg-primary:   var(--gray-900);
+  --fg-secondary: var(--gray-600);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   #ffffff;
+  --border-subtle: var(--gray-200);
+  --border-strong: var(--gray-300);
+  --border-focus:  var(--brand-500);
+  --card-bg:      #ffffff;
+  --card-border:  var(--gray-200);
+  --link:         var(--brand-600);
+  --link-hover:   var(--brand-700);
+}
+
+/* ===== Dark theme — same semantic names, inverted values ===== */
+[data-theme="dark"], .dark {
+  --ink:   #f1f5f5;
+  --ink-2: #cbd5d5;
+  --ink-3: #9bb0b0;
+  --ink-4: #6b8080;
+  --ink-5: #4a5f5f;
+
+  --paper:   #1a2626;
+  --paper-2: #253333;
+  --paper-3: #374848;
+
+  --rule:        #374848;
+  --rule-strong: #4a5f5f;
+
+  --brand:      #488e97;
+  --brand-d:    #5ba9b3;   /* interactive brand lifts one step in dark */
+  --brand-dd:   #79c4cd;
+  --brand-tint: #1f363d;
+
+  --pos:  #4da583;
+  --neg:  #d98a7c;
+  --warn: #d4a74f;
+  --info: #6fb3bb;
+
+  --bg-primary:   var(--gray-900);
+  --bg-secondary: var(--gray-800);
+  --bg-tertiary:  var(--gray-700);
+  --bg-inverse:   #ffffff;
+  --fg-primary:   var(--gray-100);
+  --fg-secondary: var(--gray-400);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   var(--brand-900);
+  --border-subtle: var(--gray-700);
+  --border-strong: var(--gray-600);
+  --card-bg:      var(--gray-800);
+  --card-border:  var(--gray-700);
+  --link:         var(--brand-300);
+  --link-hover:   var(--brand-200);
+}

@@ -1,0 +1,36 @@
+<!-- @dsCard group="App layout" viewport="700x300" subtitle="comfortable ≈90 · compact ≈68 · condensed 44 — one-row for data-dense screens" name="App bar densities" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
+.wrap { display: grid; gap: 10px; max-width: 620px; }
+.bar { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; border-bottom-width: 1px; }
+.crumb { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.06em; color: var(--ink-3); }
+.crumb .sep { color: var(--ink-4); padding-right: 6px; }
+.title { font-family: var(--font-brand); font-weight: 700; color: var(--ink); }
+.cap { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); margin: 3px 2px 0; }
+.comf { padding: 16px 24px; }
+.comf .crumb { font-size: 11px; margin-bottom: 8px; }
+.comf .title { font-size: 24px; letter-spacing: -0.015em; line-height: 1.1; }
+.comp { padding: 12px 20px; }
+.comp .crumb { font-size: 10.5px; margin-bottom: 4px; }
+.comp .title { font-size: 18px; letter-spacing: -0.015em; line-height: 1.1; }
+.cond { height: 44px; padding: 0 20px; display: flex; align-items: center; }
+.cond .crumb { font-size: 10.5px; }
+.cond .div { width: 1px; height: 14px; background: var(--rule-strong); margin: 0 12px; }
+.cond .title { font-size: 16px; letter-spacing: -0.01em; line-height: 1; }
+</style></head><body>
+<div class="wrap">
+  <div>
+    <div class="bar comf"><div class="crumb"><span class="sep">/</span>Settings</div><div class="title">Acme Operations</div></div>
+    <div class="cap">comfortable · ≈90px · two rows · pad 16/24 · title 24 — default</div>
+  </div>
+  <div>
+    <div class="bar comp"><div class="crumb"><span class="sep">/</span>Settings</div><div class="title">Acme Operations</div></div>
+    <div class="cap">compact · ≈68px · pad 12/20 · title 18 — dense toolbars</div>
+  </div>
+  <div>
+    <div class="bar cond"><span class="crumb"><span class="sep">/</span>Settings</span><span class="div"></span><span class="title">Acme Operations</span></div>
+    <div class="cap">condensed · 44px · one row · crumb + 1×14 divider + title 16 — reclaim space</div>
+  </div>
+</div>
+</body></html>

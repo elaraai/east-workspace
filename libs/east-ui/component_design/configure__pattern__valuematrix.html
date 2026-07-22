@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>configure · pattern · valuematrix</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+.lhs-headers { display: grid; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); align-items: center; background: var(--paper-2); min-height: 44px; box-sizing: border-box; }
+.lhs-headers.planner { grid-template-columns: minmax(0px, 1fr) 50px 50px; }
+.lhs-headers.gantt { grid-template-columns: minmax(0px, 1fr) 70px; }
+.lhs-cells { display: grid; gap: 4px; padding: 10px; align-items: center; border-right: 1px solid var(--rule); font-size: 11px; }
+.lhs-cells.planner { grid-template-columns: minmax(0px, 1fr) 50px 50px; }
+.lhs-cells.gantt { grid-template-columns: minmax(0px, 1fr) 70px; }
+.lhs-cells .mono, .lhs-cells .num { font-size: 11px; }
+.lhs-cells .num { text-align: left; }
+.col-h { display: inline-flex; align-items: center; gap: 4px; min-width: 0px; }
+.col-h.end { justify-content: flex-end; }
+.col-icons { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; }
+.col-h.end .col-icons { margin-left: 0px; }
+.col-i { display: inline-flex; align-items: center; gap: 1px; cursor: pointer; color: var(--ink-4); line-height: 1; opacity: 0.4; letter-spacing: 0px; text-transform: none; }
+.col-i:hover { opacity: 0.7; }
+.col-i.active { opacity: 1; }
+.col-i.sort.active { color: var(--brand-dd); }
+.col-i.filter.active { color: var(--brand-d); }
+.col-i sup { font-family: var(--font-mono); font-size: 8px; font-weight: 700; margin-left: 1px; letter-spacing: 0px; line-height: 1; }
+.gantt-deps { position: absolute; inset: 0px 12px 0px calc(232px); pointer-events: none; z-index: 10; }
+.gd-v, .gd-h { position: absolute; background: var(--ink-3); }
+.gd-v { width: 1px; }
+.gd-h { height: 1px; }
+.gd-v.warn, .gd-h.warn { background: var(--warn); }
+.gd-v.dashed { width: 0px; background: transparent; border-left: 1.5px dashed var(--warn); }
+.gd-h.dashed { height: 0px; background: transparent; border-top: 1.5px dashed var(--warn); }
+.gd-arrow { position: absolute; display: block; overflow: visible; }
+.gd-arrow .gd-arrow-fill { fill: var(--ink-3); }
+.gd-arrow.warn .gd-arrow-fill { fill: var(--warn); }
+.gd-label { position: absolute; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; white-space: nowrap; background: var(--paper); padding: 1px 5px; color: var(--warn); border: 1px solid var(--warn); border-radius: 1px; }
+.trace { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-radius: 2px; --t-fs: 10px; --t-c: var(--brand-d); position: relative; display: inline-block; font-family: var(--font-mono); font-feature-settings: "tnum"; vertical-align: middle; }
+.trace > [data-track] { display: none; }
+.trace-out { position: relative; }
+.trace-body { position: relative; }
+.trace-zone { position: absolute; top: 0px; bottom: 0px; z-index: 0; background: var(--paper-2); border-radius: var(--t-radius); }
+.trace-grid { position: relative; z-index: 1; display: grid; grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w)); gap: var(--t-gap); }
+.trace-stub { grid-column: 1; display: flex; align-items: center; font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-4); padding-right: 6px; white-space: nowrap; }
+.trace-step { height: var(--t-step-h); border-radius: var(--t-radius); display: flex; align-items: center; justify-content: center; font-size: var(--t-fs); font-weight: 500; line-height: 1; color: var(--ink-2); background: var(--t-fill, var(--paper-3)); border: 1px solid transparent; position: relative; overflow: hidden; }
+.trace-step.hot { color: var(--paper); }
+.trace-step.future { background: var(--t-faint, var(--paper)); border: 1px dashed var(--t-edge, var(--brand-d)); color: var(--t-edge, var(--brand-dd)); font-style: italic; }
+.trace-step .v { position: relative; z-index: 1; }
+.trace[data-future="hatch"] .trace-step.future .v { text-shadow: 0 0 2px var(--paper), 0 0 2px var(--paper); }
+.trace[data-density="compact"] .trace-step .v { display: none; }
+.trace[data-future="hatch"] .trace-step.future::after { content: ""; position: absolute; inset: 0px; z-index: 0; background: repeating-linear-gradient(-45deg,
+      transparent 0 5px, color-mix(in srgb, var(--t-edge) 9%, transparent) 5px 6px); pointer-events: none; }
+.trace[data-future="fade"] .trace-step.future { border-style: solid; border-color: transparent; opacity: 0.7; }
+.trace-axis { display: grid; grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w)); gap: var(--t-gap); margin-bottom: 5px; }
+.trace-axis .ax { text-align: center; font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-5); }
+.trace-now { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--brand-dd); box-shadow: 0 0 0 1px var(--paper); z-index: 2; pointer-events: none; }
+.trace-now-hint { position: absolute; top: 0px; bottom: 0px; width: 12px; transform: translateX(-6px); cursor: help; z-index: 3; }
+.trace-now-hint::after { content: attr(data-label); position: absolute; top: -22px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; background: var(--ink); color: var(--paper); padding: 2px 6px; border-radius: 3px; opacity: 0; transition: opacity 120ms var(--ease-out); pointer-events: none; }
+.trace-now-hint:hover::after { opacity: 1; }
+.trace[data-density="compact"] { --t-step-w: 15px; --t-step-h: 15px; --t-gap: 1px; --t-stub-w: 26px; }
+.trace[data-density="comfortable"] { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-fs: 10px; }
+.trace[data-density="large"] { --t-step-w: 46px; --t-step-h: 34px; --t-gap: 3px; --t-stub-w: 46px; --t-fs: 12.5px; }
+.trace-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.trace-ctl { display: inline-flex; align-items: center; gap: 8px; }
+.trace-ctl > .cap-eyebrow { color: var(--ink-4); }
+.trace-seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.trace-seg button { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.trace-seg button:last-child { border-right: 0px; }
+.trace-seg button:hover { background: var(--paper-3); color: var(--ink); }
+.trace-seg button.active { background: var(--brand-d); color: rgb(255, 255, 255); }
+.trace-table { width: 100%; border-collapse: collapse; font-feature-settings: "tnum"; }
+.trace-table thead th { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2); white-space: nowrap; }
+.trace-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.trace-table tbody tr:last-child td { border-bottom: 0px; }
+.trace-table .t-tank { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+.trace-table .t-batch { font-size: 12.5px; color: var(--ink-2); }
+.trace-table .t-batch .sub { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px; }
+.trace-table .t-days { font-family: var(--font-mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
+.trace-table .t-days .pred { color: var(--ink-4); }
+</style>
+</head>
+<body>
+<article id="valuematrix" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Matrix</span></div>
+      <p class="pattern-blurb">Generic row × column grid primitive. Cells are rendered via a free slot — anything from a single weight bar to multi-segment splits, vertical capacity bars, badges, or icons. Row headers can be rich (avatar + name + sub). Configurable: orientation, brush selection, emphasis ring, corner overlays. <span class="mono">ValueMatrixEditor</span>, capacity heatmaps, allocation grids, and eligibility tables are all configurations of this. <strong>Matrix opts out of the <a class="btn-link" href="#planner">Planner DnD grammar</a></strong> — it doesn't author <span class="mono">add</span> / <span class="mono">move</span> / <span class="mono">remove</span> / <span class="mono">resize</span> events. The cell's slot may render <em>internal</em> interactions (drag-to-resize a segment within a cell, brush-select across cells), but those are slot-owned and never cross cell boundaries.</p>
+
+      <!-- Config 1: Heat-grid (booked / free) with rich row headers -->
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Config · heat-grid · rich row headers · booked / free segments</span><span class="meta muted"><span class="mono">Matrix root</span> · cell renders horizontal weight bar</span></div>
+        <div class="mx" style="grid-template-columns: 180px repeat(5, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+          <div class="mx-h col-date"><span class="dow">Thu</span><span class="dt">Apr 25</span></div>
+          <div class="mx-h col-date"><span class="dow">Fri</span><span class="dt">Apr 26</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">AC</span><span><span class="mx-rh-name">Alice Chen</span><span class="mx-rh-sub">Senior PM</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 45%;"></span><span class="seg free" style="width: 55%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 70%;"></span><span class="seg free" style="width: 30%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 85%;"></span><span class="seg free" style="width: 15%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 30%;"></span><span class="seg free" style="width: 70%;"></span></div></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">BM</span><span><span class="mx-rh-name">Bob Martinez</span><span class="mx-rh-sub">Designer</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 35%;"></span><span class="seg free" style="width: 65%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 30%;"></span><span class="seg free" style="width: 70%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 75%;"></span><span class="seg free" style="width: 25%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 50%;"></span><span class="seg free" style="width: 50%;"></span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch booked"></span>Booked</span><span><span class="swatch free"></span>Free</span></div>
+      </div>
+
+      <!-- Config 2: Multi-segment drag-resize with labels -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · multi-segment · drag-resize</span><span class="meta muted">three categories per cell · internal boundaries draggable · slack auto-fills remainder · labels suppressed under <span class="mono">minLabelSize</span></span></div>
+        <div class="mx" style="grid-template-columns: 100px repeat(3, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h">Design</div>
+          <div class="mx-h">Development</div>
+          <div class="mx-h">QA</div>
+
+          <div class="mx-rh">Sprint 1</div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 50%;">50%<span class="resize-handle"></span></span><span class="seg pending" style="width: 30%;">30%<span class="resize-handle"></span></span><span class="seg slack" style="width: 20%;">20%</span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 70%;">70%<span class="resize-handle"></span></span><span class="seg pending" style="width: 20%;">20%<span class="resize-handle"></span></span><span class="seg slack" style="width: 10%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 30%;">30%<span class="resize-handle"></span></span><span class="seg pending" style="width: 40%;">40%<span class="resize-handle"></span></span><span class="seg slack" style="width: 30%;">30%</span></div></div>
+
+          <div class="mx-rh">Sprint 2</div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 45%;">45%<span class="resize-handle"></span></span><span class="seg pending" style="width: 35%;">35%<span class="resize-handle"></span></span><span class="seg slack" style="width: 20%;">20%</span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 80%;">80%<span class="resize-handle"></span></span><span class="seg pending" style="width: 15%;"></span><span class="seg slack" style="width: 5%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 25%;">25%<span class="resize-handle"></span></span><span class="seg pending" style="width: 35%;">35%<span class="resize-handle"></span></span><span class="seg slack" style="width: 40%;">40%</span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch committed"></span>Committed</span><span><span class="swatch pending"></span>Pending</span><span><span class="swatch slack"></span>Slack</span></div>
+      </div>
+
+      <!-- Config 3: Vertical orientation -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · vertical orientation · stacked capacity bar</span><span class="meta muted">drag bar top to rebalance utilization vs free capacity</span></div>
+        <div class="mx" style="grid-template-columns: 100px repeat(5, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+          <div class="mx-h col-date"><span class="dow">Thu</span><span class="dt">Apr 25</span></div>
+          <div class="mx-h col-date"><span class="dow">Fri</span><span class="dt">Apr 26</span></div>
+
+          <div class="mx-rh">Team A</div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 70%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 55%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 90%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 65%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 45%;"></span></div></div>
+
+          <div class="mx-rh">Team B</div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 50%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 75%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 40%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 85%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 60%;"></span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch booked"></span>Used capacity</span><span><span class="swatch free"></span>Available</span></div>
+      </div>
+
+      <!-- Config 4: Cell overlays + emphasis ring -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · rich cell overlays · emphasis ring</span><span class="meta muted">corner badges · inline icons · center text · <span class="mono">emphasisColor</span> drives ring</span></div>
+        <div class="mx" style="grid-template-columns: 180px repeat(3, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">AC</span><span><span class="mx-rh-name">Alice Chen</span><span class="mx-rh-sub">PM</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 80%;">6.4h</span><span class="seg free" style="width: 20%;"></span></div><span class="ov tr alert">!</span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 50%;">4h</span><span class="seg free" style="width: 50%;"></span></div><span class="ov tr team">⌘</span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;">9h</span></div><span class="ov tr ot">OT</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">BM</span><span><span class="mx-rh-name">Bob Martinez</span><span class="mx-rh-sub">Design</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 35%;"></span><span class="seg free" style="width: 65%;"></span></div></div>
+          <div class="mx-cell emphasis"><div class="mx-bar"><span class="seg atrisk" style="width: 100%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch booked"></span>Booked</span><span><span class="swatch free"></span>Free</span><span><span class="swatch atrisk"></span>At risk</span></div>
+      </div>
+
+      <!-- Config 6: Brush selection -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · brush selection</span><span class="meta muted">drag across cells to multi-select · <span class="mono">selected</span> drives highlight · <span class="mono">onChange</span> syncs back</span></div>
+        <div class="mx" style="grid-template-columns: 180px repeat(4, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+          <div class="mx-h col-date"><span class="dow">Thu</span><span class="dt">Apr 25</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">AC</span><span><span class="mx-rh-name">Alice Chen</span><span class="mx-rh-sub">PM</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">BM</span><span><span class="mx-rh-name">Bob Martinez</span><span class="mx-rh-sub">Design</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+        </div>
+        <div class="diff-meta-row"><span>Selected · <span class="num">4 cells</span> · Tue–Wed × Alice + Bob</span><span class="muted" style="margin-left: auto;">⌫ clear · ⏎ apply</span></div>
+      </div>
+
+    </article>
+</body>
+</html>

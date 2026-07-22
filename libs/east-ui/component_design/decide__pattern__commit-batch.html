@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>decide · pattern · commit-batch</title>
+<link rel="stylesheet" href="../app_design_system/styles.css">
+<link rel="stylesheet" href="./spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+
+.facet-tabs { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.facet-tab { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.facet-tab:last-child { border-right: 0px; }
+.facet-tab:hover { background: var(--paper-3); color: var(--ink); }
+.facet-tab.on { background: var(--brand-d); color: rgb(255, 255, 255); }
+@keyframes facet-pulse { 
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.facet-tab.pulse:not(.on) { color: var(--warn-dd, var(--warn)); animation: 1.8s ease-in-out 0s infinite normal none running facet-pulse; }
+</style>
+</head>
+<body>
+<article id="commit-batch" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Commit<span class="ns">.</span>BatchBar</span></div>
+      <p class="pattern-blurb" style="color: var(--ink-3);">Built — the routine collapse’s bulk-accept band in the queue.</p>
+      <p class="pattern-blurb" style="color: var(--ink-3);">Built: the <span class="mono">DecisionQueue</span> routine group’s bulk accept.</p>
+      <p class="pattern-blurb">When the queue contains many small recs, a sticky bar to apply N at once with shared confirmation.</p>
+      <div class="frame">
+        <div class="briefing-foot" style="background: var(--brand-tint); border-top: 1px solid var(--brand-d);">
+          <span class="cap-eyebrow"><span class="num" style="color: var(--ink); font-weight: 600;">12</span> selected · <span class="num pos">+$240k</span> total uplift</span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn">Clear</button>
+            <button class="btn">Modify all</button>
+            <button class="btn primary">Apply 12</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>
