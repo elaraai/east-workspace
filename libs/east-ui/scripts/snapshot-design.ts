@@ -54,8 +54,11 @@ const ROOT = path.resolve(__dirname, "../");
 // copy).
 const DESIGN_DIR = path.resolve(ROOT, "./app_design_system/guidelines/reference");
 /** The COMMITTED home of individually-managed component designs. This
- *  script seeds it from the reference pages; after seeding, each file is
- *  edited in place (git is the history — re-running overwrites). */
+ *  script seeds it FLAT into the `component_design/` root as a bootstrap;
+ *  files are then filed by hand into `src`-mirroring category subdirs
+ *  (`collections/`, `display/`, …) with their two CSS links deepened one
+ *  level (see component_design/README.md). Re-running overwrites only the
+ *  flat root files, never the filed subdir copies. */
 const OUT_DIR = path.join(ROOT, "./component_design");
 /** Stylesheet href written into every produced HTML file, resolved relative
  *  to `component_design/`. Defaults to the canonical design system's entry. */

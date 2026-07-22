@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · stat-trend</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="stat-trend" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Trend</span></div>
+      <p class="pattern-blurb">Hero KPI with optional breakdown chips and an inline trend line. Different from <span class="mono">Stat.Card</span> (no breakdown) and <span class="mono">Chart.Line</span> (no hero number) — this is the "current value, here's how it got here, segmented by X" composite. Pairs with <span class="mono">Slice.Breakdown</span>.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Active users · last 30d</span>
+          <span class="meta">by <span class="mono" style="color: var(--ink); font-weight: 600;">plan_tier</span> <span class="sep">·</span> <a class="btn-link" href="#">change ▾</a></span>
+        </div>
+        <div class="pad-18" style="border-bottom: 1px solid var(--rule);">
+          <!-- Hero value + delta -->
+          <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px;">
+            <span class="num" style="font-size: 36px; font-weight: 600; color: var(--ink); line-height: 1;">24,128</span>
+            <span class="muted" style="font-size: 12.5px;">total · all tiers</span>
+            <span class="deltapill up" style="margin-left: auto;">▲ 12.4% vs prev 30d</span>
+          </div>
+          <div data-spec-multiline="{&quot;series&quot;:[{&quot;data&quot;:[8800,9400,9800,10800,11400,12800,13400,14800,15600,16800,18000,19200,20400,21600,23200,24128],&quot;stroke&quot;:&quot;#3a7780&quot;,&quot;strokeWidth&quot;:2},{&quot;data&quot;:[4400,4600,4800,5000,5400,5600,5800,6000,6200,6400,6600,6800,6900,7000,7100,6830],&quot;stroke&quot;:&quot;#2f7a5b&quot;,&quot;strokeWidth&quot;:1.6},{&quot;data&quot;:[2000,2100,2100,2200,2200,2400,2400,2500,2500,2700,2800,2800,2900,3000,3000,3088],&quot;stroke&quot;:&quot;#8d9aab&quot;,&quot;strokeWidth&quot;:1.4}],&quot;ticks&quot;:[&quot;Aug 14&quot;,&quot;Aug 21&quot;,&quot;Aug 28&quot;,&quot;Sep 04&quot;,&quot;Sep 13&quot;],&quot;yTicks&quot;:[&quot;0&quot;,&quot;12k&quot;,&quot;25k&quot;]}" style="width: 100%; height: 140px;"><svg width="1142" height="140" style="display: block;"><line class="visx-line" x1="36" y1="118" x2="1136" y2="118" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8" stroke-width="1"></line><line class="visx-line" x1="36" y1="8" x2="36" y2="118" fill="transparent" shape-rendering="crispEdges" stroke="#e2e8e8" stroke-width="1"></line><text x="30" y="16" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">25k</text><text x="30" y="63" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">12k</text><text x="30" y="118" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="9.5" fill="#6b8080">0</text><g class="visx-group" transform="translate(36, 8)"><path class="visx-linepath" d="M0,76.19667389732466C24.444444444444443,75.11960713424922,48.888888888888886,74.04254037117377,73.33333333333333,73.21402747650036C97.77777777777777,72.38551458182695,122.22222222222221,72.38551458182695,146.66666666666666,71.22559652928418C171.11111111111111,70.0656784767414,195.55555555555554,67.58013979272114,220,66.25451916124368C244.44444444444443,64.92889852976622,268.88888888888886,64.92889852976622,293.3333333333333,63.27187274041938C317.77777777777777,61.61484695107255,342.2222222222222,57.969390214509524,366.66666666666663,56.31236442516269C391.1111111111111,54.65533863581586,415.55555555555554,54.986743793685235,440,53.3297180043384C464.44444444444446,51.67269221499157,488.8888888888889,48.19293805736322,513.3333333333334,46.370209689081705C537.7777777777778,44.547481320800195,562.2222222222222,44.05037358399615,586.6666666666666,42.393347794649316C611.1111111111111,40.73632200530248,635.5555555555555,38.41648590021691,660,36.42805495300072C684.4444444444445,34.43962400578452,708.8888888888888,32.45119305856833,733.3333333333333,30.462762111352138C757.7777777777777,28.47433116413594,782.2222222222222,26.48590021691974,806.6666666666666,24.497469269703544C831.1111111111111,22.509038322487346,855.5555555555555,20.520607375271144,880,18.53217642805495C904.4444444444445,16.543745480838755,928.8888888888889,14.88671969149193,953.3333333333334,12.566883586406368C977.7777777777778,10.247047481320806,1002.2222222222223,6.707640395275967,1026.6666666666667,4.613159797541572C1051.111111111111,2.51867919980718,1075.5555555555557,1.2593395999035897,1100,0" fill="transparent" stroke-linecap="round" stroke="#3a7780" stroke-width="2" stroke-opacity="1"></path><path class="visx-linepath" d="M0,98.06941431670282C24.444444444444443,97.73800915883345,48.888888888888886,97.4066040009641,73.33333333333333,97.07519884309473C97.77777777777777,96.74379368522536,122.22222222222221,96.41238852735599,146.66666666666666,96.08098336948662C171.11111111111111,95.74957821161725,195.55555555555554,95.58387563268258,220,95.08676789587852C244.44444444444443,94.58966015907448,268.88888888888886,93.59544468546639,293.3333333333333,93.09833694866234C317.77777777777777,92.60122921185828,342.2222222222222,92.4355266329236,366.66666666666663,92.10412147505423C391.1111111111111,91.77271631718486,415.55555555555554,91.4413111593155,440,91.10990600144613C464.44444444444446,90.77850084357677,488.8888888888889,90.4470956857074,513.3333333333334,90.11569052783803C537.7777777777778,89.78428536996866,562.2222222222222,89.4528802120993,586.6666666666666,89.12147505422993C611.1111111111111,88.79006989636056,635.5555555555555,88.45866473849121,660,88.12725958062184C684.4444444444445,87.79585442275247,708.8888888888888,87.4644492648831,733.3333333333333,87.13304410701373C757.7777777777777,86.80163894914436,782.2222222222222,86.38738250180766,806.6666666666666,86.13882863340564C831.1111111111111,85.89027476500361,855.5555555555555,85.80742347553628,880,85.6417208966016C904.4444444444445,85.47601831766691,928.8888888888889,85.31031573873221,953.3333333333334,85.14461315979753C977.7777777777778,84.97891058086284,1002.2222222222223,84.64750542299349,1026.6666666666667,84.64750542299349C1051.111111111111,84.64750542299349,1075.5555555555557,85.31860086767897,1100,85.98969631236443" fill="transparent" stroke-linecap="round" stroke="#2f7a5b" stroke-width="1.6" stroke-opacity="1"></path><path class="visx-linepath" d="M0,110C24.444444444444443,109.75144613159799,48.888888888888886,109.50289226319596,73.33333333333333,109.50289226319596C97.77777777777777,109.50289226319596,122.22222222222221,109.50289226319596,146.66666666666666,109.50289226319596C171.11111111111111,109.50289226319596,195.55555555555554,109.00578452639189,220,109.00578452639189C244.44444444444443,109.00578452639189,268.88888888888886,109.00578452639189,293.3333333333333,109.00578452639189C317.77777777777777,109.00578452639189,342.2222222222222,108.0115690527838,366.66666666666663,108.0115690527838C391.1111111111111,108.0115690527838,415.55555555555554,108.0115690527838,440,108.0115690527838C464.44444444444446,108.0115690527838,488.8888888888889,107.51446131597976,513.3333333333334,107.51446131597976C537.7777777777778,107.51446131597976,562.2222222222222,107.51446131597976,586.6666666666666,107.51446131597976C611.1111111111111,107.51446131597976,635.5555555555555,106.76879971077368,660,106.52024584237165C684.4444444444445,106.27169197396962,708.8888888888888,106.02313810556761,733.3333333333333,106.02313810556761C757.7777777777777,106.02313810556761,782.2222222222222,106.02313810556761,806.6666666666666,106.02313810556761C831.1111111111111,106.02313810556761,855.5555555555555,105.69173294769824,880,105.52603036876356C904.4444444444445,105.36032778982887,928.8888888888889,105.0289226319595,953.3333333333334,105.0289226319595C977.7777777777778,105.0289226319595,1002.2222222222223,105.0289226319595,1026.6666666666667,105.0289226319595C1051.111111111111,105.0289226319595,1075.5555555555557,104.81019522776572,1100,104.59146782357195" fill="transparent" stroke-linecap="round" stroke="#8d9aab" stroke-width="1.4" stroke-opacity="1"></path></g><text x="36" y="136" text-anchor="start" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">Aug 14</text><text x="311" y="136" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">Aug 21</text><text x="586" y="136" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">Aug 28</text><text x="861" y="136" text-anchor="middle" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">Sep 04</text><text x="1136" y="136" text-anchor="end" font-family="&quot;JetBrains Mono&quot;, &quot;JetBrains Mono Variable&quot;, ui-monospace, monospace" font-size="10" fill="#6b8080">Sep 13</text></svg></div>
+        </div>
+        <!-- Breakdown bucket rows: chip + value + delta + per-series sparkline ghost -->
+        <div>
+          <div style="display: grid; grid-template-columns: 24px 130px 1fr 96px 70px; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #3a7780;"></span>
+            <span class="mono" style="font-weight: 600;">pro</span>
+            <div style="position: relative; height: 12px; background: var(--paper-2); border-radius: 1px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #3a7780; border-radius: 1px;"></div>
+            </div>
+            <span class="num" style="text-align: right; font-weight: 600;">14,210</span>
+            <span class="deltapill up" style="font-size: 10px;">▲ 14.8%</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 24px 130px 1fr 96px 70px; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #2f7a5b;"></span>
+            <span class="mono" style="font-weight: 600;">enterprise</span>
+            <div style="position: relative; height: 12px; background: var(--paper-2); border-radius: 1px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 48.1%; background: #2f7a5b; border-radius: 1px;"></div>
+            </div>
+            <span class="num" style="text-align: right; font-weight: 600;">6,830</span>
+            <span class="deltapill up" style="font-size: 10px;">▲ 9.4%</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 24px 130px 1fr 96px 70px; gap: 12px; align-items: center; padding: 10px 18px;">
+            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #8d9aab;"></span>
+            <span class="mono muted" style="font-weight: 600;">free</span>
+            <div style="position: relative; height: 12px; background: var(--paper-2); border-radius: 1px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 21.7%; background: #8d9aab; border-radius: 1px;"></div>
+            </div>
+            <span class="num muted" style="text-align: right; font-weight: 600;">3,088</span>
+            <span class="deltapill flat" style="font-size: 10px;">≈ 1.2%</span>
+          </div>
+        </div>
+      </div>
+    </article>
+</body>
+</html>

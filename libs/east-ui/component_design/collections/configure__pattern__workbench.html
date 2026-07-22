@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>configure · pattern · workbench</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+.lhs-headers { display: grid; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); align-items: center; background: var(--paper-2); min-height: 44px; box-sizing: border-box; }
+.lhs-headers.planner { grid-template-columns: minmax(0px, 1fr) 50px 50px; }
+.lhs-headers.gantt { grid-template-columns: minmax(0px, 1fr) 70px; }
+.lhs-cells { display: grid; gap: 4px; padding: 10px; align-items: center; border-right: 1px solid var(--rule); font-size: 11px; }
+.lhs-cells.planner { grid-template-columns: minmax(0px, 1fr) 50px 50px; }
+.lhs-cells.gantt { grid-template-columns: minmax(0px, 1fr) 70px; }
+.lhs-cells .mono, .lhs-cells .num { font-size: 11px; }
+.lhs-cells .num { text-align: left; }
+.col-h { display: inline-flex; align-items: center; gap: 4px; min-width: 0px; }
+.col-h.end { justify-content: flex-end; }
+.col-icons { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; }
+.col-h.end .col-icons { margin-left: 0px; }
+.col-i { display: inline-flex; align-items: center; gap: 1px; cursor: pointer; color: var(--ink-4); line-height: 1; opacity: 0.4; letter-spacing: 0px; text-transform: none; }
+.col-i:hover { opacity: 0.7; }
+.col-i.active { opacity: 1; }
+.col-i.sort.active { color: var(--brand-dd); }
+.col-i.filter.active { color: var(--brand-d); }
+.col-i sup { font-family: var(--font-mono); font-size: 8px; font-weight: 700; margin-left: 1px; letter-spacing: 0px; line-height: 1; }
+.gantt-deps { position: absolute; inset: 0px 12px 0px calc(232px); pointer-events: none; z-index: 10; }
+.gd-v, .gd-h { position: absolute; background: var(--ink-3); }
+.gd-v { width: 1px; }
+.gd-h { height: 1px; }
+.gd-v.warn, .gd-h.warn { background: var(--warn); }
+.gd-v.dashed { width: 0px; background: transparent; border-left: 1.5px dashed var(--warn); }
+.gd-h.dashed { height: 0px; background: transparent; border-top: 1.5px dashed var(--warn); }
+.gd-arrow { position: absolute; display: block; overflow: visible; }
+.gd-arrow .gd-arrow-fill { fill: var(--ink-3); }
+.gd-arrow.warn .gd-arrow-fill { fill: var(--warn); }
+.gd-label { position: absolute; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; white-space: nowrap; background: var(--paper); padding: 1px 5px; color: var(--warn); border: 1px solid var(--warn); border-radius: 1px; }
+.trace { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-radius: 2px; --t-fs: 10px; --t-c: var(--brand-d); position: relative; display: inline-block; font-family: var(--font-mono); font-feature-settings: "tnum"; vertical-align: middle; }
+.trace > [data-track] { display: none; }
+.trace-out { position: relative; }
+.trace-body { position: relative; }
+.trace-zone { position: absolute; top: 0px; bottom: 0px; z-index: 0; background: var(--paper-2); border-radius: var(--t-radius); }
+.trace-grid { position: relative; z-index: 1; display: grid; grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w)); gap: var(--t-gap); }
+.trace-stub { grid-column: 1; display: flex; align-items: center; font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-4); padding-right: 6px; white-space: nowrap; }
+.trace-step { height: var(--t-step-h); border-radius: var(--t-radius); display: flex; align-items: center; justify-content: center; font-size: var(--t-fs); font-weight: 500; line-height: 1; color: var(--ink-2); background: var(--t-fill, var(--paper-3)); border: 1px solid transparent; position: relative; overflow: hidden; }
+.trace-step.hot { color: var(--paper); }
+.trace-step.future { background: var(--t-faint, var(--paper)); border: 1px dashed var(--t-edge, var(--brand-d)); color: var(--t-edge, var(--brand-dd)); font-style: italic; }
+.trace-step .v { position: relative; z-index: 1; }
+.trace[data-future="hatch"] .trace-step.future .v { text-shadow: 0 0 2px var(--paper), 0 0 2px var(--paper); }
+.trace[data-density="compact"] .trace-step .v { display: none; }
+.trace[data-future="hatch"] .trace-step.future::after { content: ""; position: absolute; inset: 0px; z-index: 0; background: repeating-linear-gradient(-45deg,
+      transparent 0 5px, color-mix(in srgb, var(--t-edge) 9%, transparent) 5px 6px); pointer-events: none; }
+.trace[data-future="fade"] .trace-step.future { border-style: solid; border-color: transparent; opacity: 0.7; }
+.trace-axis { display: grid; grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w)); gap: var(--t-gap); margin-bottom: 5px; }
+.trace-axis .ax { text-align: center; font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-5); }
+.trace-now { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--brand-dd); box-shadow: 0 0 0 1px var(--paper); z-index: 2; pointer-events: none; }
+.trace-now-hint { position: absolute; top: 0px; bottom: 0px; width: 12px; transform: translateX(-6px); cursor: help; z-index: 3; }
+.trace-now-hint::after { content: attr(data-label); position: absolute; top: -22px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; background: var(--ink); color: var(--paper); padding: 2px 6px; border-radius: 3px; opacity: 0; transition: opacity 120ms var(--ease-out); pointer-events: none; }
+.trace-now-hint:hover::after { opacity: 1; }
+.trace[data-density="compact"] { --t-step-w: 15px; --t-step-h: 15px; --t-gap: 1px; --t-stub-w: 26px; }
+.trace[data-density="comfortable"] { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-fs: 10px; }
+.trace[data-density="large"] { --t-step-w: 46px; --t-step-h: 34px; --t-gap: 3px; --t-stub-w: 46px; --t-fs: 12.5px; }
+.trace-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.trace-ctl { display: inline-flex; align-items: center; gap: 8px; }
+.trace-ctl > .cap-eyebrow { color: var(--ink-4); }
+.trace-seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.trace-seg button { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.trace-seg button:last-child { border-right: 0px; }
+.trace-seg button:hover { background: var(--paper-3); color: var(--ink); }
+.trace-seg button.active { background: var(--brand-d); color: rgb(255, 255, 255); }
+.trace-table { width: 100%; border-collapse: collapse; font-feature-settings: "tnum"; }
+.trace-table thead th { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2); white-space: nowrap; }
+.trace-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.trace-table tbody tr:last-child td { border-bottom: 0px; }
+.trace-table .t-tank { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+.trace-table .t-batch { font-size: 12.5px; color: var(--ink-2); }
+.trace-table .t-batch .sub { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px; }
+.trace-table .t-days { font-family: var(--font-mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
+.trace-table .t-days .pred { color: var(--ink-4); }
+</style>
+</head>
+<body>
+<article id="workbench" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Workbench</span></div>
+      <p class="pattern-blurb">Assembly surface for <strong>product-blending and batching</strong> decisions — pulling proportions from many sources into one or more targets. Sources can be raw lots, intermediates, recipe components, fuel cuts, feed streams, ingredient SKUs — anything where the arrangement is <em>what proportion of what</em>. Pairs with <span class="mono">Collections<span class="ns">.</span>Library</span> on the left and a live composition for each Target on the right; a compact flow strip between them shows what's been drawn from where. <strong>One pattern, three render modes:</strong> <span class="mono">single</span> (N=1, focus), <span class="mono">compare</span> (N=2, side-by-side with auto diff), <span class="mono">portfolio</span> (N≥3, horizontal scroll — day-plan / shift-plan).</p>
+
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Workbench · target <span class="mono">BLEND-318</span> · cap 40,000 u</span><span class="meta muted">3 sources · 14,000 u headroom · obj: <span class="mono">min cost · Grade ≥ A · respect pins</span></span></div>
+        <div class="workbench">
+          <!-- Sources column · embedded Collections.Library -->
+          <div class="wb-sources">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow">Sources</span>
+              <span class="muted" style="font-family: var(--font-mono); font-size: 10.5px;">28 of 142 visible</span>
+            </div>
+            <div class="wb-filters">
+              <span class="chip brand">Class A</span>
+              <span class="chip">Site 3</span>
+              <span class="chip">Q2</span>
+              <span class="chip dashed">+ filter</span>
+            </div>
+            <div class="lib-grid">
+              <div class="lib-card asset placed">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-204</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">12,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">in use</span>
+              </div>
+              <div class="lib-card asset placed">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-217</span>
+                  <span class="lib-tag role">Class A · Site 1</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">6,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">in use</span>
+              </div>
+              <div class="lib-card asset placed">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-228</span>
+                  <span class="lib-tag role">Class B · Site 4</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">2,000</span> u avail</span>
+                  <span class="lib-skill">Q4-23</span>
+                </div>
+                <span class="lib-flag">in use</span>
+              </div>
+              <div class="lib-card asset">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-114</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">22,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+              </div>
+              <div class="lib-card asset">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-309</span>
+                  <span class="lib-tag role">Class A · Site 2</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">14,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+              </div>
+              <div class="lib-card asset unavail">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-072</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">9,000</span> u avail</span>
+                  <span class="lib-skill">Q4-22</span>
+                </div>
+                <span class="lib-flag warn">forbidden</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Flow strip · Sankey-style proportional connectors -->
+          <div class="wb-flow" aria-label="Flow from sources to target">
+            <svg viewBox="0 0 120 360" preserveAspectRatio="none">
+              <path d="M 0 60  C 60 60, 60 180, 120 180" stroke="var(--brand)" stroke-width="14" fill="none" opacity="0.55"></path>
+              <path d="M 0 130 C 60 130, 60 220, 120 220" stroke="var(--brand)" stroke-width="8" fill="none" opacity="0.55"></path>
+              <path d="M 0 200 C 60 200, 60 240, 120 240" stroke="var(--brand)" stroke-width="3" fill="none" opacity="0.55"></path>
+            </svg>
+          </div>
+
+          <!-- Target column · the live composition -->
+          <div class="wb-target">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow">Target · <span class="mono">BLEND-318</span></span>
+              <span class="dot ok"></span>
+            </div>
+            <div class="wb-target-meta">
+              <span><span class="muted">total</span> <span class="num">26,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">headroom</span> <span class="num">14,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">grade</span> <span class="num pos">A−</span></span>
+            </div>
+
+            <div class="wb-stack" aria-label="Composition vs capacity">
+              <div class="wb-stack-bar">
+                <span class="wb-stack-seg s-1" style="flex: 12;" title="SRC-204 · 12,000 u · 30%"><span>SRC-204</span></span>
+                <span class="wb-stack-seg s-2" style="flex: 8;" title="SRC-217 · 8,000 u · 20%"><span>SRC-217</span></span>
+                <span class="wb-stack-seg s-3" style="flex: 6;" title="SRC-228 · 6,000 u · 15%"><span>228</span></span>
+                <span class="wb-stack-seg headroom" style="flex: 14;" title="Headroom · 14,000 u · 35%"><span>headroom</span></span>
+              </div>
+              <div class="wb-stack-ticks">
+                <span class="muted">0</span>
+                <span class="muted">10k</span>
+                <span class="muted">20k</span>
+                <span class="muted">30k</span>
+                <span class="muted">40k</span>
+              </div>
+            </div>
+
+            <div class="wb-row">
+              <div class="wb-row-name">
+                <span class="num">SRC-204</span>
+                <span class="muted">Class A · Site 3</span>
+              </div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 60%;"></span><span class="wb-thumb" style="left: 60%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">12,000 u</span> <span class="muted">46%</span></div>
+              <button class="wb-pin pinned" title="Pinned"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name">
+                <span class="num">SRC-217</span>
+                <span class="muted">Class A · Site 1</span>
+              </div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 38%;"></span><span class="wb-thumb" style="left: 38%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">8,000 u</span> <span class="muted">31%</span></div>
+              <button class="wb-pin" title="Pin amount"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row dirty">
+              <div class="wb-row-name">
+                <span class="num">SRC-228</span>
+                <span class="muted">Class B · Site 4</span>
+              </div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 28%;"></span><span class="wb-thumb" style="left: 28%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">6,000 u</span> <span class="muted">23%</span></div>
+              <button class="wb-pin" title="Pin amount"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row empty">
+              <div class="wb-row-name muted">drop a source here</div>
+            </div>
+
+            <div class="wb-rollup">
+              <div class="wb-roll-row"><span class="muted">predicted grade</span><span class="num">A−</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">blend-v2.1</span></span></div>
+              <div class="wb-roll-row"><span class="muted">cost / unit</span><span class="num">$3.42</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">cost-v1.4</span></span></div>
+              <div class="wb-roll-row"><span class="muted">spec X (interp.)</span><span class="num">3.62</span><span class="muted">band 3.55–3.68</span></div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="diff-foot">
+          <span class="cap-eyebrow muted">objective</span>
+          <span><span class="mono">min cost</span> · <span class="mono">Grade ≥ A</span> · <span class="mono">respect pins</span></span>
+          <span class="actions">
+            <button class="btn">Reset</button>
+            <button class="btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Optimise</button>
+            <button class="btn primary">Apply blend</button>
+          </span>
+        </footer>
+      </div>
+
+      <!-- ============================================
+           Mode 2 · COMPARE (N=2) — independent candidates, shared sources
+           ============================================ -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row">
+          <span class="lbl">Compare · two candidate blends · same source pool · independent</span>
+          <span class="meta muted">
+            <span style="display:inline-block;width:8px;height:8px;background:var(--brand-d);border-radius:50%;vertical-align:1px;"></span>
+            <span class="mono">A</span> &nbsp;
+            <span style="display:inline-block;width:8px;height:8px;background:var(--warn);border-radius:50%;vertical-align:1px;"></span>
+            <span class="mono">B</span>
+            &nbsp; · diff at foot
+          </span>
+        </div>
+        <div class="workbench compare">
+
+          <!-- Shared Sources column — same chassis as Single, lib-card based -->
+          <div class="wb-sources">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow">Sources</span>
+              <span class="muted" style="font-family: var(--font-mono); font-size: 10.5px;">shared pool</span>
+            </div>
+            <div class="wb-filters">
+              <span class="chip brand">Class A</span>
+              <span class="chip">Site 3</span>
+              <span class="chip dashed">+</span>
+            </div>
+            <div class="lib-grid">
+              <div class="lib-card asset placed t-12">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-204</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">4,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag"><span class="a">A</span><span class="b">B</span></span>
+              </div>
+              <div class="lib-card asset placed t-1">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-217</span>
+                  <span class="lib-tag role">Class A · Site 1</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">4,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">A</span>
+              </div>
+              <div class="lib-card asset placed t-2">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-309</span>
+                  <span class="lib-tag role">Class A · Site 2</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">6,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">B</span>
+              </div>
+              <div class="lib-card asset placed t-2">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-228</span>
+                  <span class="lib-tag role">Class B · Site 4</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">2,000</span> u avail</span>
+                  <span class="lib-skill">Q4-23</span>
+                </div>
+                <span class="lib-flag">B</span>
+              </div>
+              <div class="lib-card asset">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"></path></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-114</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">22,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Target A — independent candidate -->
+          <div class="wb-target t-1">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow"><span class="target-tag">A</span> &nbsp; <span class="mono">BLEND-318a</span></span>
+              <span class="dot ok"></span>
+            </div>
+            <div class="wb-target-meta">
+              <span><span class="muted">total</span> <span class="num">14,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">obj</span> <span class="num">min cost</span></span>
+            </div>
+            <div class="wb-stack" aria-label="Composition vs capacity">
+              <div class="wb-stack-bar">
+                <span class="wb-stack-seg s-1" style="flex: 8;" title="SRC-204 · 8,000 u · 20%"><span>SRC-204</span></span>
+                <span class="wb-stack-seg s-2" style="flex: 6;" title="SRC-217 · 6,000 u · 15%"><span>217</span></span>
+                <span class="wb-stack-seg headroom" style="flex: 26;" title="Headroom · 26,000 u · 65%"><span>headroom</span></span>
+              </div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-204</span><span class="muted">Site 3</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 56%;"></span><span class="wb-thumb" style="left: 56%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">8,000</span> <span class="muted">57%</span></div>
+              <button class="wb-pin pinned" title="Pinned"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-217</span><span class="muted">Site 1</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 42%;"></span><span class="wb-thumb" style="left: 42%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">6,000</span> <span class="muted">43%</span></div>
+              <button class="wb-pin" title="Pin"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-rollup">
+              <div class="wb-roll-row"><span class="muted">grade</span><span class="num">A−</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">blend-v2.1</span></span></div>
+              <div class="wb-roll-row"><span class="muted">cost / unit</span><span class="num">$3.42</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">cost-v1.4</span></span></div>
+              <div class="wb-roll-row"><span class="muted">spec X</span><span class="num">3.62</span><span class="muted">band 3.55–3.68</span></div>
+            </div>
+          </div>
+
+          <!-- Target B — independent candidate -->
+          <div class="wb-target t-2">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow"><span class="target-tag">B</span> &nbsp; <span class="mono">BLEND-318b</span></span>
+              <span class="dot warn"></span>
+            </div>
+            <div class="wb-target-meta">
+              <span><span class="muted">total</span> <span class="num">12,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">obj</span> <span class="num">max grade</span></span>
+            </div>
+            <div class="wb-stack" aria-label="Composition vs capacity">
+              <div class="wb-stack-bar">
+                <span class="wb-stack-seg s-1" style="flex: 4;" title="SRC-204 · 4,000 u · 10%"><span>204</span></span>
+                <span class="wb-stack-seg s-4" style="flex: 6;" title="SRC-309 · 6,000 u · 15%"><span>SRC-309</span></span>
+                <span class="wb-stack-seg s-5" style="flex: 2;" title="SRC-228 · 2,000 u · 5%"></span>
+                <span class="wb-stack-seg headroom" style="flex: 28;" title="Headroom · 28,000 u · 70%"><span>headroom</span></span>
+              </div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-204</span><span class="muted">Site 3</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 28%;"></span><span class="wb-thumb" style="left: 28%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">4,000</span> <span class="muted">33%</span></div>
+              <button class="wb-pin" title="Pin"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-309</span><span class="muted">Site 2</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 50%;"></span><span class="wb-thumb" style="left: 50%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">6,000</span> <span class="muted">50%</span></div>
+              <button class="wb-pin pinned" title="Pinned"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-228</span><span class="muted">Site 4</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 16%;"></span><span class="wb-thumb" style="left: 16%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">2,000</span> <span class="muted">17%</span></div>
+              <button class="wb-pin" title="Pin"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-rollup">
+              <div class="wb-roll-row"><span class="muted">grade</span><span class="num pos">A</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">blend-v2.1</span></span></div>
+              <div class="wb-roll-row"><span class="muted">cost / unit</span><span class="num">$3.61</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">cost-v1.4</span></span></div>
+              <div class="wb-roll-row"><span class="muted">spec X</span><span class="num">3.59</span><span class="muted">band 3.55–3.68</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stat.Compare diff at foot — scoped to rollup -->
+        <div class="wb-diff">
+          <div class="wb-diff-head">
+            <span>metric</span>
+            <span>target A</span>
+            <span>target B</span>
+            <span>Δ (B − A)</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">grade</span>
+            <span class="val t-1">A−</span>
+            <span class="val t-2">A</span>
+            <span class="delta pos">+1 step</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">cost / unit</span>
+            <span class="val t-1">$3.42</span>
+            <span class="val t-2">$3.61</span>
+            <span class="delta neg">+$0.19</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">spec X</span>
+            <span class="val t-1">3.62</span>
+            <span class="val t-2">3.59</span>
+            <span class="delta">−0.03</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">capacity used</span>
+            <span class="val t-1">14,000 / 40,000 u</span>
+            <span class="val t-2">12,000 / 40,000 u</span>
+            <span class="delta">−2,000 u</span>
+          </div>
+        </div>
+
+        <footer class="diff-foot">
+          <span class="cap-eyebrow muted">compare</span>
+          <span>A wins on cost · B wins on grade · pick by today's objective</span>
+          <span class="actions">
+            <button class="btn">Discard B</button>
+            <button class="btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Optimise both</button>
+            <button class="btn primary">Apply A</button>
+          </span>
+        </footer>
+      </div>
+
+    </article>
+</body>
+</html>

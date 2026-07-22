@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>decide · pattern · whatchanged</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+
+.facet-tabs { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.facet-tab { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.facet-tab:last-child { border-right: 0px; }
+.facet-tab:hover { background: var(--paper-3); color: var(--ink); }
+.facet-tab.on { background: var(--brand-d); color: rgb(255, 255, 255); }
+@keyframes facet-pulse { 
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.facet-tab.pulse:not(.on) { color: var(--warn-dd, var(--warn)); animation: 1.8s ease-in-out 0s infinite normal none running facet-pulse; }
+</style>
+</head>
+<body>
+<article id="whatchanged" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Scenario<span class="ns">.</span>Diff</span></div>
+      <p class="pattern-blurb" style="color: var(--ink-3);">Future — what-changes-if-applied, opening from the expanded row (a thin wrapper over the Diff family keyed by the decision).</p>
+      <p class="pattern-blurb" style="color: var(--ink-3);">Deferred: <span class="mono">Decision.Diff</span> — needs a prior-run binding.</p>
+      <p class="pattern-blurb">Same case, model re-run. The lede is the <em>delta</em> — old recommendation vs new, side by side, plus the inputs that drove the flip.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Δ vs last run</span>
+          <span class="meta">
+            <span class="cap-eyebrow">09-14 vs 09-13 · model v3.4</span>
+            <span class="sep">·</span>
+            <span class="num" style="color: var(--ink); font-weight: 600;">3</span> inputs changed
+          </span>
+        </div>
+
+        <!-- BEFORE · NOW hero -->
+        <div style="display: grid; grid-template-columns: 1fr 56px 1fr; align-items: stretch; padding: 0; border-bottom: 1px solid var(--rule);">
+          <div style="padding: 18px 20px; background: var(--paper-2);">
+            <div class="cap-eyebrow muted" style="margin-bottom: 8px;">Before · 09-13</div>
+            <div style="font-size: 17px; font-weight: 600; color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--ink-4); margin-bottom: 6px;">Move 5 shifts Patel → Cho</div>
+            <div class="row gap-3" style="font-size: 12px;">
+              <span class="cap-eyebrow muted">uplift <span class="num" style="color: var(--ink-3);">+$140k</span></span>
+              <span class="cap-eyebrow muted">conf <span class="num" style="color: var(--ink-3);">79%</span></span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 22px; color: var(--ink-4); background: var(--paper-2); border-left: 1px solid var(--rule); border-right: 1px solid var(--rule);">→</div>
+          <div style="padding: 18px 20px; background: var(--brand-tint);">
+            <div class="cap-eyebrow" style="color: var(--brand-dd); margin-bottom: 8px;">Now · 09-14 · recommended</div>
+            <div style="font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 6px;">Move <span style="color: var(--brand-dd);">3</span> shifts Patel → Cho</div>
+            <div class="row gap-3" style="font-size: 12px;">
+              <span class="cap-eyebrow">uplift <span class="num pos">+$80k</span></span>
+              <span class="cap-eyebrow">conf <span class="num">82% <span class="num pos" style="font-weight: 500;">↑3pp</span></span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- What drove the change -->
+        <div class="diff-meta-row" style="border-bottom: 1px solid var(--rule); padding: 10px 18px;">
+          <span class="cap-eyebrow">What drove the change</span>
+        </div>
+
+        <!-- driver rows, same pivot pattern as Decision.Alternatives -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>forecast</div>
+          <div style="font-size: 13.5px;"><strong>SE region</strong> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">+14%</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">+12%</span> <span class="muted" style="font-size: 12px;">weekend-pref flag updated</span></div>
+          <div class="num text-r" style="font-weight: 600;">−$60k uplift</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>availability</div>
+          <div style="font-size: 13.5px;"><strong>Patel cap</strong> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">40h</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">36h</span> <span class="muted" style="font-size: 12px;">user-set</span></div>
+          <div class="num text-r" style="font-weight: 600;">2 shifts unfeasible</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot ring"></span>model</div>
+          <div style="font-size: 13.5px;"><strong>weight tuning</strong> <span class="muted">recency boost</span> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">0.6</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">0.7</span></div>
+          <div class="num text-r" style="font-weight: 600;">+3pp conf</div>
+        </div>
+
+        <!-- Stayed the same -->
+        <div class="diff-meta-row" style="padding: 10px 18px; color: var(--ink-3);">
+          <span class="cap-eyebrow muted">Unchanged</span>
+          <span style="margin-left: 12px;">Cho remains best swap candidate · SLA risk profile · all guardrails</span>
+        </div>
+
+        <!-- footer -->
+        <div class="diff-meta-row" style="border-top: 1px solid var(--rule); padding: 12px 18px;">
+          <span><a class="btn-link" href="#diffview">Open in Diff<span class="ns">.</span>View →</a></span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn compact">Keep old</button>
+            <button class="btn primary compact">Adopt new</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>

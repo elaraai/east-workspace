@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · slice-pointer</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="slice-pointer" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name" style="color: var(--ink-3);">Slice<span class="ns">.</span>*</span>
+        <span class="pattern-anchor" style="background: var(--paper-2); color: var(--ink-3);">Moved</span>
+      </div>
+      <p class="pattern-blurb">
+        The seven <span class="mono">Slice.*</span> affordances (Filter / Search / Range / Breakdown / Cohort / Legend / Summary) plus the new <span class="mono">Slice.Frame</span> container and <span class="mono">Slice.Edit</span> popover now live in their own document — <span class="mono">Slice</span> is the data-narrowing primitive that Observe surfaces consume, but it's used by Configure surfaces too, so it deserved its own home.
+      </p>
+      <div class="frame pad-18" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <span class="cap-eyebrow">See</span>
+        <a class="btn-link" href="./slice.html#slice-frame">Slice.Frame →</a>
+        <a class="btn-link" href="./slice.html#slice-edit">Slice.Edit →</a>
+        <a class="btn-link" href="./slice.html#slice-filter">Slice.Filter →</a>
+        <a class="btn-link" href="./slice.html#slice-search">Slice.Search →</a>
+        <a class="btn-link" href="./slice.html#slice-range">Slice.Range →</a>
+        <a class="btn-link" href="./slice.html#slice-breakdown">Slice.Breakdown →</a>
+        <a class="btn-link" href="./slice.html#slice-cohort">Slice.Cohort →</a>
+        <a class="btn-link" href="./slice.html#slice-legend">Slice.Legend →</a>
+        <a class="btn-link" href="./slice.html#slice-summary">Slice.Summary →</a>
+      </div>
+    </article>
+</body>
+</html>

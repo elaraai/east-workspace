@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>decide · pattern · decision-journal</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+
+.facet-tabs { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.facet-tab { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.facet-tab:last-child { border-right: 0px; }
+.facet-tab:hover { background: var(--paper-3); color: var(--ink); }
+.facet-tab.on { background: var(--brand-d); color: rgb(255, 255, 255); }
+@keyframes facet-pulse { 
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.facet-tab.pulse:not(.on) { color: var(--warn-dd, var(--warn)); animation: 1.8s ease-in-out 0s infinite normal none running facet-pulse; }
+</style>
+</head>
+<body>
+<article id="decision-journal" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Decision<span class="ns">.</span>Journal</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">Append-only log of every consequential change. Each entry is timestamped, attributed, and linked to the run, diff, and rationale. The system's memory of what happened, who decided it, and why. Owned by the Decide family — builds as <span class="mono">DecisionJournal</span> in e3-ui over the surface's judgements binding: the resolved cases (verdict, rationale, injected constraints, resolution time) are the journal's decision entries; the full multi-actor feed (model issues, system detections) layers on later.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Decision journal · SE region</span><span class="meta muted">142 entries · 7 this week · <a class="btn-link" href="#">filter →</a></span></div>
+        <div class="journal">
+          <div class="je entry-published">
+            <div class="je-rail"><span class="je-dot pub"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Patel <span class="muted">·</span> Ops Manager</span>
+                <span class="je-time">Sep 14 · 16:42</span>
+              </div>
+              <div class="je-action"><span class="je-verb">published</span> roster · wk of Sep 16 · SE</div>
+              <div class="je-meta">
+                <span class="num">7 ops</span> · <span class="num">214h staffed</span> · <span class="num pos">−$8k vs baseline</span> · run <span class="mono">#42</span> · diff <span class="mono">#df-3211</span>
+              </div>
+              <div class="je-rationale">"Accepted model recommendation. Cho's hours are at OT cap; will need to revisit Wed if forecast holds. Personal-leave flag for Patel pre-applied."</div>
+              <div class="je-links">
+                <a class="btn-link" href="#audittrail">audit →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">view roster →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">copy permalink</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot model"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Model <span class="muted">·</span> staffing-v3.2.1</span>
+                <span class="je-time">Sep 14 · 16:31</span>
+              </div>
+              <div class="je-action"><span class="je-verb">issued</span> recommendation · accept-runner-up</div>
+              <div class="je-meta">
+                conf <span class="num">0.78</span> · <span class="num pos">−$8k OT</span> · runner-up Δ <span class="num">$1.2k</span> · run <span class="mono">#42</span>
+              </div>
+              <div class="je-rationale muted">Triggered by demand spike + Patel personal-leave; baseline rejected (OT cap breach Thu).</div>
+              <div class="je-links">
+                <a class="btn-link" href="#briefing">briefing →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">why-this-rec</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot edit"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Patel <span class="muted">·</span> Ops Manager</span>
+                <span class="je-time">Sep 14 · 16:18</span>
+              </div>
+              <div class="je-action"><span class="je-verb">flagged</span> Patel personal-leave · Wed Sep 18</div>
+              <div class="je-meta">
+                judgement-gap · <span class="mono">model-blind-input</span> · forced model rerun
+              </div>
+              <div class="je-links">
+                <a class="btn-link" href="#">view input →</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot config"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Singh <span class="muted">·</span> Workforce Lead</span>
+                <span class="je-time">Sep 12 · 09:04</span>
+              </div>
+              <div class="je-action"><span class="je-verb">changed</span> SLA target · <span class="num">0.92 → 0.95</span></div>
+              <div class="je-meta">
+                applied to · SE region · effective Sep 16 · <span class="num">+$22k</span> est. cost impact
+              </div>
+              <div class="je-rationale">"Quarterly review — contract renewal pushed SE-region SLA to 0.95. Applies for the rest of FY."</div>
+              <div class="je-links">
+                <a class="btn-link" href="#">diff →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">approval thread</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot drift"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">System <span class="muted">·</span> drift-monitor</span>
+                <span class="je-time">Sep 11 · 23:00</span>
+              </div>
+              <div class="je-action"><span class="je-verb">detected</span> forecast drift · SE · <span class="num neg">+8% MAPE</span></div>
+              <div class="je-meta">
+                3-day rolling · threshold <span class="num">5%</span> · <a class="btn-link" href="#">recalibration scheduled</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je je-fold">
+            <a class="btn-link" href="#">12 earlier entries this week ▾</a>
+          </div>
+        </div>
+      </div>
+
+
+    </article>
+</body>
+</html>

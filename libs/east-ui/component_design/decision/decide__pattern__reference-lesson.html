@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>decide · pattern · reference-lesson</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+
+.facet-tabs { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.facet-tab { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.facet-tab:last-child { border-right: 0px; }
+.facet-tab:hover { background: var(--paper-3); color: var(--ink); }
+.facet-tab.on { background: var(--brand-d); color: rgb(255, 255, 255); }
+@keyframes facet-pulse { 
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.facet-tab.pulse:not(.on) { color: var(--warn-dd, var(--warn)); animation: 1.8s ease-in-out 0s infinite normal none running facet-pulse; }
+</style>
+</head>
+<body>
+<article id="reference-lesson" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Lesson</span></div>
+      <p class="pattern-blurb" style="color: var(--ink-3);">Deferred — needs promoted-lesson data.</p>
+      <p class="pattern-blurb">Captured wisdom from a past case — promoted to a learnable note attached to similar future cases.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Lesson · Mar 2024</span><span class="meta muted">attached to · shift-reallocation</span></div>
+        <div class="pad-18">
+          <div style="font-size: 13px; color: var(--ink-2); line-height: 1.5;">
+            "Watch for personal-leave conflicts <span class="num">2 weeks</span> ahead — model can't see the team calendar. Last time we hit this we apologised twice."
+          </div>
+          <div class="cap-eyebrow muted" style="margin-top: 10px;">— D. Park, Ops · 4 cases tagged similar</div>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>

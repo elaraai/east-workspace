@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>use-cases · bsys · 1</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+.bsys { display: grid; grid-template-columns: 200px 1fr; gap: 0px; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; background: var(--paper); }
+.bsys + .bsys { margin-top: 14px; }
+.bsys-lbl { background: var(--paper-2); border-right: 1px solid var(--rule); padding: 18px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
+.bsys-body { padding: 16px 20px; }
+.tier { margin-top: 64px; padding-top: 32px; border-top: 1px solid var(--rule-strong); }
+.tier:first-of-type { border-top: 0px; padding-top: 0px; }
+.tier-head { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+.tier-label { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--brand-d); }
+.tier-title { font-family: var(--font-brand); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); margin: 0px; }
+.tier-rules { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 18px; margin-bottom: 28px; }
+.rules-head { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 10px; }
+.rules-list { margin: 0px; padding-left: 20px; font-family: var(--font-body); font-size: 13.5px; line-height: 1.65; color: var(--ink-2); }
+.rules-list li { margin-bottom: 4px; }
+.rules-list li strong { color: var(--ink); font-weight: 600; }
+.example-heading { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); padding: 0px 0px 14px; margin-top: 8px; border-bottom: 1px dashed var(--rule); margin-bottom: 18px; }
+.wireflow { display: grid; grid-template-columns: repeat(2, minmax(0px, 1fr)); gap: 32px 28px; }
+@media (max-width: 900px) {
+  .wireflow { grid-template-columns: 1fr; }
+}
+.screen-card { display: flex; flex-direction: column; }
+.screen-head { display: flex; align-items: baseline; gap: 12px; padding: 0px 0px 10px; }
+.screen-head .step { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--brand-d); padding: 3px 8px; background: var(--brand-tint); border-radius: 3px; }
+.screen-head .head-text { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.screen-head .title { font-family: var(--font-brand); font-size: 17px; font-weight: 700; letter-spacing: -0.012em; color: var(--ink); }
+.screen-head .pattern-name { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em; }
+.mini-frame { display: grid; grid-template: "side header header" 60px "side main rail" 1fr "side commit rail" 32px / 110px 1fr 90px; border: 1px solid var(--rule-strong); border-radius: 4px; overflow: hidden; min-height: 320px; background: var(--paper-2); box-sizing: border-box; }
+.mini-frame > div { box-sizing: border-box; padding: 6px 8px; background: var(--paper); position: relative; }
+.mf-side { grid-area: side; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--ink-3); }
+.mf-side-active { padding: 3px 6px; background: var(--brand-tint); color: var(--brand-dd); font-weight: 600; border-radius: 2px; font-size: 9px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-side-item { padding: 2px 6px; color: var(--ink-3); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-header { grid-area: header; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; justify-content: center; padding: 4px 10px; }
+.mf-crumb { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-title-row { display: flex; align-items: baseline; gap: 6px; min-width: 0px; }
+.mf-h-title { font-family: var(--font-brand); font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: -0.008em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-h-meta { font-family: var(--font-mono); font-size: 8.5px; color: var(--ink-4); letter-spacing: 0.04em; white-space: nowrap; }
+.mf-chrome { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 2px; min-height: 14px; }
+.mf-chip { font-family: var(--font-mono); font-size: 8.5px; padding: 2px 5px; border-radius: 2px; line-height: 1.1; }
+.mf-chip-slice { background: var(--paper-2); border: 1px solid var(--rule-strong); color: var(--ink-3); }
+.mf-chip-scenario { background: var(--paper-2); border: 1px solid var(--rule-strong); padding: 1px 2px; display: inline-flex; gap: 1px; align-items: center; }
+.chip-kind { font-family: var(--font-mono); font-size: 7.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--brand-dd); text-transform: none; margin-right: 4px; padding: 1px 3px; background: var(--brand-tint); border-radius: 1px; }
+.mf-chip-scenario .chip-kind { margin-right: 2px; }
+.mf-sc { padding: 1px 4px; color: var(--ink-4); font-weight: 600; }
+.mf-sc.active { background: var(--brand-d); color: var(--paper); border-radius: 1px; }
+.mf-main { grid-area: main; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; min-height: 0px; }
+.mf-main-grid { display: grid; grid-template-columns: repeat(4, minmax(0px, 1fr)); grid-auto-rows: minmax(32px, auto); gap: 4px; align-content: start; flex: 1 1 0%; min-height: 0px; }
+.comp-card { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; min-width: 0px; min-height: 32px; }
+.comp-card.size-full { grid-column: span 4; }
+.comp-card.size-lg { grid-column: span 3; }
+.comp-card.size-md { grid-column: span 2; }
+.comp-card.size-sm { grid-column: span 1; }
+.comp-card.hero { background: var(--brand-tint); border-color: var(--brand-d); min-height: 64px; }
+.comp-card.hero.size-full { min-height: 96px; grid-row: span 2; }
+.comp-card.tall { grid-row: span 2; min-height: 70px; }
+.comp-name { font-family: var(--font-mono); font-size: 8.5px; font-weight: 600; color: var(--brand-dd); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comp-card.hero .comp-name { font-size: 9.5px; font-weight: 700; }
+.comp-desc { font-family: var(--font-body); font-size: 9.5px; color: var(--ink-2); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
+.comp-card.size-sm .comp-desc { font-size: 8.5px; }
+.mf-rail { grid-area: rail; border-left: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; padding: 5px 6px; }
+.mf-rail-label { font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.mf-rail-detail { font-family: var(--font-mono); font-size: 8.5px; color: var(--ink-3); }
+.mf-commit { grid-area: commit; border-top: 1px solid var(--rule); background: var(--brand-tint); display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 9px; color: var(--brand-dd); font-weight: 600; padding: 4px 8px; white-space: nowrap; overflow: hidden; }
+.mf-commit-empty { color: var(--ink-4); font-weight: 500; background: var(--paper-2); }
+.mini-frame > div.focus { box-shadow: inset 0 0 0 2px var(--brand-d); z-index: 2; }
+.mini-frame > div.focus::after { content: "FOCUS"; position: absolute; top: 2px; right: 2px; background: var(--brand-d); color: var(--paper); padding: 1px 4px; font-family: var(--font-mono); font-size: 7.5px; font-weight: 700; letter-spacing: 0.12em; border-radius: 2px; z-index: 3; }
+.next-trigger { display: flex; align-items: center; gap: 8px; padding: 8px 0px 0px; font-family: var(--font-mono); font-size: 10px; }
+.next-label { color: var(--ink-4); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+.next-action { padding: 3px 8px; background: var(--paper); border: 1px dashed var(--brand-d); border-radius: 3px; color: var(--brand-d); font-weight: 600; letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+<div class="bsys">
+      <div class="bsys-lbl">Per-step matrix<span class="sub">Which pattern owns each step · what it asks · what's embeddable.</span></div>
+      <div class="bsys-body" style="padding: 18px 22px;">
+        <table class="pattern-table" style="margin: 0;">
+          <thead><tr>
+            <th style="width: 100px;">Step</th>
+            <th style="width: 180px;">Question</th>
+            <th>Anchor pattern</th>
+            <th style="width: 110px;">Forward →</th>
+            <th style="width: 180px;">Jumps ↺</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="name">01 Triage</td>
+              <td>What needs me?</td>
+              <td><span class="mono">Decision.Queue</span></td>
+              <td><span class="mono" style="color: var(--brand-d);">→ 02</span></td>
+              <td class="muted">—</td>
+            </tr>
+            <tr>
+              <td class="name">02 Understand</td>
+              <td>What's the model proposing, and why?</td>
+              <td><span class="mono">Scenario.Briefing</span></td>
+              <td><span class="mono" style="color: var(--brand-d);">→ 03</span></td>
+              <td class="muted">— <span style="color: var(--ink-3);">(receives ↺ from Probe)</span></td>
+            </tr>
+            <tr>
+              <td class="name">03 Probe</td>
+              <td>What if I changed assumption X?</td>
+              <td><span class="mono">Scenario.Probe</span> <span class="muted">(new)</span></td>
+              <td><span class="mono" style="color: var(--brand-d);">→ 04</span></td>
+              <td><span class="mono">↺ 02</span> <span class="muted">on tweak-settled</span></td>
+            </tr>
+            <tr>
+              <td class="name">04 Compare</td>
+              <td>A vs B vs current state?</td>
+              <td><span class="mono">Diff.View</span></td>
+              <td><span class="mono" style="color: var(--brand-d);">→ 05</span></td>
+              <td><span class="mono">↺ 06</span> <span class="muted">skip-judge if attested</span></td>
+            </tr>
+            <tr>
+              <td class="name">05 Judge</td>
+              <td>Do I stand behind the load-bearing inputs?</td>
+              <td>Judgement prompt inside Briefing</td>
+              <td><span class="mono" style="color: var(--brand-d);">→ 06</span></td>
+              <td class="muted">— <span style="color: var(--ink-3);">(gates 06, never skipped)</span></td>
+            </tr>
+            <tr>
+              <td class="name">06 Commit</td>
+              <td>Apply · Modify · Override · Defer.</td>
+              <td><span class="mono">Commit.Bar</span></td>
+              <td><span class="mono" style="color: var(--brand-d);">→ 07</span></td>
+              <td><span class="mono">↺ 03</span> <span class="muted">on Modify</span></td>
+            </tr>
+            <tr>
+              <td class="name">07 Communicate</td>
+              <td>Tell affected people.</td>
+              <td><span class="mono">Communicate.Handoff</span> · <span class="mono">Communicate.Message</span></td>
+              <td><span class="mono" style="color: var(--brand-d);">↻ 01</span> <span class="muted">loop closes</span></td>
+              <td class="muted">—</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="spec-note" style="margin-top: 12px;">
+          <span class="k">Reading the matrix:</span>
+          <strong>Forward →</strong> is the canonical happy path arrow drawn around the outside of the loop diagram.
+          <strong>Jumps ↺</strong> are the back-edges drawn as dashed inner arrows — three of them: <span class="mono">Probe → Understand</span> when a tweak settles and the briefing re-renders, <span class="mono">Compare → Commit</span> when the operator skips re-judgement because the load-bearing inputs were already attested, <span class="mono">Modify → Probe</span> when Commit.Bar's Modify expands the briefing in place. <strong>Judge has no jump out</strong> — it gates Commit and is never skipped. <strong>Communicate's forward arrow closes the loop</strong> (↻) back to Triage for the next case.
+        </div>
+      </div>
+    </div>
+</body>
+</html>
