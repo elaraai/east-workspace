@@ -251,10 +251,13 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
     if (!td && opts.minHeight !== undefined) crossExtent = Math.max(crossExtent, opts.minHeight - (opts.legendPad ?? 0));
     if (td) crossExtent = Math.max(crossExtent, opts.width);
     const mainExtent = laneCount * laneW + LANE_TAIL_W;
+    // Bands span the FULL component (in LR that includes the legend strip —
+    // the legend floats over them, exactly as the spec sheet draws it).
+    const bandExtent = crossExtent + (td ? 0 : (opts.legendPad ?? 0));
 
     const lanes: LaneBand[] = model.lanes.map((l, i) => {
         const a = tp({ x: i * laneW, y: 0 });
-        const b = tp({ x: (i + 1) * laneW, y: crossExtent });
+        const b = tp({ x: (i + 1) * laneW, y: bandExtent });
         return {
             key: l.key,
             label: l.label,
@@ -468,7 +471,7 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
 
     // ── Tail affordance: full lane height, 14px insets (spec markup) ──────
     const tailA = tp({ x: laneCount * laneW + 8, y: 14 });
-    const tailB = tp({ x: laneCount * laneW + LANE_TAIL_W - 8, y: crossExtent - 14 });
+    const tailB = tp({ x: laneCount * laneW + LANE_TAIL_W - 8, y: bandExtent - 14 });
 
     const realW = (td ? crossExtent : mainExtent);
     const realH = (td ? mainExtent : crossExtent) + (opts.legendPad ?? 0);
