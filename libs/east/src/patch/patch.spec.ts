@@ -283,6 +283,24 @@ describe('Patch system for EAST values', () => {
             const result = apply(before, patch);
             assert.deepEqual([...result.entries()], [["a", 10n], ["c", 3n]]);
         });
+
+        test('should compose update-then-delete into delete of the original value', () => {
+            const diff = diffFor(type);
+            const apply = applyFor(type);
+            const compose = composeFor(type);
+            const invert = invertFor(type);
+            const patchEqual = equalFor(PatchType(type));
+            const v1 = new SortedMap<string, bigint>([["a", 1n], ["b", 9n]], cmp);
+            const v2 = new SortedMap<string, bigint>([["a", 2n], ["b", 9n]], cmp);
+            const v3 = new SortedMap<string, bigint>([["b", 9n]], cmp);
+            const composed = compose(diff(v1, v2), diff(v2, v3));
+            // The composed delete records the ORIGINAL value, so
+            // compose(diff(v1,v2), diff(v2,v3)) == diff(v1,v3).
+            assert.equal(patchEqual(composed, diff(v1, v3)), true);
+            assert.deepEqual([...apply(v1, composed).entries()], [["b", 9n]]);
+            // And it inverts back to v1.
+            assert.deepEqual([...apply(v3, invert(composed)).entries()], [["a", 1n], ["b", 9n]]);
+        });
     });
 
     describe('Structs', () => {
