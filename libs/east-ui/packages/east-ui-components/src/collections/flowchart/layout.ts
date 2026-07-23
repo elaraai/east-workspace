@@ -103,6 +103,9 @@ export interface FlowchartLayout {
     routes: LinkRoute[];
     /** Occupied connection points per node (idle handles are hidden). */
     handles: Map<string, HandleInfo[]>;
+    /** "+ STATE" ghost cell per lane — the exact grid cell one row below
+     * that lane's last node (nothing shifts on commit). */
+    laneGhosts: Map<string, { x: number; y: number; w: number; h: number }>;
     /** The dashed "+ LANE" affordance rect at the tail (full lane height,
      * 14px insets) — rendered only when the host provides onAddLane. */
     laneTail: { x: number; y: number; w: number; h: number };
@@ -276,6 +279,18 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
     }
 
     const realHeightHint = td ? mainExtent : crossExtent;
+    // "+ STATE" ghost cells — one per lane, parked one row below the
+    // lane's last node (or the first row when empty), snapped to the grid.
+    const laneGhosts = new Map<string, { x: number; y: number; w: number; h: number }>();
+    for (let i = 0; i < model.lanes.length; i++) {
+        const count = model.nodes.reduce((n, node) => (node.laneIndex === i ? Math.max(n, node.laneOrder + 1) : n), 0);
+        const laneCentre = i * laneW + laneW / 2;
+        const main = laneCentre - nodeMain / 2;
+        const cross = LANE_HEADER_H + 16 + count * pitch;
+        const p = tp({ x: main, y: cross });
+        laneGhosts.set(model.lanes[i]!.key, { x: p.x, y: p.y, w: NODE_W, h: NODE_H });
+    }
+
     const chan = planChannels(model.links, k => model.nodesByKey.get(k));
     const channelX = (gap: number, slot: number): number => {
         const gapLeft = (gap - 1) * laneW + laneW / 2 + nodeMain / 2;
@@ -466,6 +481,7 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
         nodes,
         routes,
         handles: handleInfos,
+        laneGhosts,
         laneTail: {
             x: Math.min(tailA.x, tailB.x),
             y: Math.min(tailA.y, tailB.y),

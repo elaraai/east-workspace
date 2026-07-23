@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Button, Drawer, Flowchart, HStack, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Drawer, Flowchart, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 
 export const flowchartMinimal = example({
     keywords: ["Flowchart", "states", "links", "lanes", "minimal", "planned", "observed"],
@@ -200,8 +200,8 @@ export const flowchartConnect = example({
 });
 
 export const flowchartBuilder = example({
-    keywords: ["Flowchart", "Reactive", "State", "builder", "add", "onAddLane", "onCreateLink", "onDeleteLink", "interactive", "edit", "phases"],
-    description: "Interactive builder — State-bound lanes, states and links: + LANE appends a phase, Add state drops a node into the newest phase, drag any handle to author a link (Del removes the selected one)",
+    keywords: ["Flowchart", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onCreateLink", "onDeleteLink", "interactive", "edit", "phases", "ghost"],
+    description: "Interactive builder — State-bound lanes, states and links: + LANE appends a phase, the + STATE lane ghost commits new nodes in place, double-click edits a node, dragging a node across lanes moves it (bands highlight), drag any handle to author a link (Del removes the selected one)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LaneRow = StructType({ key: StringType, label: StringType });
@@ -223,16 +223,29 @@ export const flowchartBuilder = example({
                 $(next.append([{ key: East.str`p${n}`, label: East.str`Phase ${n}` }]));
                 $(lanes.write(next));
             }));
-            const addState = $.const(East.function([], NullType, ($) => {
-                const ls = $.let(lanes.read());
+            const addState = $.const(East.function([Flowchart.Types.StateAddEvent], NullType, ($, e) => {
                 const next = $.let(states.read());
-                const n = $.let(next.length().add(1n));
-                $(next.append([{
-                    code: East.str`S${n}`,
-                    name: East.str`State ${n}`,
-                    phase: ls.get(ls.length().subtract(1n)).key,
-                }]));
+                $(next.append([{ code: e.key, name: e.label, phase: e.lane }]));
                 $(states.write(next));
+            }));
+            const editState = $.const(East.function([Flowchart.Types.StateEditEvent], NullType, ($, e) => {
+                $(states.write(states.read().map(($, s) =>
+                    East.equal(s.code, e.key).ifElse(
+                        () => East.value({ code: e.code, name: e.label, phase: s.phase }, StateRow),
+                        () => s,
+                    ))));
+                // Rekey link endpoints so edges follow the renamed state.
+                $(links.write(links.read().map(($, l) => East.value({
+                    src: East.equal(l.src, e.key).ifElse(() => e.code, () => l.src),
+                    dst: East.equal(l.dst, e.key).ifElse(() => e.code, () => l.dst),
+                }, LinkRow))));
+            }));
+            const moveState = $.const(East.function([Flowchart.Types.StateMoveEvent], NullType, ($, e) => {
+                $(states.write(states.read().map(($, s) =>
+                    East.equal(s.code, e.key).ifElse(
+                        () => East.value({ code: s.code, name: s.name, phase: e.lane }, StateRow),
+                        () => s,
+                    ))));
             }));
             const onCreate = $.const(East.function([Flowchart.Types.LinkCreateEvent], NullType, ($, e) => {
                 const next = $.let(links.read());
@@ -247,16 +260,14 @@ export const flowchartBuilder = example({
                 (_$, from, to) => East.equal(from, to).not()));
             return (
                 <VStack gap="3" align="stretch">
-                    <HStack gap="3">
-                        <Button size="sm" variant="outline" onClick={addState}>Add state</Button>
-                        <Text textStyle="caption" color="fg.muted">+ LANE adds a phase · drag any handle to link · Del removes the selected link</Text>
-                    </HStack>
+                    <Text textStyle="caption" color="fg.muted">Hover a lane → + STATE ghost (⏎ commits) · double-click a node to edit it · drag a node across lanes · drag any handle to link · + LANE adds a phase · Del removes the selected link</Text>
                     <Flowchart
                         states={states.read()} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                         links={links.read()} link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
                         lanes={lanes.read()} lane={r => ({ key: r.key, label: r.label })}
                         linkMode="connect"
                         onAddLane={addLane}
+                        onAddState={addState} onEditState={editState} onMoveState={moveState}
                         onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
                     />
                 </VStack>

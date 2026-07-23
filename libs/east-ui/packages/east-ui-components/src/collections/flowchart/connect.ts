@@ -49,3 +49,11 @@ export function nearestHandle(rect: NodeRect, p: Pt): Pt {
     }
     return best;
 }
+
+/** The lane band containing `p` — the move-drag's highlight/drop target. */
+export function laneAt(layout: FlowchartLayout, p: Pt): string | null {
+    for (const lane of layout.lanes) {
+        if (p.x >= lane.x && p.x <= lane.x + lane.w && p.y >= lane.y && p.y <= lane.y + lane.h) return lane.key;
+    }
+    return null;
+}

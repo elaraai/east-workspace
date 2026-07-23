@@ -40,6 +40,9 @@ import {
     FlowchartFreshnessType,
     FlowchartLinkCreateEventType,
     FlowchartLaneRenameEventType,
+    FlowchartStateAddEventType,
+    FlowchartStateEditEventType,
+    FlowchartStateMoveEventType,
 } from "./types.js";
 
 // Re-export types
@@ -55,6 +58,9 @@ export {
     FlowchartFreshnessType,
     FlowchartLinkCreateEventType,
     FlowchartLaneRenameEventType,
+    FlowchartStateAddEventType,
+    FlowchartStateEditEventType,
+    FlowchartStateMoveEventType,
 } from "./types.js";
 
 /**
@@ -93,6 +99,9 @@ export const FlowchartRootType: StructType<{
     onAddLane: OptionType<FunctionType<[], NullType>>,
     onRenameLane: OptionType<FunctionType<[FlowchartLaneRenameEventType], NullType>>,
     onDeleteLane: OptionType<FunctionType<[StringType], NullType>>,
+    onAddState: OptionType<FunctionType<[FlowchartStateAddEventType], NullType>>,
+    onEditState: OptionType<FunctionType<[FlowchartStateEditEventType], NullType>>,
+    onMoveState: OptionType<FunctionType<[FlowchartStateMoveEventType], NullType>>,
     readOnly: OptionType<BooleanType>,
 }> = StructType({
     states: ArrayType(FlowchartStateType),
@@ -121,6 +130,9 @@ export const FlowchartRootType: StructType<{
     onAddLane: OptionType(FunctionType([], NullType)),
     onRenameLane: OptionType(FunctionType([FlowchartLaneRenameEventType], NullType)),
     onDeleteLane: OptionType(FunctionType([StringType], NullType)),
+    onAddState: OptionType(FunctionType([FlowchartStateAddEventType], NullType)),
+    onEditState: OptionType(FunctionType([FlowchartStateEditEventType], NullType)),
+    onMoveState: OptionType(FunctionType([FlowchartStateMoveEventType], NullType)),
     readOnly: OptionType(BooleanType),
 });
 
@@ -333,6 +345,12 @@ export interface FlowchartConfig<
     onRenameLane?: SubtypeExprOrValue<FunctionType<[FlowchartLaneRenameEventType], NullType>>;
     /** Optional lane-delete callback — its presence renders an × beside each header (lane key). The HOST decides the cascade; the canvas stays safe either way: states referencing a missing lane fall into the LAST lane, and links to deleted states render as the neg-dashed "No state row" ghosts — orphans stay visible. */
     onDeleteLane?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Optional state-add callback — its presence enables the "+ STATE" ghost: hovering a lane band reveals one dashed node-footprint ghost parked one row below the lane's last node; click turns it into the inline editor (code auto-focused, label below); ⏎ commits { lane, key, label }, esc / blur-empty dismisses. The committed state starts unconnected. */
+    onAddState?: SubtypeExprOrValue<FunctionType<[FlowchartStateAddEventType], NullType>>;
+    /** Optional state-edit callback — its presence makes nodes double-click-to-edit in the same inline editor; receives { key, code, label } where key is the ORIGINAL identity (rekeying links is the host's call). */
+    onEditState?: SubtypeExprOrValue<FunctionType<[FlowchartStateEditEventType], NullType>>;
+    /** Optional state-move callback — its presence lets nodes drag across lanes (candidate bands highlight while dragging); receives { key, lane } on drop. */
+    onMoveState?: SubtypeExprOrValue<FunctionType<[FlowchartStateMoveEventType], NullType>>;
     /** Optional runtime edit gate — true suppresses every authoring affordance (connect gesture, Del delete, + LANE) without unwiring the callbacks; selection and hover stay (inspecting isn't editing). Reactive-capable: feed a permission / published-mode flag. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
 }
@@ -482,6 +500,9 @@ function buildRoot(
         onAddLane: config.onAddLane !== undefined ? some(config.onAddLane) : none,
         onRenameLane: config.onRenameLane !== undefined ? some(config.onRenameLane) : none,
         onDeleteLane: config.onDeleteLane !== undefined ? some(config.onDeleteLane) : none,
+        onAddState: config.onAddState !== undefined ? some(config.onAddState) : none,
+        onEditState: config.onEditState !== undefined ? some(config.onEditState) : none,
+        onMoveState: config.onMoveState !== undefined ? some(config.onMoveState) : none,
         readOnly: config.readOnly !== undefined ? some(config.readOnly) : none,
     }), UIComponentType);
 }
@@ -589,5 +610,11 @@ export const Flowchart = {
         LinkCreateEvent: FlowchartLinkCreateEventType,
         /** Lane-rename event ({@link FlowchartLaneRenameEventType}). */
         LaneRenameEvent: FlowchartLaneRenameEventType,
+        /** State-add event ({@link FlowchartStateAddEventType}). */
+        StateAddEvent: FlowchartStateAddEventType,
+        /** State-edit event ({@link FlowchartStateEditEventType}). */
+        StateEditEvent: FlowchartStateEditEventType,
+        /** State-move event ({@link FlowchartStateMoveEventType}). */
+        StateMoveEvent: FlowchartStateMoveEventType,
     },
 } as const;

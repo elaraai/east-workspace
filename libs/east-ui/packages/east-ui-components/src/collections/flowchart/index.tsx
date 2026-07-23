@@ -32,7 +32,7 @@ import {
     computeLayout, type FlowchartLayout, type LinkRoute,
     BADGE_H, RING_R,
 } from "./layout.js";
-import { dropTargetAt, existingLink, nearestHandle } from "./connect.js";
+import { dropTargetAt, existingLink, laneAt, nearestHandle } from "./connect.js";
 
 const flowchartEqual = equalFor(Flowchart.Types.Flowchart);
 
@@ -171,6 +171,18 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         () => getSomeorUndefined(value.onRenameLane) as ((e: { key: string; label: string }) => unknown) | undefined,
         [value.onRenameLane]);
     const onDeleteLaneFn = useMemo(() => getSomeorUndefined(value.onDeleteLane) as SelectFn, [value.onDeleteLane]);
+    const onAddStateFn = useMemo(
+        () => getSomeorUndefined(value.onAddState) as ((e: { lane: string; key: string; label: string }) => unknown) | undefined,
+        [value.onAddState]);
+    const onEditStateFn = useMemo(
+        () => getSomeorUndefined(value.onEditState) as ((e: { key: string; code: string; label: string }) => unknown) | undefined,
+        [value.onEditState]);
+    const onMoveStateFn = useMemo(
+        () => getSomeorUndefined(value.onMoveState) as ((e: { key: string; lane: string }) => unknown) | undefined,
+        [value.onMoveState]);
+    const addStateActive = onAddStateFn !== undefined && !readOnly;
+    const editStateActive = onEditStateFn !== undefined && !readOnly;
+    const moveStateActive = onMoveStateFn !== undefined && !readOnly;
     const onCreateLinkFn = useMemo(
         () => getSomeorUndefined(value.onCreateLink) as ((e: { from: string; to: string }) => unknown) | undefined,
         [value.onCreateLink]);
@@ -273,6 +285,19 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const [pulse, setPulse] = useState<{ from: string; to: string; seq: number } | null>(null);
     // Inline lane-header rename (one object; commit → onRenameLane).
     const [laneEdit, setLaneEdit] = useState<{ key: string; label: string } | null>(null);
+    // "+ STATE" ghost reveal (spec Flowchart.Lane): one hovered lane at a time.
+    const [laneHover, setLaneHover] = useState<string | null>(null);
+    // One inline node editor for BOTH the ghost commit and double-click edit.
+    const [stateEditor, setStateEditor] = useState<
+        | { mode: "add"; lane: string; code: string; label: string }
+        | { mode: "edit"; key: string; code: string; label: string }
+        | null
+    >(null);
+    // Cross-lane node drag (one object; candidate band highlights live).
+    const [moveDrag, setMoveDrag] = useState<{ key: string; x: number; y: number; overLane: string | null } | null>(null);
+    const moveDragRef = useRef<typeof moveDrag>(null);
+    moveDragRef.current = moveDrag;
+    const movedRef = useRef(false);
     useEffect(() => {
         if (pulse === null) return;
         const t = setTimeout(() => setPulse(null), 1100);
@@ -389,6 +414,42 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         window.addEventListener("pointerup", up);
     }, [linkMode, readOnly, svgPoint, layout, model, canConnect, onCreateLinkFn]);
 
+    /** Node move gesture — begins after a 5px threshold so plain clicks
+     * stay selection; candidate lane bands highlight while dragging. */
+    const beginMove = useCallback((key: string, e: React.PointerEvent) => {
+        if (!moveStateActive) return;
+        const startP = svgPoint(e);
+        let started = false;
+        movedRef.current = false;
+        const move = (ev: PointerEvent): void => {
+            const q = svgPoint(ev);
+            if (!started) {
+                if (Math.abs(q.x - startP.x) + Math.abs(q.y - startP.y) < 5) return;
+                started = true;
+                movedRef.current = true;
+                cancelTimers();
+                setHoverCard(null);
+            }
+            const overLane = layout ? laneAt(layout, q) : null;
+            setMoveDrag({ key, x: q.x, y: q.y, overLane });
+        };
+        const up = (): void => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+            const d = moveDragRef.current;
+            setMoveDrag(null);
+            if (!started || d === null || d.overLane === null) return;
+            const node = model.nodesByKey.get(key);
+            const currentLane = node !== undefined ? model.lanes[node.laneIndex]?.key : undefined;
+            if (d.overLane !== currentLane && onMoveStateFn) {
+                const payload = { key, lane: d.overLane };
+                dispatchEast("onMoveState", () => onMoveStateFn(payload));
+            }
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+    }, [moveStateActive, svgPoint, layout, model, onMoveStateFn, cancelTimers]);
+
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
     const showMinimap = minimapOpt ?? model.nodes.length >= 25;
@@ -499,6 +560,28 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             {layout.lanes.map(lane => lane.tinted && (
                                 <rect key={lane.key} x={lane.x} y={lane.y} width={lane.w} height={lane.h} fill={LANE_TINT} />
                             ))}
+                            {/* band hover trackers — reveal the "+ STATE" ghost */}
+                            {addStateActive && layout.lanes.map(lane => (
+                                <rect
+                                    key={`bandhit-${lane.key}`}
+                                    x={lane.x} y={lane.y} width={lane.w} height={lane.h}
+                                    fill="transparent"
+                                    onPointerEnter={() => setLaneHover(lane.key)}
+                                    onPointerLeave={() => setLaneHover(h => (h === lane.key ? null : h))}
+                                />
+                            ))}
+                            {/* move-drag candidate band highlight */}
+                            {moveDrag !== null && moveDrag.overLane !== null && (() => {
+                                const lane = layout.lanes.find(l => l.key === moveDrag.overLane);
+                                if (!lane) return null;
+                                return (
+                                    <g style={{ pointerEvents: "none" }}>
+                                        <rect x={lane.x} y={lane.y} width={lane.w} height={lane.h} fill={BRAND} opacity={0.07} />
+                                        <rect x={lane.x + 2} y={lane.y + 2} width={lane.w - 4} height={lane.h - 4}
+                                            fill="none" stroke={BRAND_D} strokeDasharray="6 4" strokeWidth={1.5} />
+                                    </g>
+                                );
+                            })()}
                             {/* lane headers — mono 10/600 ls 2.2 ink-4 (inline styles:
                                 presentation attributes lose to the app CSS reset).
                                 Click-to-edit when onRenameLane is provided; × deletes
@@ -678,7 +761,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     data-selected={isSel || undefined}
                                     style={{
                                         left: rect.x, top: rect.y, width: rect.w, height: rect.h,
-                                        opacity: nodeOpacity(rect.key),
+                                        opacity: moveDrag?.key === rect.key ? 0.3 : nodeOpacity(rect.key),
                                         transition: fade(dim.active),
                                     }}
                                     onPointerEnter={e => {
@@ -687,7 +770,14 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                         scheduleHoverCard("state", rect.key, p.x, p.y);
                                     }}
                                     onPointerLeave={() => { setHover(null); scheduleHoverClose(); }}
-                                    onClick={() => select({ kind: "state", key: rect.key })}
+                                    onPointerDown={moveStateActive ? (e) => beginMove(rect.key, e) : undefined}
+                                    onClick={() => {
+                                        if (movedRef.current) { movedRef.current = false; return; }
+                                        select({ kind: "state", key: rect.key });
+                                    }}
+                                    onDoubleClick={editStateActive && !nm.ghost ? () => {
+                                        setStateEditor({ mode: "edit", key: rect.key, code: rect.key, label: nm.label ?? "" });
+                                    } : undefined}
                                 >
                                     <Box css={styles.nodeCode}>
                                         {rect.key}
@@ -812,6 +902,88 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 );
                             })}
                         </svg>
+
+                        {/* "+ STATE" ghost — dashed, exact node footprint, one per
+                            hovered lane; click turns it into the inline editor */}
+                        {addStateActive && stateEditor === null && laneHover !== null && moveDrag === null && (() => {
+                            const cell = layout.laneGhosts.get(laneHover);
+                            if (!cell) return null;
+                            return (
+                                <Box
+                                    data-flowchart-ghoststate={laneHover}
+                                    css={styles.stateGhost}
+                                    style={{ left: cell.x, top: cell.y, width: cell.w, height: cell.h }}
+                                    onPointerEnter={() => setLaneHover(laneHover)}
+                                    onClick={() => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" })}
+                                >
+                                    + state
+                                </Box>
+                            );
+                        })()}
+
+                        {/* inline node editor — the ghost's commit surface AND the
+                            double-click edit surface (code auto-focused, label below;
+                            ⏎ commits, esc / blur-empty dismisses) */}
+                        {stateEditor !== null && (() => {
+                            const cell = stateEditor.mode === "add"
+                                ? layout.laneGhosts.get(stateEditor.lane)
+                                : layout.nodes.get(stateEditor.key);
+                            if (!cell) return null;
+                            const commit = (): void => {
+                                const ed = stateEditor;
+                                setStateEditor(null);
+                                if (ed === null || ed.code.trim() === "") return;
+                                if (ed.mode === "add" && onAddStateFn) {
+                                    const payload = { lane: ed.lane, key: ed.code.trim(), label: ed.label.trim() };
+                                    dispatchEast("onAddState", () => onAddStateFn(payload));
+                                } else if (ed.mode === "edit" && onEditStateFn) {
+                                    const payload = { key: ed.key, code: ed.code.trim(), label: ed.label.trim() };
+                                    dispatchEast("onEditState", () => onEditStateFn(payload));
+                                }
+                            };
+                            const keys = (e: React.KeyboardEvent): void => {
+                                if (e.key === "Enter") commit();
+                                else if (e.key === "Escape") { e.stopPropagation(); setStateEditor(null); }
+                            };
+                            return (
+                                <Box
+                                    data-flowchart-stateeditor
+                                    css={styles.stateEditor}
+                                    style={{ left: cell.x, top: cell.y, width: cell.w, minHeight: cell.h }}
+                                    onBlur={e => {
+                                        // blur-empty dismisses; blur with content commits
+                                        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                                        commit();
+                                    }}
+                                >
+                                    <input
+                                        autoFocus
+                                        placeholder="CODE"
+                                        value={stateEditor.code}
+                                        onChange={e => setStateEditor(ed => (ed === null ? ed : { ...ed, code: e.target.value }))}
+                                        onKeyDown={keys}
+                                    />
+                                    <input
+                                        placeholder="Name state…"
+                                        value={stateEditor.label}
+                                        onChange={e => setStateEditor(ed => (ed === null ? ed : { ...ed, label: e.target.value }))}
+                                        onKeyDown={keys}
+                                    />
+                                </Box>
+                            );
+                        })()}
+
+                        {/* floating clone while a node drags across lanes */}
+                        {moveDrag !== null && (() => {
+                            const nm = model.nodesByKey.get(moveDrag.key);
+                            if (!nm) return null;
+                            return (
+                                <Box css={styles.moveClone} style={{ left: moveDrag.x + 10, top: moveDrag.y + 10 }}>
+                                    <Box css={styles.nodeCode}>{moveDrag.key}</Box>
+                                    {nm.label !== undefined && <Box css={styles.nodeLabel}>{nm.label}</Box>}
+                                </Box>
+                            );
+                        })()}
 
                         {/* inline lane-rename editor */}
                         {laneEdit !== null && (() => {

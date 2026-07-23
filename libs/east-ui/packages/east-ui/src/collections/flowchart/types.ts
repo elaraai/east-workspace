@@ -274,6 +274,66 @@ export const FlowchartLaneRenameEventType = StructType({
 export type FlowchartLaneRenameEventType = typeof FlowchartLaneRenameEventType;
 
 /**
+ * State-add event — a committed "+ STATE" ghost editor.
+ *
+ * @property lane - The lane the ghost was committed in
+ * @property key - The typed state code (the node identity)
+ * @property label - The typed label (may be empty)
+ */
+export const FlowchartStateAddEventType = StructType({
+    /** The lane the ghost was committed in */
+    lane: StringType,
+    /** The typed state code (the node identity) */
+    key: StringType,
+    /** The typed label (may be empty) */
+    label: StringType,
+});
+
+/**
+ * Type representing state-add events.
+ */
+export type FlowchartStateAddEventType = typeof FlowchartStateAddEventType;
+
+/**
+ * State-edit event — a committed inline node editor.
+ *
+ * @property key - The ORIGINAL state key (the identity being edited)
+ * @property code - The possibly-changed code (rekeying is the host's call)
+ * @property label - The new label text
+ */
+export const FlowchartStateEditEventType = StructType({
+    /** The ORIGINAL state key (the identity being edited) */
+    key: StringType,
+    /** The possibly-changed code (rekeying is the host's call) */
+    code: StringType,
+    /** The new label text */
+    label: StringType,
+});
+
+/**
+ * Type representing state-edit events.
+ */
+export type FlowchartStateEditEventType = typeof FlowchartStateEditEventType;
+
+/**
+ * State-move event — a node dropped on another lane.
+ *
+ * @property key - The moved state's key
+ * @property lane - The target lane's key
+ */
+export const FlowchartStateMoveEventType = StructType({
+    /** The moved state's key */
+    key: StringType,
+    /** The target lane's key */
+    lane: StringType,
+});
+
+/**
+ * Type representing state-move events.
+ */
+export type FlowchartStateMoveEventType = typeof FlowchartStateMoveEventType;
+
+/**
  * Link-creation event — a completed drag-to-connect gesture.
  *
  * @remarks
