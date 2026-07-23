@@ -158,6 +158,9 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const fixedHeight = parseCssSize(getSomeorUndefined(value.height));
     const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
     const linkMode = getSomeorUndefined(value.linkMode)?.type;
+    // Runtime edit gate — true suppresses every authoring affordance without
+    // unwiring callbacks (permissions / published mode); inspect stays live.
+    const readOnly = getSomeorUndefined(value.readOnly) ?? false;
 
     const onSelectStateFn = useMemo(() => getSomeorUndefined(value.onSelectState) as SelectFn, [value.onSelectState]);
     const onSelectLinkFn = useMemo(() => getSomeorUndefined(value.onSelectLink) as SelectFn, [value.onSelectLink]);
@@ -203,6 +206,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const [selection, setSelection] = useState<Selection>(null);
     const selectionRef = useRef<Selection>(null);
     selectionRef.current = selection;
+    const readOnlyRef = useRef(false);
+    readOnlyRef.current = readOnly;
     const [hover, setHover] = useState<Hover>(null);
 
     // Hover card — dev-defined content (Schematic contract), 400ms open,
@@ -315,7 +320,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                 setHover(null);
                 setHoverCard(null);
                 setDraft(null);
-            } else if ((e.key === "Delete" || e.key === "Backspace") && selectionRef.current?.kind === "link" && onDeleteLinkFn) {
+            } else if ((e.key === "Delete" || e.key === "Backspace") && selectionRef.current?.kind === "link" && onDeleteLinkFn && !readOnlyRef.current) {
                 const key = selectionRef.current.key;
                 dispatchEast("onDeleteLink", () => onDeleteLinkFn(key));
             }
@@ -342,7 +347,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     }, []);
 
     const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
-        if (linkMode === undefined) return;
+        if (linkMode === undefined || readOnly) return;
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
@@ -376,7 +381,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
-    }, [linkMode, svgPoint, layout, model, canConnect, onCreateLinkFn]);
+    }, [linkMode, readOnly, svgPoint, layout, model, canConnect, onCreateLinkFn]);
 
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
@@ -506,7 +511,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     )
                             ))}
                             {/* + LANE tail affordance — only when the host can add lanes */}
-                            {onAddLaneFn !== undefined && (
+                            {onAddLaneFn !== undefined && !readOnly && (
                                 <g
                                     data-flowchart-addlane
                                     style={{ cursor: "pointer" }}
@@ -679,7 +684,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     <g key={`ports-${rect.key}`} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
                                         {/* invisible 16×16 hit targets — ANY handle is the
                                             drag-to-connect affordance */}
-                                        {linkMode !== undefined && (["left", "right", "top", "bottom"] as const).map(side => (
+                                        {linkMode !== undefined && !readOnly && (["left", "right", "top", "bottom"] as const).map(side => (
                                             <circle
                                                 key={`hit-${side}`}
                                                 cx={rect[side].x} cy={rect[side].y} r={8}

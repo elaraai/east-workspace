@@ -73,6 +73,7 @@ function mkValue(): FlowchartValue {
         onDeleteLink: none,
         canConnect: none,
         onAddLane: none,
+        readOnly: none,
     } as unknown as FlowchartValue;
 }
 

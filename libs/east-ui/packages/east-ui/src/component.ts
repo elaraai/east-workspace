@@ -1195,6 +1195,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onDeleteLink: OptionType(FunctionType([StringType], NullType)),
         canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
         onAddLane: OptionType(FunctionType([], NullType)),
+        readOnly: OptionType(BooleanType),
     }),
 
     // Map — interactive geographic basemap + H3 / area overlay. The

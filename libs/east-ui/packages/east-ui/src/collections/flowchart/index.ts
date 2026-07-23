@@ -89,6 +89,7 @@ export const FlowchartRootType: StructType<{
     onDeleteLink: OptionType<FunctionType<[StringType], NullType>>,
     canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
     onAddLane: OptionType<FunctionType<[], NullType>>,
+    readOnly: OptionType<BooleanType>,
 }> = StructType({
     states: ArrayType(FlowchartStateType),
     links: ArrayType(FlowchartLinkType),
@@ -114,6 +115,7 @@ export const FlowchartRootType: StructType<{
     onDeleteLink: OptionType(FunctionType([StringType], NullType)),
     canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
     onAddLane: OptionType(FunctionType([], NullType)),
+    readOnly: OptionType(BooleanType),
 });
 
 /**
@@ -321,6 +323,8 @@ export interface FlowchartConfig<
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
     /** Optional add-lane callback — its presence renders the dashed "+ LANE" tail affordance (full lane height); absent ⇒ no affordance. */
     onAddLane?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Optional runtime edit gate — true suppresses every authoring affordance (connect gesture, Del delete, + LANE) without unwiring the callbacks; selection and hover stay (inspecting isn't editing). Reactive-capable: feed a permission / published-mode flag. */
+    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
 }
 
 // ============================================================================
@@ -466,6 +470,7 @@ function buildRoot(
         onDeleteLink: config.onDeleteLink !== undefined ? some(config.onDeleteLink) : none,
         canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
         onAddLane: config.onAddLane !== undefined ? some(config.onAddLane) : none,
+        readOnly: config.readOnly !== undefined ? some(config.readOnly) : none,
     }), UIComponentType);
 }
 
