@@ -36,8 +36,10 @@ export interface ModelNode {
     /** State-class member count (the ×N badge). */
     members: bigint | undefined;
     notes: string | undefined;
-    /** Aggregated `↻ n` in-place transition count (self-loop links). */
-    inPlace: number;
+    /** In-place transition (self-loop) link keys, data order — the `↻ n`
+     * badge; the badge is the selection surface for these links (they
+     * have no route to click), so Del can reach them. */
+    inPlaceKeys: string[];
     /** True for the derived "No state row" ghost. */
     ghost: boolean;
 }
@@ -150,7 +152,7 @@ export function buildModel(value: {
             laneOrder: nextLaneOrder(li),
             members: unwrap(s.members),
             notes: unwrap(s.notes),
-            inPlace: 0,
+            inPlaceKeys: [],
             ghost: false,
         };
         nodes.push(node);
@@ -174,7 +176,7 @@ export function buildModel(value: {
             laneOrder: nextLaneOrder(li),
             members: undefined,
             notes: undefined,
-            inPlace: 0,
+            inPlaceKeys: [],
             ghost: true,
         };
         nodes.push(ghost);
@@ -185,7 +187,7 @@ export function buildModel(value: {
     value.links.forEach((l, i) => {
         if (l.from === l.to) {
             const node = nodesByKey.get(l.from);
-            if (node) node.inPlace += 1;
+            if (node) node.inPlaceKeys.push(unwrap(l.key) ?? linkKey(l.from, l.to, i));
             return;
         }
         const missing = !nodesByKey.has(l.from) || !nodesByKey.has(l.to);

@@ -221,6 +221,14 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             lineHeight: "1.4",
             whiteSpace: "nowrap",
             "& + &": { marginLeft: "4px" },
+            /* The ↻ badge doubles as the folded self-loop's selection
+             * surface — mirror the selected-node treatment. */
+            "&[data-flowchart-inplace]": { cursor: "pointer" },
+            "&[data-selected]": {
+                color: "brand.600",
+                borderColor: "brand.600",
+                borderWidth: "1.5px",
+            },
         },
 
         /* ── "+ STATE" ghost + inline node editor + move clone ────────── */

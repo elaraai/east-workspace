@@ -785,7 +785,37 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     <Box css={styles.nodeCode}>
                                         {rect.key}
                                         {nm.members !== undefined && <Box as="span" css={styles.nodeBadge}>×{String(nm.members)}</Box>}
-                                        {nm.inPlace > 0 && <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> {nm.inPlace}</Box>}
+                                        {nm.inPlaceKeys.length > 0 && (() => {
+                                            // Folded self-loops have no route to click — the ↻
+                                            // badge is their selection surface. Click selects
+                                            // (cycling when several fold here) so Del deletes
+                                            // through the normal onDeleteLink channel; hover
+                                            // shows the linkHover card like any routed link.
+                                            const selIdx = selection?.kind === "link" ? nm.inPlaceKeys.indexOf(selection.key) : -1;
+                                            const hoverKey = selIdx >= 0 ? nm.inPlaceKeys[selIdx]! : nm.inPlaceKeys[0]!;
+                                            return (
+                                                <Box as="span" css={styles.nodeBadge}
+                                                    data-flowchart-inplace={rect.key}
+                                                    data-selected={selIdx >= 0 || undefined}
+                                                    onPointerDown={e => e.stopPropagation()}
+                                                    onDoubleClick={e => e.stopPropagation()}
+                                                    onClick={e => {
+                                                        e.stopPropagation();
+                                                        select({ kind: "link", key: nm.inPlaceKeys[(selIdx + 1) % nm.inPlaceKeys.length]! });
+                                                    }}
+                                                    onPointerEnter={e => {
+                                                        const p = svgPoint(e);
+                                                        scheduleHoverCard("link", hoverKey, p.x, p.y);
+                                                    }}
+                                                    onPointerLeave={e => {
+                                                        const p = svgPoint(e);
+                                                        scheduleHoverCard("state", rect.key, p.x, p.y);
+                                                    }}
+                                                >
+                                                    <FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> {nm.inPlaceKeys.length}
+                                                </Box>
+                                            );
+                                        })()}
                                     </Box>
                                     {nm.label !== undefined && <Box css={styles.nodeLabel}>{nm.label}</Box>}
                                 </Box>
