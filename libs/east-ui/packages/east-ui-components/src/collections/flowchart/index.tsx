@@ -33,7 +33,7 @@ import {
     type FlowchartLayout, type LinkRoute,
     BADGE_H, RING_R,
 } from "./layout.js";
-import { dropTargetAt, existingLink, laneAt, nearestHandle } from "./connect.js";
+import { dropTargetAt, existingLink, laneAt } from "./connect.js";
 
 const flowchartEqual = equalFor(Flowchart.Types.Flowchart);
 
