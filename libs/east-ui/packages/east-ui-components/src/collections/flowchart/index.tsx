@@ -520,10 +520,25 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     {/* transparent (not none) fill — the whole affordance is clickable */}
                                     <rect x={layout.laneTail.x} y={layout.laneTail.y} width={layout.laneTail.w} height={layout.laneTail.h}
                                         rx={6} fill="transparent" stroke={RULE_STRONG} strokeDasharray="4 4" />
-                                    <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 30} textAnchor="middle"
-                                        style={{ fontSize: 14, fill: INK_4 }}>+</text>
-                                    <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 52} textAnchor="middle"
-                                        style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
+                                    {layout.orientation === "TD"
+                                        ? (
+                                            // Wide short band — "+ LANE" inline on the midline.
+                                            <>
+                                                <text x={layout.laneTail.x + layout.laneTail.w / 2 - 8} y={layout.laneTail.y + layout.laneTail.h / 2 + 5}
+                                                    textAnchor="end" style={{ fontSize: 14, fill: INK_4 }}>+</text>
+                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + layout.laneTail.h / 2 + 4}
+                                                    textAnchor="start" style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
+                                            </>
+                                        )
+                                        : (
+                                            // Tall narrow column — "+" stacked over "LANE".
+                                            <>
+                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 30} textAnchor="middle"
+                                                    style={{ fontSize: 14, fill: INK_4 }}>+</text>
+                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 52} textAnchor="middle"
+                                                    style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
+                                            </>
+                                        )}
                                 </g>
                             )}
 
