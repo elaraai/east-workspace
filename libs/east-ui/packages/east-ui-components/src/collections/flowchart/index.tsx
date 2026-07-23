@@ -16,7 +16,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRight, faArrowDown } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRight, faArrowDown, faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -785,7 +785,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     <Box css={styles.nodeCode}>
                                         {rect.key}
                                         {nm.members !== undefined && <Box as="span" css={styles.nodeBadge}>×{String(nm.members)}</Box>}
-                                        {nm.inPlace > 0 && <Box as="span" css={styles.nodeBadge}>↻ {nm.inPlace}</Box>}
+                                        {nm.inPlace > 0 && <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> {nm.inPlace}</Box>}
                                     </Box>
                                     {nm.label !== undefined && <Box css={styles.nodeLabel}>{nm.label}</Box>}
                                 </Box>
@@ -882,13 +882,6 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                                 strokeWidth={1.6}
                                                 strokeDasharray="5 4"
                                             />
-                                        )}
-                                        {selfDrop && (
-                                            <text x={draft.x + 12} y={draft.y - 8}
-                                                style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, fill: BRAND_D }}>↻</text>
-                                        )}
-                                        {draft.over !== null && !landable && (
-                                            <text x={draft.x + 10} y={draft.y - 6} style={{ fontSize: 12, fill: NEG }}>⊘</text>
                                         )}
                                     </g>
                                 );
@@ -1000,6 +993,25 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             );
                         })()}
 
+                        {/* drag cursor cues — FA icons in the HTML layer (↻ = self-drop
+                            lands an in-place transition; ⊘ = vetoed target) */}
+                        {draft !== null && draft.over !== null && (() => {
+                            const landable = draft.allowed || draft.dup !== undefined;
+                            const selfDrop = draft.over === draft.from && landable;
+                            if (!selfDrop && landable) return null;
+                            return (
+                                <Box
+                                    style={{
+                                        position: "absolute", left: draft.x + 12, top: draft.y - 18,
+                                        pointerEvents: "none", fontSize: 13,
+                                        color: selfDrop ? "var(--fc-brand-d)" : "var(--fc-neg)",
+                                    }}
+                                >
+                                    <FontAwesomeIcon icon={selfDrop ? faRotateRight : faBan} />
+                                </Box>
+                            );
+                        })()}
+
                         {/* one-shot node pulse — an in-place (self-loop) create or
                             duplicate has no route to pulse, so the node card glows */}
                         {pulse !== null && pulse.from === pulse.to && (() => {
@@ -1075,7 +1087,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     <span>Decision trigger</span>
                                 </Box>
                                 <Box css={styles.legendRow}>
-                                    <Box as="span" css={styles.nodeBadge}>↻ n</Box>
+                                    <Box as="span" css={styles.nodeBadge}><FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> n</Box>
                                     <span>In-place transition</span>
                                 </Box>
                             </Box>
