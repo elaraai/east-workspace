@@ -26,8 +26,9 @@ where the snapshots land — they exist specifically so an agent can
   across east-ui packages.
 - `scripts/snapshot-examples.ts` — renders each example to a
   standalone HTML in `dist-examples/`, then converts to PNG.
-- `scripts/snapshot-design.ts` — renders every `.pattern` / `.bsys` in
-  `libs/east-ui/design/*.html` to `dist-design/`.
+- `scripts/snapshot-design.ts` — seeds `libs/east-ui/component_design/` from
+  every `.pattern` / `.bsys` in the reference pages
+  (`app_design_system/guidelines/reference/*.html`).
 - `scripts/snapshot-chrome.ts` — headless Chrome driver shared by both
   pipelines.
 - `scripts/probe-overlays.ts`, `probe-page.ts` — debugging helpers.
@@ -42,8 +43,8 @@ where the snapshots land — they exist specifically so an agent can
 |---|---|
 | `make east-ui-examples-html-all` | Snapshots every example to standalone HTML. |
 | `make east-ui-examples-html-<pathKey>` | Snapshots one example (e.g. `disclosure/tabs`). |
-| `make design-html-all` | Snapshots every `.pattern` / `.bsys` from `design/*.html`. |
-| `make design` | Serves `design/` on :5174 for visual review. |
+| `make design-html-all` | Seeds `component_design/` from the reference `.pattern` / `.bsys` elements. |
+| `make design` | Serves `app_design_system/guidelines/reference/` on :5174 for visual review. |
 
 ## See also
 

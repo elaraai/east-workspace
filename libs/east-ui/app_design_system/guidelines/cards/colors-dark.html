@@ -1,0 +1,26 @@
+<!-- @dsCard group="Colors" viewport="700x190" subtitle="Same semantic tokens, data-theme=dark — write no hex and this is free" name="Dark theme" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 0; }
+.half { padding: 14px 18px; background: var(--paper-2); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; overflow: hidden; }
+.head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.lbl { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); }
+.stat { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.stat .d { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--pos); margin-right: 5px; }
+.bd { padding: 10px 14px; display: flex; align-items: baseline; gap: 14px; }
+.big { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--ink); letter-spacing: -0.015em; }
+.sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); }
+.up { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--pos); }
+</style></head><body>
+<div style="display:grid;grid-template-columns:1fr 1fr">
+  <div class="half"><div class="frame">
+    <div class="head"><span class="lbl">Throughput</span><span class="stat"><span class="d"></span>Committed</span></div>
+    <div class="bd"><span class="big">1,482</span><span class="up">▲ +4.2%</span><span class="sub">vs plan</span></div>
+  </div></div>
+  <div class="half" data-theme="dark"><div class="frame">
+    <div class="head"><span class="lbl">Throughput</span><span class="stat"><span class="d"></span>Committed</span></div>
+    <div class="bd"><span class="big">1,482</span><span class="up">▲ +4.2%</span><span class="sub">vs plan</span></div>
+  </div></div>
+</div>
+</body></html>

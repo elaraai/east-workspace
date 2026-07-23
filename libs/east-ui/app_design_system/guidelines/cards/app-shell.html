@@ -1,0 +1,21 @@
+<!-- @dsCard group="App layout" viewport="700x270" subtitle="Five regions — app bar · sidebar · main · rail · commit bar" name="Shell anatomy" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
+.shell { display: grid; grid-template-columns: 92px 1fr 108px; grid-template-rows: 34px 1fr 26px; gap: 4px; height: 172px; max-width: 620px; }
+.rg { border: 1px solid var(--rule-strong); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); background: var(--paper); text-align: center; line-height: 1.5; }
+.appbar { grid-column: 1 / -1; }
+.side { background: var(--paper-2); }
+.rail { background: var(--paper-2); }
+.commit { grid-column: 1 / -1; background: var(--brand-tint); border-color: var(--brand-d); color: var(--brand-dd); }
+.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 10px 2px 0; letter-spacing: 0.04em; line-height: 1.7; }
+</style></head><body>
+<div class="shell">
+  <div class="rg appbar">App bar · sticky top · run anchor + trust</div>
+  <div class="rg side">Sidebar<br>240 / 56px</div>
+  <div class="rg">Main · pattern surface in a Frame<br>max 1480px · pad 32/24</div>
+  <div class="rg rail">Rail<br>320px</div>
+  <div class="rg commit">Commit.Bar · Override · Modify · Apply — only when dirty</div>
+</div>
+<div class="ann">rail collapses to a tab strip below 1080px — never disappears · commit bar sticky bottom, 56px, brand-tint · chrome is one row, never wraps</div>
+</body></html>

@@ -1,0 +1,58 @@
+{
+  "projectId": "1ee95b77-a768-4f4b-81f7-cd2a08091134",
+  "pkg": "@elaraai/east-app-design-system",
+  "globalName": "East",
+  "shape": "package",
+  "entry": "./index.jsx",
+  "cssEntry": "base/semantic.css",
+  "tokensPkg": "@elaraai/east-app-design-system",
+  "tokensGlob": "tokens/*.css",
+  "guidelinesGlob": [
+    "guidelines/*.md",
+    "guidelines/proposals/*.md"
+  ],
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "Button": {
+      "viewport": "700x160"
+    },
+    "Chip": {
+      "viewport": "700x160",
+      "cardMode": "column"
+    },
+    "Status": {
+      "viewport": "700x260",
+      "cardMode": "column"
+    },
+    "DeltaPill": {
+      "viewport": "700x160",
+      "cardMode": "column"
+    },
+    "Tag": {
+      "viewport": "700x160",
+      "cardMode": "column"
+    },
+    "Kbd": {
+      "viewport": "700x160",
+      "cardMode": "column"
+    },
+    "Avatar": {
+      "viewport": "700x160",
+      "cardMode": "column"
+    },
+    "Banner": {
+      "viewport": "700x300",
+      "cardMode": "column"
+    }
+  },
+  "docsMap": {
+    "Avatar": "components/core/Avatar.prompt.md",
+    "Banner": "components/core/Banner.prompt.md",
+    "Button": "components/core/Button.prompt.md",
+    "Chip": "components/core/Chip.prompt.md",
+    "DeltaPill": "components/core/DeltaPill.prompt.md",
+    "Kbd": "components/core/Kbd.prompt.md",
+    "Status": "components/core/Status.prompt.md",
+    "Tag": "components/core/Tag.prompt.md"
+  }
+}

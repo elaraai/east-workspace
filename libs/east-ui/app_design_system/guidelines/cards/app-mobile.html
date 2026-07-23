@@ -1,0 +1,41 @@
+<!-- @dsCard group="App layout" viewport="700x300" subtitle="One definition, four breakpoints — 1080 rail→tabs · 768 sidebar locks · 560 overlay + 1-col" name="Mobile shell" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
+.wrap { display: flex; gap: 18px; align-items: flex-start; max-width: 620px; }
+.phone { width: 168px; flex: none; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; overflow: hidden; }
+.pbar { height: 26px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--rule); }
+.pbar .crumb { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; color: var(--ink-3); }
+.pbar .div { width: 1px; height: 9px; background: var(--rule-strong); margin: 0 6px; }
+.pbar .title { font-family: var(--font-brand); font-size: 9.5px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+.pbody { padding: 6px; display: grid; gap: 5px; background: var(--paper-2); }
+.pframe { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; height: 34px; }
+.ptabs { display: flex; gap: 0; border-top: 1px solid var(--rule); background: var(--paper); }
+.ptabs span { flex: 1; text-align: center; padding: 5px 0; font-family: var(--font-mono); font-size: 7px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
+.ptabs span.on { color: var(--ink); border-bottom: 2px solid var(--ink); }
+.pcommit { display: flex; align-items: center; gap: 5px; padding: 5px 8px; background: var(--brand-tint); border-top: 1px solid var(--brand-d); }
+.pcommit .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-d); }
+.pcommit .t { font-family: var(--font-mono); font-size: 7px; font-weight: 600; color: var(--brand-dd); }
+.pcommit .b { margin-left: auto; font-family: var(--font-body); font-size: 7.5px; font-weight: 600; padding: 2px 6px; border-radius: 3px; background: var(--brand-d); color: var(--paper); }
+.ladder { flex: 1; }
+.ladder .row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.ladder .bp { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; font-feature-settings: "tnum" 1; color: var(--ink); flex: none; width: 52px; }
+.ladder .what { font-size: 11px; line-height: 1.45; color: var(--ink-2); }
+.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 8px 0 0; letter-spacing: 0.04em; }
+</style></head><body>
+<div class="wrap">
+  <div class="phone">
+    <div class="pbar"><span class="crumb">/Roster</span><span class="div"></span><span class="title">Week 3</span></div>
+    <div class="pbody"><div class="pframe"></div><div class="pframe"></div><div class="pframe" style="height:22px"></div></div>
+    <div class="ptabs"><span class="on">Evidence</span><span>Refs</span><span>Journal</span></div>
+    <div class="pcommit"><span class="dot"></span><span class="t">4 PENDING</span><span class="b">Apply</span></div>
+  </div>
+  <div class="ladder">
+    <div class="row"><span class="bp">&lt;1080</span><span class="what">Rail → tab strip (topmost frame is the open tab) — never disappears.</span></div>
+    <div class="row"><span class="bp">&lt;768</span><span class="what">Sidebar locks to the 56px icon rail; breadcrumb collapses to parent link.</span></div>
+    <div class="row"><span class="bp">≤560</span><span class="what">Sidebar becomes an overlay sheet; Main is one column, frames full-width.</span></div>
+    <div class="row" style="border-bottom:none"><span class="bp">bar</span><span class="what">Condensed 44px app bar; commit bar edge-to-edge; chip rails at large density.</span></div>
+  </div>
+</div>
+<div class="ann">same tokens, same anatomy, narrower — fluid widths min(ideal, 100%) · auto-fit grids reflow to 1 col · rail-on-mobile is the one legal Drawer</div>
+</body></html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>decide · pattern · reference-novelty</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+
+.facet-tabs { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.facet-tab { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.facet-tab:last-child { border-right: 0px; }
+.facet-tab:hover { background: var(--paper-3); color: var(--ink); }
+.facet-tab.on { background: var(--brand-d); color: rgb(255, 255, 255); }
+@keyframes facet-pulse { 
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.facet-tab.pulse:not(.on) { color: var(--warn-dd, var(--warn)); animation: 1.8s ease-in-out 0s infinite normal none running facet-pulse; }
+</style>
+</head>
+<body>
+<article id="reference-novelty" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Novelty</span></div>
+      <p class="pattern-blurb" style="color: var(--ink-3);">Derived in the briefing’s references rail (max similarity below threshold) — not a separate component.</p>
+      <p class="pattern-blurb">"This case is unusual" — flag when similarity to past cases is low. Asks for extra judgement.</p>
+      <div class="frame pad-18">
+        <div style="border: 1px solid var(--warn); background: rgba(212, 167, 79, 0.08); border-radius: 6px; padding: 12px 14px;">
+          <div class="row gap-2" style="align-items: baseline;">
+            <span class="dot warn"></span>
+            <strong style="color: var(--ink);">Unusual case</strong>
+            <span class="cap-eyebrow muted" style="margin-left: auto;">closest match: 41% similar</span>
+          </div>
+          <div style="font-size: 13px; color: var(--ink-2); margin-top: 6px;">No comparable shift move in last 24 months for this team size + skill mix. Recommend human-in-loop review.</div>
+        </div>
+      </div>
+
+    </article>
+</body>
+</html>

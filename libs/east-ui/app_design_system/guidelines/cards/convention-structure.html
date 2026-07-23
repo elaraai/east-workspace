@@ -1,0 +1,21 @@
+<!-- @dsCard group="Conventions" viewport="700x210" subtitle="1px rules give structure; shadows only on overlays; dashed = ephemeral" name="Borders & structure" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; overflow: hidden; max-width: 560px; }
+.band { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.lbl { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); }
+.meta { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
+.row { padding: 10px 16px; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--ink); display: flex; justify-content: space-between; }
+.row .n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+.row.stale { border-top: 1px dashed var(--rule-strong); border-bottom: 1px dashed var(--rule-strong); color: var(--ink-3); font-size: 12px; }
+.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 8px 16px; letter-spacing: 0.04em; }
+</style></head><body>
+<div class="frame">
+  <div class="band"><span class="lbl">Frame</span><span class="meta">10px radius · --rule-strong edge · no shadow</span></div>
+  <div class="row"><span>Inside-card divider</span><span class="n">--rule · 1px</span></div>
+  <div class="row stale"><span>─ ─ dashed hairline = ephemeral / partial / stale</span></div>
+  <div class="row" style="border-bottom:none"><span>Header/footer bands</span><span class="n">--paper-2</span></div>
+</div>
+<div class="ann">shadows: overlays only (menus, dialogs) — never on cards, never on hover</div>
+</body></html>
