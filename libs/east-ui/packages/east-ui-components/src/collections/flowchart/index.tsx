@@ -691,7 +691,11 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     || draft !== null;
                                 const occupied = layout.handles.get(rect.key) ?? [];
                                 const occupiedSides = new Set(occupied.map(h => h.side));
-                                const extra = nodeActive
+                                // Unoccupied handles are the EDIT affordance — they only
+                                // reveal on hover/selection when authoring is possible;
+                                // occupied rings are anatomy and always render.
+                                const authoring = linkMode !== undefined && !readOnly;
+                                const extra = nodeActive && authoring
                                     ? (["left", "right", "top", "bottom"] as const).filter(s => !occupiedSides.has(s))
                                     : [];
 
