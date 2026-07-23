@@ -29,7 +29,8 @@ import {
     buildModel, type FlowchartModel, type FlowchartValue, type ModelLink,
 } from "./model.js";
 import {
-    computeLayout, type FlowchartLayout, type LinkRoute,
+    computeLayout, previewCursorPath, previewLinkPath,
+    type FlowchartLayout, type LinkRoute,
     BADGE_H, RING_R,
 } from "./layout.js";
 import { dropTargetAt, existingLink, laneAt, nearestHandle } from "./connect.js";
@@ -361,7 +362,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     }, [onDeleteLinkFn]);
 
     const canConnect = useCallback((from: string, to: string): boolean => {
-        if (from === to) return false;         // self-loops never use handles
+        // from === to is LEGAL: dropping on the source commits an in-place
+        // transition (rendered as the ↻ badge, never routed).
         if (!canConnectFn) return true;
         try {
             return canConnectFn(from, to) !== false;
@@ -388,7 +390,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
             const fromKey = draftRef.current?.from ?? from;
             // The WHOLE node (plus DROP_PAD) is the target — nobody has to
             // land a 7px ring.
-            const over = layout ? dropTargetAt(layout, q, fromKey) : null;
+            const over = layout ? dropTargetAt(layout, q) : null;
             const dup = over !== null ? existingLink(model, fromKey, over) : undefined;
             const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
             setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
@@ -400,7 +402,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
             setDraft(null);
             if (!d || d.over === null) return;
             if (d.dup !== undefined) {
-                // Already connected — absorb the drop and pulse the existing link.
+                // Already connected — absorb the drop and pulse the existing
+                // link (or the node itself for a folded in-place loop).
                 setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
                 return;
             }
@@ -857,21 +860,33 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             {draft !== null && (() => {
                                 const from = layout.nodes.get(draft.from);
                                 if (!from) return null;
-                                const start = from[draft.side];
                                 const target = draft.over !== null ? layout.nodes.get(draft.over) : undefined;
                                 const landable = draft.allowed || draft.dup !== undefined;
-                                const end = target !== undefined && landable
-                                    ? nearestHandle(target, { x: draft.x, y: draft.y })
-                                    : { x: draft.x, y: draft.y };
+                                const selfDrop = draft.over === draft.from && landable;
+                                // Spec-compliant preview: the exact H/V route (r 8
+                                // corners, ring-trimmed) the link would take when a
+                                // target is snapped; an orthogonal run to the cursor
+                                // otherwise. A self-drop previews as the ↻ cue.
+                                const d = selfDrop
+                                    ? undefined
+                                    : target !== undefined && landable
+                                        ? previewLinkPath(from, target)
+                                        : previewCursorPath(from, draft.side, { x: draft.x, y: draft.y });
                                 return (
                                     <g>
-                                        <path
-                                            d={`M${start.x} ${start.y} L${end.x} ${end.y}`}
-                                            fill="none"
-                                            stroke={draft.over !== null && !landable ? NEG : BRAND_D}
-                                            strokeWidth={1.6}
-                                            strokeDasharray="5 4"
-                                        />
+                                        {d !== undefined && (
+                                            <path
+                                                d={d}
+                                                fill="none"
+                                                stroke={draft.over !== null && !landable ? NEG : BRAND_D}
+                                                strokeWidth={1.6}
+                                                strokeDasharray="5 4"
+                                            />
+                                        )}
+                                        {selfDrop && (
+                                            <text x={draft.x + 12} y={draft.y - 8}
+                                                style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, fill: BRAND_D }}>↻</text>
+                                        )}
                                         {draft.over !== null && !landable && (
                                             <text x={draft.x + 10} y={draft.y - 6} style={{ fontSize: 12, fill: NEG }}>⊘</text>
                                         )}
@@ -985,6 +1000,25 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             );
                         })()}
 
+                        {/* one-shot node pulse — an in-place (self-loop) create or
+                            duplicate has no route to pulse, so the node card glows */}
+                        {pulse !== null && pulse.from === pulse.to && (() => {
+                            const rect = layout.nodes.get(pulse.from);
+                            if (!rect) return null;
+                            return (
+                                <Box
+                                    key={`nodepulse-${pulse.seq}`}
+                                    style={{
+                                        position: "absolute",
+                                        left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+                                        borderRadius: 6,
+                                        pointerEvents: "none",
+                                        animation: "fc-node-pulse 0.9s ease-out forwards",
+                                    }}
+                                />
+                            );
+                        })()}
+
                         {/* inline lane-rename editor */}
                         {laneEdit !== null && (() => {
                             const lane = layout.lanes.find(l => l.key === laneEdit.key);
@@ -1035,8 +1069,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     <span>Observed</span>
                                 </Box>
                                 <Box css={styles.legendRow}>
-                                    <svg width={28} height={12}>
-                                        <rect x={9} y={1} width={10} height={10} rx={2} transform="rotate(45 14 6)" fill={PAPER} stroke={BRAND_D} strokeWidth={1.2} />
+                                    <svg width={28} height={16}>
+                                        <rect x={9} y={3} width={10} height={10} rx={2} transform="rotate(45 14 8)" fill={PAPER} stroke={BRAND_D} strokeWidth={1.2} />
                                     </svg>
                                     <span>Decision trigger</span>
                                 </Box>

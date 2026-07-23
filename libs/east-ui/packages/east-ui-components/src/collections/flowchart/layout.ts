@@ -183,6 +183,94 @@ export function longestRunMid(segs: RouteSeg[]): Pt {
     return { x: (best.a.x + best.b.x) / 2, y: (best.a.y + best.b.y) / 2 };
 }
 
+
+/** Outward normal per handle side. */
+const NORMALS: Record<HandleSide, Pt> = {
+    left: { x: -1, y: 0 }, right: { x: 1, y: 0 }, top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 },
+};
+const ALL_SIDES: readonly HandleSide[] = ["left", "right", "top", "bottom"];
+
+/** Drops duplicate / colinear intermediate points from an orthogonal run. */
+function collapsePts(pts: Pt[]): Pt[] {
+    const out: Pt[] = [];
+    for (const p of pts) {
+        const n = out.length;
+        if (n > 0 && out[n - 1]!.x === p.x && out[n - 1]!.y === p.y) continue;
+        if (n > 1) {
+            const q = out[n - 2]!, r = out[n - 1]!;
+            if ((q.x === r.x && r.x === p.x) || (q.y === r.y && r.y === p.y)) { out[n - 1] = p; continue; }
+        }
+        out.push(p);
+    }
+    return out;
+}
+
+/** The CLOSEST FACING pair of handles between two node rects. */
+export function selectPair(a: NodeRect, b: NodeRect): { sa: HandleSide; sb: HandleSide } {
+    let best: { sa: HandleSide; sb: HandleSide; d: number } | undefined;
+    for (const sa of ALL_SIDES) {
+        for (const sb of ALL_SIDES) {
+            const pa = a[sa], pb = b[sb];
+            const nA = NORMALS[sa], nB = NORMALS[sb];
+            const facesA = nA.x * (b.cx - pa.x) + nA.y * (b.cy - pa.y) > 0;
+            const facesB = nB.x * (a.cx - pb.x) + nB.y * (a.cy - pb.y) > 0;
+            if (!facesA || !facesB) continue;
+            const d = Math.abs(pa.x - pb.x) + Math.abs(pa.y - pb.y);
+            if (best === undefined || d < best.d) best = { sa, sb, d };
+        }
+    }
+    return best ?? { sa: "right", sb: "left" };
+}
+
+/** The orthogonal point run between a chosen handle pair (no channel
+ * staggering — computeLayout overrides the mid run for that). */
+export function pairPoints(a: NodeRect, b: NodeRect, sa: HandleSide, sb: HandleSide, mx?: number): Pt[] {
+    const outP = a[sa], inP = b[sb];
+    const n1 = NORMALS[sa], n2 = NORMALS[sb];
+    let pts: Pt[];
+    if (n1.x !== 0 && n2.x !== 0) {
+        const m = mx ?? (outP.x + inP.x) / 2;
+        pts = outP.y === inP.y ? [outP, inP] : [outP, { x: m, y: outP.y }, { x: m, y: inP.y }, inP];
+    } else if (n1.y !== 0 && n2.y !== 0) {
+        const my = (outP.y + inP.y) / 2;
+        pts = outP.x === inP.x ? [outP, inP] : [outP, { x: outP.x, y: my }, { x: inP.x, y: my }, inP];
+    } else if (n1.x !== 0) {
+        pts = [outP, { x: inP.x, y: outP.y }, inP];
+    } else {
+        pts = [outP, { x: outP.x, y: inP.y }, inP];
+    }
+    return collapsePts(pts);
+}
+
+/** Spec-compliant DRAG PREVIEW between two nodes — the exact H/V route
+ * (r 8 corners, ring-trimmed) the committed link would take. */
+export function previewLinkPath(a: NodeRect, b: NodeRect): string {
+    const { sa, sb } = selectPair(a, b);
+    return roundedPath(trimToRings(pairPoints(a, b, sa, sb))).d;
+}
+
+/** Spec-compliant DRAG PREVIEW from a handle to a free cursor point —
+ * an orthogonal Z/L run instead of a diagonal rubber band. */
+export function previewCursorPath(a: NodeRect, side: HandleSide, c: Pt): string {
+    const P1 = a[side];
+    const n = NORMALS[side];
+    let pts: Pt[];
+    if (n.x !== 0) {
+        const m = (P1.x + c.x) / 2;
+        pts = Math.abs(c.y - P1.y) < 2 ? [P1, c] : [P1, { x: m, y: P1.y }, { x: m, y: c.y }, c];
+    } else {
+        const m = (P1.y + c.y) / 2;
+        pts = Math.abs(c.x - P1.x) < 2 ? [P1, c] : [P1, { x: P1.x, y: m }, { x: c.x, y: m }, c];
+    }
+    pts = collapsePts(pts);
+    // trim only the start to the ring edge; the free end rides the cursor
+    if (pts.length >= 2) {
+        const p0 = pts[0]!, p1 = pts[1]!;
+        pts[0] = { x: p0.x + Math.sign(p1.x - p0.x) * RING_R, y: p0.y + Math.sign(p1.y - p0.y) * RING_R };
+    }
+    return roundedPath(pts).d;
+}
+
 interface ChannelPlan {
     order: Map<number, Map<string, number>>;
     count: Map<number, number>;
@@ -318,26 +406,6 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
         m.set(side, arr);
     };
 
-    /** Outward normal per handle side. */
-    const NORMALS: Record<HandleSide, Pt> = {
-        left: { x: -1, y: 0 }, right: { x: 1, y: 0 }, top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 },
-    };
-    const ALL_SIDES: readonly HandleSide[] = ["left", "right", "top", "bottom"];
-    /** Drops duplicate / colinear intermediate points from an orthogonal run. */
-    const collapse = (pts: Pt[]): Pt[] => {
-        const out: Pt[] = [];
-        for (const p of pts) {
-            const n = out.length;
-            if (n > 0 && out[n - 1]!.x === p.x && out[n - 1]!.y === p.y) continue;
-            if (n > 1) {
-                const q = out[n - 2]!, r = out[n - 1]!;
-                if ((q.x === r.x && r.x === p.x) || (q.y === r.y && r.y === p.y)) { out[n - 1] = p; continue; }
-            }
-            out.push(p);
-        }
-        return out;
-    };
-
     const routes: LinkRoute[] = [];
     for (const l of model.links) {
         const a = logicalNodes.get(l.from), b = logicalNodes.get(l.to);
@@ -346,45 +414,18 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
         // A link joins the CLOSEST FACING pair of handles on its two nodes
         // (spec: handles are direction-agnostic; the router picks the
         // nearest pair and routes H/V between them).
-        let best: { sa: HandleSide; sb: HandleSide; d: number } | undefined;
-        for (const sa of ALL_SIDES) {
-            for (const sb of ALL_SIDES) {
-                const pa = a[sa], pb = b[sb];
-                const nA = NORMALS[sa], nB = NORMALS[sb];
-                const facesA = nA.x * (b.cx - pa.x) + nA.y * (b.cy - pa.y) > 0;
-                const facesB = nB.x * (a.cx - pb.x) + nB.y * (a.cy - pb.y) > 0;
-                if (!facesA || !facesB) continue;
-                const d = Math.abs(pa.x - pb.x) + Math.abs(pa.y - pb.y);
-                if (best === undefined || d < best.d) best = { sa, sb, d };
-            }
-        }
-        const sa = best?.sa ?? (na.laneIndex === nb.laneIndex ? "bottom" : "right");
-        const sb = best?.sb ?? (na.laneIndex === nb.laneIndex ? "top" : "left");
+        const pair = selectPair(a, b);
+        const sa = pair.sa, sb = pair.sb;
         const outP = a[sa], inP = b[sb];
-        const n1 = NORMALS[sa], n2 = NORMALS[sb];
-        let pts: Pt[];
-        if (n1.x !== 0 && n2.x !== 0) {
-            // Facing horizontal handles — vertical mid run; cross-lane runs
-            // take a staggered channel slot so parallels sit ≥ 16px apart.
-            let mx = (outP.x + inP.x) / 2;
-            if (na.laneIndex !== nb.laneIndex) {
-                const gapKey = na.laneIndex < nb.laneIndex ? nb.laneIndex : nb.laneIndex + 1;
-                const slot = chan.order.get(gapKey)?.get(l.key);
-                if (slot !== undefined) mx = channelX(gapKey, slot);
-            }
-            pts = outP.y === inP.y ? [outP, inP] : [outP, { x: mx, y: outP.y }, { x: mx, y: inP.y }, inP];
-        } else if (n1.y !== 0 && n2.y !== 0) {
-            // Facing vertical handles — horizontal mid run.
-            const my = (outP.y + inP.y) / 2;
-            pts = outP.x === inP.x ? [outP, inP] : [outP, { x: outP.x, y: my }, { x: inP.x, y: my }, inP];
-        } else if (n1.x !== 0) {
-            // Horizontal out, vertical in — one corner.
-            pts = [outP, { x: inP.x, y: outP.y }, inP];
-        } else {
-            // Vertical out, horizontal in — one corner.
-            pts = [outP, { x: outP.x, y: inP.y }, inP];
+        // Facing-horizontal cross-lane runs take a staggered channel slot
+        // so parallels sit >= 16px apart.
+        let mx: number | undefined;
+        if (sa !== sb && (sa === "left" || sa === "right") && (sb === "left" || sb === "right") && na.laneIndex !== nb.laneIndex) {
+            const gapKey = na.laneIndex < nb.laneIndex ? nb.laneIndex : nb.laneIndex + 1;
+            const slot = chan.order.get(gapKey)?.get(l.key);
+            if (slot !== undefined) mx = channelX(gapKey, slot);
         }
-        pts = collapse(pts);
+        const pts = pairPoints(a, b, sa, sb, mx);
         occupy(l.from, sa, l.key);
         occupy(l.to, sb, l.key);
         const realPts = trimToRings(pts.map(tp));

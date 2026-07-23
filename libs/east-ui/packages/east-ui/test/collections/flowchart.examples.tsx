@@ -266,11 +266,9 @@ export const flowchartBuilder = example({
                 $(links.write(links.read().filter(($, l) =>
                     East.equal(East.str`${l.src}→${l.dst}`, key).not())));
             }));
-            const canConnect = $.const(East.function([StringType, StringType], BooleanType,
-                (_$, from, to) => East.equal(from, to).not()));
             return (
                 <VStack gap="3" align="stretch">
-                    <Text textStyle="caption" color="fg.muted">Hover a lane → + STATE ghost (⏎ commits) · double-click a node to edit it · drag a node across lanes · drag any handle to link · + LANE adds a phase · Del removes the selected link</Text>
+                    <Text textStyle="caption" color="fg.muted">Hover a lane → + STATE ghost (⏎ commits) · double-click a node to edit it · drag a node across lanes · drag any handle to link (drop on the SAME node = ↻ in-place) · + LANE adds a phase · Del removes the selected link</Text>
                     <Flowchart
                         states={states.read()} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                         links={links.read()} link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
@@ -278,7 +276,7 @@ export const flowchartBuilder = example({
                         linkMode="connect"
                         onAddLane={addLane}
                         onAddState={addState} onEditState={editState} onMoveState={moveState}
-                        onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
+                        onCreateLink={onCreate} onDeleteLink={onDelete}
                     />
                 </VStack>
             );
