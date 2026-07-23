@@ -22,7 +22,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive test-responsive-bank \
+.PHONY: build test lint showcase build-showcase design design-html-all design-html-serve probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive test-responsive-bank \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
@@ -56,19 +56,36 @@ build-showcase:
 	pnpm --filter @elaraai/east-py-datascience --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
 	pnpm --filter @elaraai/east-ui-showcase run build
 
-## Render every `.pattern` and `.bsys` element from `design/*.html` in headless
-## Chromium and write one PNG per element to
-## `packages/east-ui-showcase/dist-design/` (gitignored).
+## Seed `component_design/` (committed, individually-managed HTML) from every
+## `.pattern` / `.bsys` element in the design-system reference pages
+## (`app_design_system/guidelines/reference/*.html`), each linking the shared
+## design-system CSS instead of embedding it. Set DESIGN_PNG=1 to also write
+## per-element PNGs (visual-verify aid, not committed).
 ##
-## First run downloads the Chromium binary (~150 MB). Subsequent runs are
-## just the snapshot pass.
+## First run downloads the Chromium binary (~150 MB), falling back to a cached
+## or system Chromium when the pinned build isn't installable. Overwrites —
+## git is the history once you start hand-editing component_design/.
 design-html-all:
-	pnpm exec playwright install chromium
+	-pnpm exec playwright install chromium
 	pnpm exec tsx scripts/snapshot-design.ts
+
+## Serve the maintained component designs (component_design/) together with
+## the design-system CSS they link (app_design_system/styles.css), from the
+## lib root so the relative hrefs resolve.
+design-html-serve:
+	@port=5175; \
+	echo "Serving component designs at:"; \
+	echo "  http://localhost:$$port/component_design/"; \
+	ip -4 -o addr show scope global 2>/dev/null \
+	    | awk '{print $$4}' | cut -d/ -f1 \
+	    | sed "s|.*|  http://&:$$port/component_design/|"; \
+	echo ""; \
+	npx --yes serve@latest . -l $$port --no-clipboard --no-port-switching
 
 ## Pixel-perfect audit of the Slice.Edit popover — opens each editor case in the
 ## snapshot harness and dumps the popover's computed CSS (content / head / body /
-## foot + value-control) to diff against `design/slice.html#slice-edit`.
+## foot + value-control) to diff against the reference
+## `app_design_system/guidelines/reference/slice.html#slice-edit`.
 ## Reads from the built renderer, so run `make build` (or the package build) first.
 probe-slice:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
@@ -83,18 +100,19 @@ probe-collections:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-collections.ts
 
-## Serve `design/` statically over HTTP for visual / spec review. Lists every
-## routable IPv4 interface up front so a remote browser (Tailscale, LAN, etc.)
-## can pick the right address.
+## Serve the design-system reference pages (the canonical visual spec —
+## `app_design_system/guidelines/reference/`) statically over HTTP for visual
+## review. Lists every routable IPv4 interface up front so a remote browser
+## (Tailscale, LAN, etc.) can pick the right address.
 design:
 	@port=5174; \
-	echo "Serving design/ at:"; \
+	echo "Serving app_design_system/guidelines/reference/ at:"; \
 	echo "  http://localhost:$$port"; \
 	ip -4 -o addr show scope global 2>/dev/null \
 	    | awk '{print $$4}' | cut -d/ -f1 \
 	    | sed "s|.*|  http://&:$$port|"; \
 	echo ""; \
-	npx --yes serve@latest design -l $$port --no-clipboard --no-port-switching
+	npx --yes serve@latest app_design_system/guidelines/reference -l $$port --no-clipboard --no-port-switching
 
 ## Rebuild only the example-source packages (east-ui + e3-ui)
 examples:
@@ -194,8 +212,9 @@ help:
 	@echo "  test              - Run tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
-	@echo "  design            - Serve design/ statically on :5174 (lists all routable IPs)"
-	@echo "  design-html-all   - Snapshot every .pattern / .bsys in design/*.html to dist-design/"
+	@echo "  design            - Serve app_design_system/guidelines/reference/ (canonical spec) on :5174"
+	@echo "  design-html-all   - Seed component_design/ from the reference .pattern / .bsys elements (linked DS css)"
+	@echo "  design-html-serve - Serve component_design/ + app_design_system/ on :5175"
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
 	@echo "  test-responsive               - Playwright responsive sweep (desktop + mobile) over the showcase catalog"

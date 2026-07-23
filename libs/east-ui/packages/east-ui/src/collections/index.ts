@@ -25,6 +25,19 @@ export {
     type SchematicLinkFields,
 } from "./schematic/index.js";
 export {
+    Flowchart,
+    type FlowchartConfig,
+    type FlowchartStateFields,
+    type FlowchartLinkFields,
+    type FlowchartLaneFields,
+    type FlowchartTriggerFields,
+    type FlowchartEvidenceFields,
+    type FlowchartLaneLiteral,
+    type FlowchartLinkKindLiteral,
+    type FlowchartOrientationLiteral,
+    type FlowchartLinkModeLiteral,
+} from "./flowchart/index.js";
+export {
     Map,
     type MapConfig,
     type MapMarkerFields,

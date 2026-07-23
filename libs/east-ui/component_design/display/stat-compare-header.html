@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · stat-compare-header</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="stat-compare-header" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Compare<span class="ns">.</span>Header</span></div>
+      <p class="pattern-blurb">The header strip for any side-by-side compare. Names the two states, shows their stamp, and carries the headline delta.</p>
+      <div class="frame">
+        <div class="versus-header">
+          <div class="versus-side">
+            <div class="vs-eyebrow">Last run</div>
+            <div class="vs-title">Move 5 shifts Patel → Cho</div>
+            <div class="vs-meta">09-13 · v3.4 · <span class="num">79%</span> conf</div>
+          </div>
+          <div class="versus-mid">VS</div>
+          <div class="versus-side right">
+            <div class="vs-eyebrow">This run</div>
+            <div class="vs-title">Move 3 shifts Patel → Cho</div>
+            <div class="vs-meta">09-14 · v3.4 · <span class="num">82%</span> conf</div>
+          </div>
+        </div>
+        <div class="pad-18 row gap-3" style="align-items: center; border-bottom: 1px solid var(--rule);">
+          <span class="cap-eyebrow">Headline delta</span>
+          <span class="deltapill flat">— shifts: 5 → 3</span>
+          <span class="deltapill up">▲ conf +3pp</span>
+          <span class="deltapill up">▲ value +$2k</span>
+          <span class="muted" style="margin-left: auto; font-size: 12px;"><a class="btn-link" href="#stat-compare-view">full diff →</a></span>
+        </div>
+      </div>
+    </article>
+</body>
+</html>

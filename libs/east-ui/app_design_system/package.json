@@ -1,0 +1,15 @@
+{
+  "name": "@elaraai/east-app-design-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "East Application design system — 8 core atoms + semantic tokens for East decision surfaces",
+  "main": "index.jsx",
+  "types": "index.d.ts",
+  "scripts": {
+    "serve": "node .ds-sync/storybook/http-serve.mjs ./ds-bundle",
+    "spec": "npx serve guidelines/reference"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

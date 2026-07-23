@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · stat-pacing</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="stat-pacing" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Pacing</span></div>
+      <p class="pattern-blurb">Current value vs goal, with a "where you should be by now" guide line. The pacing question: are we on track for the period target? Different from <span class="mono">Stat.Threshold</span> (visual band overlay) — Pacing is specifically time-bounded with an expected-by-now reference.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Quarterly revenue · Q4 2025</span>
+          <span class="meta">day <span class="num" style="color: var(--ink); font-weight: 600;">46</span> of 92 <span class="sep">·</span> 50% elapsed</span>
+        </div>
+        <div class="pad-18">
+          <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px;">
+            <span class="num" style="font-size: 32px; font-weight: 600; color: var(--ink);">$1.42M</span>
+            <span class="muted" style="font-size: 13px;">of <span class="num" style="color: var(--ink);">$3.0M</span> goal</span>
+            <span class="deltapill up" style="margin-left: auto;">▲ ahead of pace</span>
+          </div>
+          <div style="position: relative; height: 8px; background: var(--paper-2); border-radius: 1px; margin-top: 12px;">
+            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 47.3%; background: var(--brand-d); border-radius: 1px;"></div>
+            <div style="position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--rule-strong); border-left: 1px dashed var(--ink-3);"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);">
+            <span>0</span>
+            <span style="position: absolute; left: 50%; transform: translateX(-50%);">expected by now ↑</span>
+            <span>$3.0M</span>
+          </div>
+        </div>
+      </div>
+    </article>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!-- @dsCard group="App layout" viewport="700x260" subtitle="One Frame shape · four roles — Surface, Inset, Stat, Stamp" name="Frame & roles" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 620px; }
+.eyebrow-lbl { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+.surface { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; overflow: hidden; }
+.surface .eb { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.surface .eb .l { color: var(--ink); }
+.surface .eb .m { font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); }
+.surface .bd { padding: 10px 12px; font-size: 11.5px; color: var(--ink-2); line-height: 1.5; }
+.inset { background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: 8px; padding: 10px 12px; }
+.inset .l { color: var(--ink-3); margin-bottom: 4px; }
+.inset .bd { font-size: 11.5px; color: var(--ink-2); line-height: 1.5; }
+.stat { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 10px 12px; }
+.stat .l { color: var(--ink-4); margin-bottom: 4px; }
+.stat .n { font-family: var(--font-brand); font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat .u { font-family: var(--font-mono); font-size: 10px; font-weight: 500; color: var(--ink-4); text-transform: none; letter-spacing: 0; margin-left: 2px; }
+.stat .d { font-family: var(--font-mono); font-size: 10px; color: var(--pos); margin-top: 5px; }
+.stamp { background: var(--bg-inverse); color: var(--fg-inverse); border-radius: 8px; padding: 10px 12px; }
+.stamp .l { color: var(--fg-inverse); opacity: 0.55; margin-bottom: 5px; }
+.stamp .bd { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.6; opacity: 0.88; }
+.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 10px 2px 0; letter-spacing: 0.04em; }
+</style></head><body>
+<div class="grid">
+  <div class="surface"><div class="eb"><span class="eyebrow-lbl l">Surface · run #42</span><span class="m">14m ago</span></div><div class="bd">Holds one pattern surface. Body pad 18–22px.</div></div>
+  <div class="inset"><div class="eyebrow-lbl l">Inset · no chrome</div><div class="bd">Evidence nested inside a Surface — reads as a quote.</div></div>
+  <div class="stat"><div class="eyebrow-lbl l">Demand · SE region</div><div class="n">214<span class="u">staffed-hrs</span></div><div class="d">+14% wow · conf 0.78</div></div>
+  <div class="stamp"><div class="eyebrow-lbl l">Provenance · stamp</div><div class="bd">staffing-v3.2.1 · run #42 · conf 0.78</div></div>
+</div>
+<div class="ann">1px --rule-strong edge · 10px radius · no shadow · frames never nest more than one level · no other card shapes</div>
+</body></html>

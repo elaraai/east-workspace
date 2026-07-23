@@ -33,6 +33,19 @@ export const keyframes = defineKeyframes({
         "0%, 100%": { opacity: 1 },
         "50%":      { opacity: 0.4 },
     },
+    // Flowchart connect feedback — one-shot brand halo along a link (the
+    // existing link on a duplicate drop; the new link on create).
+    "fc-connect-pulse": {
+        "0%":   { opacity: 0 },
+        "35%":  { opacity: 0.5 },
+        "100%": { opacity: 0 },
+    },
+    // Flowchart in-place feedback — a folded self-loop has no route to
+    // pulse, so the node card glows once (brand #488e97).
+    "fc-node-pulse": {
+        "0%":   { boxShadow: "0 0 0 0 rgba(72, 142, 151, 0.5)" },
+        "100%": { boxShadow: "0 0 0 12px rgba(72, 142, 151, 0)" },
+    },
     "elara-ping": {
         "0%":        { transform: "scale(1)",   opacity: 0.55 },
         "75%, 100%": { transform: "scale(1.7)", opacity: 0 },

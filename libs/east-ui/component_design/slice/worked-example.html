@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>index · bsys · slice-worked-example</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+.bsys { display: grid; grid-template-columns: 200px 1fr; gap: 0px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper); }
+.bsys + .bsys { margin-top: 14px; }
+.bsys-lbl { background: var(--paper-2); border-right: 1px solid var(--rule); padding: 18px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
+.bsys-body { padding: 16px 20px; }
+.chiprail-controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.chiprail-ctl { display: inline-flex; align-items: center; gap: 8px; }
+.chiprail-seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+.chiprail-seg button { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; padding: 5px 11px; border-top: 0px; border-bottom: 0px; border-left: 0px; border-image: initial; border-right: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-3); cursor: pointer; }
+.chiprail-seg button:last-child { border-right: 0px; }
+.chiprail-seg button:hover { background: var(--paper-3); color: var(--ink); }
+.chiprail-seg button.active { background: var(--brand-d); color: rgb(255, 255, 255); }
+.chiprail-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cr-gap, 8px); }
+.chiprail .chip { box-sizing: border-box; height: var(--cr-h, 22px); padding: 0 var(--cr-px, 10px); gap: var(--cr-igap, 5px); font-size: var(--cr-fs, 10px); line-height: 1; border-radius: var(--cr-radius, 4px); }
+.cr-item { display: flex; flex-direction: column; align-items: center; gap: var(--cr-lbl-gap, 5px); }
+.cr-label { font-family: var(--font-mono); font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-4); font-size: var(--cr-lbl-fs, 9.5px); line-height: 1; text-align: center; white-space: nowrap; }
+.chiprail[data-density="compact"] { --cr-h: 15px; --cr-px: 7px; --cr-igap: 4px; --cr-fs: 9px; --cr-radius: 3px; --cr-gap: 5px; --cr-lbl-fs: 8.5px; --cr-lbl-gap: 3px; }
+.chiprail[data-density="comfortable"] { --cr-h: 22px; --cr-px: 10px; --cr-igap: 5px; --cr-fs: 10px; --cr-radius: 4px; --cr-gap: 7px; --cr-lbl-fs: 9.5px; --cr-lbl-gap: 5px; }
+.chiprail[data-density="large"] { --cr-h: 34px; --cr-px: 15px; --cr-igap: 7px; --cr-fs: 12.5px; --cr-radius: 6px; --cr-gap: 9px; --cr-lbl-fs: 11px; --cr-lbl-gap: 7px; }
+.chiprail[data-mode="rail"] .cr-labeled { display: none; }
+.chiprail[data-mode="labeled"] .cr-plain { display: none; }
+.cr-matrix { display: grid; grid-template-columns: 104px 1fr 1fr; }
+.cr-matrix > * { border-bottom: 1px solid var(--rule); }
+.cr-matrix > :not(:nth-child(3n)) { border-right: 1px solid var(--rule); }
+.cr-matrix > :nth-last-child(-n+3) { border-bottom: 0px; }
+.cr-matrix > .cr-mh { padding: 9px 16px; background: var(--paper-2); display: flex; align-items: center; }
+.cr-matrix > .cr-mside { padding: 18px 16px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.cr-matrix > .cr-mcell { padding: 18px; display: flex; align-items: center; }
+.cr-mnote { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.04em; }
+.swatches { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
+.swatches.semantic { grid-template-columns: repeat(6, 1fr); }
+.swatches.neutrals { grid-template-columns: repeat(10, 1fr); }
+.sw { display: flex; flex-direction: column; gap: 0px; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; font-family: var(--font-mono); }
+.sw .chip-tile { height: 48px; }
+.sw .meta { padding: 6px 8px; background: var(--paper); font-size: 9.5px; line-height: 1.3; }
+.sw .name { color: var(--ink); font-weight: 600; letter-spacing: 0.04em; }
+.sw .hex { color: var(--ink-4); display: block; margin-top: 2px; }
+.type-row { display: grid; grid-template-columns: 110px 1fr 160px; gap: 18px; padding: 12px 0px; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.type-row:last-child { border-bottom: 0px; }
+.type-tag { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.type-spec { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); text-align: right; }
+.type-sample-brand { font-family: var(--font-brand); color: var(--ink); }
+.type-sample-body { font-family: var(--font-body); color: var(--ink); }
+.type-sample-mono { font-family: var(--font-mono); color: var(--ink); font-feature-settings: "tnum"; }
+.principles { display: grid; grid-template-columns: 1fr 1fr; gap: 0px; }
+.principle { display: grid; grid-template-columns: 28px 1fr; gap: 14px; padding: 14px 18px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.principle:nth-child(2n) { border-right: 0px; }
+.principle:nth-last-child(-n+2) { border-bottom: 0px; }
+.principle .n { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--brand-d); letter-spacing: 0.12em; }
+.principle .ttl { font-family: var(--font-brand); font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 4px; letter-spacing: -0.005em; }
+.principle .desc { font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.surface { display: grid; grid-template: "header header header" 44px "side main rail" 1fr "side commit rail" 56px / 200px 1fr 280px; gap: 0px; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; height: 280px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); background: var(--paper-2); }
+.surface > div { display: flex; align-items: center; justify-content: center; padding: 10px; text-align: center; }
+.surface .header { grid-area: header; background: var(--paper); border-bottom: 1px solid var(--rule); justify-content: flex-start; color: var(--ink-2); font-weight: 600; }
+.surface .side { grid-area: side; border-right: 1px solid var(--rule); background: var(--paper); writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: 0.18em; }
+.surface .main { grid-area: main; background: var(--paper); color: var(--ink-3); font-weight: 600; letter-spacing: 0.16em; }
+.surface .commit { grid-area: commit; background: var(--brand-tint); color: var(--brand-dd); border-top: 1px solid var(--rule); font-weight: 700; letter-spacing: 0.18em; }
+.surface .rail { grid-area: rail; background: var(--paper); border-left: 1px solid var(--rule); color: var(--ink-3); }
+.vocab-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 6px 0px; }
+.vocab-row + .vocab-row { border-top: 1px dashed var(--rule); margin-top: 6px; padding-top: 12px; }
+.vocab-lbl { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-4); letter-spacing: 0.14em; text-transform: uppercase; min-width: 140px; }
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper); }
+.cat-card { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); text-decoration: none; color: inherit; background: var(--paper); transition: background 120ms; }
+.cat-card:hover { background: var(--paper-2); }
+.cat-card .cat-id { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--brand-d); }
+.cat-card .cat-title { font-family: var(--font-brand); font-size: 18px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.cat-card .cat-desc { font-family: var(--font-body); font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.cat-card .cat-anchor { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.cat-card .cat-anchor .pat { color: var(--ink-2); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="bsys" id="slice-worked-example">
+      <div class="bsys-lbl">Worked example<span class="sub">Events · Q4. Range in Header, chips in eyebrow, Table consumes the slice.</span></div>
+      <div class="bsys-body" style="padding: 18px 20px;">
+
+        <!-- Mock surface -->
+        <div style="border: 1px solid var(--rule-strong); border-radius: 6px; overflow: hidden; background: var(--paper-2);">
+
+          <!-- Mock header (Slice.Range + Slice.Cohort) -->
+          <div style="background: var(--paper); padding: 12px 20px 14px; border-bottom: 1px solid var(--rule-strong);">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+              <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;"><a href="#" style="color: var(--brand-d); text-decoration: none;">Analytics</a> <span style="color: var(--ink-4); padding: 0 4px;">/</span> <a href="#" style="color: var(--brand-d); text-decoration: none;">Events</a></span>
+              <span style="margin-left: auto; display: inline-flex; gap: 8px; align-items: center;">
+                <!-- Slice.Range -->
+                <span style="display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); font-family: var(--font-mono); font-size: 11px; color: var(--ink); font-weight: 600;">
+                  <i class="fa-solid fa-calendar" style="font-size: 10px; color: var(--ink-4);"></i>
+                  <span>Oct 1 – Dec 31</span>
+                  <span style="color: var(--ink-4); font-weight: 500; margin-left: 4px;">90d</span>
+                  <i class="fa-solid fa-chevron-down" style="font-size: 8px; color: var(--ink-4); margin-left: 4px;"></i>
+                </span>
+                <!-- Slice.Cohort -->
+                <span style="display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid var(--brand-d); border-radius: 4px; background: var(--brand-tint); font-family: var(--font-mono); font-size: 11px; color: var(--brand-dd); font-weight: 600;">
+                  <i class="fa-solid fa-users" style="font-size: 10px;"></i>
+                  <span>power-users</span>
+                  <span style="color: var(--brand-d); font-weight: 500; margin-left: 4px;">12,840</span>
+                </span>
+              </span>
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 14px;">
+              <span style="font-family: var(--font-brand); font-size: 22px; font-weight: 700; color: var(--ink); letter-spacing: -0.015em; line-height: 1.15;">Events</span>
+              <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.14em; text-transform: uppercase;">Showing 4,218 of 12,840</span>
+            </div>
+          </div>
+
+          <!-- Mock main: Frame containing Slice.Filter + Slice.Search in eyebrow, Collections.Table body -->
+          <div style="padding: 20px 20px;">
+            <div style="background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 6px; overflow: hidden;">
+              <!-- Frame eyebrow · two-zone grid: filter zone (flexes, chips wrap inside)
+                   on the left, search fixed-width on the right so it never wraps under. -->
+              <div style="padding: 10px 14px; border-bottom: 1px solid var(--rule); display: grid; grid-template-columns: 1fr 220px; gap: 14px; align-items: center; background: var(--paper);">
+                <!-- LEFT · filter chips zone -->
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
+                  <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 10px; border: 1px solid var(--brand-d); border-radius: 9999px; background: var(--brand-tint); font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-dd); font-weight: 600;">
+                    <span style="color: var(--brand-d); font-weight: 500;">event_name</span>
+                    <span style="color: var(--ink-4); margin: 0 1px;">=</span>
+                    <span>checkout_complete</span>
+                    <i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px; color: var(--brand-d); cursor: pointer;"></i>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 10px; border: 1px solid var(--brand-d); border-radius: 9999px; background: var(--brand-tint); font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-dd); font-weight: 600;">
+                    <span style="color: var(--brand-d); font-weight: 500;">basket_total</span>
+                    <span style="color: var(--ink-4); margin: 0 1px;">≥</span>
+                    <span>£50</span>
+                    <i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px; color: var(--brand-d); cursor: pointer;"></i>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px dashed var(--rule-strong); border-radius: 9999px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); font-weight: 600; cursor: pointer;">
+                    <i class="fa-solid fa-plus" style="font-size: 9px;"></i>
+                    <span>filter</span>
+                  </span>
+                </div>
+
+                <!-- RIGHT · Slice.Search, fixed-width column -->
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); width: 100%; box-sizing: border-box;">
+                  <i class="fa-solid fa-magnifying-glass" style="font-size: 10px; color: var(--ink-4);"></i>
+                  <span style="color: var(--ink-4); flex: 1;">Search events…</span>
+                  <span style="padding: 1px 5px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px; font-size: 9px; color: var(--ink-4); font-weight: 600;">/</span>
+                </span>
+              </div>
+
+              <!-- Mock Collections.Table body -->
+              <div style="background: var(--paper);">
+                <!-- Column headers — each is a slice affordance for its field -->
+                <div style="display: grid; grid-template-columns: 130px 1fr 160px 100px 90px; gap: 0; padding: 9px 14px; background: var(--paper-2); border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4);">
+                  <span style="display: inline-flex; align-items: center; gap: 4px;">timestamp <i class="fa-solid fa-arrow-down" style="font-size: 9px; color: var(--brand-d);"></i></span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px;">user_id</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; color: var(--brand-dd);">event_name <i class="fa-solid fa-filter" style="font-size: 9px;"></i></span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; color: var(--brand-dd);">basket_total <i class="fa-solid fa-filter" style="font-size: 9px;"></i></span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end;">device</span>
+                </div>
+                <!-- Sample rows -->
+                <div style="display: grid; grid-template-columns: 130px 1fr 160px 100px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 19 14:32</span>
+                  <span style="color: var(--ink);">usr_e98c4a</span>
+                  <span>checkout_complete</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£128.40</span>
+                  <span style="text-align: right; color: var(--ink-3);">iOS</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 130px 1fr 160px 100px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 19 13:08</span>
+                  <span style="color: var(--ink);">usr_a172bf</span>
+                  <span>checkout_complete</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£72.50</span>
+                  <span style="text-align: right; color: var(--ink-3);">web</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 130px 1fr 160px 100px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 19 11:51</span>
+                  <span style="color: var(--ink);">usr_4d09e2</span>
+                  <span>checkout_complete</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£204.10</span>
+                  <span style="text-align: right; color: var(--ink-3);">iOS</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 130px 1fr 160px 100px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 18 22:14</span>
+                  <span style="color: var(--ink);">usr_7b3f01</span>
+                  <span>checkout_complete</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£54.00</span>
+                  <span style="text-align: right; color: var(--ink-3);">android</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 130px 1fr 160px 100px 90px; gap: 0; padding: 8px 14px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 18 19:42</span>
+                  <span style="color: var(--ink);">usr_c2a64d</span>
+                  <span>checkout_complete</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£96.80</span>
+                  <span style="text-align: right; color: var(--ink-3);">web</span>
+                </div>
+              </div>
+              <!-- Footer row count -->
+              <div style="padding: 8px 14px; border-top: 1px solid var(--rule); background: var(--paper-2); display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4);">
+                <span>4,218 rows · narrowed from 12,840</span>
+                <span style="margin-left: auto;">page 1 of 85</span>
+              </div>
+            </div>
+
+            <!-- Second frame · Chart.Line consuming the SAME slice handle.
+                 Demonstrates Slice.Breakdown (eyebrow) + Slice.Legend (chart body).
+                 No new affordances at this level — the header Range + Cohort
+                 and the table-frame's filter chips are already in effect. -->
+            <div style="background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 6px; overflow: hidden; margin-top: 16px;">
+
+              <!-- Eyebrow with Slice.Breakdown chips -->
+              <div style="padding: 10px 14px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--paper);">
+                <span style="font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3);">Chart · line</span>
+                <span style="font-family: var(--font-body); font-size: 13px; color: var(--ink); font-weight: 600;">Checkout events / day</span>
+
+                <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px;">
+                  <span style="font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3);">Split by</span>
+                  <!-- Slice.Breakdown chip · active -->
+                  <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 10px; border: 1px solid var(--brand-d); border-radius: 9999px; background: var(--brand-tint); font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-dd); font-weight: 600;">
+                    <span>device</span>
+                    <i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px; color: var(--brand-d); cursor: pointer;"></i>
+                  </span>
+                  <!-- Add another breakdown dimension -->
+                  <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px dashed var(--rule-strong); border-radius: 9999px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); font-weight: 600; cursor: pointer;">
+                    <i class="fa-solid fa-plus" style="font-size: 9px;"></i>
+                    <span>dimension</span>
+                  </span>
+                </span>
+              </div>
+
+              <!-- Chart body · multi-series line + Slice.Legend -->
+              <div style="padding: 16px 18px; background: var(--paper);">
+                <svg width="100%" height="120" viewBox="0 0 600 120" preserveAspectRatio="none" style="display: block;">
+                  <!-- Y-axis dashed rules -->
+                  <line x1="0" y1="20" x2="600" y2="20" stroke="var(--rule)" stroke-width="1" stroke-dasharray="2 4"></line>
+                  <line x1="0" y1="60" x2="600" y2="60" stroke="var(--rule)" stroke-width="1" stroke-dasharray="2 4"></line>
+                  <line x1="0" y1="100" x2="600" y2="100" stroke="var(--rule)" stroke-width="1"></line>
+                  <!-- iOS series (top) -->
+                  <polyline points="0,60 50,55 100,48 150,42 200,38 250,32 300,28 350,22 400,20 450,18 500,15 550,14 600,12" fill="none" stroke="#488e97" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                  <!-- web series (middle) -->
+                  <polyline points="0,80 50,76 100,72 150,68 200,68 250,62 300,58 350,54 400,52 450,50 500,46 550,44 600,40" fill="none" stroke="#2b4b55" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                  <!-- android series (hidden — rendered at low opacity) -->
+                  <polyline points="0,92 50,90 100,88 150,90 200,88 250,86 300,84 350,82 400,80 450,78 500,76 550,74 600,72" fill="none" stroke="var(--ink-4)" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.45"></polyline>
+                  <!-- X-axis ticks for date markers -->
+                  <g font-family="var(--font-mono)" font-size="9" fill="var(--ink-4)">
+                    <text x="0" y="116">Oct 1</text>
+                    <text x="200" y="116">Nov 1</text>
+                    <text x="400" y="116">Dec 1</text>
+                    <text x="565" y="116">Dec 31</text>
+                  </g>
+                  <!-- Y-axis labels -->
+                  <g font-family="var(--font-mono)" font-size="9" fill="var(--ink-4)">
+                    <text x="0" y="16">120</text>
+                    <text x="0" y="56">80</text>
+                    <text x="0" y="96">40</text>
+                  </g>
+                </svg>
+
+                <!-- Slice.Legend · swatch + label + range + visibility toggle per series -->
+                <div style="margin-top: 12px; display: flex; gap: 18px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: 10.5px;">
+                  <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);">
+                    <span style="width: 14px; height: 3px; background: #488e97; border-radius: 1px;"></span>
+                    <span style="font-weight: 600;">iOS</span>
+                    <span style="color: var(--ink-4); font-weight: 500;">2,180 · 51.7%</span>
+                    <i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d); margin-left: 4px; cursor: pointer;"></i>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);">
+                    <span style="width: 14px; height: 3px; background: #2b4b55; border-radius: 1px;"></span>
+                    <span style="font-weight: 600;">web</span>
+                    <span style="color: var(--ink-4); font-weight: 500;">1,304 · 30.9%</span>
+                    <i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d); margin-left: 4px; cursor: pointer;"></i>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink-4);">
+                    <span style="width: 14px; height: 3px; background: var(--ink-4); border-radius: 1px; opacity: 0.45;"></span>
+                    <span style="font-weight: 600;">android</span>
+                    <span style="font-weight: 500;">734 · 17.4%</span>
+                    <i class="fa-solid fa-eye-slash" style="font-size: 9px; margin-left: 4px; cursor: pointer;"></i>
+                  </span>
+                  <span style="margin-left: auto; color: var(--ink-4); display: inline-flex; align-items: center; gap: 4px;">
+                    <i class="fa-solid fa-circle-info" style="font-size: 9px;"></i>
+                    <span>android hidden — toggled off via legend</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Code mirror -->
+        <div style="margin-top: 14px; padding: 14px 16px; background: var(--brand-900); border-radius: 4px; color: rgba(255,255,255,0.9); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7;">
+          <div style="font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.55); margin-bottom: 10px;">Wiring · in code</div>
+<pre style="margin: 0; color: inherit; font: inherit; white-space: pre;"><span style="color: rgba(120, 200, 200, 0.95);">const</span> events = <span style="color: rgba(120, 200, 200, 0.95);">Slice.bind</span>&lt;Event&gt;(<span style="color: rgba(255, 180, 130, 0.95);">"events.q4"</span>, eventsConfig);
+
+<span style="color: rgba(180, 180, 180, 0.7);">// All affordances share one handle — no callbacks wired by hand.</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Slice.Range</span> slice={events} /&gt;                <span style="color: rgba(180, 180, 180, 0.7);">// header</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Slice.Cohort</span> slice={events} saved={[...]} /&gt;   <span style="color: rgba(180, 180, 180, 0.7);">// header / sidebar</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Slice.Filter</span> slice={events} /&gt;               <span style="color: rgba(180, 180, 180, 0.7);">// table-frame eyebrow</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Slice.Search</span> slice={events} matches={...} /&gt;   <span style="color: rgba(180, 180, 180, 0.7);">// table-frame eyebrow</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Slice.Breakdown</span> slice={events} /&gt;            <span style="color: rgba(180, 180, 180, 0.7);">// chart-frame eyebrow</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Slice.Legend</span> slice={events} series={...} /&gt;    <span style="color: rgba(180, 180, 180, 0.7);">// inside chart body</span>
+
+<span style="color: rgba(180, 180, 180, 0.7);">// Two consumers, one handle. Both call Slice.apply.where internally.</span>
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Collections.Table</span> slice={events} data={allEvents} columns={[...]} /&gt;
+&lt;<span style="color: rgba(255, 220, 130, 0.95);">Chart.Line</span>        slice={events} data={allEvents} y={count} x={day} /&gt;</pre>
+        </div>
+
+        <div class="spec-note" style="margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px;">
+          <span class="k">Reading the example:</span>
+          <strong>Header carries page-wide narrowing</strong> — a 90-day Range and the <span class="mono">power-users</span> cohort. Both narrow every frame below.
+          <strong>Table-frame eyebrow carries per-table narrowing</strong> — chips for <span class="mono">event_name = checkout_complete</span> and <span class="mono">basket_total ≥ £50</span>, plus a search. These narrow this one Table.
+          <strong>Chart-frame eyebrow carries per-chart narrowing</strong> — <span class="mono">Slice.Breakdown</span> splits the series by <span class="mono">device</span>. Same handle, a different per-frame slice on top.
+          <strong>Both consumers share the slice</strong> — Table renders <span class="mono">Slice.apply.where(...)</span> as rows; Chart.Line renders the same call as a series. Edit a header chip and both frames redraw. The chart's <em>android</em> series is dimmed because the <span class="mono">Slice.Legend</span> visibility toggle is off — a per-visual override that doesn't mutate the slice.
+          <strong>Column-header filter glyphs</strong> on <span class="mono">event_name</span> and <span class="mono">basket_total</span> reflect the active filter set — visible because the slice has predicates on those fields, not because the Table authored them.
+          <strong>Row count is derived</strong> — "4,218 of 12,840" is <span class="mono">Slice.apply.where(...).length</span>, not a host-tracked number.
+        </div>
+
+        <div class="spec-note" style="margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 10px;">
+          <span class="k">Dimensions:</span>
+          <strong>Filter chip / Breakdown chip</strong> — same shape: height <span class="mono">22 px</span> · padding <span class="mono">3 px 10 px</span> · radius <span class="mono">9999 px</span> (pill) · brand-d border · brand-tint fill · mono <span class="mono">10.5 px / 600</span>.
+          <strong>Add-chip</strong> — same shape, dashed <span class="mono">rule-strong</span> border, <span class="mono">ink-4</span> text.
+          <strong>Range / Cohort pill</strong> — height <span class="mono">28 px</span> · padding <span class="mono">5 px 10 px</span> · radius <span class="mono">4 px</span> · neutral when inactive, brand-tint when narrowing.
+          <strong>Column-header filter glyph</strong> — <span class="mono">fa-filter · 9 px · brand-dd</span> · only shown when the slice has an active filter on that field.
+          <strong>Slice.Legend row</strong> — entries gap <span class="mono">18 px</span> · swatch <span class="mono">14 × 3 px</span> · label mono <span class="mono">10.5 px / 600 ink</span> · range mono <span class="mono">10.5 px / 500 ink-4</span> · toggle <span class="mono">fa-eye · 9 px · brand-d</span> when shown, <span class="mono">fa-eye-slash · 9 px · ink-4</span> when hidden. Hidden series render at <span class="mono">opacity 0.45</span> with a dashed stroke in the chart.
+        </div>
+      </div>
+    </div>
+</body>
+</html>

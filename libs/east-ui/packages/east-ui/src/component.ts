@@ -159,6 +159,20 @@ import {
     MapLabelType,
 } from "./collections/map/types.js";
 import { BlendRootType } from "./collections/blend/types.js";
+import {
+    FlowchartStateType,
+    FlowchartLinkType,
+    FlowchartLaneType,
+    FlowchartTriggerType,
+    FlowchartFreshnessType,
+    FlowchartOrientationType,
+    FlowchartLinkModeType,
+    FlowchartLinkCreateEventType,
+    FlowchartLaneRenameEventType,
+    FlowchartStateAddEventType,
+    FlowchartStateEditEventType,
+    FlowchartStateMoveEventType,
+} from "./collections/flowchart/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -1152,6 +1166,45 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         linkHover: OptionType(FunctionType([StringType], node)),
         onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
         canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+    }),
+
+    // Flowchart — state-transition flowchart (states in ordered phase
+    // lanes, H/V-routed links, optional per-link decision triggers).
+    // The `*Hover` builders return arbitrary UI via the recursion `node`;
+    // mirror this shape with `FlowchartRootType` in
+    // `collections/flowchart/index.ts` (which spells those fields with the
+    // resolved `UIComponentType`).
+    Flowchart: StructType({
+        states: ArrayType(FlowchartStateType),
+        links: ArrayType(FlowchartLinkType),
+        lanes: ArrayType(FlowchartLaneType),
+        triggers: ArrayType(FlowchartTriggerType),
+        orientation: OptionType(FlowchartOrientationType),
+        freshness: OptionType(FlowchartFreshnessType),
+        minimap: OptionType(BooleanType),
+        legend: OptionType(BooleanType),
+        density: OptionType(DensityType),
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
+        slice: OptionType(SliceChromeType),
+        stateHover: OptionType(FunctionType([StringType], node)),
+        linkHover: OptionType(FunctionType([StringType], node)),
+        triggerHover: OptionType(FunctionType([StringType], node)),
+        onSelectState: OptionType(FunctionType([StringType], NullType)),
+        onSelectLink: OptionType(FunctionType([StringType], NullType)),
+        onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
+        onTracePath: OptionType(FunctionType([StringType], NullType)),
+        linkMode: OptionType(FlowchartLinkModeType),
+        onCreateLink: OptionType(FunctionType([FlowchartLinkCreateEventType], NullType)),
+        onDeleteLink: OptionType(FunctionType([StringType], NullType)),
+        canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+        onAddLane: OptionType(FunctionType([], NullType)),
+        onRenameLane: OptionType(FunctionType([FlowchartLaneRenameEventType], NullType)),
+        onDeleteLane: OptionType(FunctionType([StringType], NullType)),
+        onAddState: OptionType(FunctionType([FlowchartStateAddEventType], NullType)),
+        onEditState: OptionType(FunctionType([FlowchartStateEditEventType], NullType)),
+        onMoveState: OptionType(FunctionType([FlowchartStateMoveEventType], NullType)),
+        readOnly: OptionType(BooleanType),
     }),
 
     // Map — interactive geographic basemap + H3 / area overlay. The

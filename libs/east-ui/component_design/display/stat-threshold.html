@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>observe · pattern · stat-threshold</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<article id="stat-threshold" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Threshold</span>
+      </div>
+      <p class="pattern-blurb">
+        Coloured bands behind a chart axis (good / acceptable / bad). Visual overlay only — colour conveys <em>band</em>, not status; legend names them.
+      </p>
+      <div class="frame pad-18">
+        <div class="tband" style="border: 1px solid var(--rule);">
+          <div class="good"><span>Good</span><span class="num muted">≥ 99%</span></div>
+          <div class="accept"><span>Acceptable</span><span class="num muted">95–99%</span></div>
+          <div class="bad"><span>Bad</span><span class="num muted">&lt; 95%</span></div>
+        </div>
+        <div class="cap-eyebrow" style="margin-top: 10px;">Current <span class="num pos" style="margin-left: 6px;">99.4%</span> <span class="muted">· target 99.0%</span></div>
+      </div>
+
+    </article>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>use-cases · bsys · 2</title>
+<link rel="stylesheet" href="../../app_design_system/styles.css">
+<link rel="stylesheet" href="../spec.css">
+
+<style>
+.nav-back { display: flex; gap: 14px; align-items: baseline; padding: 12px 0px 18px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.nav-back a { color: var(--ink-4); text-decoration: none; }
+.nav-back a:hover { color: var(--brand-d); }
+.nav-back .sep { color: var(--rule-strong); }
+.nav-back .here { color: var(--ink); font-weight: 600; }
+.bsys { display: grid; grid-template-columns: 200px 1fr; gap: 0px; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; background: var(--paper); }
+.bsys + .bsys { margin-top: 14px; }
+.bsys-lbl { background: var(--paper-2); border-right: 1px solid var(--rule); padding: 18px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
+.bsys-body { padding: 16px 20px; }
+.tier { margin-top: 64px; padding-top: 32px; border-top: 1px solid var(--rule-strong); }
+.tier:first-of-type { border-top: 0px; padding-top: 0px; }
+.tier-head { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+.tier-label { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--brand-d); }
+.tier-title { font-family: var(--font-brand); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); margin: 0px; }
+.tier-rules { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 18px; margin-bottom: 28px; }
+.rules-head { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 10px; }
+.rules-list { margin: 0px; padding-left: 20px; font-family: var(--font-body); font-size: 13.5px; line-height: 1.65; color: var(--ink-2); }
+.rules-list li { margin-bottom: 4px; }
+.rules-list li strong { color: var(--ink); font-weight: 600; }
+.example-heading { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); padding: 0px 0px 14px; margin-top: 8px; border-bottom: 1px dashed var(--rule); margin-bottom: 18px; }
+.wireflow { display: grid; grid-template-columns: repeat(2, minmax(0px, 1fr)); gap: 32px 28px; }
+@media (max-width: 900px) {
+  .wireflow { grid-template-columns: 1fr; }
+}
+.screen-card { display: flex; flex-direction: column; }
+.screen-head { display: flex; align-items: baseline; gap: 12px; padding: 0px 0px 10px; }
+.screen-head .step { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--brand-d); padding: 3px 8px; background: var(--brand-tint); border-radius: 3px; }
+.screen-head .head-text { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.screen-head .title { font-family: var(--font-brand); font-size: 17px; font-weight: 700; letter-spacing: -0.012em; color: var(--ink); }
+.screen-head .pattern-name { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em; }
+.mini-frame { display: grid; grid-template: "side header header" 60px "side main rail" 1fr "side commit rail" 32px / 110px 1fr 90px; border: 1px solid var(--rule-strong); border-radius: 4px; overflow: hidden; min-height: 320px; background: var(--paper-2); box-sizing: border-box; }
+.mini-frame > div { box-sizing: border-box; padding: 6px 8px; background: var(--paper); position: relative; }
+.mf-side { grid-area: side; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--ink-3); }
+.mf-side-active { padding: 3px 6px; background: var(--brand-tint); color: var(--brand-dd); font-weight: 600; border-radius: 2px; font-size: 9px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-side-item { padding: 2px 6px; color: var(--ink-3); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-header { grid-area: header; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; justify-content: center; padding: 4px 10px; }
+.mf-crumb { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-title-row { display: flex; align-items: baseline; gap: 6px; min-width: 0px; }
+.mf-h-title { font-family: var(--font-brand); font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: -0.008em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-h-meta { font-family: var(--font-mono); font-size: 8.5px; color: var(--ink-4); letter-spacing: 0.04em; white-space: nowrap; }
+.mf-chrome { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 2px; min-height: 14px; }
+.mf-chip { font-family: var(--font-mono); font-size: 8.5px; padding: 2px 5px; border-radius: 2px; line-height: 1.1; }
+.mf-chip-slice { background: var(--paper-2); border: 1px solid var(--rule-strong); color: var(--ink-3); }
+.mf-chip-scenario { background: var(--paper-2); border: 1px solid var(--rule-strong); padding: 1px 2px; display: inline-flex; gap: 1px; align-items: center; }
+.chip-kind { font-family: var(--font-mono); font-size: 7.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--brand-dd); text-transform: none; margin-right: 4px; padding: 1px 3px; background: var(--brand-tint); border-radius: 1px; }
+.mf-chip-scenario .chip-kind { margin-right: 2px; }
+.mf-sc { padding: 1px 4px; color: var(--ink-4); font-weight: 600; }
+.mf-sc.active { background: var(--brand-d); color: var(--paper); border-radius: 1px; }
+.mf-main { grid-area: main; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; min-height: 0px; }
+.mf-main-grid { display: grid; grid-template-columns: repeat(4, minmax(0px, 1fr)); grid-auto-rows: minmax(32px, auto); gap: 4px; align-content: start; flex: 1 1 0%; min-height: 0px; }
+.comp-card { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px; padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; min-width: 0px; min-height: 32px; }
+.comp-card.size-full { grid-column: span 4; }
+.comp-card.size-lg { grid-column: span 3; }
+.comp-card.size-md { grid-column: span 2; }
+.comp-card.size-sm { grid-column: span 1; }
+.comp-card.hero { background: var(--brand-tint); border-color: var(--brand-d); min-height: 64px; }
+.comp-card.hero.size-full { min-height: 96px; grid-row: span 2; }
+.comp-card.tall { grid-row: span 2; min-height: 70px; }
+.comp-name { font-family: var(--font-mono); font-size: 8.5px; font-weight: 600; color: var(--brand-dd); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comp-card.hero .comp-name { font-size: 9.5px; font-weight: 700; }
+.comp-desc { font-family: var(--font-body); font-size: 9.5px; color: var(--ink-2); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
+.comp-card.size-sm .comp-desc { font-size: 8.5px; }
+.mf-rail { grid-area: rail; border-left: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; padding: 5px 6px; }
+.mf-rail-label { font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.mf-rail-detail { font-family: var(--font-mono); font-size: 8.5px; color: var(--ink-3); }
+.mf-commit { grid-area: commit; border-top: 1px solid var(--rule); background: var(--brand-tint); display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 9px; color: var(--brand-dd); font-weight: 600; padding: 4px 8px; white-space: nowrap; overflow: hidden; }
+.mf-commit-empty { color: var(--ink-4); font-weight: 500; background: var(--paper-2); }
+.mini-frame > div.focus { box-shadow: inset 0 0 0 2px var(--brand-d); z-index: 2; }
+.mini-frame > div.focus::after { content: "FOCUS"; position: absolute; top: 2px; right: 2px; background: var(--brand-d); color: var(--paper); padding: 1px 4px; font-family: var(--font-mono); font-size: 7.5px; font-weight: 700; letter-spacing: 0.12em; border-radius: 2px; z-index: 3; }
+.next-trigger { display: flex; align-items: center; gap: 8px; padding: 8px 0px 0px; font-family: var(--font-mono); font-size: 10px; }
+.next-label { color: var(--ink-4); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+.next-action { padding: 3px 8px; background: var(--paper); border: 1px dashed var(--brand-d); border-radius: 3px; color: var(--brand-d); font-weight: 600; letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+<div class="bsys">
+      <div class="bsys-lbl">Composition rules<span class="sub">How Decide relates to Configure, Slice, Scenario, and Trust.</span></div>
+      <div class="bsys-body" style="padding: 18px 22px;">
+        <ul class="dotlist" style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-2);">
+          <li><strong>Decide owns the canvas during a decision.</strong> The decision context — case-id, current scenario, judgement state, alternatives — lives on the Scenario.Briefing surface and never leaves it. The operator can probe, compare, even open a sub-popover, but the briefing chassis stays put.</li>
+          <li><strong>Configure provides primitives, never owns the canvas during a decision.</strong> <span class="mono">Lever.Slider</span>, <span class="mono">Input.Assumptions</span>, <span class="mono">Cause.SupplyDemand</span>, planner cells — all designed to be <em>embeddable</em> in compact density inside <span class="mono">Scenario.Probe</span>. Configure as a destination mode still exists, but only for global policies and defaults that aren't tied to a single decision.</li>
+          <li><strong>Modify in Commit.Bar opens Probe in place.</strong> Never navigates to Configure mode. Re-flowing the briefing to expose 2-3 load-bearing controls is the right shape — the operator's muscle memory for the case stays intact, and the re-solve happens against the same DecisionHandle.</li>
+          <li><strong>Back-edges are first-class, not undo paths.</strong> Returning from Probe to Understand is a deliberate operation that snaps the briefing to its post-tweak state, not a navigation-back. Compare → Commit skips re-judgement only when the operator has already attested to the load-bearing inputs in step 5. The renderer enforces these transitions through the DecisionHandle's state.</li>
+          <li><strong>One DecisionHandle per case.</strong> The handle carries the case-id, the active scenario (which is itself a ScenarioHandle), the judgement-prompt answer, and the commit state (clean / dirty / applied / overridden). Every step reads it; only certain steps write specific fields. Like SliceHandle and ScenarioHandle, it binds once at the surface boundary.</li>
+          <li><strong>Slice and Scenario compose underneath.</strong> A Decision.Queue uses a SliceHandle to narrow which cases the operator sees. A Scenario.Briefing uses a ScenarioHandle to choose which proposed future is in play. Decide doesn't replace these — it sits on top of them. Editing a slice doesn't dirty the decision; switching the scenario does.</li>
+          <li><strong>Trust journal entries record back-edges.</strong> Every Probe edit, every Compare swap, every Override is journalled with the case-id. The audit trail captures not just the final commit but the path through the loop — what was probed, what was rejected, why the operator chose what they did. This is what makes the back-edges first-class rather than disposable.</li>
+        </ul>
+      </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!-- @dsCard group="App layout" viewport="700x230" subtitle="Single · Split · Grid — one per surface, rows sum to 12 columns" name="Main layouts" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; max-width: 620px; }
+.lay { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.lay .h { padding: 7px 11px; font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.lay .b { padding: 8px; display: grid; gap: 5px; }
+.cell { background: var(--paper-3); border-radius: 3px; height: 52px; }
+.split .b { grid-template-columns: 1fr 1fr; }
+.gridl .b { grid-template-columns: 1fr 1fr 1fr; }
+.gridl .cell { height: 23px; }
+.lay .c { padding: 6px 11px 9px; font-size: 10.5px; line-height: 1.45; color: var(--ink-3); }
+.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 10px 2px 0; letter-spacing: 0.04em; line-height: 1.7; }
+</style></head><body>
+<div class="grid3">
+  <div class="lay"><div class="h">Single</div><div class="b"><div class="cell"></div></div><div class="c">One pattern fills the region — the default.</div></div>
+  <div class="lay split"><div class="h">Split</div><div class="b"><div class="cell"></div><div class="cell"></div></div><div class="c">List left, briefing right. Never deeper than 2.</div></div>
+  <div class="lay gridl"><div class="h">Grid</div><div class="b"><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div></div><div class="c">Repeated Stat / Reference tiles.</div></div>
+</div>
+<div class="ann">12-col grid: sm=3 · md=6 · lg=8 · full=12 (alone in its row) · rows sum to 12 · frame gap 16px · max width 1480px centred · chrome (xs) never lands in Main</div>
+</body></html>
