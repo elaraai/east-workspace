@@ -86,6 +86,16 @@ function canonicalPath(p: string): string {
   return process.platform === 'win32' ? r.toLowerCase() : r;
 }
 
+/** PEP 503 canonical form of a python package name: lowercase, runs of
+ *  `-`/`_`/`.` collapsed to `-`. uv.lock stores canonical names while a
+ *  `{ custom }` platform ref uses the import-style name (`platform_module`),
+ *  so both sides must canonicalize before comparison (#391 — a strict match
+ *  silently derived NO environment for any underscore-named member, leaving
+ *  its source edits out of the task hash and serving stale cached outputs). */
+function canonicalPythonName(name: string): string {
+  return name.toLowerCase().replace(/[-_.]+/g, '-');
+}
+
 /** The on-disk directory a lock `source` points at, with its kind — or null
  *  for registry/git/url sources (installed by uv sync, not captured). */
 function localSource(root: string, source: Record<string, string> | undefined):
@@ -260,10 +270,12 @@ function buildMemberSdists(
  * (a directory/workspace/editable source in the governing `uv.lock`)
  * contributes its transitive closure; the union rides ONE `python` spec —
  * shared root manifest + lock, union of member sdists (byte-identical to the
- * explicit capture of a project depending on all of them). Registry /
- * first-party names (e.g. `east-py-std`) are skipped — `uv sync` installs
- * them. Returns null when `anchorDir` has no uv workspace or no referenced
- * name is a local member (nothing to capture beyond the ambient runtime).
+ * explicit capture of a project depending on all of them). Names are matched
+ * by PEP 503 canonical form, so an import-style ref (`platform_module`)
+ * finds its lock entry (`platform-module`). Registry / first-party names
+ * (e.g. `east-py-std`) are skipped — `uv sync` installs them. Returns null
+ * when `anchorDir` has no uv workspace or no referenced name is a local
+ * member (nothing to capture beyond the ambient runtime).
  */
 function capturePythonPlatforms(
   customNames: string[],
@@ -275,10 +287,18 @@ function capturePythonPlatforms(
   const found = findUvLock(anchorDir, owner);
   if (!found) return null;
   const { root, lock } = found;
-  const subjects = customNames.filter((name) => {
-    const pkg = (lock.package ?? []).find((p) => p.name === name);
-    return pkg !== undefined && localSource(root, pkg.source) !== null;
-  });
+  // Match refs to lock packages by PEP 503 canonical name — `{ custom }`
+  // names are import-style (`sim_engine`), the lock stores `sim-engine`.
+  // Subjects carry the LOCK's spelling so the closure walk stays lock-keyed.
+  const subjects = [...new Set(
+    customNames
+      .map((name) => {
+        const canon = canonicalPythonName(name);
+        const pkg = (lock.package ?? []).find((p) => canonicalPythonName(p.name) === canon);
+        return pkg !== undefined && localSource(root, pkg.source) !== null ? pkg.name : null;
+      })
+      .filter((n): n is string => n !== null),
+  )];
   if (subjects.length === 0) return null;
   // Union the referenced members' closures, deduped by package name.
   const union = new Map<string, string>();
