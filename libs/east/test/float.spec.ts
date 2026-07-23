@@ -39,6 +39,18 @@ await describe("Float", (test) => {
         $(assert.equal(East.value(-7.5).remainder(2.5), -0.0));
     });
 
+    test("Division by zero (IEEE 754)", $ => {
+        // Float division by zero follows IEEE 754 on every runner - never throws
+        $(assert.equal(East.value(10.0).divide(0.0), Infinity));
+        $(assert.equal(East.value(-10.0).divide(0.0), -Infinity));
+        $(assert.equal(East.value(0.0).divide(0.0), NaN));
+        $(assert.equal(East.value(10.0).remainder(0.0), NaN));
+        $(assert.equal(East.value(-10.0).remainder(0.0), NaN));
+        // Integer promoted to float divisor: still IEEE, still no throw
+        $(assert.equal(East.value(10n).divide(0.0), Infinity));
+        $(assert.equal(East.value(10.0).divide(0n), Infinity));
+    });
+
     assert.examples(test, {
         floatMixedAdd: ex.floatMixedAdd,
     });

@@ -31,7 +31,13 @@ static EastValue *integer_divide(EastValue **args, size_t n)
     (void)n;
     int64_t a = args[0]->data.integer;
     int64_t b = args[1]->data.integer;
-    if (b == 0) return east_integer(0); /* guard against div-by-zero */
+    if (b == 0) {
+        east_builtin_error("Division by zero");
+        return NULL;
+    }
+    /* INT64_MIN / -1 overflows int64 (SIGFPE on x86); the reference compiler
+       wraps via BigInt.asIntN(64, ...), which yields INT64_MIN again */
+    if (a == INT64_MIN && b == -1) return east_integer(INT64_MIN);
     /* Floor division matching C truncation toward zero for positive,
        but we want floored division like Python // */
     int64_t q = a / b;
@@ -46,7 +52,12 @@ static EastValue *integer_remainder(EastValue **args, size_t n)
     (void)n;
     int64_t a = args[0]->data.integer;
     int64_t b = args[1]->data.integer;
-    if (b == 0) return east_integer(0);
+    if (b == 0) {
+        east_builtin_error("Division by zero");
+        return NULL;
+    }
+    /* a % -1 == 0 for all a; also guards the INT64_MIN % -1 SIGFPE */
+    if (b == -1) return east_integer(0);
     /* JavaScript-style remainder: result has sign of dividend (truncated division) */
     int64_t r = a % b; /* C99 truncated semantics -- already matches JS */
     return east_integer(r);

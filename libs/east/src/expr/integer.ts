@@ -197,13 +197,15 @@ export class IntegerExpr extends Expr<IntegerType> {
   }
 
   /**
-   * Divides two integers (floor division) or promotes to float if dividing by a float.
+   * Divides two integers (truncating division) or promotes to float if dividing by a float.
    *
    * @param y - The integer or float divisor
-   * @returns IntegerExpr (floor division) if both are integers, FloatExpr if either is a float
+   * @returns IntegerExpr (quotient truncated toward zero) if both are integers, FloatExpr if either is a float
    *
-   * @remarks Integer division by zero returns 0 (does not throw error).
-   *          When dividing by a float, uses normal floating point division.
+   * @remarks When dividing by a float, uses normal floating point division
+   *          (IEEE 754: division by zero yields Infinity/NaN, never throws).
+   *
+   * @throws East runtime error if the divisor is an integer zero.
    *
    * @example
    * ```ts
@@ -211,10 +213,10 @@ export class IntegerExpr extends Expr<IntegerType> {
    *   $.return(x.divide(y));
    * });
    * const compiled = East.compile(divideIntegers.toIR(), []);
-   * compiled(10n, 3n);  // 3n (floor division)
+   * compiled(10n, 3n);  // 3n
    * compiled(10n, 2n);  // 5n
-   * compiled(10n, 0n);  // 0n (division by zero returns 0)
-   * compiled(-10n, 3n); // -4n (floor towards negative infinity)
+   * compiled(-10n, 3n); // -3n (truncated toward zero)
+   * compiled(10n, 0n);  // throws East runtime error: Division by zero
    * ```
    */
   divide(y: Expr<IntegerType> | bigint): IntegerExpr
@@ -248,8 +250,11 @@ export class IntegerExpr extends Expr<IntegerType> {
    * @param y - The integer or float divisor
    * @returns IntegerExpr if both are integers, FloatExpr if either is a float
    *
-   * @remarks Integer remainder by zero returns 0 (does not throw error).
-   *          Result has the same sign as the divisor (floor division semantics).
+   * @remarks Result has the same sign as the dividend (truncated division semantics).
+   *          When the divisor is a float, uses IEEE 754 remainder
+   *          (remainder by float zero yields NaN, never throws).
+   *
+   * @throws East runtime error if the divisor is an integer zero.
    *
    * @example
    * ```ts
@@ -259,8 +264,8 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const compiled = East.compile(getRemainder.toIR(), []);
    * compiled(10n, 3n);   // 1n (10 = 3*3 + 1)
    * compiled(10n, 4n);   // 2n
-   * compiled(-10n, 3n);  // 2n (floor division: -10 = 3*(-4) + 2)
-   * compiled(10n, 0n);   // 0n (remainder by zero returns 0)
+   * compiled(-10n, 3n);  // -1n (sign of the dividend)
+   * compiled(10n, 0n);   // throws East runtime error: Division by zero
    * ```
    */
   remainder(y: Expr<IntegerType> | bigint): IntegerExpr

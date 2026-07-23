@@ -27,6 +27,21 @@ await describe("Integer", (test) => {
         $(assert.equal(East.value(10n).pow(5n), 100_000n));
     });
 
+    test("Division by zero", $ => {
+        $(assert.throws(East.value(10n).divide(0n), /Division by zero/));
+        $(assert.throws(East.value(0n).divide(0n), /Division by zero/));
+        $(assert.throws(East.value(-10n).divide(0n), /Division by zero/));
+        $(assert.throws(East.value(10n).remainder(0n), /Division by zero/));
+        $(assert.throws(East.value(0n).remainder(0n), /Division by zero/));
+        $(assert.throws(East.value(-10n).remainder(0n), /Division by zero/));
+    });
+
+    test("Division overflow wraps", $ => {
+        // INT64_MIN / -1 overflows int64; East wraps (BigInt.asIntN semantics)
+        $(assert.equal(East.value(-9223372036854775808n).divide(-1n), -9223372036854775808n));
+        $(assert.equal(East.value(-9223372036854775808n).remainder(-1n), 0n));
+    });
+
     assert.examples(test, {
         integerPrint: ex.integerPrint,
         integerPrintCommaSeperated: ex.integerPrintCommaSeperated,
