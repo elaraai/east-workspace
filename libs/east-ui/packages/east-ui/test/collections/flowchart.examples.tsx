@@ -133,15 +133,26 @@ export const flowchartPlant = example({
 });
 
 export const flowchartConnect = example({
-    keywords: ["Flowchart", "connect", "linkMode", "onCreateLink", "onDeleteLink", "canConnect", "authoring"],
-    description: "Link authoring — connect mode with a canConnect veto; drag any handle to another state to author a transition, Del removes the selected link",
+    keywords: ["Flowchart", "connect", "linkMode", "onCreateLink", "onDeleteLink", "canConnect", "onAddLane", "authoring"],
+    description: "Link authoring — connect mode with a canConnect veto; drag any handle to another state to author a transition, Del removes the selected link, + LANE appends a phase",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LinkRow = StructType({ src: StringType, dst: StringType });
+            const LaneRow = StructType({ key: StringType, label: StringType });
             const links = $.let(State.bind([ArrayType(LinkRow)], "flowchart.connect.links", [
                 { src: "RMI", dst: "CUT" },
                 { src: "CUT", dst: "ASM" },
             ]));
+            const lanes = $.let(State.bind([ArrayType(LaneRow)], "flowchart.connect.lanes", [
+                { key: "prep", label: "Prep" },
+                { key: "build", label: "Build" },
+            ]));
+            const addLane = $.const(East.function([], NullType, ($) => {
+                const next = $.let(lanes.read());
+                const n = $.let(next.length().add(1n));
+                $(next.append([{ key: East.str`lane${n}`, label: East.str`Lane ${n}` }]));
+                $(lanes.write(next));
+            }));
             const onCreate = $.const(East.function([Flowchart.Types.LinkCreateEvent], NullType, ($, e) => {
                 const next = $.let(links.read());
                 $(next.append([{ src: e.from, dst: e.to }]));
@@ -164,9 +175,10 @@ export const flowchartConnect = example({
                     state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                     links={links.read()}
                     link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
-                    lanes={[{ key: "prep", label: "Prep" }, { key: "build", label: "Build" }]}
+                    lanes={lanes.read()} lane={r => ({ key: r.key, label: r.label })}
                     orientation="TD"
                     linkMode="connect"
+                    onAddLane={addLane}
                     onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
                 />
             );
