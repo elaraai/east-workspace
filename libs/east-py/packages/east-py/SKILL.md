@@ -266,7 +266,7 @@ Task → What do you need?
     │   ├─ Numeric buffer for ML/tensors → EastVector(FloatType, np_1d) / EastMatrix(FloatType, np_2d)
     │   ├─ A ref cell → east_ref(value)
     │   ├─ Generate (range/zeros/…) → classmethods: EastArray.range / EastVector.zeros / …  (NOT East.Array.*)
-    │   └─ Anything, type-driven (int→Float, dict→Struct, …) → coerce_to(value, typ)
+    │   └─ Anything, type-driven (int→Float, dict→Struct, np 1-D→Array, …) → coerce_to(value, typ)
     │
     ├─ Validate a value at a Python↔East boundary
     │   ├─ Raise on mismatch, path-pinpointed → assert_value_of(value, typ)   ❗EastTypeError
@@ -446,7 +446,7 @@ to East's storage width (Float→f64, Integer→i64, Boolean→u8) crossing into
 | `match(v, cases: dict, default=None)` | Dispatch on `v.type`; the handler is **always** called `handler(v.value)` — the `none` arm must be `lambda v: …`, not `lambda: …` | `match(o, {"some": lambda x: x, "none": lambda v: -1})` |
 | `east_ref(value) -> EastRef` | Make a mutable ref cell (same as `EastRef(value)`) | `east_ref(0)` |
 | **Validation / coercion** — raise `EastTypeError` (`expected X, got Y (at $.path)`) |
-| `coerce_to(value, typ, *, path="$") -> EastValue` | Canonicalize any Python value to a bridge-ready East value, type-driven | `coerce_to([1.,2.], VectorType(FloatType))` |
+| `coerce_to(value, typ, *, path="$") -> EastValue` | Canonicalize any Python value to a bridge-ready East value, type-driven; a 1-D numpy array fills `Array<Float/Integer/Boolean>` C-side in one bulk crossing (hand struct fields numpy columns directly) | `coerce_to({"qty": np_i64}, InputType)` |
 | `assert_value_of(value, typ, *, path="$") -> value` ❗ | Validate; return value, or raise path-pinpointed `EastTypeError` on first mismatch | `assert_value_of(s, LineItem)` |
 | `explain_value_of(value, typ) -> list[(path, reason)]` | Every mismatch; `[]` == conforms | `explain_value_of(s, LineItem)` |
 | `is_value_of(value, typ) -> bool` | Boolean conformance check | `is_value_of(items, ArrayType(LineItem))` |
