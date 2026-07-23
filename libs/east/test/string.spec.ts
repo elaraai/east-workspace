@@ -334,6 +334,51 @@ await describe("String", (test) => {
         $(assert.equal(East.value(printTypeValue(toEastTypeValue(LinkedListType))).parse(EastTypeType), linkedListType));
     });
 
+    test("Parse is a strict whole-string parser (#392)", $ => {
+        // parse must consume the ENTIRE input or raise - it is a strict
+        // deserializer, not a prefix scanner. east-c/east-py silently
+        // returned a numeric prefix for these ("598-" -> 598.0, "1.2.3" ->
+        // 1.2, "$5" -> 5.0), diverging from this reference behavior.
+
+        // Trailing junk after a valid number: rejected, position at the junk.
+        $(assert.throws(East.value("598-").parse(FloatType), /unexpected input after parsed value \(line 1, col 4\)/));
+        $(assert.throws(East.value("1.2.3").parse(FloatType), /unexpected input after parsed value \(line 1, col 4\)/));
+        $(assert.throws(East.value("5%").parse(FloatType), /unexpected input after parsed value \(line 1, col 2\)/));
+        $(assert.throws(East.value("0+4").parse(FloatType), /unexpected input after parsed value \(line 1, col 2\)/));
+        $(assert.throws(East.value("2e8.").parse(FloatType), /unexpected input after parsed value \(line 1, col 4\)/));
+        $(assert.throws(East.value("1_0").parse(FloatType), /unexpected input after parsed value \(line 1, col 2\)/));
+
+        // Leading junk is never skipped.
+        $(assert.throws(East.value("$5").parse(FloatType), /expected float, got/));
+        $(assert.throws(East.value(".5").parse(FloatType), /expected float, got/));
+        $(assert.throws(East.value("-Inf").parse(FloatType), /expected float, got/));
+        $(assert.throws(East.value("").parse(FloatType), /expected float, got end of input/));
+
+        // A committed exponent must have digits.
+        $(assert.throws(East.value("5EE5").parse(FloatType), /expected digits in float exponent/));
+        $(assert.throws(East.value("5e").parse(FloatType), /expected digits in float exponent/));
+        $(assert.throws(East.value("5e+x").parse(FloatType), /expected digits in float exponent/));
+
+        // The float grammar rejects a leading '+' (the integer grammar
+        // accepts it - see "+1" above).
+        $(assert.throws(East.value("+5").parse(FloatType), /expected float, got/));
+
+        // What the grammar DOES accept, on every runner.
+        $(assert.equal(East.value("1.").parse(FloatType), 1.0));
+        $(assert.equal(East.value(" 5 ").parse(FloatType), 5.0));
+        $(assert.equal(East.value("-2e3").parse(FloatType), -2000.0));
+        $(assert.equal(East.value("1e+5").parse(FloatType), 100000.0));
+
+        // Integer parse shares the strict scanner.
+        $(assert.throws(East.value("598-").parse(IntegerType), /unexpected input after parsed value \(line 1, col 4\)/));
+        $(assert.throws(East.value("1-2").parse(IntegerType), /unexpected input after parsed value \(line 1, col 2\)/));
+        $(assert.throws(East.value("2024-01-01").parse(IntegerType), /unexpected input after parsed value \(line 1, col 5\)/));
+        // Rejected everywhere; the reported reason differs by runner (the
+        // reference scans per-type, east-c tokenizes the number first).
+        $(assert.throws(East.value("5e5").parse(IntegerType)));
+        $(assert.throws(East.value("+5.0").parse(IntegerType)));
+    });
+
     assert.examples(test, {
         stringLength: ex.stringLength,
     });
