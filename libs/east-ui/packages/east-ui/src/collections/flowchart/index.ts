@@ -39,6 +39,7 @@ import {
     FlowchartTriggerType,
     FlowchartFreshnessType,
     FlowchartLinkCreateEventType,
+    FlowchartLaneRenameEventType,
 } from "./types.js";
 
 // Re-export types
@@ -53,6 +54,7 @@ export {
     FlowchartTriggerType,
     FlowchartFreshnessType,
     FlowchartLinkCreateEventType,
+    FlowchartLaneRenameEventType,
 } from "./types.js";
 
 /**
@@ -89,6 +91,8 @@ export const FlowchartRootType: StructType<{
     onDeleteLink: OptionType<FunctionType<[StringType], NullType>>,
     canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
     onAddLane: OptionType<FunctionType<[], NullType>>,
+    onRenameLane: OptionType<FunctionType<[FlowchartLaneRenameEventType], NullType>>,
+    onDeleteLane: OptionType<FunctionType<[StringType], NullType>>,
     readOnly: OptionType<BooleanType>,
 }> = StructType({
     states: ArrayType(FlowchartStateType),
@@ -115,6 +119,8 @@ export const FlowchartRootType: StructType<{
     onDeleteLink: OptionType(FunctionType([StringType], NullType)),
     canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
     onAddLane: OptionType(FunctionType([], NullType)),
+    onRenameLane: OptionType(FunctionType([FlowchartLaneRenameEventType], NullType)),
+    onDeleteLane: OptionType(FunctionType([StringType], NullType)),
     readOnly: OptionType(BooleanType),
 });
 
@@ -323,6 +329,10 @@ export interface FlowchartConfig<
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
     /** Optional add-lane callback — its presence renders the dashed "+ LANE" tail affordance (full lane height); absent ⇒ no affordance. */
     onAddLane?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Optional lane-rename callback — its presence makes lane headers click-to-edit (Enter / blur commits, Esc cancels); receives { key, label }. */
+    onRenameLane?: SubtypeExprOrValue<FunctionType<[FlowchartLaneRenameEventType], NullType>>;
+    /** Optional lane-delete callback — its presence renders an × beside each header (lane key). The HOST decides the cascade; the canvas stays safe either way: states referencing a missing lane fall into the LAST lane, and links to deleted states render as the neg-dashed "No state row" ghosts — orphans stay visible. */
+    onDeleteLane?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
     /** Optional runtime edit gate — true suppresses every authoring affordance (connect gesture, Del delete, + LANE) without unwiring the callbacks; selection and hover stay (inspecting isn't editing). Reactive-capable: feed a permission / published-mode flag. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
 }
@@ -470,6 +480,8 @@ function buildRoot(
         onDeleteLink: config.onDeleteLink !== undefined ? some(config.onDeleteLink) : none,
         canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
         onAddLane: config.onAddLane !== undefined ? some(config.onAddLane) : none,
+        onRenameLane: config.onRenameLane !== undefined ? some(config.onRenameLane) : none,
+        onDeleteLane: config.onDeleteLane !== undefined ? some(config.onDeleteLane) : none,
         readOnly: config.readOnly !== undefined ? some(config.readOnly) : none,
     }), UIComponentType);
 }
@@ -575,5 +587,7 @@ export const Flowchart = {
         Freshness: FlowchartFreshnessType,
         /** Link-creation event ({@link FlowchartLinkCreateEventType}). */
         LinkCreateEvent: FlowchartLinkCreateEventType,
+        /** Lane-rename event ({@link FlowchartLaneRenameEventType}). */
+        LaneRenameEvent: FlowchartLaneRenameEventType,
     },
 } as const;

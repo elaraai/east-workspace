@@ -167,6 +167,10 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const onSelectTriggerFn = useMemo(() => getSomeorUndefined(value.onSelectTrigger) as SelectFn, [value.onSelectTrigger]);
     const onTracePathFn = useMemo(() => getSomeorUndefined(value.onTracePath) as SelectFn, [value.onTracePath]);
     const onAddLaneFn = useMemo(() => getSomeorUndefined(value.onAddLane) as (() => unknown) | undefined, [value.onAddLane]);
+    const onRenameLaneFn = useMemo(
+        () => getSomeorUndefined(value.onRenameLane) as ((e: { key: string; label: string }) => unknown) | undefined,
+        [value.onRenameLane]);
+    const onDeleteLaneFn = useMemo(() => getSomeorUndefined(value.onDeleteLane) as SelectFn, [value.onDeleteLane]);
     const onCreateLinkFn = useMemo(
         () => getSomeorUndefined(value.onCreateLink) as ((e: { from: string; to: string }) => unknown) | undefined,
         [value.onCreateLink]);
@@ -267,6 +271,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     // existing link pulses IT; a successful create pulses the new link once
     // its row arrives. Matched by endpoints, auto-cleared.
     const [pulse, setPulse] = useState<{ from: string; to: string; seq: number } | null>(null);
+    // Inline lane-header rename (one object; commit → onRenameLane).
+    const [laneEdit, setLaneEdit] = useState<{ key: string; label: string } | null>(null);
     useEffect(() => {
         if (pulse === null) return;
         const t = setTimeout(() => setPulse(null), 1100);
@@ -494,22 +500,40 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 <rect key={lane.key} x={lane.x} y={lane.y} width={lane.w} height={lane.h} fill={LANE_TINT} />
                             ))}
                             {/* lane headers — mono 10/600 ls 2.2 ink-4 (inline styles:
-                                presentation attributes lose to the app CSS reset) */}
-                            {layout.lanes.map(lane => (
-                                layout.orientation === "TD"
-                                    ? (
-                                        <text key={lane.key} x={12} y={lane.y + 24} textAnchor="start"
-                                            style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4 }}>
+                                presentation attributes lose to the app CSS reset).
+                                Click-to-edit when onRenameLane is provided; × deletes
+                                when onDeleteLane is (both suppressed by readOnly). */}
+                            {layout.lanes.map(lane => {
+                                const td = layout.orientation === "TD";
+                                const hx = td ? 12 : lane.cx;
+                                const hy = td ? lane.y + 24 : 26;
+                                const renamable = onRenameLaneFn !== undefined && !readOnly;
+                                const deletable = onDeleteLaneFn !== undefined && !readOnly;
+                                // mono 10 / ls 2.2 ⇒ ~8.2px per glyph — anchors the ×.
+                                const labelW = lane.label.length * 8.2;
+                                const closeX = td ? hx + labelW + 12 : hx + labelW / 2 + 14;
+                                return (
+                                    <g key={lane.key}>
+                                        <text x={hx} y={hy} textAnchor={td ? "start" : "middle"}
+                                            style={{
+                                                fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4,
+                                                cursor: renamable ? "text" : undefined,
+                                            }}
+                                            data-flowchart-lane={lane.key}
+                                            onClick={renamable ? () => setLaneEdit({ key: lane.key, label: lane.label }) : undefined}>
                                             {lane.label.toUpperCase()}
                                         </text>
-                                    )
-                                    : (
-                                        <text key={lane.key} x={lane.cx} y={26} textAnchor="middle"
-                                            style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4 }}>
-                                            {lane.label.toUpperCase()}
-                                        </text>
-                                    )
-                            ))}
+                                        {deletable && (
+                                            <text x={closeX} y={hy} textAnchor="start"
+                                                data-flowchart-lane-delete={lane.key}
+                                                style={{ fontSize: 11, fill: INK_4, cursor: "pointer" }}
+                                                onClick={() => dispatchEast("onDeleteLane", () => onDeleteLaneFn!(lane.key))}>
+                                                ×
+                                            </text>
+                                        )}
+                                    </g>
+                                );
+                            })}
                             {/* + LANE tail affordance — only when the host can add lanes */}
                             {onAddLaneFn !== undefined && !readOnly && (
                                 <g
@@ -788,6 +812,43 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 );
                             })}
                         </svg>
+
+                        {/* inline lane-rename editor */}
+                        {laneEdit !== null && (() => {
+                            const lane = layout.lanes.find(l => l.key === laneEdit.key);
+                            if (!lane) return null;
+                            const td = layout.orientation === "TD";
+                            const style: React.CSSProperties = td
+                                ? { left: 8, top: lane.y + 8, width: 148 }
+                                : { left: lane.cx - 74, top: 8, width: 148 };
+                            const commit = (): void => {
+                                const next = laneEdit;
+                                setLaneEdit(null);
+                                if (next !== null && next.label.trim() !== "" && onRenameLaneFn) {
+                                    dispatchEast("onRenameLane", () => onRenameLaneFn({ key: next.key, label: next.label.trim() }));
+                                }
+                            };
+                            return (
+                                <input
+                                    data-flowchart-lane-edit
+                                    autoFocus
+                                    value={laneEdit.label}
+                                    onChange={e => setLaneEdit(le => (le === null ? le : { ...le, label: e.target.value }))}
+                                    onBlur={commit}
+                                    onKeyDown={e => {
+                                        if (e.key === "Enter") commit();
+                                        else if (e.key === "Escape") { e.stopPropagation(); setLaneEdit(null); }
+                                    }}
+                                    style={{
+                                        position: "absolute", ...style, zIndex: 11,
+                                        fontFamily: "var(--chakra-fonts-mono)", fontSize: 11, fontWeight: 600,
+                                        padding: "3px 8px", borderRadius: 4,
+                                        border: "1px solid var(--fc-brand-d)",
+                                        background: "var(--fc-paper)", color: "inherit", outline: "none",
+                                    }}
+                                />
+                            );
+                        })()}
 
                         {/* legend — planned / observed / trigger / in-place */}
                         {legendOn && (

@@ -134,7 +134,7 @@ export const flowchartPlant = example({
 
 export const flowchartConnect = example({
     keywords: ["Flowchart", "connect", "linkMode", "onCreateLink", "onDeleteLink", "canConnect", "onAddLane", "authoring"],
-    description: "Link authoring — connect mode with a canConnect veto; drag any handle to another state to author a transition, Del removes the selected link, + LANE appends a phase",
+    description: "Link authoring — connect mode with a canConnect veto; drag any handle to another state to author a transition, Del removes the selected link, + LANE appends a phase, headers click-to-rename, × removes a lane (its states fall into the last lane)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LinkRow = StructType({ src: StringType, dst: StringType });
@@ -152,6 +152,18 @@ export const flowchartConnect = example({
                 const n = $.let(next.length().add(1n));
                 $(next.append([{ key: East.str`lane${n}`, label: East.str`Lane ${n}` }]));
                 $(lanes.write(next));
+            }));
+            const renameLane = $.const(East.function([Flowchart.Types.LaneRenameEvent], NullType, ($, e) => {
+                $(lanes.write(lanes.read().map(($, l) =>
+                    East.equal(l.key, e.key).ifElse(
+                        () => East.value({ key: l.key, label: e.label }, LaneRow),
+                        () => l,
+                    ))));
+            }));
+            const deleteLane = $.const(East.function([StringType], NullType, ($, key) => {
+                // Host-owned cascade: drop the lane row only — states in it
+                // fall into the LAST lane (they stay visible).
+                $(lanes.write(lanes.read().filter(($, l) => East.equal(l.key, key).not())));
             }));
             const onCreate = $.const(East.function([Flowchart.Types.LinkCreateEvent], NullType, ($, e) => {
                 const next = $.let(links.read());
@@ -178,7 +190,7 @@ export const flowchartConnect = example({
                     lanes={lanes.read()} lane={r => ({ key: r.key, label: r.label })}
                     orientation="TD"
                     linkMode="connect"
-                    onAddLane={addLane}
+                    onAddLane={addLane} onRenameLane={renameLane} onDeleteLane={deleteLane}
                     onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
                 />
             );

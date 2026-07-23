@@ -168,6 +168,7 @@ import {
     FlowchartOrientationType,
     FlowchartLinkModeType,
     FlowchartLinkCreateEventType,
+    FlowchartLaneRenameEventType,
 } from "./collections/flowchart/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
@@ -1195,6 +1196,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onDeleteLink: OptionType(FunctionType([StringType], NullType)),
         canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
         onAddLane: OptionType(FunctionType([], NullType)),
+        onRenameLane: OptionType(FunctionType([FlowchartLaneRenameEventType], NullType)),
+        onDeleteLane: OptionType(FunctionType([StringType], NullType)),
         readOnly: OptionType(BooleanType),
     }),
 

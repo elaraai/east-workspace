@@ -48,6 +48,8 @@ describeEast("Flowchart", (test) => {
         $(Assert.equal(root.triggerHover.hasTag("none"), true));
         $(Assert.equal(root.onAddLane.hasTag("none"), true));
         $(Assert.equal(root.readOnly.hasTag("none"), true));
+        $(Assert.equal(root.onRenameLane.hasTag("none"), true));
+        $(Assert.equal(root.onDeleteLane.hasTag("none"), true));
         $(Assert.equal(root.linkMode.hasTag("none"), true));
         $(Assert.equal(root.onSelectState.hasTag("none"), true));
         $(Assert.equal(root.canConnect.hasTag("none"), true));

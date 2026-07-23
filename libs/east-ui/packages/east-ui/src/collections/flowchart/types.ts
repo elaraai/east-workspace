@@ -256,6 +256,24 @@ export const FlowchartFreshnessType = StructType({
 export type FlowchartFreshnessType = typeof FlowchartFreshnessType;
 
 /**
+ * Lane-rename event — a committed inline header edit.
+ *
+ * @property key - The renamed lane's key
+ * @property label - The new label text
+ */
+export const FlowchartLaneRenameEventType = StructType({
+    /** The renamed lane's key */
+    key: StringType,
+    /** The new label text */
+    label: StringType,
+});
+
+/**
+ * Type representing lane-rename events.
+ */
+export type FlowchartLaneRenameEventType = typeof FlowchartLaneRenameEventType;
+
+/**
  * Link-creation event — a completed drag-to-connect gesture.
  *
  * @remarks
