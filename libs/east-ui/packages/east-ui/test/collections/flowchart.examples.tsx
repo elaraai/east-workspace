@@ -40,7 +40,7 @@ export const flowchartMinimal = example({
 
 export const flowchartPlant = example({
     keywords: ["Flowchart", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness", "onAddLane"],
-    description: "Batch-plant flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice, dev-defined hover cards, and the + LANE affordance",
+    description: "Batch-plant flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice, dev-defined hover cards on states, links AND trigger diamonds, and the + LANE affordance",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const KindType = Flowchart.Types.Kind;
@@ -101,6 +101,19 @@ export const flowchartPlant = example({
             const stateHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
                 <Text fontFamily="mono" textStyle="body-sm">{East.str`state ${key}`}</Text>
             )));
+            const triggers = $.const([
+                { id: "press", name: "press", who: "press-scheduler" },
+                { id: "blend", name: "blend", who: "blend-planner" },
+            ]);
+            const triggerHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
+                const row = $.let(triggers.filter(($, t) => East.equal(t.id, key)).get(0n));
+                return (
+                    <VStack gap="1" align="stretch">
+                        <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`decision · ${row.name}`}</Text>
+                        <Text textStyle="caption" color="fg.muted">{East.str`owner · ${row.who}`}</Text>
+                    </VStack>
+                );
+            }));
             const onAddLane = $.const(East.function([], NullType, (_$) => null));
             return (
                 <Flowchart
@@ -116,12 +129,9 @@ export const flowchartPlant = example({
                         { key: "press", label: "Press" }, { key: "curing", label: "Curing" },
                         { key: "packaging", label: "Packaging" },
                     ]}
-                    triggers={[
-                        { id: "press", name: "press", who: "press-scheduler" },
-                        { id: "blend", name: "blend", who: "blend-planner" },
-                    ]}
+                    triggers={triggers}
                     trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
-                    linkHover={linkHover} stateHover={stateHover}
+                    linkHover={linkHover} stateHover={stateHover} triggerHover={triggerHover}
                     onAddLane={onAddLane}
                     slice={slice} affordances={["filter", "search"]}
                     freshness={{ label: "evidence-2026.06", date: stamp }}
