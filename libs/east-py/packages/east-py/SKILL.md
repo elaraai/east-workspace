@@ -159,12 +159,16 @@ syntax, fastest first:
 
 - Reference only the lambda's parameters, plain scalar constants
   (closure floats/ints/strings are baked — same value per element either
-  way), East types/values, and `where`. Any module reference
-  (`random.…`, `np.…`), mutable closure, callable helper that itself
-  fails these rules, or closure mutation (`nonlocal x; x += 1`)
-  **disables tracing** — the python path runs and semantics are exactly
-  today's. Side effects therefore never get lost: an impure lambda runs
-  per element; a traced lambda ran once, at trace time.
+  way), East types/values, the `East` builtin namespace, and `where`. Any
+  other module reference (`random.…`, `np.…`), mutable closure, callable
+  helper that itself fails these rules, or closure mutation
+  (`nonlocal x; x += 1`) **disables tracing** — the python path runs and
+  semantics are exactly today's. A closed-over East *collection* also
+  disables auto-tracing (tracing snapshots it, which would diverge from
+  live per-element semantics) — capture side-tables in an explicit
+  `kernel()`, which opts into the snapshot. Side effects therefore never
+  get lost: an impure lambda runs per element; a traced lambda ran once,
+  at trace time.
 - Python won't let a library overload `and`/`or`/`not`/`if`, so traced
   kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
   `where(cond, then, otherwise)` for conditionals. `where` is dual-mode:
@@ -197,6 +201,10 @@ acc = EastDict(StringType, FloatType)                       # dicts as accumulat
 acc.update_many(keys, values, combine=lambda cur, new: cur + new)  # one crossing,
                                                             # combine traces -> collisions in C
 arr.extend(np_array)                                        # bulk push, one crossing
+
+solver_input = coerce_to(                                   # struct fields take 1-D numpy
+    {"start_nodes": np_i64, "capacities": np_i64, ...},     # columns directly: each
+    MinCostFlowInputType)                                   # Array<Int/Float/Bool> fills C-side
 ```
 
 `Float`/`Integer`/`Boolean` columns move through numpy buffers filled in C
@@ -345,15 +353,21 @@ Task → What do you need?
     │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · where(cond, then, otherwise)
     │   │   ├─ String → + (concat) · .contains/.starts_with/.ends_with · .upper()/.lower() · .strip()/.lstrip()/.rstrip() ·
     │   │   │            .length() · .split(sep) · .replace(old, new) · .substring(a, b) · .index_of(s) · .repeat(n) ·
-    │   │   │            .regex_contains/.regex_index_of(pat, flags=) · .regex_replace(pat, repl, flags=) · .encode_utf8/16
+    │   │   │            .regex_contains/.regex_index_of(pat, flags=) · .regex_replace(pat, repl, flags=) · .encode_utf8/16 ·
+    │   │   │            .try_parse(T) -> Option<T> (strict whole-string parse; none on any failure)
     │   │   ├─ DateTime → .get_year/month/day_of_month/day_of_week/hour/minute/second/millisecond() ·
     │   │   │              .to_epoch_milliseconds() · .add_/subtract_{milliseconds,seconds,minutes,hours,days,weeks}(n) ·
     │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD")
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) under a typed context
-    │   │   └─ Collections (scalar reads on fields) → .size() · .has(i|k) · .get(i|k) ❗ · .get_or_default(i|k, d)
-    │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced, eager on plain values)
+    │   │   ├─ Collections → .size() · .has(i|k) · .get(i|k) ❗ · [i|k expr] ❗ · .get_or_default(i|k, d) · .try_get(i|k) ·
+    │   │   │                 .map(fn) · .filter(fn) · .fold(init, fn) · .some(fn) · .every(fn) · .string_join(sep)
+    │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True)
+    │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
+    │   │   └─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
+    │   │       SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
+    │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
@@ -633,7 +647,7 @@ Every one delegates to east-c.
 | `replace(s, find, replacement)` · `split(s, separator) -> Array<String>` | edit / tokenize |
 | `contains(s, substring)` · `starts_with(s, prefix)` · `ends_with(s, suffix)` · `index_of(s, substring) -> int` | search (`-> bool`/`int`) |
 | `regex_contains(s, pattern, flags="")` · `regex_index_of(s, pattern, flags="")` · `regex_replace(s, pattern, replacement, flags="")` | regex |
-| `parse(typ, s)` · `print(typ, value) -> str` | East **text** format |
+| `parse(typ, s)` ❗ · `print(typ, value) -> str` | East **text** format; `parse` is a **strict whole-string** parser — trailing or leading junk raises (`"598-"`, `"$5"`, `"1.2.3"` all raise; in kernels use `.try_parse(T)` for the optional form) |
 | `parse_json(typ, s)` · `print_json(typ, value) -> str` | East **JSON** (`Integer` encodes as a JSON *string*: `print_json(ArrayType(IntegerType), [1,2,3]) == '["1","2","3"]'`) |
 
 **`East.DateTime`** (see [DateTime format codes](#datetime-format-codes))
