@@ -109,10 +109,18 @@ syntax, fastest first:
 
 1. **A pure python lambda — traced automatically.** The method calls your
    lambda ONCE with typed expression proxies (exactly like a TS
-   `East.function` builder); field access, arithmetic, comparisons and
-   boolean algebra record East IR, east-c compiles it, and the loop AND the
-   kernel execute natively — zero python per element (~5× a per-element
-   callback on a 300k-row map, and it composes with chaining):
+   `East.function` builder); the whole builtin surface records East IR —
+   field access, arithmetic, comparisons, boolean algebra, string/datetime
+   methods, every `East.<Type>.*` namespace call, collection transforms with
+   nested lambdas (`.map`/`.filter`/`.fold`/`.some`/`.every`/`.string_join`/
+   `[index_expr]`/`.try_get`), captured East collections (trace-time
+   snapshots hoisted to build-once constants — explicit `kernel()` only), option
+   construct/consume (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
+   `.try_parse(T) -> Option<T>` — east-c compiles it, and the loop AND the
+   kernel execute natively, zero python per element (~5× a per-element
+   callback on a 300k-row map, and it composes with chaining). Methods that
+   exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
+   inference otherwise samples the lambda on a decoded python value):
 
    ```python
    rows    = EastBlob(csv_bytes).decode_csv(Row)          # C-backed Array<Row>

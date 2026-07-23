@@ -297,3 +297,266 @@ def test_filter_map_some_none_pushes_down():
     # filter_map keeps `some`, drops `none`; it infers the inner type (no out=).
     kept = _rows().filter_map(lambda r: where(r.sku == "A-1", some(r.price), none))
     assert list(kept) == [2.5, 10.0]
+
+
+# ─── #393: the whole builtin surface traces ──────────────────────────────────
+
+SROW = StructType([("id", StringType), ("data", StringType)])
+
+
+def test_namespace_builtins_trace():
+    from east import East
+
+    k = kernel([SROW], lambda r: East.String.substring(r.id, 0, 3))
+    assert k({"id": "hello", "data": ""}) == "hel"
+    k2 = kernel([SROW], lambda r: East.String.length(r.id) + East.String.index_of(r.id, "l"))
+    assert k2({"id": "hello", "data": ""}) == 5 + 2
+    k3 = kernel([StructType([("f", FloatType)])], lambda r: East.Float.sqrt(r.f))
+    assert k3({"f": 9.0}) == 3.0
+
+
+def test_split_then_integer_index():
+    k = kernel([SROW], lambda r: r.data.split("|")[1])
+    assert k({"id": "", "data": "a|b|c"}) == "b"
+
+
+def test_collection_transforms_with_nested_lambdas():
+    rows = {"id": "!", "data": "a|b|c"}
+    assert list(kernel([SROW], lambda r: r.data.split("|").map(lambda v: v + r.id))(rows)) == [
+        "a!",
+        "b!",
+        "c!",
+    ]
+    assert list(
+        kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v != "b"))(rows)
+    ) == ["a", "c"]
+    assert kernel([SROW], lambda r: r.data.split("|").some(lambda v: v == "c"))(rows) is True
+    assert kernel([SROW], lambda r: r.data.split("|").every(lambda v: v == "a"))(rows) is False
+    assert (
+        kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: acc + v.length()))(rows)
+        == 3
+    )
+    assert kernel([SROW], lambda r: r.data.split("|").string_join(","))(rows) == "a,b,c"
+
+
+def test_captured_side_table_lookup():
+    from east import EastDict
+
+    table = EastDict(StringType, StringType, {"a": "A", "b": "B"})
+    k = kernel([SROW], lambda r: table.get_or_default(r.id, "?"))
+    assert k({"id": "a", "data": ""}) == "A"
+    assert k({"id": "z", "data": ""}) == "?"
+    # the multivalue TRANS shape: split -> per-value lookup -> re-join
+    k2 = kernel(
+        [SROW],
+        lambda r: r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
+    )
+    assert k2({"id": "", "data": "a|b|z"}) == "A|B|"
+    # a table mutation after trace does NOT affect the compiled kernel (snapshot)
+    table["a"] = "MUTATED"
+    assert k({"id": "a", "data": ""}) == "A"
+
+
+def test_captured_array_and_struct_constants():
+    from east import EastArray, struct
+
+    arr = EastArray(IntegerType, [10, 20, 30])
+    k = kernel([StructType([("i", IntegerType)])], lambda r: arr.get(r.i))
+    assert k({"i": 2}) == 30
+    assert (
+        kernel([StructType([("i", IntegerType)])], lambda r: arr.get_or_default(r.i, -1))({"i": 9})
+        == -1
+    )
+    cfg = struct({"scale": 2.0}, StructType([("scale", FloatType)]))
+    k2 = kernel([StructType([("f", FloatType)])], lambda r: r.f * cfg.scale)
+    assert k2({"f": 3.0}) == 6.0
+
+
+def test_try_get_array_and_dict():
+    from east import EastDict
+
+    table = EastDict(StringType, IntegerType, {"a": 1})
+    k = kernel([SROW], lambda r: table.try_get(r.id).unwrap_or(0))
+    assert k({"id": "a", "data": ""}) == 1
+    assert k({"id": "z", "data": ""}) == 0
+    k2 = kernel([SROW], lambda r: r.data.split("|").try_get(5).unwrap_or("na"))
+    assert k2({"id": "", "data": "a"}) == "na"
+
+
+def test_try_parse_strict_option():
+    k = kernel([SROW], lambda r: r.id.try_parse(FloatType).unwrap_or(-1.0))
+    assert k({"id": "5.5", "data": ""}) == 5.5
+    # strict whole-string semantics (#392): prefix junk is none, not a prefix parse
+    assert k({"id": "598-", "data": ""}) == -1.0
+    assert k({"id": "$5", "data": ""}) == -1.0
+    is_num = kernel([SROW], lambda r: r.id.try_parse(FloatType).is_some())
+    assert is_num({"id": "2e3", "data": ""}) is True
+    assert is_num({"id": "1.2.3", "data": ""}) is False
+
+
+def test_struct_returning_kernel_single_pass():
+    from east import EastDict
+
+    table = EastDict(StringType, StringType, {"a": "A"})
+    k = kernel(
+        [SROW],
+        lambda r: {
+            "third": r.data.split("|").get_or_default(2, ""),
+            "trans": r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
+            "n": r.id.try_parse(FloatType).unwrap_or(0.0),
+        },
+    )
+    out = k({"id": "7.5", "data": "a|b|c"})
+    assert out["third"] == "c"
+    assert out["trans"] == "A||"
+    assert out["n"] == 7.5
+
+
+def test_rows_map_with_string_kernel():
+    rows = _rows()
+    k = kernel([ROW], lambda r: r.sku.split("-")[0])
+    assert list(rows.map(k)) == ["A", "B", "A"]
+
+
+def test_funnel_stays_eager_outside_kernels():
+    from east import East
+
+    assert East.String.substring("hello", 0, 3) == "hel"
+    assert list(East.String.split("a|b", "|")) == ["a", "b"]
+
+
+def test_untraceable_ops_still_fail_loud():
+    with pytest.raises(KernelTraceError):
+        kernel([SROW], lambda r: r.data.split("|").map(lambda v: len(v)))
+    with pytest.raises(KernelTraceError):
+        kernel([SROW], lambda r: r.id.try_parse("not a type"))
+
+
+# ─── #393 hardening: differentials, empties, nesting, auto push-down ─────────
+
+
+def test_traced_collection_ops_agree_with_eager():
+    from east import EastArray
+
+    data = "aa|b|ccc"
+    eager = EastArray(StringType, data.split("|"))
+    k_map = kernel([SROW], lambda r: r.data.split("|").map(lambda v: v.length()))
+    assert list(k_map({"id": "", "data": data})) == list(
+        eager.map(lambda v: v.length(), out=IntegerType)
+    )
+    k_filter = kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v.length() > 1))
+    assert list(k_filter({"id": "", "data": data})) == list(
+        eager.filter(lambda v: v.length() > 1)
+    )
+    k_fold = kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: acc + v.length()))
+    assert k_fold({"id": "", "data": data}) == eager.fold(0, lambda acc, v: acc + v.length())
+
+
+def test_quantifier_empty_semantics_match_eager():
+    # some([]) is False, every([]) is True — on both paths.
+    k_some = kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v == "x").some(lambda v: True))
+    k_every = kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v == "x").every(lambda v: False))
+    assert k_some({"id": "", "data": "a|b"}) is False
+    assert k_every({"id": "", "data": "a|b"}) is True
+
+
+def test_two_level_nesting_with_cross_references():
+    # inner-inner lambda references BOTH the outer row and the mid lambda's
+    # variable — regression for variable shadowing (fresh names per lambda).
+    k = kernel(
+        [SROW],
+        lambda r: r.data.split(";")
+        .map(
+            lambda grp: grp.split("|")
+            .filter(lambda v: v != grp.substring(0, 1))
+            .map(lambda v: v + r.id)
+            .string_join(",")
+        )
+        .string_join(";"),
+    )
+    # group "ab|c": first char "a" drops nothing -> "ab!,c!"; group "d" drops itself
+    assert k({"id": "!", "data": "ab|c;d"}) == "ab!,c!;"
+
+
+def test_captured_set_membership():
+    from east import EastSet
+
+    allowed = EastSet(StringType, ["a", "b"])
+    k = kernel([SROW], lambda r: allowed.has(r.id))
+    assert k({"id": "a", "data": ""}) is True
+    assert k({"id": "z", "data": ""}) is False
+
+
+def test_new_op_errors_are_loud_and_specific():
+    with pytest.raises(KernelTraceError, match="predicate must return Boolean"):
+        kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v.length()))
+    with pytest.raises(KernelTraceError, match="accumulator"):
+        kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: v))
+    with pytest.raises(KernelTraceError, match="string_join"):
+        kernel([SROW], lambda r: r.data.split("|").map(lambda v: v.length()).string_join(","))
+
+
+def test_namespace_lambda_pushes_down_automatically():
+    from east import East
+
+    fn = lambda r: East.String.upper_case(r.sku)  # noqa: E731
+    assert _eligible(fn)
+    pushed = try_push_down(EastFunction(fn, [ROW], StringType))
+    assert pushed is not None
+    assert list(_rows().map(fn)) == ["A-1", "B-2", "A-1"]
+
+
+def test_method_string_lambda_pushes_down_automatically():
+    fn = lambda r: r.sku.substring(0, 1)  # noqa: E731
+    pushed = try_push_down(EastFunction(fn, [ROW], StringType))
+    assert pushed is not None
+    # KernelExpr-only methods need out= (without it, map samples the lambda
+    # on a decoded python value to infer the type - str has no .substring)
+    assert list(_rows().map(fn, out=StringType)) == ["A", "B", "A"]
+
+
+def test_captured_collection_does_not_auto_push_down():
+    from east import EastDict
+
+    table = EastDict(StringType, StringType, {"A-1": "first"})
+    fn = lambda r: table.get_or_default(r.sku, "other")  # noqa: E731
+    # mutable capture: the gate must refuse (tracing would snapshot the table)
+    assert not _eligible(fn)
+    assert try_push_down(EastFunction(fn, [ROW], StringType)) is None
+
+
+def test_captured_constants_hoist_once_per_kernel():
+    import json as _json
+
+    from east import EastDict
+    from east.kernel import trace
+
+    table = EastDict(StringType, StringType, {"a": "A"})
+    ir_bytes, _t = trace(
+        lambda r: table.get_or_default(r.id, "") + table.get_or_default(r.data, ""), [SROW]
+    )
+    ir = _json.loads(ir_bytes)["ir"]
+    # the constant becomes ONE build-time Let (identity-deduped across both
+    # use sites) captured by the kernel function - never rebuilt per call
+    assert ir["type"] == "Block"
+    lets = [s for s in ir["value"]["statements"] if s["type"] == "Let"]
+    assert len(lets) == 1
+    fn_node = ir["value"]["statements"][-1]
+    assert fn_node["type"] == "Function"
+    assert len(fn_node["value"]["captures"]) == 1
+
+
+def test_hoisted_constant_inside_nested_lambda_still_binds_once():
+    import json as _json
+
+    from east import EastDict
+    from east.kernel import trace
+
+    table = EastDict(StringType, StringType, {"a": "A"})
+    ir_bytes, _t = trace(
+        lambda r: r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
+        [SROW],
+    )
+    ir = _json.loads(ir_bytes)["ir"]
+    assert ir["type"] == "Block"
+    assert sum(1 for s in ir["value"]["statements"] if s["type"] == "Let") == 1

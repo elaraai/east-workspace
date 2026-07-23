@@ -19,16 +19,48 @@ Explicit API:
   result is an ordinary python callable, and every eager method accepts it.
 - ``where(cond, then, otherwise)`` — traced conditional expression (python
   ``if``/``and``/``or`` cannot be overloaded; inside kernels use ``&``,
-  ``|``, ``~`` and ``where``).
+  ``|``, ``~`` and ``where``). ``where`` compiles to IfElse — exactly one
+  branch evaluates at run time, so a guarded partial op is safe.
+
+What traces (#393 expanded this to the whole builtin surface):
+
+- Struct field access, arithmetic, comparison, boolean algebra, ``where`` /
+  ``greatest`` / ``least``, and the expression methods on ``KernelExpr``
+  (string ops, datetime ops, float/integer math — see the class).
+- Every ``East.<Type>.*`` namespace builtin (``East.String.substring``,
+  ``East.Float.sqrt``, …): the eager funnel emits IR when any argument is a
+  traced expression.
+- Collection transforms with nested lambdas, one level or deeper:
+  ``.map`` / ``.filter`` / ``.fold`` / ``.some`` / ``.every`` /
+  ``.string_join`` / ``.get`` / ``.get_or_default`` / ``.try_get`` /
+  ``[index_expr]`` — inner lambdas may reference outer parameters.
+- Captured East constants: ``EastArray`` / ``EastSet`` / ``EastDict`` /
+  ``EastStruct`` values closed over by the lambda become build-time
+  constants — a SNAPSHOT taken at trace time, constructed once when the
+  kernel compiles (hoisted + identity-deduped, so a side-table referenced
+  from many sites or inside a ``.map`` lambda never rebuilds per element).
+  A multi-million-entry table still belongs in a parameter, not a capture:
+  the snapshot rides the kernel's IR. Access methods on an eager collection
+  accept traced keys and re-route through the tracer automatically.
+- Options: construct with ``some(expr)`` / ``none`` (typed from a ``where``
+  branch), consume with ``.is_some()`` / ``.is_none()`` / ``.unwrap_or()`` /
+  ``.match()`` / ``.unwrap()``; ``.try_parse(T)`` parses a String strictly
+  to ``Option<T>`` (``none`` on any parse failure).
+- Struct results: return a dict literal — ``lambda r: {"a": …, "b": …}`` —
+  so one kernel can emit every computed column in a single pass.
 
 Traced kernels must be pure: the lambda runs ONCE at trace time (exactly
 like a TypeScript ``East.function`` builder), so side effects do not repeat
 per element. Each ``kernel()`` call compiles a fresh function; reuse the
-returned kernel when calling in a loop.
+returned kernel when calling in a loop. Shared python subexpressions are
+re-emitted per use site (duplicated subtrees are semantically sound for
+pure kernels; bind repeated work inside the traced expression itself where
+size matters).
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 from typing import Any
@@ -162,11 +194,103 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
     lifted = _lift_variant(value, hint)
     if lifted is not None:
         return lifted
+    lifted = _lift_collection(value)
+    if lifted is not None:
+        return lifted
     if isinstance(value, dict):
         return _lift_struct(value)
     raise KernelTraceError(
         f"cannot lift python value of type {type(value).__name__} into an East kernel expression"
     )
+
+
+class _ConstRegistry:
+    """Per-trace registry of captured constants, hoisted to kernel build.
+
+    A captured East collection/struct is SNAPSHOT once: its constructor IR
+    becomes a ``Let`` evaluated when the kernel compiles, and every use site
+    (including inside nested lambdas) references the bound variable. Without
+    hoisting the constructor would sit inline at the use site and re-build
+    the constant on every evaluation — per row, or per ELEMENT inside a
+    ``.map`` lambda, which is pathological for lookup tables. Entries are
+    deduped by python object identity, so one table referenced at N sites
+    binds once. Dependency order is construction order (inner constants of a
+    nested constant register first).
+    """
+
+    __slots__ = ("by_id", "entries")
+
+    def __init__(self) -> None:
+        self.by_id: dict[int, tuple[str, EastType]] = {}
+        self.entries: list[tuple[str, dict, EastType]] = []
+
+    def register(self, value: Any, node: dict, t: EastType) -> KernelExpr:
+        hit = self.by_id.get(id(value))
+        if hit is None:
+            name = _fresh_name()
+            self.by_id[id(value)] = (name, t)
+            self.entries.append((name, node, t))
+        else:
+            name, t = hit
+        return KernelExpr(_var(name, t), t)
+
+
+# The active (outermost) trace's constant registry; inner-lambda traces share
+# it so constants hoist to the kernel scope. None outside any trace — then
+# constants inline at the use site (correct, just unhoisted).
+_const_registry: _ConstRegistry | None = None
+
+
+def _register_const(value: Any, expr: KernelExpr) -> KernelExpr:
+    if _const_registry is None:
+        return expr
+    return _const_registry.register(value, expr.ir, expr.east_type)
+
+
+def _lift_collection(value: Any) -> KernelExpr | None:
+    """Lift a captured East collection/struct constant (#393).
+
+    The value snapshots into constructor IR (NewArray/NewSet/NewDict/Struct,
+    each element lifted recursively) and — inside a trace — hoists to a
+    kernel-build-time ``Let`` (see ``_ConstRegistry``), so a TRANS-style
+    side-table is built once per compiled kernel, not per evaluation.
+    Binding very large tables by reference (no snapshot at all) is a
+    separate design — see #393's discussion.
+    """
+    from east.types.types import ArrayType as _ArrayType
+    from east.types.types import DictType as _DictType
+    from east.types.types import SetType as _SetType
+    from east.types.values import EastArray, EastDict, EastSet, is_east_struct
+
+    if isinstance(value, EastArray):
+        elem_t = value.element_type
+        arr_t = _ArrayType(elem_t)
+        nodes = [_lift(v, hint=elem_t).ir for v in value]
+        return _register_const(
+            value, KernelExpr(_node("NewArray", type=_type_json(arr_t), values=nodes), arr_t)
+        )
+    if isinstance(value, EastSet):
+        elem_t = value.element_type
+        set_t = _SetType(elem_t)
+        nodes = [_lift(v, hint=elem_t).ir for v in value]
+        return _register_const(
+            value, KernelExpr(_node("NewSet", type=_type_json(set_t), values=nodes), set_t)
+        )
+    if isinstance(value, EastDict):
+        k_t, v_t = value.key_type, value.value_type
+        dict_t = _DictType(k_t, v_t)
+        entries = [
+            {"key": _lift(k, hint=k_t).ir, "value": _lift(v, hint=v_t).ir}
+            for k, v in value.items()
+        ]
+        return _register_const(
+            value,
+            KernelExpr(_node("NewDict", type=_type_json(dict_t), values=entries), dict_t),
+        )
+    if is_east_struct(value):
+        # A captured struct constant (e.g. a config row) lifts field by field.
+        return _register_const(value, _lift_struct({name: value[name] for name in value}))
+    return None
 
 
 def _lift_struct(value: dict) -> KernelExpr:
@@ -300,8 +424,13 @@ class KernelExpr:
         return self.field(name)
 
     def __getitem__(self, name: Any) -> KernelExpr:
+        if self.east_type.type in ("Array", "Dict") and not isinstance(name, str):
+            # `split(data, FM)[n]` / `table[key_expr]` — same as .get() (#393).
+            return self.get(name)
         if not isinstance(name, str):
             raise _trace_bail(f"[{name!r}] indexing")
+        if self.east_type.type == "Dict":
+            return self.get(name)
         return self.field(name)
 
     # ── arithmetic ─────────────────────────────────────────────────────
@@ -1018,6 +1147,141 @@ class KernelExpr:
             )
         raise KernelTraceError(f".get_or_default() on {tag}")
 
+    # ── collection transforms (nested lambdas traced recursively, #393) ──
+
+    def _array_elem(self, op: str) -> EastType:
+        if self.east_type.type != "Array":
+            raise KernelTraceError(f".{op}() on {self.east_type.type} (needs Array)")
+        return self.east_type.value
+
+    def map(self, fn: Any) -> KernelExpr:
+        """Traced ArrayMap: ``fn(element)`` or ``fn(element, index)``."""
+        from east.types.types import ArrayType as _ArrayType
+
+        elem_t = self._array_elem("map")
+        node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType])
+        return KernelExpr(
+            _builtin("ArrayMap", _ArrayType(out_t), [elem_t, out_t], [self.ir, node]),
+            _ArrayType(out_t),
+        )
+
+    def filter(self, fn: Any) -> KernelExpr:
+        """Traced ArrayFilter: keep elements where the predicate holds."""
+        from east.types.types import ArrayType as _ArrayType
+
+        elem_t = self._array_elem("filter")
+        node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType])
+        if out_t.type != "Boolean":
+            raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
+        out = _ArrayType(elem_t)
+        return KernelExpr(_builtin("ArrayFilter", out, [elem_t], [self.ir, node]), out)
+
+    def fold(self, initial: Any, fn: Any) -> KernelExpr:
+        """Traced ArrayFold: ``fn(acc, element)`` or ``fn(acc, element, index)``."""
+        elem_t = self._array_elem("fold")
+        init = _lift(initial)
+        acc_t = init.east_type
+        node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType])
+        if out_t != acc_t:
+            raise KernelTraceError(
+                f".fold() step returns {out_t.type}, accumulator is {acc_t.type}"
+            )
+        return KernelExpr(
+            _builtin("ArrayFold", acc_t, [elem_t, acc_t], [self.ir, init.ir, node]), acc_t
+        )
+
+    def some(self, fn: Any) -> KernelExpr:
+        """Traced any-element predicate (ArrayFold over Boolean or)."""
+        return self._quantifier("some", fn)
+
+    def every(self, fn: Any) -> KernelExpr:
+        """Traced all-elements predicate (ArrayFold over Boolean and)."""
+        return self._quantifier("every", fn)
+
+    def _quantifier(self, op: str, fn: Any) -> KernelExpr:
+        elem_t = self._array_elem(op)
+        code = getattr(fn, "__code__", None)
+        arity = code.co_argcount if code is not None else 1
+
+        def step(acc: KernelExpr, el: KernelExpr, i: KernelExpr) -> KernelExpr:
+            pred = _lift(fn(*([el, i][:arity])))
+            if pred.east_type.type != "Boolean":
+                raise KernelTraceError(
+                    f".{op}() predicate must return Boolean, got {pred.east_type.type}"
+                )
+            return acc | pred if op == "some" else acc & pred
+
+        node, _out = _trace_inner_fn(step, [BooleanType, elem_t, IntegerType], declared=3)
+        init = _literal(op == "every", BooleanType)
+        return KernelExpr(
+            _builtin("ArrayFold", BooleanType, [elem_t, BooleanType], [self.ir, init, node]),
+            BooleanType,
+        )
+
+    def string_join(self, separator: Any) -> KernelExpr:
+        """Traced ArrayStringJoin over an Array<String>."""
+        elem_t = self._array_elem("string_join")
+        if elem_t.type != "String":
+            raise KernelTraceError(".string_join() needs an Array<String>")
+        sep = _lift(separator)
+        if sep.east_type.type != "String":
+            raise KernelTraceError(".string_join() separator must be a String")
+        return KernelExpr(
+            _builtin("ArrayStringJoin", StringType, [], [self.ir, sep.ir]), StringType
+        )
+
+    def try_get(self, key: Any) -> KernelExpr:
+        """Traced optional access: ``some(value)`` in bounds / present, else ``none``."""
+        tag = self.east_type.type
+        if tag == "Array":
+            elem_t = self.east_type.value
+            i = _lift(key)
+            if i.east_type.type != "Integer":
+                raise KernelTraceError("Array.try_get() takes an Integer index")
+            out = _option_type(elem_t)
+            return KernelExpr(_builtin("ArrayTryGet", out, [elem_t], [self.ir, i.ir]), out)
+        if tag == "Dict":
+            kv = self.east_type.value
+            k = _lift(key, hint=kv["key"])
+            out = _option_type(kv["value"])
+            return KernelExpr(
+                _builtin("DictTryGet", out, [kv["key"], kv["value"]], [self.ir, k.ir]), out
+            )
+        raise KernelTraceError(f".try_get() on {tag}")
+
+    # ── strict optional parse (TryCatch IR, #392/#393) ──────────────────
+
+    def try_parse(self, t: EastType) -> KernelExpr:
+        """Parse this String as ``t``; ``some(value)`` on success, ``none`` on
+        any parse failure (the strict whole-string parse of #392 wrapped in
+        TryCatch IR). ``where(x.is_some(), …)`` / ``.unwrap_or(…)`` consume it.
+        """
+        if self.east_type.type != "String":
+            raise KernelTraceError(".try_parse() needs a String")
+        if not isinstance(t, EastType):
+            raise KernelTraceError(".try_parse() takes an East type")
+        from east.types.types import StructType as _StructType
+
+        out_t = _option_type(t)
+        parsed = _builtin("Parse", t, [t], [self.ir])
+        some_node = _node("Variant", type=_type_json(out_t), case="some", value=parsed)
+        none_node = _node(
+            "Variant", type=_type_json(out_t), case="none", value=_literal(None, NullType)
+        )
+        loc_t = _StructType(
+            [("filename", StringType), ("line", IntegerType), ("column", IntegerType)]
+        )
+        node = _node(
+            "TryCatch",
+            type=_type_json(out_t),
+            try_body=some_node,
+            catch_body=none_node,
+            message=_var(_fresh_name(), StringType),
+            stack=_var(_fresh_name(), ArrayType(loc_t)),
+            finally_body=_literal(None, NullType),
+        )
+        return KernelExpr(node, out_t)
+
     # ── operations that cannot be traced (fail loud, fall back) ─────────
 
     def __bool__(self) -> bool:
@@ -1051,6 +1315,86 @@ def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> dict
     return _node(
         "Function", type=_type_json(fn_t), captures=[], parameters=params, body=body.ir
     )
+
+
+# ─── Nested lambdas + the eager-builtin funnel (#393) ───────────────────────
+
+_fresh_names = itertools.count()
+
+
+def _fresh_name() -> str:
+    """A trace-unique variable name so nested lambdas never shadow outer
+    parameters (`split(...).map(lambda v: v + r.id)` must keep `r` visible
+    inside the inner function's body)."""
+    return f"__n{next(_fresh_names)}"
+
+
+def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None) -> tuple[dict, EastType]:
+    """Trace an inner (nested) lambda into a Function IR node.
+
+    ``param_types`` is the builtin's full callback signature (e.g. map takes
+    ``(element, index)``); a lambda declaring fewer parameters simply ignores
+    the tail. Returns ``(Function node, traced output type)``.
+    """
+    arity = declared
+    if arity is None:
+        code = getattr(fn, "__code__", None)
+        arity = code.co_argcount if code is not None else len(param_types)
+    if not (1 <= arity <= len(param_types)):
+        raise KernelTraceError(
+            f"inner lambda takes {arity} parameters; the callback signature has "
+            f"{len(param_types)}"
+        )
+    names = [_fresh_name() for _ in param_types]
+    proxies = [KernelExpr(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
+    try:
+        result = fn(*proxies[:arity])
+    except KernelTraceError:
+        raise
+    except Exception as e:  # pragma: no cover - message carries the cause
+        raise KernelTraceError(f"inner lambda is not traceable: {e}") from e
+    body = _lift(result)
+    params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
+    fn_t = FunctionType(list(param_types), body.east_type)
+    node = _node(
+        "Function", type=_type_json(fn_t), captures=[], parameters=params, body=body.ir
+    )
+    return node, body.east_type
+
+
+def trace_builtin_call(
+    name: str, type_params: list, args: list, output_type: EastType
+) -> KernelExpr | None:
+    """The eager-builtin funnel's kernel hook (#393).
+
+    ``_call_builtin`` (east/types/values/_helpers.py) routes every namespace
+    builtin (``East.String.*``, ``East.Float.*``, …) and eager collection
+    method through one funnel. When any argument is a traced expression the
+    call is happening INSIDE a kernel lambda — emit a Builtin IR node instead
+    of executing eagerly. Returns None (caller runs the eager path) when no
+    argument is traced.
+
+    Callback arguments (``EastFunction``) are traced recursively against
+    their declared signature; captured East collections/structs inline as
+    constructor IR via ``_lift``.
+    """
+    if not any(isinstance(a, KernelExpr) for a in args):
+        return None
+    from east.types.values.structural import EastFunction
+
+    ir_args: list[dict] = []
+    for a in args:
+        if isinstance(a, EastFunction):
+            node, out_t = _trace_inner_fn(a.fn, list(a.input_types))
+            if out_t != a.output_type:
+                raise KernelTraceError(
+                    f"traced callback for {name} returns {out_t.type}, "
+                    f"declared {a.output_type.type}"
+                )
+            ir_args.append(node)
+        else:
+            ir_args.append(_lift(a).ir)
+    return KernelExpr(_builtin(name, output_type, list(type_params), ir_args), output_type)
 
 
 def where(cond: Any, then: Any, otherwise: Any) -> Any:
@@ -1127,19 +1471,33 @@ def least(a: Any, b: Any) -> Any:
 # ─── Tracing + compilation ──────────────────────────────────────────────────
 
 
-def _function_ir(param_types: list[EastType], params: list[dict], body: KernelExpr) -> bytes:
+def _function_ir(
+    param_types: list[EastType],
+    params: list[dict],
+    body: KernelExpr,
+    consts: list[tuple[str, dict, EastType]] = (),  # type: ignore[assignment]
+) -> bytes:
     fn_type = FunctionType(list(param_types), body.east_type)
     fn_node = _node(
         "Function",
         type=_type_json(fn_type),
-        captures=[],
+        # Hoisted constants are captured so they survive the enclosing block:
+        # they evaluate ONCE when the kernel compiles, not per call.
+        captures=[_var(name, t) for name, _n, t in consts],
         parameters=params,
         body=body.ir,
     )
+    top = fn_node
+    if consts:
+        lets = [
+            _node("Let", type=_type_json(t), variable=_var(name, t), value=node)
+            for name, node, t in consts
+        ]
+        top = _node("Block", type=_type_json(fn_type), statements=[*lets, fn_node])
     # east_json_decode_ir's supported shape is the {ir, source_map} wrapper
     # (the same format the TS test suite exports); kernels carry no locations
     # so the source map is empty.
-    return json.dumps({"ir": fn_node, "source_map": {"stacks": []}}).encode("utf-8")
+    return json.dumps({"ir": top, "source_map": {"stacks": []}}).encode("utf-8")
 
 
 def trace(fn: Any, param_types: list[EastType]) -> tuple[bytes, EastType]:
@@ -1147,16 +1505,25 @@ def trace(fn: Any, param_types: list[EastType]) -> tuple[bytes, EastType]:
 
     Raises KernelTraceError when the lambda performs untraceable operations.
     """
+    global _const_registry
     proxies = [KernelExpr(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
+    outer = _const_registry is None
+    if outer:
+        _const_registry = _ConstRegistry()
     try:
-        result = fn(*proxies)
-    except KernelTraceError:
-        raise
-    except Exception as e:
-        raise KernelTraceError(f"kernel lambda is not traceable: {e}") from e
-    result = _lift(result)
+        try:
+            result = fn(*proxies)
+        except KernelTraceError:
+            raise
+        except Exception as e:
+            raise KernelTraceError(f"kernel lambda is not traceable: {e}") from e
+        result = _lift(result)
+        consts = _const_registry.entries if outer else []
+    finally:
+        if outer:
+            _const_registry = None
     params = [_var(f"__k{i}", t) for i, t in enumerate(param_types)]
-    return _function_ir(param_types, params, result), result.east_type
+    return _function_ir(param_types, params, result, consts), result.east_type
 
 
 def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastType | None = None) -> Any:
@@ -1216,6 +1583,16 @@ def _allowed_global(value: Any, depth: int) -> bool:
     if value is greatest or value is least:
         return True
     if value is KernelExpr:
+        return True
+    # The `East` builtin namespace is a stateless singleton whose calls now
+    # trace through the eager funnel (#393) — allowing it lets lambdas like
+    # `lambda r: East.String.upper_case(r.sku)` push down automatically.
+    # Mutable East collections are deliberately NOT allowed here: tracing
+    # snapshots them, which would diverge from the live per-element python
+    # semantics; only an explicit kernel() opts into snapshot capture.
+    from east.namespace import East as _East
+
+    if value is _East:
         return True
     # `some`/`none` are pure option constructors that _lift_variant turns into
     # Variant IR — allow them so option-returning lambdas trace natively instead
