@@ -16,6 +16,7 @@ from east_py_datascience.google_or.cpsat import (
     CpSatComparisonType,
     CpSatConfigType,
     CpSatConstraintType,
+    CpSatHintType,
     CpSatIntervalVarType,
     CpSatIntVarType,
     CpSatLinearExprType,
@@ -47,6 +48,7 @@ from east_py_datascience.google_or.graph import (
 from east_py_datascience.google_or.linear import (
     LinearConfigType,
     LinearConstraintDefType,
+    LinearHintType,
     LinearModelType,
     LinearObjectiveType,
     LinearResultType,
@@ -104,6 +106,7 @@ __all__ = [
     "CpSatConstraintType",
     "CpSatObjectiveType",
     "CpSatModelType",
+    "CpSatHintType",
     "CpSatConfigType",
     "CpSatResultType",
     # Routing types
@@ -122,6 +125,7 @@ __all__ = [
     "LinearObjectiveType",
     "LinearModelType",
     "LinearSolverType",
+    "LinearHintType",
     "LinearConfigType",
     "LinearResultType",
     # Graph types
