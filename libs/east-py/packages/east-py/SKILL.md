@@ -138,8 +138,9 @@ syntax, fastest first:
    returns a reusable compiled callable (it also raises `KernelTraceError`
    instead of silently falling back — use it when you need to *know* you're
    native, or to hoist compilation out of a loop). Compiled East functions
-   loaded from elsewhere (`compile_from_beast2/json/east`) are accepted the
-   same way:
+   loaded from elsewhere (`compile_from_beast2/json/east`, or
+   `compile_from_value` for a homoiconic IR value built with
+   `east.ir.builders`) are accepted the same way:
 
    ```python
    from east import kernel, where, FloatType
@@ -178,9 +179,61 @@ syntax, fastest first:
   (`.to_float()` / `.to_integer()` convert), `//` is East IntegerDivide,
   `/` is Float division. Struct fields read as attributes or items
   (`r.price` / `r["price"]` — both trace, and both work on real rows).
-- Each eager call re-traces (compilation is a few µs — amortised over the
+- Each eager call re-traces (compilation is tens of µs — amortised over the
   loop); hoist a `kernel(...)` if you call the same lambda in a tight
   python loop.
+
+### Maximum performance — the levers, ranked
+
+The whole point of the kernel machinery is that **data stays in east-c and
+python never runs per element**. In order of impact:
+
+1. **Keep values East end-to-end.** `EastArray`/`EastSet`/`EastDict` are
+   C-backed; every eager method (`map`/`filter`/`group_by`/`sorted`/set
+   algebra/dict merge/…) runs the loop natively regardless of how deeply
+   nested the element type is — nesting costs nothing extra because the
+   structure never round-trips through python. The moment you call
+   `list(...)`/`dict(...)` or iterate in python you pay a per-element
+   boxing crossing — convert at most once, at the very end.
+2. **Let pure lambdas trace** (form 1 above), and chain on the results —
+   a chain of traced `map`/`filter`/`fold` stays native between steps.
+   Return a dict literal (`lambda r: {"a": …, "b": …}`) to compute every
+   derived column in ONE pass instead of one `map` per column.
+3. **Capture side tables in `kernel()` — knowing the snapshot semantics.**
+   A captured East collection is snapshot into the kernel's IR at trace
+   time: hoisted and identity-deduped so it builds **once per compiled
+   kernel** and every per-element lookup runs in C — ideal for lookup/side
+   tables up to ~10⁴–10⁵ entries. The snapshot's build cost and memory ride
+   the kernel, so for multi-million-entry tables prefer restructuring the
+   operation around the table with the native join-shaped ops
+   (`to_dict(..., combine=…)`, `update_many`, `group_by`) — true
+   by-reference capture is #399:
+
+   ```python
+   fx = EastDict(StringType, FloatType, rates)          # 50-entry side table
+   to_usd = kernel(Row, lambda r: r.amount * fx.get_or_default(r.ccy, 1.0))
+   rows.map(to_usd)                                     # fx built once, looked up in C
+   ```
+
+   Kernel *parameters*, by contrast, always cross the bridge **by
+   reference** (the C value's pointer — zero copy, any size, any nesting
+   depth); arity beyond one only meets the eager methods where the callback
+   signature does (`fold`'s `[acc_type, element_type]` step), but a direct
+   `k(value)` call on a huge East value is itself zero-copy.
+
+4. **Hoist `kernel(...)` out of python loops** and reuse it — re-tracing is
+   cheap but not free; a precompiled kernel is a plain callable and every
+   eager method accepts it.
+5. **When logic must stay python, go columnar** (next section): one
+   boundary crossing per column/batch instead of per row × field, then
+   come back to East values with `from_columns`/`extend`.
+
+`kernel()` raises `KernelTraceError` instead of silently falling back —
+use it in hot paths so a lambda that drifts off the traceable surface
+fails loud instead of quietly running per element. (Since #398 the tracer
+constructs homoiconic IR values and compiles them with no serialization
+round-trip, so trace+compile is ~1.5× faster than the earlier wire-format
+path — speculative auto-tracing is cheap enough to just leave on.)
 
 ## Columnar escape hatches — when the logic must stay python
 
@@ -369,6 +422,7 @@ Task → What do you need?
     │   │       SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
     │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
+    │   ├─ Compile IR you built programmatically (east.ir.builders values) → compile_from_value — no serialization round-trip
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
     │

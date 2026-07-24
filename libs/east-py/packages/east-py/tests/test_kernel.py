@@ -526,37 +526,33 @@ def test_captured_collection_does_not_auto_push_down():
 
 
 def test_captured_constants_hoist_once_per_kernel():
-    import json as _json
-
     from east import EastDict
     from east.kernel import trace
 
     table = EastDict(StringType, StringType, {"a": "A"})
-    ir_bytes, _t = trace(
+    # trace() returns a homoiconic IR value (an EastVariant conforming to
+    # IRType, #398) — assert the hoisting shape on the value tree directly.
+    ir, _t = trace(
         lambda r: table.get_or_default(r.id, "") + table.get_or_default(r.data, ""), [SROW]
     )
-    ir = _json.loads(ir_bytes)["ir"]
     # the constant becomes ONE build-time Let (identity-deduped across both
     # use sites) captured by the kernel function - never rebuilt per call
-    assert ir["type"] == "Block"
-    lets = [s for s in ir["value"]["statements"] if s["type"] == "Let"]
+    assert ir.type == "Block"
+    lets = [s for s in ir.value["statements"] if s.type == "Let"]
     assert len(lets) == 1
-    fn_node = ir["value"]["statements"][-1]
-    assert fn_node["type"] == "Function"
-    assert len(fn_node["value"]["captures"]) == 1
+    fn_node = list(ir.value["statements"])[-1]
+    assert fn_node.type == "Function"
+    assert len(fn_node.value["captures"]) == 1
 
 
 def test_hoisted_constant_inside_nested_lambda_still_binds_once():
-    import json as _json
-
     from east import EastDict
     from east.kernel import trace
 
     table = EastDict(StringType, StringType, {"a": "A"})
-    ir_bytes, _t = trace(
+    ir, _t = trace(
         lambda r: r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
         [SROW],
     )
-    ir = _json.loads(ir_bytes)["ir"]
-    assert ir["type"] == "Block"
-    assert sum(1 for s in ir["value"]["statements"] if s["type"] == "Let") == 1
+    assert ir.type == "Block"
+    assert sum(1 for s in ir.value["statements"] if s.type == "Let") == 1

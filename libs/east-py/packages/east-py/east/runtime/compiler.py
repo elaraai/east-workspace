@@ -9,6 +9,7 @@ Python only provides platform function callbacks via the platform bridge.
 """
 
 from collections.abc import Callable
+from typing import Any
 
 from east.runtime.platform import PlatformFunction
 
@@ -37,6 +38,22 @@ def compile_from_beast2(
     from east.runtime._compiler_eastc import compile_eastc_from_beast2
 
     return compile_eastc_from_beast2(beast2_data, platform or [], is_async)
+
+
+def compile_from_value(
+    ir_value: Any,
+    platform: list[PlatformFunction] | None = None,
+    is_async: bool = False,
+) -> Callable:
+    """Compile East IR from a homoiconic IR value — an ``EastVariant``
+    conforming to ``IRType``, e.g. one built with :mod:`east.ir.builders`.
+
+    The value converts directly to a C value and compiles with no
+    serialization round-trip; this is the kernel tracer's path (#398).
+    """
+    from east.runtime._compiler_eastc import compile_eastc_from_value
+
+    return compile_eastc_from_value(ir_value, platform or [], is_async)
 
 
 def compile_from_east(
