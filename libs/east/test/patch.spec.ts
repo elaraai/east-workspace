@@ -542,6 +542,24 @@ await describe("Patch - Sets", (test) => {
         $(assert.equal(ops.get(3n).getTag(), "delete"));
     });
 
+    test("Set: diff to empty is replace", $ => {
+        // Everything-deleted normalizes to replace on every runner (#400):
+        // the reference requires only a non-empty before; after may be empty.
+        const before = $.const(new Set([1n, 2n]), SetType(IntegerType));
+        const after = $.const(new Set([]), SetType(IntegerType));
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(patch.getTag(), "replace"));
+        const result = $.const(East.applyPatch(before, patch));
+        $(assert.equal(East.equal(result, after), true));
+    });
+
+    test("Set: diff from empty stays patch", $ => {
+        const before = $.const(new Set([]), SetType(IntegerType));
+        const after = $.const(new Set([1n]), SetType(IntegerType));
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(patch.getTag(), "patch"));
+    });
+
     test("Set: apply insert", $ => {
         const before = $.const(new Set([1n, 2n]), SetType(IntegerType));
         const after = $.const(new Set([1n, 2n, 3n]), SetType(IntegerType));
@@ -635,6 +653,24 @@ await describe("Patch - Dicts", (test) => {
         $(assert.equal(valuePatch.getTag(), "replace"));
         $(assert.equal(valuePatch.unwrap("replace").before, 1n));
         $(assert.equal(valuePatch.unwrap("replace").after, 99n));
+    });
+
+    test("Dict: diff to empty is replace", $ => {
+        // Everything-deleted normalizes to replace on every runner (#400):
+        // the reference requires only a non-empty before; after may be empty.
+        const before = $.const(new Map([["a", 1n], ["b", 2n]]), DictType(StringType, IntegerType));
+        const after = $.const(new Map(), DictType(StringType, IntegerType));
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(patch.getTag(), "replace"));
+        const result = $.const(East.applyPatch(before, patch));
+        $(assert.equal(East.equal(result, after), true));
+    });
+
+    test("Dict: diff from empty stays patch", $ => {
+        const before = $.const(new Map(), DictType(StringType, IntegerType));
+        const after = $.const(new Map([["a", 1n]]), DictType(StringType, IntegerType));
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(patch.getTag(), "patch"));
     });
 
     test("Dict: apply and verify", $ => {
@@ -863,6 +899,60 @@ await describe("Patch - Compose", (test) => {
         const composed = $.const(East.composePatch(ab, bc, IntegerType));
         const result = $.const(East.applyPatch(a, composed));
         $(assert.equal(result, 3n));
+    });
+
+    test("Compose: dict update then delete = delete of original", $ => {
+        // update+delete on a key arises from valid sequential diffs whenever
+        // only some keys are deleted (#400). The composed delete must record
+        // the ORIGINAL value so compose(diff(v1,v2), diff(v2,v3)) == diff(v1,v3).
+        const v1 = $.const(new Map([["a", 1n], ["b", 9n]]), DictType(StringType, IntegerType));
+        const v2 = $.const(new Map([["a", 2n], ["b", 9n]]), DictType(StringType, IntegerType));
+        const v3 = $.const(new Map([["b", 9n]]), DictType(StringType, IntegerType));
+        const p1 = $.const(East.diff(v1, v2));
+        const p2 = $.const(East.diff(v2, v3));
+        const composed = $.const(East.composePatch(p1, p2, DictType(StringType, IntegerType)));
+        $(assert.equal(composed.getTag(), "patch"));
+        const ops = $.const(composed.unwrap("patch"));
+        $(assert.equal(ops.get("a").getTag(), "delete"));
+        $(assert.equal(ops.get("a").unwrap("delete"), 1n));
+        $(assert.equal(East.equal(composed, East.diff(v1, v3)), true));
+        const direct = $.const(East.applyPatch(v1, composed));
+        $(assert.equal(East.equal(direct, v3), true));
+        const inverted = $.const(East.invertPatch(composed, DictType(StringType, IntegerType)));
+        const restored = $.const(East.applyPatch(v3, inverted));
+        $(assert.equal(East.equal(restored, v1), true));
+    });
+
+    test("Compose: dict chain ending empty", $ => {
+        // The CI shape from #400: p2 is an everything-deleted replace, so the
+        // compose takes the patch+replace path; direct and sequential agree.
+        const v1 = $.const(new Map([["a", 1n]]), DictType(StringType, IntegerType));
+        const v2 = $.const(new Map([["a", 2n]]), DictType(StringType, IntegerType));
+        const v3 = $.const(new Map(), DictType(StringType, IntegerType));
+        const p1 = $.const(East.diff(v1, v2));
+        const p2 = $.const(East.diff(v2, v3));
+        $(assert.equal(p2.getTag(), "replace"));
+        const composed = $.const(East.composePatch(p1, p2, DictType(StringType, IntegerType)));
+        const direct = $.const(East.applyPatch(v1, composed));
+        $(assert.equal(East.equal(direct, v3), true));
+        const step1 = $.const(East.applyPatch(v1, p1));
+        const step2 = $.const(East.applyPatch(step1, p2));
+        $(assert.equal(East.equal(step2, v3), true));
+    });
+
+    test("Compose: set chain ending empty", $ => {
+        const v1 = $.const(new Set([1n]), SetType(IntegerType));
+        const v2 = $.const(new Set([1n, 2n]), SetType(IntegerType));
+        const v3 = $.const(new Set([]), SetType(IntegerType));
+        const p1 = $.const(East.diff(v1, v2));
+        const p2 = $.const(East.diff(v2, v3));
+        $(assert.equal(p2.getTag(), "replace"));
+        const composed = $.const(East.composePatch(p1, p2, SetType(IntegerType)));
+        const direct = $.const(East.applyPatch(v1, composed));
+        $(assert.equal(East.equal(direct, v3), true));
+        const step1 = $.const(East.applyPatch(v1, p1));
+        const step2 = $.const(East.applyPatch(step1, p2));
+        $(assert.equal(East.equal(step2, v3), true));
     });
 });
 

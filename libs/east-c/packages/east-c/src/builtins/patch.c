@@ -291,9 +291,10 @@ static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type)
         }
     }
 
-    /* Optimization: if everything replaced, use replace instead */
-    if (del_count == before->data.set.len && ins_count == after->data.set.len && del_count > 0 &&
-        ins_count > 0) {
+    /* Everything replaced — normalize to replace. Matches the TS reference
+     * (diff.ts), which requires only a non-empty before; after may be empty. */
+    if (del_count == before->data.set.len && ins_count == after->data.set.len &&
+        before->data.set.len > 0) {
         east_value_release(ops);
         return mk_replace(before, after);
     }
@@ -353,9 +354,12 @@ static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
         }
     }
 
-    /* Optimization: if all deleted and all inserted, use replace */
-    if (del_count == before->data.dict.len && ins_count == after->data.dict.len && del_count > 0 &&
-        ins_count > 0 && east_dict_len(ops) == del_count + ins_count) {
+    /* Everything replaced — normalize to replace. Matches the TS reference
+     * (diff.ts), which requires only a non-empty before; after may be empty.
+     * When every before-key is deleted there can be no updates, so ops holds
+     * exactly the deletes + inserts. */
+    if (del_count == before->data.dict.len && ins_count == after->data.dict.len &&
+        before->data.dict.len > 0) {
         east_value_release(ops);
         return mk_replace(before, after);
     }
@@ -789,6 +793,14 @@ static EastValue *compose_struct(EastValue *first, EastValue *second, EastType *
         EastValue *fp1 = east_struct_get_field(first, names[i]);
         EastValue *fp2 = east_struct_get_field(second, names[i]);
         vals[i] = do_compose(fp1, fp2, ft);
+        if (!vals[i]) {
+            /* Conflict in a field compose — propagate */
+            for (size_t j = 0; j < i; j++)
+                east_value_release(vals[j]);
+            free(names);
+            free(vals);
+            return NULL;
+        }
         if (!is_tag(vals[i], "unchanged")) all_unchanged = false;
     }
 
@@ -828,6 +840,7 @@ static EastValue *compose_variant(EastValue *first, EastValue *second, EastType 
 
     EastValue *composed =
         do_compose(first->data.variant.value, second->data.variant.value, case_type);
+    if (!composed) return NULL;
     if (is_tag(composed, "unchanged")) {
         east_value_release(composed);
         return mk_unchanged();
@@ -842,6 +855,7 @@ static EastValue *compose_ref(EastValue *first, EastValue *second, EastType *typ
 {
     EastType *inner_type = type->data.element;
     EastValue *composed = do_compose(first, second, inner_type);
+    if (!composed) return NULL;
     if (is_tag(composed, "unchanged")) {
         east_value_release(composed);
         return mk_unchanged();
@@ -861,8 +875,18 @@ static EastValue *compose_set(EastValue *first, EastValue *second, EastType *typ
         EastValue *op1 = east_dict_val_at(first, i);
         EastValue *op2 = east_dict_get(second, key);
         if (op2) {
-            /* Both have this key — cancel out (insert+delete or delete+insert) */
-            /* Don't add to result */
+            const char *t1 = east_variant_case_name(op1);
+            const char *t2 = east_variant_case_name(op2);
+            if ((strcmp(t1, "insert") == 0 && strcmp(t2, "delete") == 0) ||
+                (strcmp(t1, "delete") == 0 && strcmp(t2, "insert") == 0)) {
+                /* Cancel out — don't add to result */
+            } else {
+                /* Same-key op pair with no coherent composition (matches the
+                 * TS reference, which conflicts rather than guessing). */
+                east_builtin_error("Cannot compose patches - conflicting operations on key");
+                east_value_release(result);
+                return NULL;
+            }
         } else {
             east_dict_set(result, key, op1);
         }
@@ -906,6 +930,10 @@ static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *ty
             /* Apply update to inserted value */
             EastValue *new_val =
                 do_apply(op1->data.variant.value, op2->data.variant.value, val_type);
+            if (!new_val) {
+                east_value_release(result);
+                return NULL;
+            }
             EastValue *new_op = east_variant_new("insert", new_val, NULL);
             east_dict_set(result, key, new_op);
             east_value_release(new_op);
@@ -917,16 +945,43 @@ static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *ty
             east_dict_set(result, key, new_op);
             east_value_release(new_op);
             east_value_release(rp);
+        } else if (strcmp(t1, "update") == 0 && strcmp(t2, "delete") == 0) {
+            /* Update then delete: op2 carries the post-update value; undo the
+             * update on it so the composed delete records the original value
+             * (compose(diff(v1,v2), diff(v2,v3)) == diff(v1,v3)). */
+            EastValue *inv = do_invert(op1->data.variant.value, val_type);
+            if (!inv) {
+                east_value_release(result);
+                return NULL;
+            }
+            EastValue *orig = do_apply(op2->data.variant.value, inv, val_type);
+            east_value_release(inv);
+            if (!orig) {
+                east_value_release(result);
+                return NULL;
+            }
+            EastValue *new_op = east_variant_new("delete", orig, NULL);
+            east_dict_set(result, key, new_op);
+            east_value_release(new_op);
+            east_value_release(orig);
         } else if (strcmp(t1, "update") == 0 && strcmp(t2, "update") == 0) {
             /* Compose the updates */
             EastValue *composed =
                 do_compose(op1->data.variant.value, op2->data.variant.value, val_type);
+            if (!composed) {
+                east_value_release(result);
+                return NULL;
+            }
             EastValue *new_op = east_variant_new("update", composed, NULL);
             east_dict_set(result, key, new_op);
             east_value_release(new_op);
             east_value_release(composed);
         } else {
-            east_dict_set(result, key, op1);
+            /* Same-key op pair with no coherent composition (matches the
+             * TS reference, which conflicts rather than guessing). */
+            east_builtin_error("Cannot compose patches - conflicting operations on key");
+            east_value_release(result);
+            return NULL;
         }
     }
 
@@ -985,6 +1040,7 @@ static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type
     /* replace + patch = replace(first.before, apply(first.after, second)) */
     if (is_tag(first, "replace") && is_tag(second, "patch")) {
         EastValue *applied = do_apply(replace_after(first), second, type);
+        if (!applied) return NULL;
         EastValue *result = mk_replace(replace_before(first), applied);
         east_value_release(applied);
         return result;
@@ -995,9 +1051,11 @@ static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type
      * Actually: we invert first, apply to second.before to get original before */
     if (is_tag(first, "patch") && is_tag(second, "replace")) {
         EastValue *inv = do_invert(first, type);
+        if (!inv) return NULL;
         EastValue *original = do_apply(replace_before(second), inv, type);
-        EastValue *result = mk_replace(original, replace_after(second));
         east_value_release(inv);
+        if (!original) return NULL;
+        EastValue *result = mk_replace(original, replace_after(second));
         east_value_release(original);
         return result;
     }

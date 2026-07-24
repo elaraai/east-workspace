@@ -161,6 +161,7 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
   } else if (t.type === "Dict") {
     let valueCompose: (first: any, second: any) => any;
     let valueApply: (base: any, patch: any) => any;
+    let valueInvert: (patch: any) => any;
     let applyRet: (base: any, patch: any) => any;
     let invertRet: (patch: any) => any;
     const keyPrint = printFor(t.value.key);
@@ -192,9 +193,11 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
             } else if (firstOp.type === "delete" && op.type === "insert") {
               result.set(key, variant("update", variant("replace", { before: firstOp.value, after: op.value })));
             } else if (firstOp.type === "update" && op.type === "delete") {
-              throw new ConflictError(
-                `Cannot compose patches - update then delete on key ${keyPrint(key)}`
-              );
+              // The delete carries the post-update value; undo the update on
+              // it so the composed delete records the original value —
+              // compose(diff(v1,v2), diff(v2,v3)) must equal diff(v1,v3).
+              const original = valueApply(op.value, valueInvert(firstOp.value));
+              result.set(key, variant("delete", original));
             } else if (firstOp.type === "update" && op.type === "update") {
               const composed = valueCompose(firstOp.value, op.value);
               result.set(key, variant("update", composed));
@@ -240,8 +243,9 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
 
     // Recurse into value type for compose
     valueCompose = composeFor(t.value.value, ctx);
-    // Build value apply with proper context (Dict handler is now in ctx.apply)
+    // Build value apply/invert with proper context (Dict handler is now in ctx.apply/ctx.invert)
     valueApply = applyFor(t.value.value as EastTypeValue, { apply: ctx.apply, types: ctx.types, equal: ctx.equal, print: ctx.print });
+    valueInvert = invertFor(t.value.value as EastTypeValue, { invert: ctx.invert, types: ctx.types, equal: ctx.equal });
 
     ctx.compose.pop();
     ctx.apply.pop();
