@@ -590,6 +590,208 @@ cdef object _make_callable(_eastc.EastCompiledFn* compiled,
         return eastc_fn
 
 
+# ─── C-level partial application: kernel.bind(*values) (#399) ─────────────
+#
+# Binds the TRAILING parameters of a compiled kernel to live East values BY
+# REFERENCE — no snapshot, no copy: each bound value's C pointer is retained
+# once and appended to every call's argument list by a pure-C invoke, so the
+# result is still a native function value (it carries _fn_val) and eager
+# methods keep the whole loop plus the lookup inside east-c. This is the
+# explicit opt-in to LIVE semantics: mutations to a bound collection are
+# observed by subsequent calls — the opposite of the closure-capture
+# contract (#393), which snapshots at trace time.
+
+cdef struct _BindData:
+    _eastc.EastValue* inner_fn
+    _eastc.EastValue** bound
+    size_t n_bound
+
+
+cdef _eastc.EvalResult _bind_invoke(_eastc.EastCompiledFn* self,
+                                    _eastc.EastValue** args, size_t n) noexcept:
+    """Append the bound values to the call's args and delegate to the inner
+    compiled function — pure C, no GIL, no per-element python."""
+    cdef _BindData* bd = <_BindData*>self.invoke_userdata
+    cdef _eastc.EastCompiledFn* inner = bd.inner_fn.data.function.compiled
+    cdef size_t total = n + bd.n_bound
+    cdef _eastc.EastValue* stack_args[8]
+    cdef _eastc.EastValue** combined
+    cdef bint heap = False
+    cdef size_t i
+    cdef _eastc.EvalResult r
+    if total <= 8:
+        combined = stack_args
+    else:
+        combined = <_eastc.EastValue**>malloc(total * sizeof(_eastc.EastValue*))
+        if combined == NULL:
+            return _eastc.eval_error("bind: out of memory")
+        heap = True
+    for i in range(n):
+        combined[i] = args[i]
+    for i in range(bd.n_bound):
+        combined[n + i] = bd.bound[i]
+    r = _eastc.east_call(inner, combined, total)
+    if heap:
+        free(combined)
+    return r
+
+
+cdef void _bind_release(void* ud) noexcept:
+    cdef _BindData* bd = <_BindData*>ud
+    cdef size_t i
+    if bd == NULL:
+        return
+    if bd.inner_fn != NULL:
+        _eastc.east_value_release(bd.inner_fn)
+    if bd.bound != NULL:
+        for i in range(bd.n_bound):
+            if bd.bound[i] != NULL:
+                _eastc.east_value_release(bd.bound[i])
+        free(bd.bound)
+    free(bd)
+
+
+def bind_kernel(object kernel_callable, tuple bound_values):
+    """C-level partial application of a compiled East function (#399).
+
+    Returns a new native callable whose TRAILING parameters are pre-bound to
+    ``bound_values`` by reference: collection proxies contribute their live C
+    pointer (zero copy, any size — the kernel observes later mutations),
+    other East values convert once at bind time. The result carries its own
+    ``_eastc_handle`` (with ``_fn_val``), so every eager method treats it as
+    native and the loop stays inside east-c. Rebinding the same kernel with
+    other values yields independent callables; the unbound kernel remains
+    usable.
+
+    Raises:
+        TypeError: If ``kernel_callable`` is not a compiled East function,
+            more values are bound than the kernel has parameters, or a bound
+            value's East type does not match the declared parameter type.
+    """
+    _ensure_runtime()
+    try:
+        handle = kernel_callable._eastc_handle
+    except AttributeError:
+        raise TypeError(
+            "bind() needs a compiled East kernel (from kernel() or compile_from_*)"
+        ) from None
+    input_ptrs = list(handle._input_types)
+    cdef size_t n_inputs = len(input_ptrs)
+    cdef size_t n_bound = len(bound_values)
+    if n_bound == 0:
+        raise TypeError("bind() needs at least one value")
+    if n_bound > n_inputs:
+        raise TypeError(
+            f"bind() got {n_bound} values for a {n_inputs}-parameter kernel"
+        )
+    cdef size_t first = n_inputs - n_bound
+
+    from east._eastc_bridge import c_type_ptr_to_py_type
+    from east.serialization.east_printer import print_east
+    from east.types.type_of_type import EastTypeType
+    from east.types.values import type_of
+    for j in range(n_bound):
+        expected = c_type_ptr_to_py_type(input_ptrs[first + j])
+        got = type_of(bound_values[j])
+        if got != expected:
+            raise TypeError(
+                f"bind() value {j} has East type "
+                f"{print_east(got, EastTypeType)}, parameter {first + j} "
+                f"expects {print_east(expected, EastTypeType)}"
+            )
+
+    cdef _BindData* bd = <_BindData*>malloc(sizeof(_BindData))
+    if bd == NULL:
+        raise MemoryError()
+    bd.inner_fn = NULL
+    bd.n_bound = n_bound
+    bd.bound = <_eastc.EastValue**>malloc(n_bound * sizeof(_eastc.EastValue*))
+    if bd.bound == NULL:
+        free(bd)
+        raise MemoryError()
+    cdef size_t k
+    for k in range(n_bound):
+        bd.bound[k] = NULL
+    try:
+        for k in range(n_bound):
+            bd.bound[k] = py_value_to_c(
+                bound_values[k], <_eastc.EastType*><uintptr_t>input_ptrs[first + k]
+            )
+    except BaseException:
+        _bind_release(bd)
+        raise
+
+    cdef _eastc.EastValue* inner_fv = <_eastc.EastValue*><uintptr_t>handle._fn_val
+    if inner_fv == NULL:
+        _bind_release(bd)
+        raise TypeError("bind() needs a kernel with a native function value")
+    _eastc.east_value_retain(inner_fv)
+    bd.inner_fn = inner_fv
+
+    cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
+        <_eastc.EastInvokeFn>_bind_invoke, <void*>bd, _bind_release, NULL
+    )
+    if fv == NULL:
+        # east_foreign_function released bd on allocation failure.
+        raise MemoryError()
+
+    # The bound callable's handle: remaining input types + same output.
+    remaining = []
+    for k in range(first):
+        _eastc.east_type_retain(<_eastc.EastType*><uintptr_t>input_ptrs[k])
+        remaining.append(input_ptrs[k])
+    _eastc.east_type_retain(<_eastc.EastType*><uintptr_t>handle._output_type)
+    cdef uintptr_t out_ptr = handle._output_type
+    cdef uintptr_t fv_ptr = <uintptr_t>fv
+    cdef uintptr_t bound_compiled_ptr = <uintptr_t>fv.data.function.compiled
+
+    class _EastCBoundHandle:
+        __slots__ = ("_compiled", "_fn_val", "_input_types", "_output_type", "_released")
+
+        def __init__(self):
+            self._compiled = bound_compiled_ptr
+            self._fn_val = fv_ptr
+            self._input_types = list(remaining)
+            self._output_type = out_ptr
+            self._released = False
+
+        def get_input_types(self):
+            from east._eastc_bridge import c_type_ptr_to_py_type as _to_py
+            return [_to_py(ptr) for ptr in self._input_types]
+
+        def get_output_type(self):
+            from east._eastc_bridge import c_type_ptr_to_py_type as _to_py
+            return _to_py(self._output_type)
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._fn_val)
+            for ptr in self._input_types:
+                _proxy_type_release(ptr)
+            _proxy_type_release(self._output_type)
+
+    bound_handle = _EastCBoundHandle()
+
+    def bound_fn(*args):
+        return _eastc_call(bound_handle._compiled, bound_handle._input_types,
+                           bound_handle._output_type, args)
+
+    object.__setattr__(bound_fn, "_eastc_handle", bound_handle)
+    # Keep the inner kernel callable and the bound python values alive: the
+    # C side retains its own references, but the inner handle also owns the
+    # wrapper/platform the compiled function runs against.
+    object.__setattr__(bound_fn, "_east_bind_refs", (kernel_callable, bound_values))
+
+    def bind(*values):
+        """Pre-bind further trailing parameters by reference (see bind_kernel)."""
+        return bind_kernel(bound_fn, values)
+
+    object.__setattr__(bound_fn, "bind", bind)
+    return bound_fn
+
+
 cdef object _make_callable_from_value(_eastc.EastValue* fn_val,
                                        _eastc.EastCompiledFn* wrapper,
                                        _eastc.PlatformRegistry* platform,
@@ -689,6 +891,15 @@ cdef object _make_callable_from_value(_eastc.EastValue* fn_val,
         object.__setattr__(eastc_fn, EAST_IR_ATTR, py_ir)
         object.__setattr__(eastc_fn, EAST_CAPTURES_ATTR, {})
         object.__setattr__(eastc_fn, "_eastc_handle", handle)
+
+        def bind(*values):
+            """Pre-bind the TRAILING parameters to live East values by
+            reference — C-level partial application (#399). The result stays
+            native (eager methods keep the loop in east-c) and observes later
+            mutations to bound collections. See ``bind_kernel``."""
+            return bind_kernel(eastc_fn, values)
+
+        object.__setattr__(eastc_fn, "bind", bind)
         return eastc_fn
 
 

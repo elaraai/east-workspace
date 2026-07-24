@@ -556,3 +556,89 @@ def test_hoisted_constant_inside_nested_lambda_still_binds_once():
     )
     assert ir.type == "Block"
     assert sum(1 for s in ir.value["statements"] if s.type == "Let") == 1
+
+
+# ─── #399: bind side-tables by reference (C-level partial application) ───────
+
+
+def _bind_setup():
+    from east import EastDict
+    from east.types.types import DictType
+
+    table = EastDict(StringType, FloatType, {"A-1": 2.0, "B-2": 3.0})
+    k = kernel(
+        [ROW, DictType(StringType, FloatType)],
+        lambda r, t: t.get_or_default(r.sku, 0.0) * r.qty,
+    )
+    return table, k
+
+
+def test_bind_stays_native_and_computes():
+    table, k = _bind_setup()
+    bound = k.bind(table)
+    # the bound callable is still a native function value — eager methods
+    # see _fn_val and keep the loop inside east-c (no trampoline)
+    assert bound._eastc_handle._fn_val != 0
+    assert list(_rows().map(bound)) == [8.0, 3.0, 4.0]
+    # direct call works with the remaining arity
+    assert bound({"sku": "B-2", "price": 0.0, "qty": 2.0}) == 6.0
+
+
+def test_bind_live_semantics_observe_mutation():
+    table, k = _bind_setup()
+    bound = k.bind(table)
+    assert list(_rows().map(bound)) == [8.0, 3.0, 4.0]
+    # bind is BY REFERENCE: mutations after binding are observed (the
+    # explicit opposite of the closure-capture snapshot contract)
+    table["A-1"] = 100.0
+    del table["B-2"]
+    assert list(_rows().map(bound)) == [400.0, 0.0, 200.0]
+
+
+def test_bind_rebinding_is_independent_and_unbound_stays_usable():
+    from east import EastDict
+
+    table, k = _bind_setup()
+    bound = k.bind(table)
+    other = EastDict(StringType, FloatType, {"A-1": -1.0})
+    b2 = k.bind(other)
+    assert list(_rows().map(b2)) == [-4.0, 0.0, -2.0]
+    assert list(_rows().map(bound)) == [8.0, 3.0, 4.0]
+    # the unbound kernel still takes both parameters
+    assert k({"sku": "A-1", "price": 0.0, "qty": 1.0}, table) == 2.0
+
+
+def test_bind_type_mismatch_is_loud():
+    from east import EastDict
+
+    _table, k = _bind_setup()
+    with pytest.raises(TypeError, match="bind\\(\\) value 0 has East type"):
+        k.bind(EastDict(StringType, StringType, {"x": "y"}))
+    with pytest.raises(TypeError, match="needs at least one value"):
+        k.bind()
+    with pytest.raises(TypeError, match="3 values"):
+        k.bind(_table, _table, _table)
+
+
+def test_bind_requires_native_kernel():
+    with pytest.raises(TypeError, match="compiled East kernel"):
+        from east.runtime._compiler_eastc import bind_kernel
+
+        bind_kernel(lambda x: x, (1.0,))
+
+
+def test_bind_multiple_trailing_parameters():
+    from east import EastDict
+    from east.types.types import DictType
+
+    t1 = EastDict(StringType, FloatType, {"A-1": 2.0})
+    t2 = EastDict(StringType, FloatType, {"B-2": 5.0})
+    k = kernel(
+        [ROW, DictType(StringType, FloatType), DictType(StringType, FloatType)],
+        lambda r, a, b: a.get_or_default(r.sku, 0.0) + b.get_or_default(r.sku, 0.0),
+    )
+    bound = k.bind(t1, t2)
+    assert list(_rows().map(bound)) == [2.0, 5.0, 2.0]
+    # chained binding: bind the tables one at a time
+    chained = k.bind(t2).bind(t1)
+    assert list(_rows().map(chained)) == [2.0, 5.0, 2.0]

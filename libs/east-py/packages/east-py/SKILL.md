@@ -151,6 +151,11 @@ syntax, fastest first:
 
    step = kernel([FloatType, Row], lambda acc, r: acc + r.price)  # fold arity
    k = compile_from_beast2(bytes_)                     # kernel compiled in TS
+
+   conv = kernel([Row, TableT], lambda r, t: t.get_or_default(r.sku, 0.0))
+   rows.map(conv.bind(table))   # bind a live side-table BY REFERENCE (#399):
+                                # zero-copy at any size, mutations observed,
+                                # still native — see "Maximum performance" #3
    ```
 
 3. **Any other python callable** — runs per element exactly as before
@@ -199,27 +204,36 @@ python never runs per element**. In order of impact:
    a chain of traced `map`/`filter`/`fold` stays native between steps.
    Return a dict literal (`lambda r: {"a": …, "b": …}`) to compute every
    derived column in ONE pass instead of one `map` per column.
-3. **Capture side tables in `kernel()` — knowing the snapshot semantics.**
-   A captured East collection is snapshot into the kernel's IR at trace
-   time: hoisted and identity-deduped so it builds **once per compiled
-   kernel** and every per-element lookup runs in C — ideal for lookup/side
-   tables up to ~10⁴–10⁵ entries. The snapshot's build cost and memory ride
-   the kernel, so for multi-million-entry tables prefer restructuring the
-   operation around the table with the native join-shaped ops
-   (`to_dict(..., combine=…)`, `update_many`, `group_by`) — true
-   by-reference capture is #399:
+3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
+   opposite contracts — never conflate them:
+
+   - **Closure capture (snapshot).** A captured East collection is snapshot
+     into the kernel's IR at trace time: hoisted and identity-deduped so it
+     builds **once per compiled kernel** and every per-element lookup runs
+     in C — ideal for lookup tables up to ~10⁴–10⁵ entries. The snapshot's
+     build cost and memory ride the kernel (a 1M-entry dict costs ~10 s to
+     snapshot), and later mutations are **not** seen.
+   - **`kernel(...).bind(table)` (by reference, live).** Declare the table
+     as a trailing parameter and pre-bind it: C-level partial application
+     retains the value's live pointer — **zero copy, O(1) bind at any size**
+     (1M entries: ~0.1 ms), per-row cost matches the hoisted case, and the
+     kernel **observes later mutations** (the explicit opt-in to live
+     semantics). Rebinding gives independent callables; the unbound kernel
+     stays usable; binding a wrong-typed value raises `TypeError`.
 
    ```python
-   fx = EastDict(StringType, FloatType, rates)          # 50-entry side table
+   fx = EastDict(StringType, FloatType, rates)          # small table → capture
    to_usd = kernel(Row, lambda r: r.amount * fx.get_or_default(r.ccy, 1.0))
-   rows.map(to_usd)                                     # fx built once, looked up in C
+
+   TableT = DictType(StringType, FloatType)             # huge table → bind
+   conv = kernel([Row, TableT], lambda r, t: r.amount * t.get_or_default(r.ccy, 1.0))
+   rows.map(conv.bind(big_table))                       # loop + lookup stay in east-c
+   conv.bind(t1, t2)  # multi-table: binds the TRAILING parameters in order
    ```
 
-   Kernel *parameters*, by contrast, always cross the bridge **by
-   reference** (the C value's pointer — zero copy, any size, any nesting
-   depth); arity beyond one only meets the eager methods where the callback
-   signature does (`fold`'s `[acc_type, element_type]` step), but a direct
-   `k(value)` call on a huge East value is itself zero-copy.
+   Kernel *parameters* always cross the bridge **by reference** (zero copy,
+   any size, any nesting depth) — `bind` is what lets eager methods use a
+   parameter-taking kernel where the callback signature is fixed.
 
 4. **Hoist `kernel(...)` out of python loops** and reuse it — re-tracing is
    cheap but not free; a precompiled kernel is a plain callable and every
@@ -398,6 +412,8 @@ Task → What do you need?
     │   ├─ Pure lambda in ANY eager callback → traced automatically (nothing to import; falls back if impure)
     │   ├─ Author a reusable/must-be-native kernel → east.kernel(param_types, fn)   ❗KernelTraceError if untraceable
     │   │   (multi-param: kernel([acc_t, elem_t], lambda acc, r: …) for fold-shaped callbacks)
+    │   ├─ Use a LARGE side-table in a kernel → declare it as a trailing parameter + k.bind(table)
+    │   │   (by reference: zero-copy at any size, LIVE — mutations observed; small tables just capture = snapshot)
     │   ├─ What traces (the expression surface inside kernels)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
     │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() · .sign() ·
