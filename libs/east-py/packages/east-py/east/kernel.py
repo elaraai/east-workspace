@@ -39,9 +39,12 @@ What traces (#393 expanded this to the whole builtin surface):
   constants — a SNAPSHOT taken at trace time, constructed once when the
   kernel compiles (hoisted + identity-deduped, so a side-table referenced
   from many sites or inside a ``.map`` lambda never rebuilds per element).
-  A multi-million-entry table still belongs in a parameter, not a capture:
-  the snapshot rides the kernel's IR. Access methods on an eager collection
-  accept traced keys and re-route through the tracer automatically.
+  A multi-million-entry table belongs in a trailing parameter instead,
+  pre-bound by reference with ``kernel(...).bind(table)`` (#399): zero-copy
+  at any size, and the kernel observes later mutations — the explicit
+  opt-in to live semantics, unlike the capture snapshot. Access methods on
+  an eager collection accept traced keys and re-route through the tracer
+  automatically.
 - Options: construct with ``some(expr)`` / ``none`` (typed from a ``where``
   branch), consume with ``.is_some()`` / ``.is_none()`` / ``.unwrap_or()`` /
   ``.match()`` / ``.unwrap()``; ``.try_parse(T)`` parses a String strictly
@@ -249,8 +252,9 @@ def _lift_collection(value: Any) -> KernelExpr | None:
     each element lifted recursively) and — inside a trace — hoists to a
     kernel-build-time ``Let`` (see ``_ConstRegistry``), so a TRANS-style
     side-table is built once per compiled kernel, not per evaluation.
-    Binding very large tables by reference (no snapshot at all) is a
-    separate design — see #393's discussion.
+    Very large tables should bind by reference instead (no snapshot at
+    all): declare a trailing parameter and use ``kernel(...).bind(table)``
+    (#399).
     """
     from east.types.types import ArrayType as _ArrayType
     from east.types.types import DictType as _DictType
@@ -1516,7 +1520,11 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
             type raises TypeError.
 
     Returns:
-        The compiled kernel callable.
+        The compiled kernel callable. Its ``.bind(*values)`` method pre-binds
+        the TRAILING parameters to live East values by reference (C-level
+        partial application, #399) — the bound callable stays native, is
+        zero-copy at any table size, and observes later mutations to bound
+        collections.
 
     Raises:
         KernelTraceError: If the lambda cannot be traced (uses python
