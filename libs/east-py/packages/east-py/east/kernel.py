@@ -32,8 +32,11 @@ What traces (#393 expanded this to the whole builtin surface):
   traced expression.
 - Collection transforms with nested lambdas, one level or deeper:
   ``.map`` / ``.filter`` / ``.fold`` / ``.some`` / ``.every`` /
-  ``.string_join`` / ``.get`` / ``.get_or_default`` / ``.try_get`` /
-  ``[index_expr]`` — inner lambdas may reference outer parameters.
+  ``.first_map`` / ``.string_join`` / ``.get`` / ``.get_or_default`` /
+  ``.try_get`` / ``[index_expr]`` — inner lambdas may reference outer
+  parameters. ``some``/``every``/``first_map`` compile to the native
+  short-circuiting FirstMap scans (#403), so traced and eager forms have
+  identical early-exit execution.
 - Captured East constants: ``EastArray`` / ``EastSet`` / ``EastDict`` /
   ``EastStruct`` values closed over by the lambda become build-time
   constants — a SNAPSHOT taken at trace time, constructed once when the
@@ -1181,32 +1184,109 @@ class KernelExpr:
         )
 
     def some(self, fn: Any) -> KernelExpr:
-        """Traced any-element predicate (ArrayFold over Boolean or)."""
+        """Traced any-element predicate (native short-circuiting FirstMap scan)."""
         return self._quantifier("some", fn)
 
     def every(self, fn: Any) -> KernelExpr:
-        """Traced all-elements predicate (ArrayFold over Boolean and)."""
+        """Traced all-elements predicate (native short-circuiting FirstMap scan)."""
         return self._quantifier("every", fn)
 
     def _quantifier(self, op: str, fn: Any) -> KernelExpr:
+        """some/every as an ArrayFirstMap probe that yields ``some(True)`` on
+        the deciding element — the scan short-circuits exactly like the eager
+        ``_first_map_bool`` path (#403), where the previous fold encoding
+        evaluated the predicate for every element.
+        """
         elem_t = self._array_elem(op)
         code = getattr(fn, "__code__", None)
         arity = code.co_argcount if code is not None else 1
+        want = op == "some"
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
 
-        def step(acc: KernelExpr, el: KernelExpr, i: KernelExpr) -> KernelExpr:
+        def probe(el: KernelExpr, i: KernelExpr) -> KernelExpr:
             pred = _lift(fn(*([el, i][:arity])))
             if pred.east_type.type != "Boolean":
                 raise KernelTraceError(
                     f".{op}() predicate must return Boolean, got {pred.east_type.type}"
                 )
-            return acc | pred if op == "some" else acc & pred
+            decided = pred if want else ~pred
+            return where(decided, _some(True), _none)
 
-        node, _out = _trace_inner_fn(step, [BooleanType, elem_t, IntegerType], declared=3)
-        init = _literal(op == "every", BooleanType)
-        return KernelExpr(
-            _builtin("ArrayFold", BooleanType, [elem_t, BooleanType], [self.ir, init, node]),
-            BooleanType,
+        node, out_t = _trace_inner_fn(probe, [elem_t, IntegerType], declared=2)
+        scanned = KernelExpr(
+            _builtin("ArrayFirstMap", out_t, [elem_t, BooleanType], [self.ir, node]), out_t
         )
+        # some: a deciding element exists; every: no counterexample exists.
+        # FirstMap on an empty array yields none, so some([])=False and
+        # every([])=True fall out — matching the eager path exactly.
+        return scanned.is_some() if want else scanned.is_none()
+
+    def first_map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+        """Traced early-exit scan: the first ``some(value)`` that ``fn``
+        produces (native ``Array``/``Set``/``Dict`` FirstMap — the scan stops
+        at the first ``some``, #403).
+
+        ``fn`` takes an element (or ``(key, value)`` for dicts) and returns
+        ``some(expr)`` / ``none`` — typically ``where(pred, some(x), none)``.
+        The result is ``Option<T>``; consume it with ``.is_some()`` /
+        ``.unwrap_or()`` / ``.match()``. ``out`` pins the ``some`` payload
+        type when the lambda alone cannot (e.g. a bare ``none`` arm outside
+        ``where``).
+        """
+        tag = self.east_type.type
+
+        def lift_result(raw: Any) -> Any:
+            if out is not None:
+                return _lift(raw, hint=_option_type(out))
+            return raw
+
+        if tag == "Array":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(
+                lambda el, _i: lift_result(fn(el)), [elem_t, IntegerType], declared=2
+            )
+            if not _is_option(out_t):
+                raise KernelTraceError(
+                    ".first_map() lambda must return some(...)/none, got "
+                    f"{out_t.type}"
+                )
+            inner_t = _option_inner(out_t)
+            return KernelExpr(
+                _builtin("ArrayFirstMap", out_t, [elem_t, inner_t], [self.ir, node]), out_t
+            )
+        if tag == "Set":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(lambda el: lift_result(fn(el)), [elem_t], declared=1)
+            if not _is_option(out_t):
+                raise KernelTraceError(
+                    ".first_map() lambda must return some(...)/none, got "
+                    f"{out_t.type}"
+                )
+            inner_t = _option_inner(out_t)
+            return KernelExpr(
+                _builtin("SetFirstMap", out_t, [elem_t, inner_t], [self.ir, node]), out_t
+            )
+        if tag == "Dict":
+            kv = self.east_type.value
+            # The builtin's callback signature is (value, key); the user fn
+            # takes (key, value) like the eager method.
+            node, out_t = _trace_inner_fn(
+                lambda v, k: lift_result(fn(k, v)), [kv["value"], kv["key"]], declared=2
+            )
+            if not _is_option(out_t):
+                raise KernelTraceError(
+                    ".first_map() lambda must return some(...)/none, got "
+                    f"{out_t.type}"
+                )
+            inner_t = _option_inner(out_t)
+            return KernelExpr(
+                _builtin(
+                    "DictFirstMap", out_t, [kv["key"], kv["value"], inner_t], [self.ir, node]
+                ),
+                out_t,
+            )
+        raise KernelTraceError(f".first_map() on {tag}")
 
     def string_join(self, separator: Any) -> KernelExpr:
         """Traced ArrayStringJoin over an Array<String>."""

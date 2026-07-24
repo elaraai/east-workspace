@@ -112,8 +112,11 @@ syntax, fastest first:
    `East.function` builder); the whole builtin surface records East IR —
    field access, arithmetic, comparisons, boolean algebra, string/datetime
    methods, every `East.<Type>.*` namespace call, collection transforms with
-   nested lambdas (`.map`/`.filter`/`.fold`/`.some`/`.every`/`.string_join`/
-   `[index_expr]`/`.try_get`), captured East collections (trace-time
+   nested lambdas (`.map`/`.filter`/`.fold`/`.some`/`.every`/`.first_map`/
+   `.string_join`/`[index_expr]`/`.try_get` — `some`/`every`/`first_map`
+   compile to the native short-circuiting FirstMap scans, so traced and
+   eager forms have identical early-exit execution), captured East
+   collections (trace-time
    snapshots hoisted to build-once constants — explicit `kernel()` only), option
    construct/consume (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
    `.try_parse(T) -> Option<T>` — east-c compiles it, and the loop AND the
@@ -431,8 +434,10 @@ Task → What do you need?
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) under a typed context
     │   │   ├─ Collections → .size() · .has(i|k) · .get(i|k) ❗ · [i|k expr] ❗ · .get_or_default(i|k, d) · .try_get(i|k) ·
-    │   │   │                 .map(fn) · .filter(fn) · .fold(init, fn) · .some(fn) · .every(fn) · .string_join(sep)
-    │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True)
+    │   │   │                 .map(fn) · .filter(fn) · .fold(init, fn) · .some(fn) · .every(fn) · .string_join(sep) ·
+    │   │   │                 .first_map(fn, out=) → Option (early exit: Array/Set fn(el), Dict fn(k,v); scan stops at first some)
+    │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True;
+    │   │   │                  some/every/first_map short-circuit natively — identical to the eager path)
     │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
     │   │   └─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
     │   │       SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
