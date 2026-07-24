@@ -140,8 +140,12 @@ syntax, fastest first:
 2. **A precompiled kernel** — `east.kernel(param_types, fn)` traces now and
    returns a reusable compiled callable (it also raises `KernelTraceError`
    instead of silently falling back — use it when you need to *know* you're
-   native, or to hoist compilation out of a loop). Compiled East functions
-   loaded from elsewhere (`compile_from_beast2/json/east`, or
+   native, or to hoist compilation out of a loop). A precompiled kernel —
+   including a `.bind(...)` result — passes its native function value
+   **straight through every eager method** (#409): the loop runs entirely in
+   east-c with zero per-element python, and the output type comes from the
+   kernel's own signature, so no `out=` and no sampling. Compiled East
+   functions loaded from elsewhere (`compile_from_beast2/json/east`, or
    `compile_from_value` for a homoiconic IR value built with
    `east.ir.builders`) are accepted the same way:
 
@@ -244,6 +248,12 @@ python never runs per element**. In order of impact:
 5. **When logic must stay python, go columnar** (next section): one
    boundary crossing per column/batch instead of per row × field, then
    come back to East values with `from_columns`/`extend`.
+6. **Verify you're actually native** with
+   `east.runtime.compiler.eager_stats()` — a snapshot of
+   `kernel_direct` / `pushdown_traced` / `trampoline_calls` counters. A hot
+   `rows.map(k)` that bumps `trampoline_calls` by `len(rows)` is running
+   per-element python; the delta should be zero for kernels and traced
+   lambdas.
 
 `kernel()` raises `KernelTraceError` instead of silently falling back —
 use it in hot paths so a lambda that drifts off the traceable surface
@@ -417,6 +427,8 @@ Task → What do you need?
     │   │   (multi-param: kernel([acc_t, elem_t], lambda acc, r: …) for fold-shaped callbacks)
     │   ├─ Use a LARGE side-table in a kernel → declare it as a trailing parameter + k.bind(table)
     │   │   (by reference: zero-copy at any size, LIVE — mutations observed; small tables just capture = snapshot)
+    │   ├─ Pass a precompiled kernel (incl. a .bind result) to any eager method → native loop, no out=, no sampling
+    │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats() (trampoline/kernel/pushdown counters)
     │   ├─ What traces (the expression surface inside kernels)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
     │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() · .sign() ·

@@ -627,6 +627,94 @@ def test_bind_requires_native_kernel():
         bind_kernel(lambda x: x, (1.0,))
 
 
+# ─── #409: precompiled kernels run natively through eager methods ────────────
+
+
+def test_map_runs_precompiled_kernel_natively():
+    from east.runtime.compiler import eager_stats
+
+    k = kernel([ROW], lambda r: r.sku.substring(0, 1))
+    rows = _rows()
+    before = eager_stats()
+    out = rows.map(k)
+    after = eager_stats()
+    # the kernel's native function value rides straight into ArrayMap:
+    # zero per-element python, no re-trace
+    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert after["kernel_direct"] == before["kernel_direct"] + 1
+    assert list(out) == ["A", "B", "A"]
+
+
+def test_map_infers_output_from_kernel_handle_without_sampling():
+    from east.runtime.compiler import eager_stats
+
+    # struct-returning kernel, no out= — the output type comes from the
+    # kernel's handle, not from sampling the kernel on a decoded row
+    k = kernel([ROW], lambda r: {"s": r.sku, "v": r.price * r.qty})
+    before = eager_stats()
+    out = _rows().map(k)
+    after = eager_stats()
+    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert [r["v"] for r in out] == [10.0, 150.0, 20.0]
+
+
+def test_bound_kernel_maps_natively():
+    from east import EastDict
+    from east.runtime.compiler import eager_stats
+    from east.types.types import DictType
+
+    table = EastDict(StringType, FloatType, {"A-1": 2.0})
+    k = kernel(
+        [ROW, DictType(StringType, FloatType)],
+        lambda r, t: t.get_or_default(r.sku, 0.0) * r.qty,
+    )
+    bound = k.bind(table)
+    before = eager_stats()
+    out = _rows().map(bound)
+    after = eager_stats()
+    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert after["kernel_direct"] == after["kernel_direct"]  # sanity: key exists
+    assert list(out) == [8.0, 0.0, 4.0]
+
+
+def test_fold_runs_precompiled_step_kernel_natively():
+    from east.runtime.compiler import eager_stats
+
+    step = kernel([FloatType, ROW], lambda acc, r: acc + r.price)
+    before = eager_stats()
+    total = _rows().fold(0.0, step)
+    after = eager_stats()
+    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert total == 162.5
+
+
+def test_builtin_shadowing_field_names_trace():
+    from east import EastArray
+
+    # A field named after a python builtin (`id`) must not poison the purity
+    # gate: co_names contains ATTRIBUTE names, which are not globals.
+    IdRow = StructType([("id", StringType)])
+    fn = lambda r: r.id.substring(0, 3)  # noqa: E731
+    assert _eligible(fn)
+    rows = EastArray(IdRow, [{"id": "ABCDEF"}, {"id": "XYZ123"}])
+    assert list(rows.map(fn, out=StringType)) == ["ABC", "XYZ"]
+    # a REAL builtin reference still disables tracing
+    assert not _eligible(lambda r: id(r))
+
+
+def test_mismatched_kernel_output_falls_back_cleanly():
+    from east.runtime.compiler import eager_stats
+
+    # out= disagrees with the kernel's output type: the direct path must
+    # refuse (no type confusion) and the per-element path still runs.
+    k = kernel([ROW], lambda r: r.price * r.qty)  # Float out
+    before = eager_stats()
+    out = _rows().map(k, out=FloatType)  # matches — native
+    after = eager_stats()
+    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert list(out) == [10.0, 150.0, 20.0]
+
+
 # ─── #403: control-flow parity — first_map + short-circuiting some/every ────
 
 

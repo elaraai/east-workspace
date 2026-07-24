@@ -40,6 +40,28 @@ def compile_from_beast2(
     return compile_eastc_from_beast2(beast2_data, platform or [], is_async)
 
 
+def eager_stats() -> dict[str, int]:
+    """Counters for how eager-method callbacks actually executed (#409).
+
+    Returns a snapshot dict:
+
+    - ``kernel_direct`` — calls where a precompiled kernel's native function
+      value was passed straight to the builtin (the fast path).
+    - ``pushdown_traced`` — pure python lambdas traced into native kernels.
+    - ``trampoline_calls`` — per-element python invocations (the slow path;
+      one count per element, not per call).
+
+    Use the delta around a hot call to verify it runs natively::
+
+        before = eager_stats()
+        rows.map(k)
+        assert eager_stats()["trampoline_calls"] == before["trampoline_calls"]
+    """
+    from east.runtime._compiler_eastc import _eager_counters_snapshot
+
+    return _eager_counters_snapshot()
+
+
 def compile_from_value(
     ir_value: Any,
     platform: list[PlatformFunction] | None = None,

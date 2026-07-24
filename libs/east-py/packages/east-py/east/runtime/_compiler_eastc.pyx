@@ -54,9 +54,21 @@ cdef void _ensure_runtime() except *:
 # back into Python. east-c then drives the loop and calls the lambda per element
 # through the trampoline — no algorithm is reimplemented in Python.
 
+# Eager-path observability (#409): how callbacks actually executed. Read via
+# east.runtime.compiler.eager_stats() — the difference between a native
+# kernel loop and a silent per-element trampoline is invisible in results
+# and enormous in cost, so make it measurable.
+_eager_counters = {"trampoline_calls": 0, "kernel_direct": 0, "pushdown_traced": 0}
+
+
+def _eager_counters_snapshot():
+    return dict(_eager_counters)
+
+
 cdef _eastc.EvalResult _py_invoke_trampoline(_eastc.EastCompiledFn* self,
                                              _eastc.EastValue** args, size_t n) noexcept with gil:
     """Called by east-c when it invokes a wrapped Python callable."""
+    _eager_counters["trampoline_calls"] += 1
     cdef object ud = <object>self.invoke_userdata  # (fn, input_types, output_type)
     cdef _eastc.EastType* c_in
     cdef _eastc.EastType* c_out
@@ -115,9 +127,128 @@ cdef object _try_push_down_py(object east_fn):
     """
     try:
         from east.kernel import try_push_down
-        return try_push_down(east_fn)
+        result = try_push_down(east_fn)
+        if result is not None:
+            _eager_counters["pushdown_traced"] += 1
+        return result
     except BaseException:
         return None
+
+
+# ─── Precompiled kernels as eager callbacks (#409) ────────────────────────
+#
+# A callback that is ALREADY a compiled East function (east.kernel /
+# compile_from_* / kernel.bind) carries its native function value on its
+# handle — re-tracing it can only fail (its python body is the bridge
+# closure), which used to drop the whole call to the per-element trampoline.
+# Use the function value directly. When the builtin's callback signature
+# passes more arguments than the kernel takes (ArrayMap invokes (element,
+# index); a kernel([RowT], …) takes one), a pure-C prefix adapter forwards
+# only the kernel's arity — the same east_foreign_function seam as bind.
+
+cdef struct _ArityData:
+    _eastc.EastValue* inner_fn
+    size_t n_keep
+
+
+cdef _eastc.EvalResult _arity_invoke(_eastc.EastCompiledFn* self,
+                                     _eastc.EastValue** args, size_t n) noexcept:
+    """Forward the first n_keep arguments to the inner compiled function."""
+    cdef _ArityData* ad = <_ArityData*>self.invoke_userdata
+    cdef size_t n_pass = ad.n_keep if n > ad.n_keep else n
+    return _eastc.east_call(ad.inner_fn.data.function.compiled, args, n_pass)
+
+
+cdef void _arity_release(void* ud) noexcept:
+    cdef _ArityData* ad = <_ArityData*>ud
+    if ad == NULL:
+        return
+    if ad.inner_fn != NULL:
+        _eastc.east_value_release(ad.inner_fn)
+    free(ad)
+
+
+cdef object _adapt_kernel_arity(object kernel_callable, size_t n_keep):
+    """Wrap a compiled kernel in a C-level prefix adapter of arity n_keep.
+
+    Returns a tiny holder carrying the adapter's retained function value in
+    ``_eastc_handle._fn_val`` shape, or None on allocation failure.
+    """
+    cdef uintptr_t inner_ptr = _native_fn_val_ptr(kernel_callable)
+    if inner_ptr == 0:
+        return None
+    cdef _ArityData* ad = <_ArityData*>malloc(sizeof(_ArityData))
+    if ad == NULL:
+        return None
+    ad.n_keep = n_keep
+    ad.inner_fn = <_eastc.EastValue*>inner_ptr
+    _eastc.east_value_retain(ad.inner_fn)
+    cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
+        <_eastc.EastInvokeFn>_arity_invoke, <void*>ad, _arity_release, NULL
+    )
+    if fv == NULL:
+        # east_foreign_function released ad on allocation failure.
+        return None
+    cdef uintptr_t fv_ptr = <uintptr_t>fv
+
+    class _ArityHandle:
+        __slots__ = ("_fn_val", "_released")
+
+        def __init__(self):
+            self._fn_val = fv_ptr
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._fn_val)
+
+    class _AdaptedKernel:
+        __slots__ = ("_eastc_handle", "_inner")
+
+        def __init__(self):
+            self._eastc_handle = _ArityHandle()
+            self._inner = kernel_callable  # keep the inner kernel alive
+
+    return _AdaptedKernel()
+
+
+cdef object _native_kernel_for(object east_fn):
+    """The directly-usable native form of an EastFunction whose ``.fn`` is a
+    precompiled kernel, or None when it is not one (or cannot be used).
+
+    Verifies the kernel's output type matches the declared callback output
+    (a mismatch falls back to the trampoline, which converts per element),
+    and prefix-adapts arity when the callback signature passes more
+    arguments than the kernel takes. Eager methods that wrap the user
+    callback tag the wrapper with the underlying kernel via ``_east_kernel``
+    (collections._mark_kernel) — resolve through it.
+    """
+    fn = getattr(east_fn.fn, "_east_kernel", None)
+    if fn is None:
+        fn = east_fn.fn
+    cdef uintptr_t fn_ptr = _native_fn_val_ptr(fn)
+    if fn_ptr == 0:
+        return None
+    try:
+        handle = fn._eastc_handle
+        n_kernel = len(handle._input_types)
+        kernel_out = handle.get_output_type()
+    except BaseException:
+        return None
+    if kernel_out != east_fn.output_type:
+        return None
+    n_declared = len(east_fn.input_types)
+    if n_kernel == n_declared:
+        _eager_counters["kernel_direct"] += 1
+        return fn
+    if n_kernel < n_declared:
+        adapted = _adapt_kernel_arity(fn, <size_t>n_kernel)
+        if adapted is not None:
+            _eager_counters["kernel_direct"] += 1
+        return adapted
+    return None
 
 
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
@@ -197,11 +328,15 @@ def call_builtin(str name, list type_params, list args, object output_type):
                 arg_types[i] = NULL
             for i in range(nargs):
                 if isinstance(args[i], EastFunction):
-                    # IR push-down: trace a provably-pure python callback
-                    # into a native kernel so the loop never re-enters
-                    # python; otherwise wrap the callable behind the
-                    # per-element invoke trampoline.
-                    native = _try_push_down_py(args[i])
+                    # A precompiled kernel used as the callback rides its own
+                    # native function value straight into the builtin (#409);
+                    # otherwise IR push-down traces a provably-pure python
+                    # callback into a native kernel so the loop never
+                    # re-enters python; otherwise wrap the callable behind
+                    # the per-element invoke trampoline.
+                    native = _native_kernel_for(args[i])
+                    if native is None:
+                        native = _try_push_down_py(args[i])
                     fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
                     if fn_ptr != 0:
                         native_holds.append(native)
