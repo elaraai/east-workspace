@@ -109,10 +109,18 @@ syntax, fastest first:
 
 1. **A pure python lambda — traced automatically.** The method calls your
    lambda ONCE with typed expression proxies (exactly like a TS
-   `East.function` builder); field access, arithmetic, comparisons and
-   boolean algebra record East IR, east-c compiles it, and the loop AND the
-   kernel execute natively — zero python per element (~5× a per-element
-   callback on a 300k-row map, and it composes with chaining):
+   `East.function` builder); the whole builtin surface records East IR —
+   field access, arithmetic, comparisons, boolean algebra, string/datetime
+   methods, every `East.<Type>.*` namespace call, collection transforms with
+   nested lambdas (`.map`/`.filter`/`.fold`/`.some`/`.every`/`.string_join`/
+   `[index_expr]`/`.try_get`), captured East collections (trace-time
+   snapshots hoisted to build-once constants — explicit `kernel()` only), option
+   construct/consume (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
+   `.try_parse(T) -> Option<T>` — east-c compiles it, and the loop AND the
+   kernel execute natively, zero python per element (~5× a per-element
+   callback on a 300k-row map, and it composes with chaining). Methods that
+   exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
+   inference otherwise samples the lambda on a decoded python value):
 
    ```python
    rows    = EastBlob(csv_bytes).decode_csv(Row)          # C-backed Array<Row>
@@ -151,12 +159,16 @@ syntax, fastest first:
 
 - Reference only the lambda's parameters, plain scalar constants
   (closure floats/ints/strings are baked — same value per element either
-  way), East types/values, and `where`. Any module reference
-  (`random.…`, `np.…`), mutable closure, callable helper that itself
-  fails these rules, or closure mutation (`nonlocal x; x += 1`)
-  **disables tracing** — the python path runs and semantics are exactly
-  today's. Side effects therefore never get lost: an impure lambda runs
-  per element; a traced lambda ran once, at trace time.
+  way), East types/values, the `East` builtin namespace, and `where`. Any
+  other module reference (`random.…`, `np.…`), mutable closure, callable
+  helper that itself fails these rules, or closure mutation
+  (`nonlocal x; x += 1`) **disables tracing** — the python path runs and
+  semantics are exactly today's. A closed-over East *collection* also
+  disables auto-tracing (tracing snapshots it, which would diverge from
+  live per-element semantics) — capture side-tables in an explicit
+  `kernel()`, which opts into the snapshot. Side effects therefore never
+  get lost: an impure lambda runs per element; a traced lambda ran once,
+  at trace time.
 - Python won't let a library overload `and`/`or`/`not`/`if`, so traced
   kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
   `where(cond, then, otherwise)` for conditionals. `where` is dual-mode:
@@ -189,6 +201,10 @@ acc = EastDict(StringType, FloatType)                       # dicts as accumulat
 acc.update_many(keys, values, combine=lambda cur, new: cur + new)  # one crossing,
                                                             # combine traces -> collisions in C
 arr.extend(np_array)                                        # bulk push, one crossing
+
+solver_input = coerce_to(                                   # struct fields take 1-D numpy
+    {"start_nodes": np_i64, "capacities": np_i64, ...},     # columns directly: each
+    MinCostFlowInputType)                                   # Array<Int/Float/Bool> fills C-side
 ```
 
 `Float`/`Integer`/`Boolean` columns move through numpy buffers filled in C
@@ -266,7 +282,7 @@ Task → What do you need?
     │   ├─ Numeric buffer for ML/tensors → EastVector(FloatType, np_1d) / EastMatrix(FloatType, np_2d)
     │   ├─ A ref cell → east_ref(value)
     │   ├─ Generate (range/zeros/…) → classmethods: EastArray.range / EastVector.zeros / …  (NOT East.Array.*)
-    │   └─ Anything, type-driven (int→Float, dict→Struct, …) → coerce_to(value, typ)
+    │   └─ Anything, type-driven (int→Float, dict→Struct, np 1-D→Array, …) → coerce_to(value, typ)
     │
     ├─ Validate a value at a Python↔East boundary
     │   ├─ Raise on mismatch, path-pinpointed → assert_value_of(value, typ)   ❗EastTypeError
@@ -337,15 +353,21 @@ Task → What do you need?
     │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · where(cond, then, otherwise)
     │   │   ├─ String → + (concat) · .contains/.starts_with/.ends_with · .upper()/.lower() · .strip()/.lstrip()/.rstrip() ·
     │   │   │            .length() · .split(sep) · .replace(old, new) · .substring(a, b) · .index_of(s) · .repeat(n) ·
-    │   │   │            .regex_contains/.regex_index_of(pat, flags=) · .regex_replace(pat, repl, flags=) · .encode_utf8/16
+    │   │   │            .regex_contains/.regex_index_of(pat, flags=) · .regex_replace(pat, repl, flags=) · .encode_utf8/16 ·
+    │   │   │            .try_parse(T) -> Option<T> (strict whole-string parse; none on any failure)
     │   │   ├─ DateTime → .get_year/month/day_of_month/day_of_week/hour/minute/second/millisecond() ·
     │   │   │              .to_epoch_milliseconds() · .add_/subtract_{milliseconds,seconds,minutes,hours,days,weeks}(n) ·
     │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD")
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) under a typed context
-    │   │   └─ Collections (scalar reads on fields) → .size() · .has(i|k) · .get(i|k) ❗ · .get_or_default(i|k, d)
-    │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced, eager on plain values)
+    │   │   ├─ Collections → .size() · .has(i|k) · .get(i|k) ❗ · [i|k expr] ❗ · .get_or_default(i|k, d) · .try_get(i|k) ·
+    │   │   │                 .map(fn) · .filter(fn) · .fold(init, fn) · .some(fn) · .every(fn) · .string_join(sep)
+    │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True)
+    │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
+    │   │   └─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
+    │   │       SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
+    │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
@@ -446,7 +468,7 @@ to East's storage width (Float→f64, Integer→i64, Boolean→u8) crossing into
 | `match(v, cases: dict, default=None)` | Dispatch on `v.type`; the handler is **always** called `handler(v.value)` — the `none` arm must be `lambda v: …`, not `lambda: …` | `match(o, {"some": lambda x: x, "none": lambda v: -1})` |
 | `east_ref(value) -> EastRef` | Make a mutable ref cell (same as `EastRef(value)`) | `east_ref(0)` |
 | **Validation / coercion** — raise `EastTypeError` (`expected X, got Y (at $.path)`) |
-| `coerce_to(value, typ, *, path="$") -> EastValue` | Canonicalize any Python value to a bridge-ready East value, type-driven | `coerce_to([1.,2.], VectorType(FloatType))` |
+| `coerce_to(value, typ, *, path="$") -> EastValue` | Canonicalize any Python value to a bridge-ready East value, type-driven; a 1-D numpy array fills `Array<Float/Integer/Boolean>` C-side in one bulk crossing (hand struct fields numpy columns directly) | `coerce_to({"qty": np_i64}, InputType)` |
 | `assert_value_of(value, typ, *, path="$") -> value` ❗ | Validate; return value, or raise path-pinpointed `EastTypeError` on first mismatch | `assert_value_of(s, LineItem)` |
 | `explain_value_of(value, typ) -> list[(path, reason)]` | Every mismatch; `[]` == conforms | `explain_value_of(s, LineItem)` |
 | `is_value_of(value, typ) -> bool` | Boolean conformance check | `is_value_of(items, ArrayType(LineItem))` |
@@ -625,7 +647,7 @@ Every one delegates to east-c.
 | `replace(s, find, replacement)` · `split(s, separator) -> Array<String>` | edit / tokenize |
 | `contains(s, substring)` · `starts_with(s, prefix)` · `ends_with(s, suffix)` · `index_of(s, substring) -> int` | search (`-> bool`/`int`) |
 | `regex_contains(s, pattern, flags="")` · `regex_index_of(s, pattern, flags="")` · `regex_replace(s, pattern, replacement, flags="")` | regex |
-| `parse(typ, s)` · `print(typ, value) -> str` | East **text** format |
+| `parse(typ, s)` ❗ · `print(typ, value) -> str` | East **text** format; `parse` is a **strict whole-string** parser — trailing or leading junk raises (`"598-"`, `"$5"`, `"1.2.3"` all raise; in kernels use `.try_parse(T)` for the optional form) |
 | `parse_json(typ, s)` · `print_json(typ, value) -> str` | East **JSON** (`Integer` encodes as a JSON *string*: `print_json(ArrayType(IntegerType), [1,2,3]) == '["1","2","3"]'`) |
 
 **`East.DateTime`** (see [DateTime format codes](#datetime-format-codes))

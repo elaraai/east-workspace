@@ -56,6 +56,7 @@ export const linearSolveResourceAllocation = example({
             solver: none,
             max_time_seconds: none,
             relative_gap_limit: none,
+            hints: none,
         }, GoogleOr.Types.LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));
@@ -109,6 +110,7 @@ export const linearSolveMipRelativeGapLimit = example({
             solver: none,
             max_time_seconds: none,
             relative_gap_limit: some(0.01),
+            hints: none,
         }, GoogleOr.Types.LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));
@@ -116,6 +118,67 @@ export const linearSolveMipRelativeGapLimit = example({
         // Optimum objective is 22 (items 1 + 2).
         return result.objective_value.match({
             some: ($, v) => v.greaterThanOrEqual(22.0),
+            none: ($) => false,
+        });
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const linearSolveMipWarmStart = example({
+    keywords: ["google or", "linear", "linearSolve", "MIP", "warm start", "solution hint", "hints", "SetHint", "SCIP", "receding horizon", "re-solve", "knapsack"],
+    description: "Warm-start a knapsack MIP re-solve by hinting the previous solution (hints are advisory: the optimum is unchanged)",
+    fn: East.function([], BooleanType, ($) => {
+        // Same 0/1 knapsack: values [6, 10, 12], weights [2, 4, 6], capacity 10.
+        // Optimum picks items 1 and 2 (value 22, weight 10).
+        const model = $.let({
+            variables: [
+                { name: "x0", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },
+                { name: "x1", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },
+                { name: "x2", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },
+            ],
+            constraints: [
+                {
+                    terms: [
+                        { var: "x0", coeff: 2.0 },
+                        { var: "x1", coeff: 4.0 },
+                        { var: "x2", coeff: 6.0 },
+                    ],
+                    lower_bound: -1e20,
+                    upper_bound: 10.0,
+                },
+            ],
+            objective: {
+                terms: [
+                    { var: "x0", coeff: 6.0 },
+                    { var: "x1", coeff: 10.0 },
+                    { var: "x2", coeff: 12.0 },
+                ],
+                maximize: true,
+            },
+        }, GoogleOr.Types.LinearModelType);
+
+        // A receding-horizon loop re-solves a near-identical model each epoch:
+        // the previous epoch's solution is a near-feasible partial hint. "x9"
+        // names a variable that dropped out of this epoch's model — unknown
+        // names are ignored, not errors.
+        const config = $.let({
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
+            hints: some([
+                { var: "x0", value: 0.0 },
+                { var: "x1", value: 1.0 },
+                { var: "x2", value: 1.0 },
+                { var: "x9", value: 1.0 },
+            ]),
+        }, GoogleOr.Types.LinearConfigType);
+
+        const result = $.let(GoogleOr.linearSolve(model, config));
+
+        // Hints only guide the search: the returned optimum is still 22.
+        return result.objective_value.match({
+            some: ($, v) => v.equal(22.0),
             none: ($) => false,
         });
     }),

@@ -1355,8 +1355,14 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   IntegerAdd: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => BigInt.asIntN(64, x + y),
   IntegerSubtract: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => BigInt.asIntN(64, x - y),
   IntegerMultiply: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => BigInt.asIntN(64, x * y),
-  IntegerDivide: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => x === 0n ? 0n : x / y,
-  IntegerRemainder: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => x === 0n ? 0n : x % y,
+  IntegerDivide: (loc_id: bigint, source_map: SourceMap | null) => (x: bigint, y: bigint) => {
+    if (y === 0n) throw new EastError("Division by zero", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    return BigInt.asIntN(64, x / y);
+  },
+  IntegerRemainder: (loc_id: bigint, source_map: SourceMap | null) => (x: bigint, y: bigint) => {
+    if (y === 0n) throw new EastError("Division by zero", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    return x % y;
+  },
   IntegerPow: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => y >= 0n ? BigInt.asIntN(64, x ** y) : 0n,
   IntegerAbs: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => BigInt.asIntN(64, x < 0n ? -x : x),
   IntegerSign: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => x > 0n ? 1n : x < 0n ? -1n : 0n,

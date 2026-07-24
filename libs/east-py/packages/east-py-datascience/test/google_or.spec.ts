@@ -35,7 +35,7 @@ describeEast("GoogleOr platform functions", (test) => {
     // CP-SAT Tests
     // ========================================================================
 
-    Assert.examples(test, { cpsatScheduleJobs: cpsatEx.cpsatScheduleJobs, cpsatAssignShifts: cpsatEx.cpsatAssignShifts, cpsatSolveAll: cpsatEx.cpsatSolveAll });
+    Assert.examples(test, { cpsatScheduleJobs: cpsatEx.cpsatScheduleJobs, cpsatAssignShifts: cpsatEx.cpsatAssignShifts, cpsatSolveAll: cpsatEx.cpsatSolveAll, cpsatSolveWithHints: cpsatEx.cpsatSolveWithHints });
 
     test("cpsat solves simple integer optimization", $ => {
         // Maximize 2x + 3y subject to x + y <= 10, x,y in [0,10]
@@ -80,6 +80,7 @@ describeEast("GoogleOr platform functions", (test) => {
             max_solutions: variant('none', null),
             relative_gap_limit: variant('none', null),
             absolute_gap_limit: variant('none', null),
+            hints: none,
         }, CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -91,6 +92,67 @@ describeEast("GoogleOr platform functions", (test) => {
         });
 
         $(Assert.greater(result.wall_time, East.value(0.0)));
+    });
+
+    test("cpsat hints are advisory: a suboptimal hint never changes the optimum", $ => {
+        // Same model as above (optimum 30 at x=0,y=10). The hint suggests the
+        // feasible but suboptimal (x=10, y=0) -> 20, plus an unknown variable
+        // and an interval variable - both ignored.
+        const model = $.let({
+            int_vars: [
+                { name: "x", lower_bound: 0n, upper_bound: 10n },
+                { name: "y", lower_bound: 0n, upper_bound: 10n },
+            ],
+            bool_vars: [
+                { name: "_unused" },
+            ],
+            interval_vars: [
+                { name: "_unused_iv", start: "x", size: "x", end: "x", is_present: none },
+            ],
+            constraints: [
+                variant('linear', {
+                    expr: {
+                        terms: [
+                            { var: "x", coeff: 1n },
+                            { var: "y", coeff: 1n },
+                        ],
+                        constant: 0n,
+                    },
+                    op: variant('less_equal', null),
+                    rhs: 10n,
+                }),
+            ],
+            objective: variant('some', variant('maximize', {
+                terms: [
+                    { var: "x", coeff: 2n },
+                    { var: "y", coeff: 3n },
+                ],
+                constant: 0n,
+            })),
+        }, CpSatModelType);
+
+        const config = $.let({
+            max_time_seconds: none,
+            num_workers: none,
+            log_search_progress: none,
+            seed: none,
+            max_solutions: none,
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: some([
+                { var: "x", value: 10n },
+                { var: "y", value: 0n },
+                { var: "dropped_out", value: 1n },
+                { var: "_unused_iv", value: 0n },
+            ]),
+        }, CpSatConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+        $.match(result.objective_value, {
+            some: ($, v) => $(Assert.equal(v, East.value(30.0))),
+            none: $ => $(Assert.fail(East.value("Expected objective value"))),
+        });
     });
 
     test("cpsat all_different constraint", $ => {
@@ -132,6 +194,7 @@ describeEast("GoogleOr platform functions", (test) => {
             max_solutions: variant('none', null),
             relative_gap_limit: variant('none', null),
             absolute_gap_limit: variant('none', null),
+            hints: none,
         }, CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -197,7 +260,7 @@ describeEast("GoogleOr platform functions", (test) => {
     // Linear Programming Tests
     // ========================================================================
 
-    Assert.examples(test, { linearSolveResourceAllocation: linearEx.linearSolveResourceAllocation, linearSolveMipRelativeGapLimit: linearEx.linearSolveMipRelativeGapLimit });
+    Assert.examples(test, { linearSolveResourceAllocation: linearEx.linearSolveResourceAllocation, linearSolveMipRelativeGapLimit: linearEx.linearSolveMipRelativeGapLimit, linearSolveMipWarmStart: linearEx.linearSolveMipWarmStart });
 
     test("linear solves simple LP", $ => {
         // Maximize 3x + 2y subject to x + y <= 4, x <= 3, y <= 3, x,y >= 0
@@ -230,6 +293,7 @@ describeEast("GoogleOr platform functions", (test) => {
             solver: none,
             max_time_seconds: none,
             relative_gap_limit: none,
+            hints: none,
         }, LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));
@@ -273,6 +337,54 @@ describeEast("GoogleOr platform functions", (test) => {
             solver: none,
             max_time_seconds: none,
             relative_gap_limit: none,
+            hints: none,
+        }, LinearConfigType);
+
+        const result = $.let(GoogleOr.linearSolve(model, config));
+
+        $.match(result.objective_value, {
+            some: ($, v) => $(Assert.equal(v, East.value(25.0))),
+            none: $ => $(Assert.fail(East.value("Expected objective value"))),
+        });
+    });
+
+    test("linear MIP hints are advisory: a suboptimal hint never changes the optimum", $ => {
+        // Same MIP as above: maximize 5x + 4y, x+y <= 5, x,y integer >= 0.
+        // Optimal: x=5, y=0 -> 25. The hint suggests the feasible but
+        // suboptimal (x=0, y=5) -> 20, plus a variable that does not exist.
+        const model = $.let({
+            variables: [
+                { name: "x", lower_bound: 0.0, upper_bound: 5.0, is_integer: true },
+                { name: "y", lower_bound: 0.0, upper_bound: 5.0, is_integer: true },
+            ],
+            constraints: [
+                {
+                    terms: [
+                        { var: "x", coeff: 1.0 },
+                        { var: "y", coeff: 1.0 },
+                    ],
+                    lower_bound: -1e20,
+                    upper_bound: 5.0,
+                },
+            ],
+            objective: {
+                terms: [
+                    { var: "x", coeff: 5.0 },
+                    { var: "y", coeff: 4.0 },
+                ],
+                maximize: true,
+            },
+        }, LinearModelType);
+
+        const config = $.let({
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
+            hints: some([
+                { var: "x", value: 0.0 },
+                { var: "y", value: 5.0 },
+                { var: "dropped_out", value: 1.0 },
+            ]),
         }, LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));

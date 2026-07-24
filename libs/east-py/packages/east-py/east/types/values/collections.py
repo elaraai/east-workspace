@@ -46,6 +46,30 @@ def _opt_unwrap_or(opt: Any, default: Any) -> Any:
     return opt.value if opt.type == "some" else default
 
 
+# Cached KernelExpr class for the traced-argument pre-checks (#393): access
+# methods called with a traced key/index re-route through the kernel tracer
+# (this collection lifts to a constant) instead of hitting the C container
+# protocol with an expression proxy.
+_kernel_expr_cls: Any = None
+
+
+def _is_traced(value: Any) -> bool:
+    """Whether ``value`` is a traced kernel expression (lazy class cache)."""
+    global _kernel_expr_cls
+    if _kernel_expr_cls is None:
+        from east.kernel import KernelExpr
+
+        _kernel_expr_cls = KernelExpr
+    return isinstance(value, _kernel_expr_cls)
+
+
+def _lift_traced(value: Any) -> Any:
+    """Lift an eager collection into a traced constant expression (#393)."""
+    from east.kernel import _lift
+
+    return _lift(value)
+
+
 class EastArray(MutableSequence, Generic[T]):
     """East array with element type tracking.
 
@@ -319,15 +343,31 @@ class EastArray(MutableSequence, Generic[T]):
         return 0 <= int(index) < len(self)
 
     def get(self, index: int) -> Any:
-        """Element at ``index`` (the container read delegates to the live value on a proxy)."""
+        """Element at ``index`` (the container read delegates to the live value on a proxy).
+
+        With a traced ``index`` (inside a ``kernel()`` lambda) this array is
+        lifted as a constant and the access emits IR (#393).
+        """
+        if _is_traced(index):
+            return _lift_traced(self).get(index)
         return self[index]
 
     def get_or_default(self, index: int, default: Any) -> Any:
-        """Element at ``index``, or ``default`` when ``index`` is out of bounds."""
+        """Element at ``index``, or ``default`` when ``index`` is out of bounds.
+
+        Traced arguments emit IR against this array as a constant (#393).
+        """
+        if _is_traced(index) or _is_traced(default):
+            return _lift_traced(self).get_or_default(index, default)
         return self[index] if self.has(index) else default
 
     def try_get(self, index: int) -> EastVariant:
-        """``some(element)`` when ``index`` is in bounds, else ``none``."""
+        """``some(element)`` when ``index`` is in bounds, else ``none``.
+
+        A traced ``index`` emits IR against this array as a constant (#393).
+        """
+        if _is_traced(index):
+            return _lift_traced(self).try_get(index)
         return EastVariant("some", self[index]) if self.has(index) else EastVariant("none", east_null)
 
     def to_set(self, key: Any = None) -> EastSet:
@@ -1314,7 +1354,12 @@ class EastSet(Generic[T]):
         return _call_builtin("SetGenerate", [k], [int(n), gen, side], SetType(k))
 
     def has(self, value: Any) -> bool:
-        """Whether ``value`` is a member (east-c SetHas, via the live value on a proxy)."""
+        """Whether ``value`` is a member (east-c SetHas, via the live value on a proxy).
+
+        A traced ``value`` emits IR against this set as a constant (#393).
+        """
+        if _is_traced(value):
+            return _lift_traced(self).has(value)
         return value in self
 
     def insert(self, value: Any) -> None:
@@ -1942,6 +1987,10 @@ class EastDict(Generic[K, V]):
     def get_or_default(self, key: Any, default: Any) -> Any:
         """Value for ``key``, or ``default`` if absent (east-c DictGetOrDefault).
 
+        With a traced ``key``/``default`` (inside a ``kernel()`` lambda) this
+        dict is lifted as a constant and the lookup emits IR (#393) — the
+        TRANS-style side-table shape.
+
         Args:
             key: The key to look up, compared under East's total ordering.
             default: Value returned when ``key`` is not present.
@@ -1949,6 +1998,8 @@ class EastDict(Generic[K, V]):
         Returns:
             The stored value for ``key``, otherwise ``default``.
         """
+        if _is_traced(key) or _is_traced(default):
+            return _lift_traced(self).get_or_default(key, default)
         # Route through the container protocol (`self[key]` / `key in self`), which
         # the proxy backs with the live east-c value.
         return self[key] if key in self else default  # noqa: SIM401
@@ -1956,12 +2007,16 @@ class EastDict(Generic[K, V]):
     def try_get(self, key: Any) -> EastVariant:
         """Optionally fetch the value for ``key`` (east-c DictTryGet).
 
+        A traced ``key`` emits IR against this dict as a constant (#393).
+
         Args:
             key: The key to look up, compared under East's total ordering.
 
         Returns:
             ``some(value)`` if present, else ``none``.
         """
+        if _is_traced(key):
+            return _lift_traced(self).try_get(key)
         return EastVariant("some", self[key]) if key in self else EastVariant("none", east_null)
 
     def insert(self, key: Any, value: Any) -> None:

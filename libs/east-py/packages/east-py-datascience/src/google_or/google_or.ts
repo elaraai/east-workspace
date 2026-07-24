@@ -168,6 +168,14 @@ export const CpSatModelType = StructType({
     objective: OptionType(CpSatObjectiveType),
 });
 
+/** One entry of a (partial) solution hint: a suggested value for one variable. */
+export const CpSatHintType = StructType({
+    /** Int/bool variable name; booleans hint 0/1. */
+    var: StringType,
+    /** Suggested solution value. */
+    value: IntegerType,
+});
+
 /** CP-SAT solver configuration. */
 export const CpSatConfigType = StructType({
     max_time_seconds: OptionType(FloatType),
@@ -180,6 +188,11 @@ export const CpSatConfigType = StructType({
     relative_gap_limit: OptionType(FloatType),
     /** Stop with status OPTIMAL once (best - lower_bound) ≤ this (in objective units). */
     absolute_gap_limit: OptionType(FloatType),
+    /** Partial solution hint to warm-start the search, e.g. the previous
+     *  solve's assignments. Advisory only: an infeasible, partial, or
+     *  suboptimal hint never changes the returned optimum, only the path to
+     *  it. Entries naming unknown or interval variables are ignored. */
+    hints: OptionType(ArrayType(CpSatHintType)),
 });
 
 /** CP-SAT solution result. */
@@ -303,6 +316,14 @@ export const LinearSolverType = VariantType({
     highs: NullType,
 });
 
+/** One entry of a (partial) solution hint: a suggested value for one variable. */
+export const LinearHintType = StructType({
+    /** Variable name. */
+    var: StringType,
+    /** Suggested solution value. */
+    value: FloatType,
+});
+
 /** LP solver configuration. */
 export const LinearConfigType = StructType({
     solver: OptionType(LinearSolverType),
@@ -312,6 +333,14 @@ export const LinearConfigType = StructType({
      *  (OR-Tools `RELATIVE_MIP_GAP`, honoured by SCIP/CBC); ignored for a
      *  pure-LP (Glop) solve, which has no branch-and-bound gap. */
     relative_gap_limit: OptionType(FloatType),
+    /** Partial solution hint to warm-start the search, e.g. the previous
+     *  epoch's solution in a receding-horizon loop. Advisory only: an
+     *  infeasible, partial, or suboptimal hint never changes the returned
+     *  optimum, only the path to it. Entries naming unknown variables are
+     *  ignored (variables may drop out between re-solves). Honoured by
+     *  backends with hint support (SCIP); hint-less backends (Glop) ignore
+     *  it. */
+    hints: OptionType(ArrayType(LinearHintType)),
 });
 
 /** LP/MIP result. */
@@ -488,6 +517,7 @@ export const GoogleOrTypes = {
     CpSatConstraintType,
     CpSatObjectiveType,
     CpSatModelType,
+    CpSatHintType,
     CpSatConfigType,
     CpSatResultType,
     // Routing
@@ -506,6 +536,7 @@ export const GoogleOrTypes = {
     LinearObjectiveType,
     LinearModelType,
     LinearSolverType,
+    LinearHintType,
     LinearConfigType,
     LinearResultType,
     // Graph
@@ -548,6 +579,9 @@ export const GoogleOr = {
      *             log_search_progress: variant("none", null),
      *             seed: variant("none", null),
      *             max_solutions: variant("none", null),
+     *             relative_gap_limit: variant("none", null),
+     *             absolute_gap_limit: variant("none", null),
+     *             hints: variant("none", null),
      *         }, CpSatConfigType);
      *         return $.return(GoogleOr.cpsatSolve(model, config));
      *     }
@@ -573,6 +607,9 @@ export const GoogleOr = {
      *             log_search_progress: variant("none", null),
      *             seed: variant("none", null),
      *             max_solutions: variant("some", 100n),
+     *             relative_gap_limit: variant("none", null),
+     *             absolute_gap_limit: variant("none", null),
+     *             hints: variant("none", null),
      *         }, CpSatConfigType);
      *         return $.return(GoogleOr.cpsatSolveAll(model, config));
      *     }
@@ -618,6 +655,8 @@ export const GoogleOr = {
      *         const config = $.let({
      *             solver: variant("some", variant("highs", null)),
      *             max_time_seconds: variant("some", 60.0),
+     *             relative_gap_limit: variant("none", null),
+     *             hints: variant("none", null),
      *         }, LinearConfigType);
      *         return $.return(GoogleOr.linearSolve(model, config));
      *     }

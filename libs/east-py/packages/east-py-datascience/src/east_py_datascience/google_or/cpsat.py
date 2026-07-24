@@ -325,6 +325,18 @@ from int/bool vars), ``constraints`` (``Array<CpSatConstraintType>``),
 
 # --- Config ---
 
+CpSatHintType = StructType(
+    [
+        ("var", StringType),
+        ("value", IntegerType),
+    ]
+)
+"""One entry of a (partial) solution hint: a suggested value for one variable.
+
+Fields: ``var`` (``String`` int/bool variable name; booleans hint 0/1),
+``value`` (``Integer`` suggested solution value).
+"""
+
 CpSatConfigType = StructType(
     [
         ("max_time_seconds", OptionType(FloatType)),
@@ -337,6 +349,7 @@ CpSatConfigType = StructType(
         ("relative_gap_limit", OptionType(FloatType)),
         # Stop with status OPTIMAL once (best - lower_bound) <= this (in objective units).
         ("absolute_gap_limit", OptionType(FloatType)),
+        ("hints", OptionType(ArrayType(CpSatHintType))),
     ]
 )
 """Solver configuration for a CP-SAT solve call.
@@ -347,7 +360,12 @@ false), ``seed`` (random seed), ``max_solutions`` (used by
 ``google_or_cpsat_solve_all`` to cap collected solutions, default 100),
 ``relative_gap_limit`` (declare optimality when proven gap <=
 ``best * this``, e.g. 0.005 for 0.5%), ``absolute_gap_limit`` (declare
-optimality when proven gap <= this value in objective units).
+optimality when proven gap <= this value in objective units),
+``hints`` (``Option<Array<CpSatHintType>>`` — a partial solution hint to
+warm-start the search, e.g. the previous solve's assignments). Hints are
+advisory only: an infeasible, partial, or suboptimal hint never changes the
+returned optimum, only the path to it. Entries naming unknown or interval
+variables are ignored.
 """
 
 # --- Result ---
@@ -572,6 +590,22 @@ def _build_model_and_solve(
         else:
             model.Maximize(obj_expr)
 
+    # Partial solution hint (advisory: seeds the search, never the optimum).
+    # Unknown names are skipped - a previous solve's assignments may name
+    # variables that dropped out of this model - as are interval variables
+    # (not hintable; only their underlying int/bool vars are). Duplicate
+    # names collapse to the last entry so the hint proto stays valid.
+    hints = _get_option(config.get("hints"), None)
+    if hints is not None:
+        hint_by_name: dict[str, int] = {}
+        for h in hints:
+            hint_by_name[h.get("var")] = int(h.get("value"))
+        for name, value in hint_by_name.items():
+            var = vars_by_name.get(name)
+            if var is None or isinstance(var, cp_model.IntervalVar):
+                continue
+            model.add_hint(var, value)
+
     # Configure solver
     solver = cp_model.CpSolver()
     max_time = _get_option(config.get("max_time_seconds"), None)
@@ -672,6 +706,12 @@ def cpsat_solve_impl(
               optimality when proven gap <= this fraction (e.g. 0.005).
             - ``absolute_gap_limit`` (``Option<Float>``): declare
               optimality when proven gap <= this value in objective units.
+            - ``hints`` (``Option<Array<CpSatHintType>>``): partial solution
+              hint - ``{var: String, value: Integer}`` entries suggesting a
+              start, e.g. the previous solve's assignments (booleans hint
+              0/1). Advisory only: never changes the returned optimum, only
+              the path to it. Entries naming unknown or interval variables
+              are ignored.
 
     Returns:
         ``CpSatResultType`` (``EastStruct``): ``status``
@@ -848,6 +888,7 @@ __all__ = [
     "CpSatConstraintType",
     "CpSatObjectiveType",
     "CpSatModelType",
+    "CpSatHintType",
     "CpSatConfigType",
     "CpSatResultType",
 ]

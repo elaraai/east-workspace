@@ -78,11 +78,26 @@ def _make_east_key(element_type: EastType) -> Any:
 # Same cycle-break pattern as make_east_key: values.py loads before the
 # compiler/bridge Cython extensions.
 _cached_call_builtin: Any = None
+_kernel_trace_call: Any = None
 
 
 def _call_builtin(name: str, type_params: list, args: list, output_type: EastType) -> Any:
-    """Invoke an east-c builtin eagerly (lazy import of the Cython shim)."""
-    global _cached_call_builtin
+    """Invoke an east-c builtin eagerly (lazy import of the Cython shim).
+
+    Every namespace builtin (``East.String.*``, ``East.Float.*``, …) and eager
+    collection method funnels through here — so when any argument is a traced
+    ``KernelExpr`` (the call is happening inside a ``kernel()`` lambda), the
+    call emits East IR instead of executing (#393). That one seam makes the
+    entire builtin surface traceable.
+    """
+    global _cached_call_builtin, _kernel_trace_call
+    if _kernel_trace_call is None:
+        from east.kernel import trace_builtin_call
+
+        _kernel_trace_call = trace_builtin_call
+    traced = _kernel_trace_call(name, type_params, args, output_type)
+    if traced is not None:
+        return traced
     if _cached_call_builtin is None:
         try:
             from east.runtime._compiler_eastc import call_builtin

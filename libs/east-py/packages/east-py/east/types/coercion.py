@@ -12,8 +12,9 @@ across the boundary (platform functions, serialization) safely:
 - ``coerce_to`` — best-effort canonicalization *driven by the declared type*:
   ``int`` -> Float, ``list`` -> Array, name-keyed ``dict`` -> Struct (reordered
   to the type), ``bytes`` -> Blob, ``list``/``ndarray`` -> Vector/Matrix at the
-  element's canonical storage dtype. Produces a value the C bridge accepts
-  without surprise.
+  element's canonical storage dtype, 1-D ``ndarray`` -> Array of
+  Float/Integer/Boolean elements filled C-side in one bulk crossing. Produces
+  a value the C bridge accepts without surprise.
 - ``EastTypeError`` — the failure raised by the above.
 
 Integer-vs-Float is always decided from the *declared* type (Python has no
@@ -280,8 +281,11 @@ def coerce_to(value: object, typ: EastType, *, path: str = "$") -> EastValue:
     Coercion is driven by the *declared* type: ``int`` -> Float, ``list`` ->
     Array/Vector, name-keyed ``dict`` -> Struct (reordered + coerced field by
     field), ``bytes``/``bytearray`` -> Blob, ``list``/``ndarray`` ->
-    Vector/Matrix at the element's canonical storage dtype. Raises
-    ``EastTypeError`` (path-pinpointed) on the irreconcilable.
+    Vector/Matrix at the element's canonical storage dtype. A 1-D ``ndarray``
+    against ``Array<Float/Integer/Boolean>`` fills C-side through the bulk
+    buffer path — one crossing per column, so struct fields can be handed
+    numpy columns directly. Raises ``EastTypeError`` (path-pinpointed) on
+    the irreconcilable.
     """
     return _coerce(value, typ, path, [])
 
@@ -362,6 +366,19 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> E
 
     if kind == "Array":
         elem = typ["value"]
+        if isinstance(value, np.ndarray):
+            return _coerce_array_from_numpy(value, typ, elem, path)
+        if (
+            isinstance(value, EastArray)
+            and elem["type"] in EAST_ELEMENT_TO_DTYPE
+            and value.element_type == elem
+        ):
+            # Same scalar element type: the per-element rebuild below could
+            # only reproduce each element unchanged, so copy C-to-C instead
+            # (extend's no-boxing path).
+            out: EastArray = EastArray(elem, [])
+            out.extend(value)
+            return out
         if isinstance(value, (list, tuple, EastArray)):
             type_ctx.append(typ)
             try:
@@ -445,6 +462,45 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> E
     if kind == "Function":
         raise EastTypeError("cannot coerce a value to a Function at the Python boundary", value=value, expected=typ, path=path)
     raise EastTypeError(f"cannot coerce to unknown type kind {kind!r}", value=value, expected=typ, path=path)
+
+
+def _coerce_array_from_numpy(value: np.ndarray, typ: EastType, elem: EastType, path: str) -> EastArray:
+    """Fill an ``Array<Float/Integer/Boolean>`` from a 1-D numpy array C-side.
+
+    One crossing per column instead of per element: the buffer is normalized
+    to the element's canonical dtype (and C-contiguity) and handed to the
+    east-c bulk push — the same raw-buffer path as ``EastArray.extend``.
+    Acceptance mirrors the scalar branches elementwise: Integer takes integer
+    dtypes (uint64 rejected — it can exceed the i64 range), Float takes
+    integer and float dtypes, Boolean takes bool; anything else raises
+    ``EastTypeError``.
+    """
+    ekind = elem["type"]
+    canonical = EAST_ELEMENT_TO_DTYPE.get(ekind)
+    if canonical is None:
+        raise EastTypeError(
+            f"Array<{ekind}> cannot be filled from a numpy array — the columnar path "
+            "covers Float/Integer/Boolean elements; convert with .tolist()",
+            value=value, expected=typ, path=path,
+        )
+    if value.ndim != 1:
+        raise EastTypeError(
+            f"Array<{ekind}> needs a 1-D array, got a {value.ndim}-D input",
+            value=value, expected=typ, path=path,
+        )
+    # Elementwise-consistent with the scalar branches: int -> Float is the one
+    # cross-kind coercion (Float accepts int); everything else must match kind.
+    if not (dtype_matches_element(value.dtype, elem) or (ekind == "Float" and value.dtype.kind in "iu")):
+        raise EastTypeError(
+            f"cannot coerce a numpy array of dtype {value.dtype} to Array<{ekind}>",
+            value=value, expected=typ, path=path,
+        )
+    buf = value
+    if buf.dtype != canonical or not buf.flags["C_CONTIGUOUS"]:
+        buf = np.ascontiguousarray(buf, dtype=canonical)
+    out: EastArray = EastArray(elem, [])
+    out.extend(buf)
+    return out
 
 
 __all__ = [

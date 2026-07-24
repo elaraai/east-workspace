@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, variant, example } from "@elaraai/east";
+import { East, BooleanType, IntegerType, variant, some, none, example } from "@elaraai/east";
 import { GoogleOr } from "@elaraai/east-py-datascience";
 
 export const cpsatScheduleJobs = example({
@@ -76,6 +76,7 @@ export const cpsatScheduleJobs = example({
             max_solutions: variant('none', null),
             relative_gap_limit: variant('none', null),
             absolute_gap_limit: variant('none', null),
+            hints: none,
         }, GoogleOr.Types.CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -141,6 +142,7 @@ export const cpsatAssignShifts = example({
             max_solutions: variant('none', null),
             relative_gap_limit: variant('none', null),
             absolute_gap_limit: variant('none', null),
+            hints: none,
         }, GoogleOr.Types.CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -204,12 +206,82 @@ export const cpsatSolveAll = example({
             max_solutions: variant('some', 100n),
             relative_gap_limit: variant('none', null),
             absolute_gap_limit: variant('none', null),
+            hints: none,
         }, GoogleOr.Types.CpSatConfigType);
 
         const results = $.let(GoogleOr.cpsatSolveAll(model, config));
 
         // 6 feasible solutions: C(3,1) + C(3,2) = 3 + 3 = 6
         return East.equal(results.length(), 6n);
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const cpsatSolveWithHints = example({
+    keywords: ["google or", "cpsat", "cpsatSolve", "hints", "solution hint", "warm start", "advisory", "re-solve", "constraint programming"],
+    description: "Warm-start a CP-SAT re-solve by hinting the previous solution (hints are advisory: the optimum is unchanged)",
+    fn: East.function([], BooleanType, ($) => {
+        // Maximize 2x + 3y with x + y <= 10, x,y in [0,10]. Optimum: x=0, y=10 -> 30.
+        const model = $.let({
+            int_vars: [
+                { name: "x", lower_bound: 0n, upper_bound: 10n },
+                { name: "y", lower_bound: 0n, upper_bound: 10n },
+            ],
+            bool_vars: [
+                { name: "_unused" },
+            ],
+            interval_vars: [
+                { name: "_unused_iv", start: "x", size: "x", end: "x", is_present: variant('none', null) },
+            ],
+            constraints: [
+                variant('linear', {
+                    expr: {
+                        terms: [
+                            { var: "x", coeff: 1n },
+                            { var: "y", coeff: 1n },
+                        ],
+                        constant: 0n,
+                    },
+                    op: variant('less_equal', null),
+                    rhs: 10n,
+                }),
+            ],
+            objective: variant('some', variant('maximize', {
+                terms: [
+                    { var: "x", coeff: 2n },
+                    { var: "y", coeff: 3n },
+                ],
+                constant: 0n,
+            })),
+        }, GoogleOr.Types.CpSatModelType);
+
+        // Hint the previous solve's assignments. "gone" names a variable that
+        // no longer exists and "_unused_iv" is an interval variable - both are
+        // ignored, not errors.
+        const config = $.let({
+            max_time_seconds: variant('some', 10.0),
+            num_workers: variant('none', null),
+            log_search_progress: variant('none', null),
+            seed: variant('some', 42n),
+            max_solutions: variant('none', null),
+            relative_gap_limit: variant('none', null),
+            absolute_gap_limit: variant('none', null),
+            hints: some([
+                { var: "x", value: 0n },
+                { var: "y", value: 10n },
+                { var: "gone", value: 1n },
+                { var: "_unused_iv", value: 0n },
+            ]),
+        }, GoogleOr.Types.CpSatConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+        // Hints only seed the search: the returned optimum is still 30.
+        return result.objective_value.match({
+            some: ($, v) => v.equal(30.0),
+            none: ($) => false,
+        });
     }),
     inputs: [],
     returns: true,

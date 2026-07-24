@@ -72,6 +72,10 @@ describe('python closure capture (#278)', () => {
     mkMember('common', []);
     mkMember('pricing', ['common']);
     mkMember('other', []);
+    // Underscore-named member (#391): platform packages are import targets, so
+    // real projects name them `sim_engine`; uv.lock stores the PEP 503
+    // canonical `sim-engine`.
+    mkMember('sim_engine', ['common']);
     execFileSync('uv', ['lock'], { cwd: ws, stdio: 'ignore', shell: process.platform === 'win32' });
   });
 
@@ -128,6 +132,43 @@ describe('python closure capture (#278)', () => {
       assert.deepStrictEqual(auto(['other']), ['other'], 'an independent member is captured alone');
       assert.deepStrictEqual(auto(['pricing', 'other']), ['common', 'other', 'pricing'], 'multiple refs union their closures');
       assert.strictEqual(auto(['east-py-std']), null, 'a non-member (registry/first-party) name derives nothing');
+    });
+
+  it('resolves an import-style { custom } ref to its PEP 503 lock entry (#391)',
+    { skip: hasUv ? false : 'uv not on PATH' }, () => {
+      const auto = (customs: string[]): string[] | null => {
+        const bytes = captureAutoEnvironment('east-py', customs, ws, 'test', (b) => createHash('sha256').update(b).digest('hex'));
+        if (bytes === null) return null;
+        const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
+        assert.ok(spec.type === 'python');
+        return spec.value.sdists.map((s) => s.filename.replace(/-0\.1\.0\.tar\.gz$/, '')).sort();
+      };
+      // The task declares the import name; the lock stores `sim-engine`. A
+      // strict match derived NO environment here — the bug's silent half.
+      assert.deepStrictEqual(auto(['sim_engine']), ['common', 'sim_engine'],
+        'an underscore-named member must derive its closure, not silently nothing');
+      assert.deepStrictEqual(auto(['sim-engine']), ['common', 'sim_engine'],
+        'the canonical spelling resolves to the same member');
+      assert.deepStrictEqual(auto(['sim_engine', 'sim-engine']), ['common', 'sim_engine'],
+        'both spellings of one member dedupe to one subject');
+    });
+
+  it('a member source edit changes the DERIVED env spec — the task-hash contract (#391)',
+    { skip: hasUv ? false : 'uv not on PATH' }, () => {
+      const autoHash = (): string => {
+        const bytes = captureAutoEnvironment('east-py', ['sim_engine'], ws, 'test', (b) => createHash('sha256').update(b).digest('hex'));
+        assert.ok(bytes !== null, 'sim_engine must derive an environment');
+        return createHash('sha256').update(bytes).digest('hex');
+      };
+      const before = autoHash();
+      const src = path.join(ws, 'packages', 'sim_engine', 'src', 'sim_engine', '__init__.py');
+      const orig = fs.readFileSync(src, 'utf-8');
+      try {
+        fs.writeFileSync(src, orig + '\nEDIT = 1\n');
+        assert.notStrictEqual(autoHash(), before,
+          "editing sim_engine's source must change its derived env spec (else the dataflow serves a stale cache)");
+      } finally { fs.writeFileSync(src, orig); }
+      assert.strictEqual(autoHash(), before, 'reverting the edit restores the identical spec');
     });
 });
 

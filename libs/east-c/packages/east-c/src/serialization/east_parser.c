@@ -380,9 +380,12 @@ static TokenArr2 tokenize2(const char *text)
             ta2_push(&result, t);
         }
 
-        /* Number or datetime */
+        /* Number or datetime. A leading '+' is a number start only when a
+         * digit follows: the reference integer grammar accepts "+5" (the
+         * float grammar rejects it - see the typed float branches). */
         else if (isdigit((unsigned char)c) ||
-                 (c == '-' && (isdigit((unsigned char)PEEK2(1)) || PEEK2(1) == 'I'))) {
+                 (c == '-' && (isdigit((unsigned char)PEEK2(1)) || PEEK2(1) == 'I')) ||
+                 (c == '+' && isdigit((unsigned char)PEEK2(1)))) {
             /* Check -Infinity */
             if (c == '-' && pos + 9 <= len && memcmp(text + pos + 1, "Infinity", 8) == 0) {
                 for (int i = 0; i < 9; i++)
@@ -487,19 +490,99 @@ static TokenArr2 tokenize2(const char *text)
                     t.text = buf;
                     t.text_len = blen;
                     ta2_push(&result, t);
-                } else if (memchr(buf, '.', blen) || memchr(buf, 'e', blen) ||
-                           memchr(buf, 'E', blen)) {
-                    t.type = TOK_FLOAT;
-                    t.float_val = strtod(buf, NULL);
-                    t.text = buf;
-                    t.text_len = blen;
-                    ta2_push(&result, t);
                 } else {
-                    t.type = TOK_INTEGER;
-                    t.int_val = strtoll(buf, NULL, 10);
-                    t.text = buf;
-                    t.text_len = blen;
-                    ta2_push(&result, t);
+                    /* Strict number validation (#392). The fused scan above
+                     * folds sign/exponent/datetime chars into one buffer, and
+                     * strtod/strtoll silently parse a PREFIX of it - so
+                     * "1.2.3" became 1.2, "598-" became 598, "0+4" became 0.
+                     * Re-scan the buffer against the reference grammar
+                     *   -? digits+ ('.' digits*)? ([eE] [+-]? digits+)?
+                     * and emit the strict value token plus an error token for
+                     * any remainder, so the typed parser / trailing-input
+                     * check rejects it exactly like the TS reference parser.
+                     */
+                    size_t k = 0;
+                    bool is_float = false, num_digits = false, exp_error = false;
+                    size_t exp_err_at = 0;
+                    if (k < blen && (buf[k] == '-' || buf[k] == '+')) k++;
+                    while (k < blen && isdigit((unsigned char)buf[k])) {
+                        num_digits = true;
+                        k++;
+                    }
+                    if (num_digits) {
+                        if (k < blen && buf[k] == '.') {
+                            is_float = true;
+                            k++;
+                            while (k < blen && isdigit((unsigned char)buf[k]))
+                                k++;
+                        }
+                        if (k < blen && (buf[k] == 'e' || buf[k] == 'E')) {
+                            size_t j = k + 1;
+                            if (j < blen && (buf[j] == '+' || buf[j] == '-')) j++;
+                            if (j < blen && isdigit((unsigned char)buf[j])) {
+                                is_float = true;
+                                k = j;
+                                while (k < blen && isdigit((unsigned char)buf[k]))
+                                    k++;
+                            } else {
+                                /* Committed exponent with no digits: a
+                                 * complete-message error, positioned after
+                                 * the 'e' and optional sign (matches the TS
+                                 * reference message and position). */
+                                exp_error = true;
+                                exp_err_at = j;
+                            }
+                        }
+                    }
+                    if (!num_digits || exp_error) {
+                        t.type = TOK_ERROR;
+                        if (exp_error) {
+                            t.text = strdup("expected digits in float exponent");
+                            t.text_len = strlen(t.text);
+                            t.column = sc + (int)exp_err_at;
+                        }
+                        /* !num_digits (e.g. a bare '-'): positional error at
+                         * the token start; the typed parser formats it as
+                         * "expected <type>, got '-'". */
+                        ta2_push(&result, t);
+                        free(buf);
+                    } else if (k < blen) {
+                        /* Valid number followed by junk the fused scan
+                         * swallowed: the value token takes the strict prefix,
+                         * the remainder becomes a positional error token so
+                         * "unexpected input after parsed value" points at it. */
+                        char *pfx = malloc(k + 1);
+                        memcpy(pfx, buf, k);
+                        pfx[k] = '\0';
+                        free(buf);
+                        if (is_float) {
+                            t.type = TOK_FLOAT;
+                            t.float_val = strtod(pfx, NULL);
+                        } else {
+                            t.type = TOK_INTEGER;
+                            t.int_val = strtoll(pfx, NULL, 10);
+                        }
+                        t.text = pfx;
+                        t.text_len = k;
+                        ta2_push(&result, t);
+                        Token2 te = {0};
+                        te.type = TOK_ERROR;
+                        te.line = sl;
+                        te.column = sc + (int)k;
+                        ta2_push(&result, te);
+                    } else if (is_float) {
+                        t.type = TOK_FLOAT;
+                        t.float_val = strtod(buf, NULL);
+                        t.text = buf;
+                        t.text_len = blen;
+                        ta2_push(&result, t);
+                    } else {
+                        t.type = TOK_INTEGER;
+                        t.int_val = strtoll(buf, NULL, 10);
+                        t.text = buf;
+                        t.text_len = blen;
+                        ta2_push(&result, t);
+                    }
                 }
             }
         }
@@ -563,7 +646,17 @@ static TokenArr2 tokenize2(const char *text)
                 ta2_push(&result, t);
             }
         } else {
-            ADV2(); /* skip unrecognized */
+            /* Unrecognized character (#392): surface it instead of silently
+             * skipping - a skipped '$' made "$5" parse as 5.0. The typed
+             * parser reports it as "expected <type>, got '<c>'" (pe_got_token
+             * reads the char at this position), and the trailing-input check
+             * rejects it after a parsed value. */
+            Token2 te = {0};
+            te.type = TOK_ERROR;
+            te.line = sl;
+            te.column = sc;
+            ta2_push(&result, te);
+            ADV2();
         }
     }
 
@@ -819,6 +912,12 @@ static EastValue *parse_val(TokStream2 *ts, EastType *type, ParseContext *ctx)
         return NULL;
 
     case EAST_TYPE_FLOAT:
+        /* The reference float grammar rejects a leading '+' (the integer
+         * grammar accepts it), so a '+'-signed number token is not a float. */
+        if ((tok->type == TOK_FLOAT || tok->type == TOK_INTEGER) && tok->text &&
+            tok->text[0] == '+') {
+            return NULL;
+        }
         if (tok->type == TOK_FLOAT) {
             ts2_adv(ts);
             return east_float(tok->float_val);
@@ -1439,6 +1538,16 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     if (!type) return NULL;
     Token2 *tok = ts2_cur(ts);
 
+    /* A tokenizer-diagnosed error that carries its own message (unterminated
+     * string, bad escape, float exponent without digits) is authoritative -
+     * report it verbatim at its position. Positional error tokens (text ==
+     * NULL, from unrecognized or trailing characters) fall through so each
+     * type branch formats "expected <type>, got '<c>'". */
+    if (tok->type == TOK_ERROR && tok->text) {
+        if (err) pe_set(err, strdup(tok->text), tok->line, tok->column);
+        return NULL;
+    }
+
     switch (type->kind) {
     case EAST_TYPE_NULL:
         if (tok->type == TOK_NULL_TOK) {
@@ -1507,19 +1616,25 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
         return NULL;
 
     case EAST_TYPE_FLOAT:
-        if (tok->type == TOK_FLOAT) {
-            /* Check for missing exponent digits: tokenizer stores text */
-            if (tok->text) {
-                size_t tlen = strlen(tok->text);
-                if (tlen > 0 && (tok->text[tlen - 1] == 'e' || tok->text[tlen - 1] == 'E')) {
-                    if (err) {
-                        /* Position after the 'e' */
-                        pe_set(err, strdup("expected digits in float exponent"), tok->line,
-                               tok->column + (int)tlen);
-                    }
-                    return NULL;
-                }
+        /* The reference float grammar rejects a leading '+' (the integer
+         * grammar accepts it), so a '+'-signed number token is not a float:
+         * report "expected float, got '+'" at the sign. */
+        if ((tok->type == TOK_FLOAT || tok->type == TOK_INTEGER) && tok->text &&
+            tok->text[0] == '+') {
+            if (err) {
+                char *got = pe_got_token(tok, input);
+                size_t len = 30 + strlen(got);
+                char *msg = malloc(len);
+                snprintf(msg, len, "expected float, got %s", got);
+                free(got);
+                pe_set(err, msg, tok->line, tok->column);
             }
+            return NULL;
+        }
+        if (tok->type == TOK_FLOAT) {
+            /* Exponent validation now happens in the tokenizer (#392): a
+             * float token never ends in a bare 'e'/'E' - that input arrives
+             * as a TOK_ERROR carrying "expected digits in float exponent". */
             ts2_adv(ts);
             return east_float(tok->float_val);
         }
@@ -1538,14 +1653,9 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
         return NULL;
 
     case EAST_TYPE_STRING:
-        if (tok->type == TOK_ERROR) {
-            /* String tokenizer error (bad escape, unterminated) */
-            if (err) pe_set(err, strdup(tok->text), tok->line, tok->column);
-            /* Skip error token and the string token that follows */
-            ts2_adv(ts);
-            if (ts2_cur(ts)->type == TOK_STRING) ts2_adv(ts);
-            return NULL;
-        }
+        /* Text-bearing string tokenizer errors (bad escape, unterminated)
+         * are reported by the TOK_ERROR intercept above; a positional error
+         * token falls through to "expected '\"', got ..." below. */
         if (tok->type == TOK_STRING) {
             ts2_adv(ts);
             return east_string_len(tok->text, tok->text_len);

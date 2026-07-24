@@ -120,11 +120,24 @@ mixed-integer programming), ``highs`` (HiGHS LP/MIP). Defaults to ``glop``
 for pure-LP models and ``scip`` for MIP models when omitted.
 """
 
+LinearHintType = StructType(
+    [
+        ("var", StringType),
+        ("value", FloatType),
+    ]
+)
+"""One entry of a (partial) solution hint: a suggested value for one variable.
+
+Fields: ``var`` (``String`` variable name), ``value`` (``Float`` suggested
+solution value).
+"""
+
 LinearConfigType = StructType(
     [
         ("solver", OptionType(LinearSolverType)),
         ("max_time_seconds", OptionType(FloatType)),
         ("relative_gap_limit", OptionType(FloatType)),
+        ("hints", OptionType(ArrayType(LinearHintType))),
     ]
 )
 """Solver configuration for a linear solve call.
@@ -135,6 +148,13 @@ Fields: ``solver`` (backend override, auto-selected if omitted),
 gap ``(best - bound) / |best|`` <= this, e.g. ``0.01`` for 1%). The gap limit
 is MIP-only (OR-Tools ``RELATIVE_MIP_GAP``, honoured by SCIP/CBC); it is ignored
 for a pure-LP (Glop) solve, which has no branch-and-bound gap.
+``hints`` (``Option<Array<LinearHintType>>`` — a partial solution hint to
+warm-start the search, e.g. the previous epoch's solution in a
+receding-horizon loop). Hints are advisory only: an infeasible, partial, or
+suboptimal hint never changes the returned optimum, only the path to it.
+Entries naming unknown variables are ignored (variables may drop out between
+re-solves). Honoured by backends with hint support (SCIP); hint-less
+backends (Glop) ignore it.
 """
 
 LinearResultType = StructType(
@@ -236,6 +256,12 @@ def linear_solve_impl(
               ``(best - bound) / |best|`` is at or below this (e.g. ``0.01``
               for 1%). MIP only (OR-Tools ``RELATIVE_MIP_GAP``); ignored for a
               pure-LP (Glop) solve.
+            - ``hints`` (``Option<Array<LinearHintType>>``): partial solution
+              hint - ``{var: String, value: Float}`` entries suggesting a
+              (near-feasible) start, e.g. the previous solve's solution.
+              Advisory only: never changes the returned optimum, only the
+              path to it. Entries naming unknown variables are ignored;
+              backends without hint support (Glop) ignore the whole hint.
 
     Returns:
         ``LinearResultType`` (``EastStruct``): ``status``
@@ -325,6 +351,26 @@ def linear_solve_impl(
     if rel_gap is not None:
         params.SetDoubleParam(params.RELATIVE_MIP_GAP, float(rel_gap))
 
+    # Partial solution hint (advisory: guides the search, never the optimum).
+    # Unknown names are skipped - in a receding-horizon loop the previous
+    # solution may name variables that dropped out of this epoch's model.
+    # Duplicate names collapse to the last entry.
+    hints = _get_option(config.get("hints"), None)
+    if hints is not None:
+        hint_by_name: dict[str, float] = {}
+        for h in hints:
+            hint_by_name[h.get("var")] = float(h.get("value"))
+        hint_vars = []
+        hint_values = []
+        for name, value in hint_by_name.items():
+            var = vars_by_name.get(name)
+            if var is None:
+                continue
+            hint_vars.append(var)
+            hint_values.append(value)
+        if hint_vars:
+            solver.SetHint(hint_vars, hint_values)
+
     # Solve
     result_status = solver.Solve(params)
     wall_time = time.perf_counter() - start_time
@@ -379,6 +425,7 @@ __all__ = [
     "LinearObjectiveType",
     "LinearModelType",
     "LinearSolverType",
+    "LinearHintType",
     "LinearConfigType",
     "LinearResultType",
 ]
