@@ -61,10 +61,26 @@ size matters).
 from __future__ import annotations
 
 import itertools
-import json
-import math
 from typing import Any
 
+from east.ir.builders import (
+    ir_block,
+    ir_builtin,
+    ir_error,
+    ir_function,
+    ir_get_field,
+    ir_ifelse,
+    ir_let,
+    ir_match,
+    ir_new_array,
+    ir_new_dict,
+    ir_new_set,
+    ir_struct,
+    ir_trycatch,
+    ir_value,
+    ir_variable,
+    ir_variant,
+)
 from east.types.type_of_type import EastTypeType
 from east.types.types import (
     ArrayType,
@@ -76,6 +92,7 @@ from east.types.types import (
     NullType,
     StringType,
 )
+from east.types.values import EastArray
 
 __all__ = ["kernel", "where", "greatest", "least", "KernelTraceError", "KernelExpr"]
 
@@ -84,70 +101,48 @@ class KernelTraceError(TypeError):
     """The lambda performed an operation that cannot be traced into East IR."""
 
 
-# ─── JSON wire-format helpers (matches east-c's IR v4 JSON decoder) ─────────
+# ─── Homoiconic IR construction (#398) ──────────────────────────────────────
+#
+# Every node is an East value conforming to IRType from the moment it is
+# constructed (east/ir/builders.py), so malformed IR is unrepresentable and
+# compilation converts the value tree directly (compile_from_value) with no
+# serialization round-trip. Kernels carry no source locations: every node
+# keeps the builders' default loc_id of 0 with no source map.
 
 
-def _type_json(t: EastType) -> Any:
-    """Encode a python EastType in the canonical East JSON wire form."""
+def _type_key(t: EastType) -> str:
+    """A stable string key for a type (helper-kernel memoization)."""
     from east.serialization.json import encode_json_for
 
-    return json.loads(encode_json_for(EastTypeType)(t))
+    encoded = encode_json_for(EastTypeType)(t)
+    return encoded.decode("utf-8") if isinstance(encoded, bytes) else encoded
 
 
-def _node(kind: str, **fields: Any) -> dict[str, Any]:
-    """An IR node: a variant of ``kind`` with a struct payload.
-
-    Field order matters to the C JSON decoder: the payload's ``type`` comes
-    first, then ``loc_id``, then the node-specific fields in declared order
-    (callers pass them in that order). The parameter is named ``kind`` so
-    node fields literally called ``case`` (Variant/Match) can pass through
-    ``**fields``.
-    """
-    payload: dict[str, Any] = {"type": fields.pop("type")}
-    payload["loc_id"] = "0"
-    payload.update(fields)
-    return {"type": kind, "value": payload}
+def _var(name: str, t: EastType):
+    return ir_variable(t, name)
 
 
-def _var(name: str, t: EastType) -> dict[str, Any]:
-    return _node("Variable", type=_type_json(t), name=name, mutable=False, captured=False)
+def _builtin(name: str, out: EastType, type_params: list[EastType], args: list):
+    return ir_builtin(out, name, type_params, args)
 
 
-def _builtin(name: str, out: EastType, type_params: list[EastType], args: list[dict]) -> dict:
-    return _node(
-        "Builtin",
-        type=_type_json(out),
-        builtin=name,
-        type_parameters=[_type_json(t) for t in type_params],
-        arguments=args,
-    )
-
-
-def _literal(value: Any, t: EastType) -> dict:
-    """A Value node holding a literal, encoded per the East JSON rules."""
+def _literal(value: Any, t: EastType):
+    """A Value node holding a literal, coerced per the declared East type."""
     tag = t.type
-    encoded: Any
+    coerced: Any
     if tag == "Null":
-        encoded = None
+        coerced = None
     elif tag == "Boolean":
-        encoded = bool(value)
+        coerced = bool(value)
     elif tag == "Integer":
-        encoded = str(int(value))  # East JSON encodes Integer as a string
+        coerced = int(value)
     elif tag == "Float":
-        f = float(value)
-        if math.isnan(f):
-            encoded = "NaN"
-        elif math.isinf(f):
-            encoded = "Infinity" if f > 0 else "-Infinity"
-        elif f == 0.0 and math.copysign(1.0, f) < 0:
-            encoded = "-0.0"
-        else:
-            encoded = f
+        coerced = float(value)
     elif tag == "String":
-        encoded = str(value)
+        coerced = str(value)
     else:
         raise KernelTraceError(f"cannot embed a literal of East type {tag} in a kernel")
-    return _node("Value", type=_type_json(t), value={"type": tag, "value": encoded})
+    return ir_value(t, coerced)
 
 
 # ─── Expression proxy ───────────────────────────────────────────────────────
@@ -222,9 +217,9 @@ class _ConstRegistry:
 
     def __init__(self) -> None:
         self.by_id: dict[int, tuple[str, EastType]] = {}
-        self.entries: list[tuple[str, dict, EastType]] = []
+        self.entries: list[tuple[str, Any, EastType]] = []
 
-    def register(self, value: Any, node: dict, t: EastType) -> KernelExpr:
+    def register(self, value: Any, node: Any, t: EastType) -> KernelExpr:
         hit = self.by_id.get(id(value))
         if hit is None:
             name = _fresh_name()
@@ -260,32 +255,31 @@ def _lift_collection(value: Any) -> KernelExpr | None:
     from east.types.types import ArrayType as _ArrayType
     from east.types.types import DictType as _DictType
     from east.types.types import SetType as _SetType
-    from east.types.values import EastArray, EastDict, EastSet, is_east_struct
+    from east.types.values import EastDict, EastSet, is_east_struct
 
     if isinstance(value, EastArray):
         elem_t = value.element_type
         arr_t = _ArrayType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
-            value, KernelExpr(_node("NewArray", type=_type_json(arr_t), values=nodes), arr_t)
+            value, KernelExpr(ir_new_array(arr_t, nodes), arr_t)
         )
     if isinstance(value, EastSet):
         elem_t = value.element_type
         set_t = _SetType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
-            value, KernelExpr(_node("NewSet", type=_type_json(set_t), values=nodes), set_t)
+            value, KernelExpr(ir_new_set(set_t, nodes), set_t)
         )
     if isinstance(value, EastDict):
         k_t, v_t = value.key_type, value.value_type
         dict_t = _DictType(k_t, v_t)
         entries = [
-            {"key": _lift(k, hint=k_t).ir, "value": _lift(v, hint=v_t).ir}
-            for k, v in value.items()
+            (_lift(k, hint=k_t).ir, _lift(v, hint=v_t).ir) for k, v in value.items()
         ]
         return _register_const(
             value,
-            KernelExpr(_node("NewDict", type=_type_json(dict_t), values=entries), dict_t),
+            KernelExpr(ir_new_dict(dict_t, entries), dict_t),
         )
     if is_east_struct(value):
         # A captured struct constant (e.g. a config row) lifts field by field.
@@ -306,11 +300,10 @@ def _lift_struct(value: dict) -> KernelExpr:
         if not isinstance(name, str):
             raise KernelTraceError("struct construction needs string field names")
         e = _lift(item)
-        fields.append({"name": name, "value": e.ir})
+        fields.append((name, e.ir))
         field_types.append((name, e.east_type))
     struct_t = _StructType(field_types)
-    node = _node("Struct", type=_type_json(struct_t), fields=fields)
-    return KernelExpr(node, struct_t)
+    return KernelExpr(ir_struct(struct_t, fields), struct_t)
 
 
 def _option_type(inner: EastType) -> EastType:
@@ -334,7 +327,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
         payload = value.value
         inner = _lift(payload) if not isinstance(payload, KernelExpr) else payload
         opt_t = _option_type(inner.east_type)
-        node = _node("Variant", type=_type_json(opt_t), case="some", value=inner.ir)
+        node = ir_variant(opt_t, "some", inner.ir)
         return KernelExpr(node, opt_t)
     # `none.value` is the east_null sentinel, not Python None — test the sentinel
     # so this branch (and its type-from-context diagnostic) is actually reachable.
@@ -344,7 +337,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
                 "`none` in a traced kernel needs a type from context — pair it with a "
                 "some(...) branch in where(), or let the method fall back"
             )
-        node = _node("Variant", type=_type_json(hint), case="none", value=_literal(None, NullType))
+        node = ir_variant(hint, "none", _literal(None, NullType))
         return KernelExpr(node, hint)
     if hint is not None and hint.type == "Variant":
         # General variant construction: variant("case", payload) with the
@@ -360,7 +353,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
                 f"variant case {value.type!r} payload has type {payload.east_type.type}, "
                 f"expected {case_t.type}"
             )
-        node = _node("Variant", type=_type_json(hint), case=value.type, value=payload.ir)
+        node = ir_variant(hint, value.type, payload.ir)
         return KernelExpr(node, hint)
     if isinstance(value.value, KernelExpr):
         raise KernelTraceError(
@@ -393,7 +386,7 @@ class KernelExpr:
     __slots__ = ("ir", "east_type")
     __hash__ = None  # type: ignore[assignment]  # exprs are not usable as dict/set keys
 
-    def __init__(self, ir: dict[str, Any], east_type: EastType):
+    def __init__(self, ir: Any, east_type: EastType):
         self.ir = ir
         self.east_type = east_type
 
@@ -412,7 +405,7 @@ class KernelExpr:
             if f["name"] == name:
                 out_t = f["type"]
                 return KernelExpr(
-                    _node("GetField", type=_type_json(out_t), field=name, struct=self.ir),
+                    ir_get_field(out_t, name, self.ir),
                     out_t,
                 )
         available = ", ".join(f["name"] for f in self.east_type.value)
@@ -896,19 +889,15 @@ class KernelExpr:
         from east.types.types import ArrayType as _ArrayType
 
         token_t = DateTimeFormatTokenType
-        token_t_json = _type_json(token_t)
         token_nodes = []
         for tok in tokenize_datetime_format(fmt):
             if tok.value is None or str(tok.value) == "null":
                 payload = _literal(None, NullType)
             else:
                 payload = _literal(str(tok.value), StringType)
-            token_nodes.append(
-                {"type": "Variant", "value": {"type": token_t_json, "loc_id": "0",
-                                              "case": tok.type, "value": payload}}
-            )
+            token_nodes.append(ir_variant(token_t, tok.type, payload))
         arr_t = _ArrayType(token_t)
-        tokens_ir = _node("NewArray", type=_type_json(arr_t), values=token_nodes)
+        tokens_ir = ir_new_array(arr_t, token_nodes)
         return KernelExpr(
             _builtin("DateTimePrintFormat", StringType, [], [self.ir, tokens_ir]), StringType
         )
@@ -924,13 +913,12 @@ class KernelExpr:
         some_var = _var("__m0", inner_t)
         some_body = some_body_fn(KernelExpr(some_var, inner_t))
         none_var = _var("__m1", NullType)
-        node = _node(
-            "Match",
-            type=_type_json(out_t),
-            variant=self.ir,
-            cases=[
-                {"case": "none", "variable": none_var, "body": none_value.ir},
-                {"case": "some", "variable": some_var, "body": some_body.ir},
+        node = ir_match(
+            out_t,
+            self.ir,
+            [
+                ("none", none_var, none_value.ir),
+                ("some", some_var, some_body.ir),
             ],
         )
         return KernelExpr(node, out_t)
@@ -976,9 +964,8 @@ class KernelExpr:
         cases = []
         for i, c in enumerate(self._variant_cases()):
             var = _var(f"__t{i}", c["type"])
-            cases.append({"case": c["name"], "variable": var,
-                          "body": _literal(c["name"], StringType)})
-        node = _node("Match", type=_type_json(StringType), variant=self.ir, cases=cases)
+            cases.append((c["name"], var, _literal(c["name"], StringType)))
+        node = ir_match(StringType, self.ir, cases)
         return KernelExpr(node, StringType)
 
     def has_tag(self, tag: str) -> KernelExpr:
@@ -990,9 +977,8 @@ class KernelExpr:
         cases = []
         for i, c in enumerate(self._variant_cases()):
             var = _var(f"__t{i}", c["type"])
-            cases.append({"case": c["name"], "variable": var,
-                          "body": _literal(c["name"] == tag, BooleanType)})
-        node = _node("Match", type=_type_json(BooleanType), variant=self.ir, cases=cases)
+            cases.append((c["name"], var, _literal(c["name"] == tag, BooleanType)))
+        node = ir_match(BooleanType, self.ir, cases)
         return KernelExpr(node, BooleanType)
 
     def match(self, cases: dict) -> KernelExpr:
@@ -1033,8 +1019,8 @@ class KernelExpr:
                     f".match() case {name!r} returns {body.east_type.type}, "
                     f"other cases return {out_t.type}"
                 )
-            case_nodes.append({"case": name, "variable": var, "body": body.ir})
-        node = _node("Match", type=_type_json(out_t), variant=self.ir, cases=case_nodes)
+            case_nodes.append((name, var, body.ir))
+        node = ir_match(out_t, self.ir, case_nodes)
         return KernelExpr(node, out_t)
 
     def unwrap(self, tag: str) -> KernelExpr:
@@ -1054,9 +1040,9 @@ class KernelExpr:
                 body = var
             else:
                 msg = _literal(f"unwrap: expected variant case '{tag}', got '{c['name']}'", StringType)
-                body = _node("Error", type=_type_json(out_t), message=msg)
-            case_nodes.append({"case": c["name"], "variable": var, "body": body})
-        node = _node("Match", type=_type_json(out_t), variant=self.ir, cases=case_nodes)
+                body = ir_error(out_t, msg)
+            case_nodes.append((c["name"], var, body))
+        node = ir_match(out_t, self.ir, case_nodes)
         return KernelExpr(node, out_t)
 
     # ── scalar reads on collection-typed fields ─────────────────────────
@@ -1264,20 +1250,17 @@ class KernelExpr:
 
         out_t = _option_type(t)
         parsed = _builtin("Parse", t, [t], [self.ir])
-        some_node = _node("Variant", type=_type_json(out_t), case="some", value=parsed)
-        none_node = _node(
-            "Variant", type=_type_json(out_t), case="none", value=_literal(None, NullType)
-        )
+        some_node = ir_variant(out_t, "some", parsed)
+        none_node = ir_variant(out_t, "none", _literal(None, NullType))
         loc_t = _StructType(
             [("filename", StringType), ("line", IntegerType), ("column", IntegerType)]
         )
-        node = _node(
-            "TryCatch",
-            type=_type_json(out_t),
-            try_body=some_node,
-            catch_body=none_node,
-            message=_var(_fresh_name(), StringType),
-            stack=_var(_fresh_name(), ArrayType(loc_t)),
+        node = ir_trycatch(
+            out_t,
+            some_node,
+            none_node,
+            _var(_fresh_name(), StringType),
+            _var(_fresh_name(), ArrayType(loc_t)),
             finally_body=_literal(None, NullType),
         )
         return KernelExpr(node, out_t)
@@ -1306,15 +1289,13 @@ class KernelExpr:
         raise _trace_bail("in")
 
 
-def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> dict:
+def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
     """A Function IR node ignoring its parameters and returning `body`."""
     from east.types.types import FunctionType as _FnType
 
     params = [_var(f"__d{i}", t) for i, t in enumerate(param_types)]
     fn_t = _FnType(list(param_types), out_t)
-    return _node(
-        "Function", type=_type_json(fn_t), captures=[], parameters=params, body=body.ir
-    )
+    return ir_function(fn_t, [], params, body.ir)
 
 
 # ─── Nested lambdas + the eager-builtin funnel (#393) ───────────────────────
@@ -1329,7 +1310,7 @@ def _fresh_name() -> str:
     return f"__n{next(_fresh_names)}"
 
 
-def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None) -> tuple[dict, EastType]:
+def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None) -> tuple[Any, EastType]:
     """Trace an inner (nested) lambda into a Function IR node.
 
     ``param_types`` is the builtin's full callback signature (e.g. map takes
@@ -1356,9 +1337,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     body = _lift(result)
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     fn_t = FunctionType(list(param_types), body.east_type)
-    node = _node(
-        "Function", type=_type_json(fn_t), captures=[], parameters=params, body=body.ir
-    )
+    node = ir_function(fn_t, [], params, body.ir)
     return node, body.east_type
 
 
@@ -1433,12 +1412,7 @@ def where(cond: Any, then: Any, otherwise: Any) -> Any:
             f"where() branches must have the same East type "
             f"({then_e.east_type.type} vs {else_e.east_type.type})"
         )
-    node = _node(
-        "IfElse",
-        type=_type_json(then_e.east_type),
-        ifs=[{"predicate": cond.ir, "body": then_e.ir}],
-        else_body=else_e.ir,
-    )
+    node = ir_ifelse(then_e.east_type, [(cond.ir, then_e.ir)], else_e.ir)
     return KernelExpr(node, then_e.east_type)
 
 
@@ -1473,37 +1447,36 @@ def least(a: Any, b: Any) -> Any:
 
 def _function_ir(
     param_types: list[EastType],
-    params: list[dict],
+    params: list,
     body: KernelExpr,
-    consts: list[tuple[str, dict, EastType]] = (),  # type: ignore[assignment]
-) -> bytes:
+    consts: list[tuple[str, Any, EastType]] = (),  # type: ignore[assignment]
+) -> Any:
+    """The kernel's top-level IR value: a Function node, or — when constants
+    hoisted — ``Block[Let …, Function(captures)]`` so each constant evaluates
+    ONCE when the kernel compiles, not per call."""
     fn_type = FunctionType(list(param_types), body.east_type)
-    fn_node = _node(
-        "Function",
-        type=_type_json(fn_type),
-        # Hoisted constants are captured so they survive the enclosing block:
-        # they evaluate ONCE when the kernel compiles, not per call.
-        captures=[_var(name, t) for name, _n, t in consts],
-        parameters=params,
-        body=body.ir,
+    fn_node = ir_function(
+        fn_type,
+        # Hoisted constants are captured so they survive the enclosing block.
+        [_var(name, t) for name, _n, t in consts],
+        params,
+        body.ir,
     )
     top = fn_node
     if consts:
         lets = [
-            _node("Let", type=_type_json(t), variable=_var(name, t), value=node)
-            for name, node, t in consts
+            ir_let(t, _var(name, t), node) for name, node, t in consts
         ]
-        top = _node("Block", type=_type_json(fn_type), statements=[*lets, fn_node])
-    # east_json_decode_ir's supported shape is the {ir, source_map} wrapper
-    # (the same format the TS test suite exports); kernels carry no locations
-    # so the source map is empty.
-    return json.dumps({"ir": top, "source_map": {"stacks": []}}).encode("utf-8")
+        top = ir_block(fn_type, [*lets, fn_node])
+    return top
 
 
-def trace(fn: Any, param_types: list[EastType]) -> tuple[bytes, EastType]:
-    """Trace ``fn`` over expression proxies; return (IR JSON, output type).
+def trace(fn: Any, param_types: list[EastType]) -> tuple[Any, EastType]:
+    """Trace ``fn`` over expression proxies; return (IR value, output type).
 
-    Raises KernelTraceError when the lambda performs untraceable operations.
+    The IR value is homoiconic — an ``EastVariant`` conforming to ``IRType``
+    (compile with ``compile_from_value``). Raises KernelTraceError when the
+    lambda performs untraceable operations.
     """
     global _const_registry
     proxies = [KernelExpr(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
@@ -1553,12 +1526,12 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
     types = [param_types] if isinstance(param_types, EastType) else list(param_types)
     if fn is None:
         return lambda f: kernel(types, f, out=out)
-    ir_json, out_type = trace(fn, types)
+    ir_value, out_type = trace(fn, types)
     if out is not None and out != out_type:
         raise TypeError(f"kernel output is {out_type.type}, expected {out.type}")
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    return compile_from_json(ir_json)
+    return compile_from_value(ir_value)
 
 
 # ─── Automatic push-down for eager-method callbacks ─────────────────────────
@@ -1674,12 +1647,12 @@ def try_push_down(east_fn: Any) -> Any | None:
     try:
         if not _eligible(east_fn.fn):
             return None
-        ir_json, out_type = trace(east_fn.fn, list(east_fn.input_types))
+        ir_value, out_type = trace(east_fn.fn, list(east_fn.input_types))
         if out_type != east_fn.output_type:
             return None
-        from east.runtime.compiler import compile_from_json
+        from east.runtime.compiler import compile_from_value
 
-        return compile_from_json(ir_json)
+        return compile_from_value(ir_value)
     except Exception:
         return None
 
@@ -1696,76 +1669,76 @@ _helper_memo: dict[str, Any] = {}
 
 def _identity_kernel(t: EastType) -> Any:
     """Compiled (x: t) -> x."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    key = "identity:" + json.dumps(_type_json(t))
+    key = "identity:" + _type_key(t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
     body = KernelExpr(_var("__k0", t), t)
-    k = compile_from_json(_function_ir([t], [_var("__k0", t)], body))
+    k = compile_from_value(_function_ir([t], [_var("__k0", t)], body))
     _helper_memo[key] = k
     return k
 
 
 def _second_kernel(t: EastType) -> Any:
     """Compiled (a: t, b: t) -> b (default combine: later value wins)."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    key = "second:" + json.dumps(_type_json(t))
+    key = "second:" + _type_key(t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
     params = [_var("__k0", t), _var("__k1", t)]
     body = KernelExpr(_var("__k1", t), t)
-    k = compile_from_json(_function_ir([t, t], params, body))
+    k = compile_from_value(_function_ir([t, t], params, body))
     _helper_memo[key] = k
     return k
 
 
 def _empty_array_kernel(key_t: EastType, element_t: EastType) -> Any:
     """Compiled (k: key_t) -> [] of element_t (group init)."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    key = "init:" + json.dumps([_type_json(key_t), _type_json(element_t)])
+    key = "init:" + _type_key(key_t) + "|" + _type_key(element_t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
     bucket_t = ArrayType(element_t)
-    body = KernelExpr(_node("NewArray", type=_type_json(bucket_t), values=[]), bucket_t)
-    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    body = KernelExpr(ir_new_array(bucket_t, []), bucket_t)
+    k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
 
 
 def _none_init_kernel(key_t: EastType, inner_t: EastType) -> Any:
     """Compiled (k: key_t) -> none : Option<inner_t> (group max/min init)."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    key = "noneinit:" + json.dumps([_type_json(key_t), _type_json(inner_t)])
+    key = "noneinit:" + _type_key(key_t) + "|" + _type_key(inner_t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
     opt_t = _option_type(inner_t)
     body = KernelExpr(
-        _node("Variant", type=_type_json(opt_t), case="none", value=_literal(None, NullType)),
+        ir_variant(opt_t, "none", _literal(None, NullType)),
         opt_t,
     )
-    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
 
 
-def _pair_field(pair_t: EastType, var: dict, name: str) -> tuple:
+def _pair_field(pair_t: EastType, var: Any, name: str) -> tuple:
     f_t = next(f["type"] for f in pair_t.value if f["name"] == name)
-    return _node("GetField", type=_type_json(f_t), field=name, struct=var), f_t
+    return ir_get_field(f_t, name, var), f_t
 
 
 def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
     """Compiled (acc: [V], p: pair_t, i) -> acc with p.<value_field> pushed."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    key = "appendfield:" + json.dumps([_type_json(pair_t), value_field])
+    key = "appendfield:" + _type_key(pair_t) + "|" + value_field
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
@@ -1774,34 +1747,34 @@ def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
     bucket_t = ArrayType(v_t)
     acc = _var("__k0", bucket_t)
     push = _builtin("ArrayPushLast", NullType, [v_t], [acc, field_ir])
-    block = _node("Block", type=_type_json(bucket_t), statements=[push, acc])
-    k = compile_from_json(_function_ir([bucket_t, pair_t], [acc, el], KernelExpr(block, bucket_t)))
+    block = ir_block(bucket_t, [push, acc])
+    k = compile_from_value(_function_ir([bucket_t, pair_t], [acc, el], KernelExpr(block, bucket_t)))
     _helper_memo[key] = k
     return k
 
 
 def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
     """Compiled (k: key_t) -> {} : Set<element_t> (group init)."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
     from east.types.types import SetType as _SetType
 
-    key = "setinit:" + json.dumps([_type_json(key_t), _type_json(element_t)])
+    key = "setinit:" + _type_key(key_t) + "|" + _type_key(element_t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
     set_t = _SetType(element_t)
-    body = KernelExpr(_node("NewSet", type=_type_json(set_t), values=[]), set_t)
-    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    body = KernelExpr(ir_new_set(set_t, []), set_t)
+    k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
 
 
 def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
     """Compiled (acc: Set<V>, p: pair_t, i) -> acc with p.<value_field> inserted."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
     from east.types.types import SetType as _SetType
 
-    key = "setinsfield:" + json.dumps([_type_json(pair_t), value_field])
+    key = "setinsfield:" + _type_key(pair_t) + "|" + value_field
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
@@ -1810,24 +1783,24 @@ def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
     set_t = _SetType(v_t)
     acc = _var("__k0", set_t)
     ins = _builtin("SetInsert", NullType, [v_t], [acc, field_ir])
-    block = _node("Block", type=_type_json(set_t), statements=[ins, acc])
-    k = compile_from_json(_function_ir([set_t, pair_t], [acc, el], KernelExpr(block, set_t)))
+    block = ir_block(set_t, [ins, acc])
+    k = compile_from_value(_function_ir([set_t, pair_t], [acc, el], KernelExpr(block, set_t)))
     _helper_memo[key] = k
     return k
 
 
 def _empty_dict_kernel(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
     """Compiled (k: key_t) -> {} : Dict<k2_t, v_t> (group init)."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
     from east.types.types import DictType as _DictType
 
-    key = "dictinit:" + json.dumps([_type_json(key_t), _type_json(k2_t), _type_json(v_t)])
+    key = "dictinit:" + _type_key(key_t) + "|" + _type_key(k2_t) + "|" + _type_key(v_t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
     dict_t = _DictType(k2_t, v_t)
-    body = KernelExpr(_node("NewDict", type=_type_json(dict_t), values=[]), dict_t)
-    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    body = KernelExpr(ir_new_dict(dict_t, []), dict_t)
+    k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
 
@@ -1838,10 +1811,10 @@ def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: st
     Uses DictInsert, so a duplicate inner key errors — mirroring the TS
     groupToDicts default (resolve collisions with a combine instead).
     """
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
     from east.types.types import DictType as _DictType
 
-    key = "dictinsfields:" + json.dumps([_type_json(pair_t), key_field, value_field])
+    key = "dictinsfields:" + _type_key(pair_t) + "|" + key_field + "|" + value_field
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
@@ -1851,17 +1824,17 @@ def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: st
     dict_t = _DictType(k2_t, v_t)
     acc = _var("__k0", dict_t)
     ins = _builtin("DictInsert", NullType, [k2_t, v_t], [acc, k_ir, v_ir])
-    block = _node("Block", type=_type_json(dict_t), statements=[ins, acc])
-    k = compile_from_json(_function_ir([dict_t, pair_t], [acc, el], KernelExpr(block, dict_t)))
+    block = ir_block(dict_t, [ins, acc])
+    k = compile_from_value(_function_ir([dict_t, pair_t], [acc, el], KernelExpr(block, dict_t)))
     _helper_memo[key] = k
     return k
 
 
 def _append_kernel(element_t: EastType) -> Any:
     """Compiled (acc: [t], el: t) -> acc with el pushed (group fold)."""
-    from east.runtime.compiler import compile_from_json
+    from east.runtime.compiler import compile_from_value
 
-    key = "append:" + json.dumps(_type_json(element_t))
+    key = "append:" + _type_key(element_t)
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
@@ -1869,12 +1842,8 @@ def _append_kernel(element_t: EastType) -> Any:
     acc = _var("__k0", bucket_t)
     el = _var("__k1", element_t)
     push = _builtin("ArrayPushLast", NullType, [element_t], [acc, el])
-    block = _node(
-        "Block",
-        type=_type_json(bucket_t),
-        statements=[push, acc],
-    )
+    block = ir_block(bucket_t, [push, acc])
     body = KernelExpr(block, bucket_t)
-    k = compile_from_json(_function_ir([bucket_t, element_t], [acc, el], body))
+    k = compile_from_value(_function_ir([bucket_t, element_t], [acc, el], body))
     _helper_memo[key] = k
     return k

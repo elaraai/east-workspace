@@ -149,49 +149,8 @@ LocationType = StructType(
 IRLabelType = StructType(
     [
         ("name", StringType),
-        ("location", ArrayType(LocationType)),
+        ("loc_id", IntegerType),
     ]
-)
-
-# IfCase struct type used in IfElse IR
-IfCaseType = recursive_type(
-    lambda ir_ref: StructType(
-        [
-            ("predicate", ir_ref),
-            ("body", ir_ref),
-        ]
-    )
-)
-
-# MatchCase struct type used in Match IR
-MatchCaseType = recursive_type(
-    lambda ir_ref: StructType(
-        [
-            ("case", StringType),
-            ("variable", ir_ref),
-            ("body", ir_ref),
-        ]
-    )
-)
-
-# DictEntry struct type used in NewDict IR
-DictEntryType = recursive_type(
-    lambda ir_ref: StructType(
-        [
-            ("key", ir_ref),
-            ("value", ir_ref),
-        ]
-    )
-)
-
-# StructField struct type used in Struct IR
-StructFieldIRType = recursive_type(
-    lambda ir_ref: StructType(
-        [
-            ("name", StringType),
-            ("value", ir_ref),
-        ]
-    )
 )
 
 # The full IR type - all possible IR node variants
@@ -206,7 +165,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("message", ir_ref),
                     ]
                 ),
@@ -217,7 +176,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("try_body", ir_ref),
                         ("catch_body", ir_ref),
                         ("message", ir_ref),
@@ -232,7 +191,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("value", LiteralValueType),
                     ]
                 ),
@@ -243,7 +202,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("name", StringType),
                         ("mutable", BooleanType),
                         ("captured", BooleanType),
@@ -256,7 +215,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("variable", ir_ref),
                         ("value", ir_ref),
                     ]
@@ -268,7 +227,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("variable", ir_ref),
                         ("value", ir_ref),
                     ]
@@ -280,7 +239,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("value", ir_ref),
                     ]
                 ),
@@ -291,7 +250,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("captures", ArrayType(ir_ref)),
                         ("parameters", ArrayType(ir_ref)),
                         ("body", ir_ref),
@@ -304,7 +263,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("captures", ArrayType(ir_ref)),
                         ("parameters", ArrayType(ir_ref)),
                         ("body", ir_ref),
@@ -317,7 +276,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("function", ir_ref),
                         ("arguments", ArrayType(ir_ref)),
                     ]
@@ -329,7 +288,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("function", ir_ref),
                         ("arguments", ArrayType(ir_ref)),
                     ]
@@ -341,7 +300,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("value", ir_ref),
                     ]
                 ),
@@ -352,7 +311,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("values", ArrayType(ir_ref)),
                     ]
                 ),
@@ -363,7 +322,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("values", ArrayType(ir_ref)),
                     ]
                 ),
@@ -374,7 +333,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("values", ArrayType(StructType([("key", ir_ref), ("value", ir_ref)]))),
                     ]
                 ),
@@ -385,7 +344,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("values", ArrayType(ir_ref)),
                     ]
                 ),
@@ -396,7 +355,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("values", ArrayType(ir_ref)),
                         ("rows", IntegerType),
                         ("cols", IntegerType),
@@ -409,7 +368,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         (
                             "fields",
                             ArrayType(StructType([("name", StringType), ("value", ir_ref)])),
@@ -423,7 +382,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("field", StringType),
                         ("struct", ir_ref),
                     ]
@@ -435,7 +394,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("case", StringType),
                         ("value", ir_ref),
                     ]
@@ -447,7 +406,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("statements", ArrayType(ir_ref)),
                     ]
                 ),
@@ -458,7 +417,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("ifs", ArrayType(StructType([("predicate", ir_ref), ("body", ir_ref)]))),
                         ("else_body", ir_ref),
                     ]
@@ -470,7 +429,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("variant", ir_ref),
                         (
                             "cases",
@@ -489,7 +448,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("value", ir_ref),
                     ]
                 ),
@@ -500,7 +459,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("value", ir_ref),
                     ]
                 ),
@@ -511,7 +470,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("predicate", ir_ref),
                         ("label", IRLabelType),
                         ("body", ir_ref),
@@ -524,7 +483,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("array", ir_ref),
                         ("label", IRLabelType),
                         ("key", ir_ref),
@@ -539,7 +498,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("set", ir_ref),
                         ("label", IRLabelType),
                         ("key", ir_ref),
@@ -553,7 +512,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("dict", ir_ref),
                         ("label", IRLabelType),
                         ("key", ir_ref),
@@ -568,7 +527,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("value", ir_ref),
                     ]
                 ),
@@ -579,7 +538,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("label", IRLabelType),
                     ]
                 ),
@@ -590,7 +549,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("label", IRLabelType),
                     ]
                 ),
@@ -601,7 +560,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("builtin", StringType),
                         ("type_parameters", ArrayType(EastTypeType)),
                         ("arguments", ArrayType(ir_ref)),
@@ -614,7 +573,7 @@ IRType = recursive_type(
                 StructType(
                     [
                         ("type", EastTypeType),
-                        ("location", ArrayType(LocationType)),
+                        ("loc_id", IntegerType),
                         ("name", StringType),
                         ("type_parameters", ArrayType(EastTypeType)),
                         ("arguments", ArrayType(ir_ref)),
@@ -625,6 +584,49 @@ IRType = recursive_type(
             ),
         ]
     )
+)
+
+
+# =============================================================================
+# IR helper struct types
+# =============================================================================
+
+# Standalone spellings of the struct shapes IRType uses inline, with the
+# node references written as IRType itself. (Historically these were
+# defined as their OWN recursion — self-referential and structurally
+# wrong; nothing consumed them until the homoiconic tracer, #398.)
+
+# IfCase struct type used in IfElse IR
+IfCaseType = StructType(
+    [
+        ("predicate", IRType),
+        ("body", IRType),
+    ]
+)
+
+# MatchCase struct type used in Match IR
+MatchCaseType = StructType(
+    [
+        ("case", StringType),
+        ("variable", IRType),
+        ("body", IRType),
+    ]
+)
+
+# DictEntry struct type used in NewDict IR
+DictEntryType = StructType(
+    [
+        ("key", IRType),
+        ("value", IRType),
+    ]
+)
+
+# StructField struct type used in Struct IR
+StructFieldIRType = StructType(
+    [
+        ("name", StringType),
+        ("value", IRType),
+    ]
 )
 
 

@@ -274,6 +274,31 @@ cdef object _compile_from_c_ir_val(_eastc.EastValue* c_ir_val, list platform_lis
     return _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
 
 
+# ─── Compile from a homoiconic IR value (no serialization round-trip) ─────
+
+# The C-side IRType, converted once and cached for the process lifetime
+# (intentionally never released — like the builtin/platform registries).
+cdef _eastc.EastType* _c_ir_type = NULL
+
+
+cdef _eastc.EastType* _ensure_c_ir_type() except NULL:
+    global _c_ir_type
+    if _c_ir_type == NULL:
+        from east.types.type_of_type import IRType
+        _c_ir_type = py_type_to_c(IRType)
+    return _c_ir_type
+
+
+cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint is_async):
+    """Compile East IR from a homoiconic IR value (an EastVariant conforming
+    to IRType) — the python value converts straight to a C value and
+    east_ir_from_value builds the IR tree, with no serialization round-trip.
+    This is the kernel tracer's path (#398)."""
+    _ensure_runtime()
+    cdef _eastc.EastValue* c_ir_val = py_value_to_c(ir_value, _ensure_c_ir_type())
+    return _compile_from_c_ir_val(c_ir_val, platform_list, is_async)
+
+
 cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir_val,
                                    list platform_list, bint is_async):
     """Compile from an already-decoded IRNode — shared compilation path.
