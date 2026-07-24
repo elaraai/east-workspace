@@ -210,7 +210,14 @@ python never runs per element**. In order of impact:
 2. **Let pure lambdas trace** (form 1 above), and chain on the results —
    a chain of traced `map`/`filter`/`fold` stays native between steps.
    Return a dict literal (`lambda r: {"a": …, "b": …}`) to compute every
-   derived column in ONE pass instead of one `map` per column.
+   derived column in ONE pass instead of one `map` per column. **Reuse a
+   python variable to share work** (trace-time CSE): assigning
+   `fields = r.data.split("|")` and reading `fields` for 30 columns
+   compiles to ONE `Let` — the split runs once per row, not 30×
+   (~2.5× on that shape). Sharing the *variable* is what dedupes;
+   re-calling `.split()` per column re-emits the split. Loop-invariant
+   shared subexpressions hoist out of nested lambdas to the kernel body
+   the same way.
 3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
    opposite contracts — never conflate them:
 
@@ -451,8 +458,10 @@ Task → What do you need?
     │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True;
     │   │   │                  some/every/first_map short-circuit natively — identical to the eager path)
     │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
-    │   │   └─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
-    │   │       SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
+    │   │   ├─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
+    │   │   │   SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
+    │   │   └─ Shared subexpressions → REUSE the python variable (fields = r.data.split("|"); read it N times)
+    │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
     │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
     │   ├─ Compile IR you built programmatically (east.ir.builders values) → compile_from_value — no serialization round-trip

@@ -70,18 +70,9 @@ import itertools
 from typing import Any
 
 from east.ir.builders import (
-    ir_block,
-    ir_builtin,
     ir_error,
-    ir_function,
     ir_get_field,
-    ir_ifelse,
     ir_let,
-    ir_match,
-    ir_new_array,
-    ir_new_dict,
-    ir_new_set,
-    ir_struct,
     ir_trycatch,
     ir_value,
     ir_variable,
@@ -98,7 +89,7 @@ from east.types.types import (
     NullType,
     StringType,
 )
-from east.types.values import EastArray
+from east.types.values import EastArray, EastStruct, EastVariant
 
 __all__ = ["kernel", "where", "greatest", "least", "KernelTraceError", "KernelExpr"]
 
@@ -129,7 +120,7 @@ def _var(name: str, t: EastType):
 
 
 def _builtin(name: str, out: EastType, type_params: list[EastType], args: list):
-    return ir_builtin(out, name, type_params, args)
+    return _k_builtin(name, out, type_params, args)
 
 
 def _literal(value: Any, t: EastType):
@@ -269,14 +260,14 @@ def _lift_collection(value: Any) -> KernelExpr | None:
         arr_t = _ArrayType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
-            value, KernelExpr(ir_new_array(arr_t, nodes), arr_t)
+            value, KernelExpr(_k_new_array(arr_t, nodes), arr_t)
         )
     if isinstance(value, EastSet):
         elem_t = value.element_type
         set_t = _SetType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
-            value, KernelExpr(ir_new_set(set_t, nodes), set_t)
+            value, KernelExpr(_k_new_set(set_t, nodes), set_t)
         )
     if isinstance(value, EastDict):
         k_t, v_t = value.key_type, value.value_type
@@ -286,7 +277,7 @@ def _lift_collection(value: Any) -> KernelExpr | None:
         ]
         return _register_const(
             value,
-            KernelExpr(ir_new_dict(dict_t, entries), dict_t),
+            KernelExpr(_k_new_dict(dict_t, entries), dict_t),
         )
     if is_east_struct(value):
         # A captured struct constant (e.g. a config row) lifts field by field.
@@ -310,7 +301,7 @@ def _lift_struct(value: dict) -> KernelExpr:
         fields.append((name, e.ir))
         field_types.append((name, e.east_type))
     struct_t = _StructType(field_types)
-    return KernelExpr(ir_struct(struct_t, fields), struct_t)
+    return KernelExpr(_k_struct(struct_t, fields), struct_t)
 
 
 def _option_type(inner: EastType) -> EastType:
@@ -904,7 +895,7 @@ class KernelExpr:
                 payload = _literal(str(tok.value), StringType)
             token_nodes.append(ir_variant(token_t, tok.type, payload))
         arr_t = _ArrayType(token_t)
-        tokens_ir = ir_new_array(arr_t, token_nodes)
+        tokens_ir = _k_new_array(arr_t, token_nodes)
         return KernelExpr(
             _builtin("DateTimePrintFormat", StringType, [], [self.ir, tokens_ir]), StringType
         )
@@ -920,7 +911,7 @@ class KernelExpr:
         some_var = _var("__m0", inner_t)
         some_body = some_body_fn(KernelExpr(some_var, inner_t))
         none_var = _var("__m1", NullType)
-        node = ir_match(
+        node = _k_match(
             out_t,
             self.ir,
             [
@@ -972,7 +963,7 @@ class KernelExpr:
         for i, c in enumerate(self._variant_cases()):
             var = _var(f"__t{i}", c["type"])
             cases.append((c["name"], var, _literal(c["name"], StringType)))
-        node = ir_match(StringType, self.ir, cases)
+        node = _k_match(StringType, self.ir, cases)
         return KernelExpr(node, StringType)
 
     def has_tag(self, tag: str) -> KernelExpr:
@@ -985,7 +976,7 @@ class KernelExpr:
         for i, c in enumerate(self._variant_cases()):
             var = _var(f"__t{i}", c["type"])
             cases.append((c["name"], var, _literal(c["name"] == tag, BooleanType)))
-        node = ir_match(BooleanType, self.ir, cases)
+        node = _k_match(BooleanType, self.ir, cases)
         return KernelExpr(node, BooleanType)
 
     def match(self, cases: dict) -> KernelExpr:
@@ -1027,7 +1018,7 @@ class KernelExpr:
                     f"other cases return {out_t.type}"
                 )
             case_nodes.append((name, var, body.ir))
-        node = ir_match(out_t, self.ir, case_nodes)
+        node = _k_match(out_t, self.ir, case_nodes)
         return KernelExpr(node, out_t)
 
     def unwrap(self, tag: str) -> KernelExpr:
@@ -1049,7 +1040,7 @@ class KernelExpr:
                 msg = _literal(f"unwrap: expected variant case '{tag}', got '{c['name']}'", StringType)
                 body = ir_error(out_t, msg)
             case_nodes.append((c["name"], var, body))
-        node = ir_match(out_t, self.ir, case_nodes)
+        node = _k_match(out_t, self.ir, case_nodes)
         return KernelExpr(node, out_t)
 
     # ── scalar reads on collection-typed fields ─────────────────────────
@@ -1379,7 +1370,7 @@ def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
 
     params = [_var(f"__d{i}", t) for i, t in enumerate(param_types)]
     fn_t = _FnType(list(param_types), out_t)
-    return ir_function(fn_t, [], params, body.ir)
+    return _k_function(fn_t, [], params, body.ir)
 
 
 # ─── Nested lambdas + the eager-builtin funnel (#393) ───────────────────────
@@ -1421,7 +1412,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     body = _lift(result)
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     fn_t = FunctionType(list(param_types), body.east_type)
-    node = ir_function(fn_t, [], params, body.ir)
+    node = _k_function(fn_t, [], params, body.ir)
     return node, body.east_type
 
 
@@ -1496,7 +1487,7 @@ def where(cond: Any, then: Any, otherwise: Any) -> Any:
             f"where() branches must have the same East type "
             f"({then_e.east_type.type} vs {else_e.east_type.type})"
         )
-    node = ir_ifelse(then_e.east_type, [(cond.ir, then_e.ir)], else_e.ir)
+    node = _k_ifelse(then_e.east_type, [(cond.ir, then_e.ir)], else_e.ir)
     return KernelExpr(node, then_e.east_type)
 
 
@@ -1526,6 +1517,296 @@ def least(a: Any, b: Any) -> Any:
     return a if less_equal_for(type_of(a))(a, b) else b
 
 
+
+
+# ─── Lazy node construction (identity-preserving, #411) ─────────────────────
+#
+# EastArray is a C-backed proxy: pushing a child converts it and every read
+# materializes a FRESH python object — node identity (what CSE detects) dies
+# at every array boundary. During tracing, array-bearing nodes therefore hold
+# their children in plain python lists; one finalize pass (_finalize_ir) runs
+# the identity-based CSE and converts every list to the proper EastArray in
+# the same rebuild. Scalar-child nodes use the shared builders directly —
+# EastStruct fields keep object identity.
+
+
+def _k_builtin(name: str, out: EastType, type_params: list, args: list):
+    return EastVariant("Builtin", EastStruct({
+        "type": out, "loc_id": 0, "builtin": name,
+        "type_parameters": list(type_params), "arguments": list(args),
+    }))
+
+
+def _k_function(fn_t: EastType, captures: list, params: list, body):
+    return EastVariant("Function", EastStruct({
+        "type": fn_t, "loc_id": 0, "captures": list(captures),
+        "parameters": list(params), "body": body,
+    }))
+
+
+def _k_block(t: EastType, statements: list):
+    return EastVariant("Block", EastStruct({
+        "type": t, "loc_id": 0, "statements": list(statements),
+    }))
+
+
+def _k_match(t: EastType, subject, cases: list):
+    return EastVariant("Match", EastStruct({
+        "type": t, "loc_id": 0, "variant": subject,
+        "cases": [EastStruct({"case": c, "variable": v, "body": b}) for c, v, b in cases],
+    }))
+
+
+def _k_new_array(t: EastType, values: list):
+    return EastVariant("NewArray", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
+
+
+def _k_new_set(t: EastType, values: list):
+    return EastVariant("NewSet", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
+
+
+def _k_new_dict(t: EastType, entries: list):
+    return EastVariant("NewDict", EastStruct({
+        "type": t, "loc_id": 0,
+        "values": [EastStruct({"key": k, "value": v}) for k, v in entries],
+    }))
+
+
+def _k_struct(t: EastType, fields: list):
+    return EastVariant("Struct", EastStruct({
+        "type": t, "loc_id": 0,
+        "fields": [EastStruct({"name": n, "value": v}) for n, v in fields],
+    }))
+
+
+def _k_ifelse(t: EastType, ifs: list, else_body):
+    return EastVariant("IfElse", EastStruct({
+        "type": t, "loc_id": 0,
+        "ifs": [EastStruct({"predicate": p, "body": b}) for p, b in ifs],
+        "else_body": else_body,
+    }))
+
+
+# ─── Trace-time CSE + finalize: shared subexpressions bind once (#411) ──────
+#
+# Reusing one KernelExpr object at N sites makes the traced (lazy) tree a
+# DAG. The finalize pass walks it once: every non-trivial node referenced
+# more than once — whose free variables are the kernel's own parameters or
+# hoisted constants — binds to a Let at the top of the kernel body (this
+# includes loop-invariant hoisting out of nested lambdas); everything else
+# re-emits inline. The SAME rebuild converts every plain-list child into its
+# proper EastArray, producing the final homoiconic value.
+
+_CSE_SKIP_KINDS = frozenset({"Value", "Variable"})
+
+#: node kind -> (child field specs, extra array fields converted not walked).
+#: A child spec is a field name, ("field", "list", ElementTypeThunk), or
+#: ("field", "structs", ElementTypeThunk, (subfields...)).
+def _node_specs():
+    from east.types.type_of_type import (
+        DictEntryType,
+        EastTypeType,
+        IfCaseType,
+        IRType,
+        MatchCaseType,
+        StructFieldIRType,
+    )
+
+    ir = lambda: IRType  # noqa: E731
+    return {
+        "Value": ((), ()),
+        "Variable": ((), ()),
+        "Builtin": ((("arguments", "list", ir),), (("type_parameters", EastTypeType),)),
+        "GetField": (("struct",), ()),
+        "Struct": ((("fields", "structs", lambda: StructFieldIRType, ("value",)),), ()),
+        "Variant": (("value",), ()),
+        "NewArray": ((("values", "list", ir),), ()),
+        "NewSet": ((("values", "list", ir),), ()),
+        "NewDict": ((("values", "structs", lambda: DictEntryType, ("key", "value")),), ()),
+        "Match": (("variant", ("cases", "structs", lambda: MatchCaseType, ("variable", "body"))), ()),
+        "IfElse": ((("ifs", "structs", lambda: IfCaseType, ("predicate", "body")), "else_body"), ()),
+        "TryCatch": (("try_body", "catch_body", "message", "stack", "finally_body"), ()),
+        "Function": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
+        "Let": (("variable", "value"), ()),
+        "Block": ((("statements", "list", ir),), ()),
+        "Error": (("message",), ()),
+    }
+
+
+_SPECS = None
+
+
+def _specs():
+    global _SPECS
+    if _SPECS is None:
+        _SPECS = _node_specs()
+    return _SPECS
+
+
+def _node_children(node):
+    """Yield the direct child IR nodes of a (lazy or final) node."""
+    spec = _specs().get(node.type)
+    if spec is None:
+        return
+    payload = node.value
+    for entry in spec[0]:
+        if isinstance(entry, str):
+            yield payload[entry]
+        elif entry[1] == "list":
+            yield from payload[entry[0]]
+        else:
+            for sub in payload[entry[0]]:
+                for f in entry[3]:
+                    yield sub[f]
+
+
+def _finalize_ir(top, param_names: set, kernel_fn=None):
+    """CSE + arrayify the whole lazy tree; returns the final homoiconic node.
+
+    ``top`` is the (lazy) top-level Function node — or a Block wrapping it
+    when constants hoisted; the CSE lets land inside ``kernel_fn``'s body
+    (the FIRST Function node encountered from the top).
+    """
+    counts: dict[int, int] = {}
+    keep: dict[int, Any] = {}
+    visited: set[int] = set()
+
+    def count(node):
+        i = id(node)
+        if node.type not in _CSE_SKIP_KINDS:
+            counts[i] = counts.get(i, 0) + 1
+            keep[i] = node
+        if i in visited:
+            return
+        visited.add(i)
+        for child in _node_children(node):
+            count(child)
+
+    count(top)
+
+    # A name that is REBOUND between the kernel body and a node's occurrence
+    # (an inner-lambda param or match/catch variable shadowing a top param)
+    # must block the hoist — at the top the name resolves to the wrong
+    # binder. scope[i] accumulates every such rebound name over all of the
+    # node's occurrences.
+    scope: dict[int, set] = {}
+
+    def binder_names(node):
+        if node.type == "Function" and node is not kernel_fn:
+            return {p.value["name"] for p in node.value["parameters"]}
+        if node.type == "Match":
+            return {c["variable"].value["name"] for c in node.value["cases"]}
+        if node.type == "TryCatch":
+            return {node.value["message"].value["name"], node.value["stack"].value["name"]}
+        return None
+
+    def scope_walk(node, inner):
+        i = id(node)
+        prev = scope.get(i)
+        if prev is None:
+            scope[i] = set(inner)
+        elif inner <= prev:
+            return
+        else:
+            prev |= inner
+        bound = binder_names(node)
+        if bound:
+            inner = inner | bound
+        for child in _node_children(node):
+            scope_walk(child, inner)
+
+    scope_walk(top, set())
+
+    def free_vars(node, bound):
+        if node.type == "Variable":
+            name = node.value["name"]
+            return set() if name in bound else {name}
+        inner = bound
+        if node.type == "Function":
+            inner = bound | {p.value["name"] for p in node.value["parameters"]}
+        out: set = set()
+        for child in _node_children(node):
+            out |= free_vars(child, inner)
+        return out
+
+    hoistable: dict[int, str] = {}
+    for i, n in counts.items():
+        if n < 2:
+            continue
+        fv = free_vars(keep[i], set())
+        if fv <= param_names and not (fv & scope[i]):
+            hoistable[i] = _fresh_name()
+
+    lets: list = []
+    emitted: set[int] = set()
+    memo: dict[int, Any] = {}
+    kernel_fn_seen = False
+
+    def arrayify(node, children):
+        spec = _specs()[node.type]
+        payload = node.value
+        fields = {k: payload[k] for k in payload}
+        it = iter(children)
+        for entry in spec[0]:
+            if isinstance(entry, str):
+                fields[entry] = next(it)
+            elif entry[1] == "list":
+                fields[entry[0]] = EastArray(entry[2](), [next(it) for _ in payload[entry[0]]])
+            else:
+                rebuilt: list[Any] = []
+                for sub in payload[entry[0]]:
+                    sf = {k: sub[k] for k in sub}
+                    for f in entry[3]:
+                        sf[f] = next(it)
+                    rebuilt.append(EastStruct(sf))
+                fields[entry[0]] = EastArray(entry[2](), rebuilt)
+        for fname, etype in spec[1]:
+            fields[fname] = EastArray(etype, list(payload[fname]))
+        return EastVariant(node.type, EastStruct(fields))
+
+    def emit_let(i):
+        if i in emitted:
+            return
+        emitted.add(i)
+        node = keep[i]
+        value = rewrite(node, binding=i)
+        lets.append(ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value))
+
+    def rewrite(node, binding=None):
+        nonlocal kernel_fn_seen
+        i = id(node)
+        if i in hoistable and i != binding:
+            emit_let(i)
+            return _var(hoistable[i], node.value["type"])
+        if binding is None and i in memo:
+            return memo[i]
+        is_kernel_fn = node is kernel_fn or (
+            kernel_fn is None and node.type == "Function" and not kernel_fn_seen
+        )
+        if is_kernel_fn:
+            kernel_fn_seen = True
+        children = [rewrite(c) for c in _node_children(node)]
+        if is_kernel_fn and (lets or hoistable):
+            # splice the collected lets at the head of the kernel body —
+            # rewriting the body above already emitted every needed let
+            body = children[-1]
+            if lets:
+                from east.types.type_of_type import IRType
+
+                body_type = node.value["type"].value["output"]
+                block: Any = EastVariant("Block", EastStruct({
+                    "type": body_type, "loc_id": 0,
+                    "statements": EastArray(IRType, [*lets, body]),
+                }))
+                children[-1] = block
+        result = arrayify(node, children)
+        if binding is None:
+            memo[i] = result
+        return result
+
+    return rewrite(top)
+
+
 # ─── Tracing + compilation ──────────────────────────────────────────────────
 
 
@@ -1537,9 +1818,10 @@ def _function_ir(
 ) -> Any:
     """The kernel's top-level IR value: a Function node, or — when constants
     hoisted — ``Block[Let …, Function(captures)]`` so each constant evaluates
-    ONCE when the kernel compiles, not per call."""
+    ONCE when the kernel compiles, not per call. Finalization runs the
+    identity CSE (#411) and converts the lazy tree to real East arrays."""
     fn_type = FunctionType(list(param_types), body.east_type)
-    fn_node = ir_function(
+    fn_node = _k_function(
         fn_type,
         # Hoisted constants are captured so they survive the enclosing block.
         [_var(name, t) for name, _n, t in consts],
@@ -1548,11 +1830,10 @@ def _function_ir(
     )
     top = fn_node
     if consts:
-        lets = [
-            ir_let(t, _var(name, t), node) for name, node, t in consts
-        ]
-        top = ir_block(fn_type, [*lets, fn_node])
-    return top
+        lets = [ir_let(t, _var(name, t), node) for name, node, t in consts]
+        top = _k_block(fn_type, [*lets, fn_node])
+    param_names = {p.value["name"] for p in params} | {name for name, _n, _t in consts}
+    return _finalize_ir(top, param_names, kernel_fn=fn_node)
 
 
 def trace(fn: Any, param_types: list[EastType]) -> tuple[Any, EastType]:
@@ -1807,7 +2088,7 @@ def _empty_array_kernel(key_t: EastType, element_t: EastType) -> Any:
     if cached is not None:
         return cached
     bucket_t = ArrayType(element_t)
-    body = KernelExpr(ir_new_array(bucket_t, []), bucket_t)
+    body = KernelExpr(_k_new_array(bucket_t, []), bucket_t)
     k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
@@ -1849,7 +2130,7 @@ def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
     bucket_t = ArrayType(v_t)
     acc = _var("__k0", bucket_t)
     push = _builtin("ArrayPushLast", NullType, [v_t], [acc, field_ir])
-    block = ir_block(bucket_t, [push, acc])
+    block = _k_block(bucket_t, [push, acc])
     k = compile_from_value(_function_ir([bucket_t, pair_t], [acc, el], KernelExpr(block, bucket_t)))
     _helper_memo[key] = k
     return k
@@ -1865,7 +2146,7 @@ def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
     if cached is not None:
         return cached
     set_t = _SetType(element_t)
-    body = KernelExpr(ir_new_set(set_t, []), set_t)
+    body = KernelExpr(_k_new_set(set_t, []), set_t)
     k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
@@ -1885,7 +2166,7 @@ def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
     set_t = _SetType(v_t)
     acc = _var("__k0", set_t)
     ins = _builtin("SetInsert", NullType, [v_t], [acc, field_ir])
-    block = ir_block(set_t, [ins, acc])
+    block = _k_block(set_t, [ins, acc])
     k = compile_from_value(_function_ir([set_t, pair_t], [acc, el], KernelExpr(block, set_t)))
     _helper_memo[key] = k
     return k
@@ -1901,7 +2182,7 @@ def _empty_dict_kernel(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
     if cached is not None:
         return cached
     dict_t = _DictType(k2_t, v_t)
-    body = KernelExpr(ir_new_dict(dict_t, []), dict_t)
+    body = KernelExpr(_k_new_dict(dict_t, []), dict_t)
     k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
@@ -1926,7 +2207,7 @@ def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: st
     dict_t = _DictType(k2_t, v_t)
     acc = _var("__k0", dict_t)
     ins = _builtin("DictInsert", NullType, [k2_t, v_t], [acc, k_ir, v_ir])
-    block = ir_block(dict_t, [ins, acc])
+    block = _k_block(dict_t, [ins, acc])
     k = compile_from_value(_function_ir([dict_t, pair_t], [acc, el], KernelExpr(block, dict_t)))
     _helper_memo[key] = k
     return k
@@ -1944,7 +2225,7 @@ def _append_kernel(element_t: EastType) -> Any:
     acc = _var("__k0", bucket_t)
     el = _var("__k1", element_t)
     push = _builtin("ArrayPushLast", NullType, [element_t], [acc, el])
-    block = ir_block(bucket_t, [push, acc])
+    block = _k_block(bucket_t, [push, acc])
     body = KernelExpr(block, bucket_t)
     k = compile_from_value(_function_ir([bucket_t, element_t], [acc, el], body))
     _helper_memo[key] = k
