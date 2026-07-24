@@ -1,6 +1,6 @@
 {
   "name": "east-monorepo",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "private": true,
   "description": "East language monorepo",
   "packageManager": "pnpm@10.8.1",
