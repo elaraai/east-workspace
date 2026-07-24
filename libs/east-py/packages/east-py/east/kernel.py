@@ -1684,16 +1684,29 @@ _MUTATING_OPS = frozenset(
 )
 
 
-def _code_is_pure_shape(code: Any) -> bool:
+def _code_scan(code: Any) -> tuple[bool, frozenset[str]]:
+    """One disassembly pass: (pure shape, names actually loaded as globals).
+
+    Only ``LOAD_GLOBAL``/``LOAD_NAME`` targets count as globals — ``co_names``
+    also contains ATTRIBUTE names, and treating those as globals made any
+    lambda touching a struct field named after a python builtin (``r.id``,
+    ``r.len``, ``r.format``, …) resolve the field name against ``builtins``
+    and get refused as impure (#409).
+    """
     import dis
     import types as _pytypes
 
+    names: set[str] = set()
     for ins in dis.get_instructions(code):
         if ins.opname in _MUTATING_OPS:
-            return False
+            return False, frozenset()
+        if ins.opname in ("LOAD_GLOBAL", "LOAD_NAME"):
+            names.add(ins.argval)
     # Nested code objects (inner lambdas, comprehensions) are conservatively
     # ineligible — their references are not checked against the allowlist.
-    return not any(isinstance(const, _pytypes.CodeType) for const in code.co_consts)
+    if any(isinstance(const, _pytypes.CodeType) for const in code.co_consts):
+        return False, frozenset()
+    return True, frozenset(names)
 
 
 def _eligible(fn: Any, depth: int = 1) -> bool:
@@ -1704,16 +1717,17 @@ def _eligible(fn: Any, depth: int = 1) -> bool:
     try:
         import builtins as _builtins
 
-        if not _code_is_pure_shape(code):
+        pure, global_names = _code_scan(code)
+        if not pure:
             return False
         fn_globals = getattr(fn, "__globals__", {})
-        for name in code.co_names:
+        for name in global_names:
             if name in fn_globals:
                 value = fn_globals[name]
             elif hasattr(_builtins, name):
                 value = getattr(_builtins, name)
             else:
-                continue  # not resolvable as a global: an attribute name
+                continue  # unresolvable global: fails at trace time if reached
             if not _allowed_global(value, depth):
                 return False
         closure = getattr(fn, "__closure__", None) or ()
