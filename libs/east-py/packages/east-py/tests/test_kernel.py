@@ -837,3 +837,59 @@ def test_bind_multiple_trailing_parameters():
     # chained binding: bind the tables one at a time
     chained = k.bind(t2).bind(t1)
     assert list(_rows().map(chained)) == [2.0, 5.0, 2.0]
+
+# ─── #411: trace-time CSE — shared subexpressions bind once ─────────────────
+
+
+def test_shared_subexpression_binds_once():
+    from east.kernel import trace
+
+    def build(r):
+        fields = r.data.split("|")
+        return {"a": fields.get_or_default(0, ""), "b": fields.get_or_default(1, "")}
+
+    ir, _t = trace(build, [SROW])
+    body = ir.value["body"]
+    assert body.type == "Block"
+    lets = [st for st in body.value["statements"] if st.type == "Let"]
+    assert len(lets) == 1
+    assert lets[0].value["value"].type == "Builtin"
+    assert lets[0].value["value"].value["builtin"] == "StringSplit"
+    # behaviour identical to the python path
+    k = kernel([SROW], build)
+    out = k({"id": "", "data": "x|y|z"})
+    assert (out["a"], out["b"]) == ("x", "y")
+
+
+def test_loop_invariant_shared_expr_hoists_out_of_inner_lambda():
+    from east.kernel import trace
+
+    def build(r):
+        prefix = r.id.substring(0, 2)  # outer-param expr ...
+        return (
+            r.data.split("|").map(lambda v: v + prefix).string_join(",")  # ... used inside
+            + prefix                                                       # ... and outside
+        )
+
+    ir, _t = trace(build, [SROW])
+    assert ir.value["body"].type == "Block"  # hoisted to the kernel body
+    k = kernel([SROW], build)
+    assert k({"id": "AB1", "data": "x|y"}) == "xAB,yAB" + "AB"
+
+
+def test_inner_param_sharing_stays_inline():
+    def build(r):
+        return r.data.split("|").map(lambda v: v.substring(0, 1) + v.substring(0, 1)).string_join("")
+
+    k = kernel([SROW], build)
+    assert k({"id": "", "data": "ab|cd"}) == "aacc"
+
+
+def test_inner_param_shadowing_top_param_does_not_hoist():
+    # Inner lambda param named like the top param: sharing (r.upper() reused
+    # via the immediately-applied helper) must stay INSIDE the inner lambda.
+    def build(r):
+        return r.data.split("|").map(lambda r: (lambda s: s + s)(r.upper())).string_join(",")
+
+    k = kernel([SROW], build)
+    assert k({"id": "", "data": "ab|c"}) == "ABAB,CC"
