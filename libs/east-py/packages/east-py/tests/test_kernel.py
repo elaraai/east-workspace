@@ -627,6 +627,94 @@ def test_bind_requires_native_kernel():
         bind_kernel(lambda x: x, (1.0,))
 
 
+# ─── #403: control-flow parity — first_map + short-circuiting some/every ────
+
+
+def test_first_map_traces_and_matches_eager():
+    from east import EastArray
+
+    k = kernel(
+        [SROW],
+        lambda r: r.data.split("|")
+        .first_map(lambda v: where(v.length() > 1, some(v.upper()), none))
+        .unwrap_or("<none>"),
+    )
+    assert k({"id": "", "data": "a|bb|ccc"}) == "BB"
+    assert k({"id": "", "data": "a|b"}) == "<none>"
+    assert k({"id": "", "data": ""}) == "<none>"
+    eager = EastArray(StringType, ["a", "bb", "ccc"])
+    result = eager.first_map(
+        lambda v: some(v.upper()) if len(v) > 1 else none, out=StringType
+    )
+    assert result.type == "some" and result.value == "BB"
+
+
+def test_first_map_emits_firstmap_builtin_not_fold():
+    from east.kernel import trace
+
+    ir, _t = trace(
+        lambda r: r.data.split("|").first_map(lambda v: where(v == "x", some(v), none)),
+        [SROW],
+    )
+
+    def builtins_in(node, acc):
+        if getattr(node, "type", None) == "Builtin":
+            acc.append(node.value["builtin"])
+        payload = getattr(node, "value", None)
+        if payload is None:
+            return acc
+        for field in ("arguments", "statements", "values", "captures", "parameters"):
+            if field in payload:
+                for child in payload[field]:
+                    builtins_in(child, acc)
+        for field in ("body", "struct", "variant", "value", "try_body", "catch_body"):
+            if field in payload:
+                builtins_in(payload[field], acc)
+        return acc
+
+    names = builtins_in(ir, [])
+    assert "ArrayFirstMap" in names
+
+
+def test_quantifiers_short_circuit_like_eager():
+    # The deciding element must STOP the scan: the poisoned tail (integer
+    # division by zero) errors if evaluated, which the old fold encoding did.
+    from east import EastArray
+    from east.types.types import ArrayType
+
+    IROW = StructType([("data", StringType)])
+    k_some = kernel(
+        [ArrayType(IntegerType)], lambda arr: arr.some(lambda v: (10 // v) > 0)
+    )
+    assert k_some([2, 0]) is True  # v=2 decides; v=0 never evaluates
+    k_every = kernel(
+        [ArrayType(IntegerType)], lambda arr: arr.every(lambda v: (10 // v) > 100)
+    )
+    assert k_every([2, 0]) is False  # v=2 is the counterexample; v=0 never evaluates
+    # eager path agrees on the same data
+    eager = EastArray(IntegerType, [2, 0])
+    assert eager.some(lambda v: (10 // v) > 0 if v != 0 else False) is True
+    del IROW
+
+
+def test_quantifier_error_message_unchanged():
+    with pytest.raises(KernelTraceError, match="predicate must return Boolean"):
+        kernel([SROW], lambda r: r.data.split("|").some(lambda v: v.length()))
+
+
+def test_first_map_out_pins_bare_none():
+    k = kernel(
+        [SROW],
+        lambda r: r.data.split("|").first_map(lambda _v: none, out=StringType).is_none(),
+    )
+    assert k({"id": "", "data": "a|b"}) is True
+
+
+def test_first_map_requires_option_result():
+    with pytest.raises(KernelTraceError, match="must return some"):
+        kernel([SROW], lambda r: r.data.split("|").first_map(lambda v: v.length()))
+
+
 def test_bind_multiple_trailing_parameters():
     from east import EastDict
     from east.types.types import DictType
