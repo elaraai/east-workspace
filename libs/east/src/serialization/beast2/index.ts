@@ -18,8 +18,11 @@
 import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../types.js";
 import { isVariant, variant } from "../../containers/variant.js";
-import { BufferWriter, BufferReader } from "../binary-utils.js";
+import { BufferWriter, BufferReader, readVarint } from "../binary-utils.js";
 import { ref } from "../../containers/ref.js";
+import { SortedSet } from "../../containers/sortedset.js";
+import { SortedMap } from "../../containers/sortedmap.js";
+import { compareFor } from "../../comparison.js";
 import { matrix } from "../../containers/matrix.js";
 import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../../compile.js";
 import { InternalError } from "../../error.js";
@@ -807,6 +810,117 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
 // Public API — EastIR bundle (IR + source map travelling together)
 // =============================================================================
 // An EastIR instance carries both the Function IR tree and its SourceMap.
+// =============================================================================
+// Public API — Chunked container (bounded-memory encode/decode of large collections)
+// =============================================================================
+
+/** Chunked-container magic: the full container's magic with its last byte 0x04 replaced by 0x43 ('C'). */
+export const CHUNKED_MAGIC_BYTES = new Uint8Array([0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x43]);
+
+function checkChunkable(typeValue: EastTypeValue): "Array" | "Set" | "Dict" {
+  const kind = typeValue.type;
+  if (kind !== "Array" && kind !== "Set" && kind !== "Dict") {
+    throw new Error(`beast2 chunked containers hold Array, Set or Dict values, not ${kind}`);
+  }
+  return kind;
+}
+
+/**
+ * Builds a chunked encoder for a large collection: each batch becomes one
+ * self-contained beast2 container inside a framed stream, so an encoder
+ * never holds the whole collection or its whole image.
+ *
+ * The layout is {@link CHUNKED_MAGIC_BYTES}, then per chunk
+ * `varint(byte_length)` followed by a complete beast2 blob of the SAME
+ * declared collection type, then a `varint(0)` terminator. Empty batches are
+ * skipped. Decode with {@link decodeBeast2ChunkedFor}, which merges the
+ * chunks.
+ *
+ * @param type - the collection type each batch conforms to (Array, Set or Dict)
+ * @returns a function encoding an iterable of batches into one chunked blob
+ *
+ * @example
+ * ```typescript
+ * const encode = encodeBeast2ChunkedFor(ArrayType(StringType));
+ * const blob = encode([["a", "b"], ["c"]]); // two chunks
+ * const rows = decodeBeast2ChunkedFor(ArrayType(StringType))(blob); // ["a", "b", "c"]
+ * ```
+ */
+export function encodeBeast2ChunkedFor(type: EastTypeValue): (batches: Iterable<any>) => Uint8Array
+export function encodeBeast2ChunkedFor<T extends EastType>(type: T): (batches: Iterable<ValueTypeOf<T>>) => Uint8Array
+export function encodeBeast2ChunkedFor(type: EastTypeValue | EastType): (batches: Iterable<any>) => Uint8Array {
+  const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
+  const kind = checkChunkable(typeValue);
+  const encodeChunk = encodeBeast2For(typeValue);
+
+  return (batches: Iterable<any>) => {
+    const writer = new BufferWriter();
+    writer.writeBytes(CHUNKED_MAGIC_BYTES);
+    for (const batch of batches) {
+      const count = kind === "Array" ? (batch as any[]).length : (batch as { size: number }).size;
+      if (count === 0) continue;
+      const blob = encodeChunk(batch);
+      writer.writeVarint(blob.length);
+      writer.writeBytes(blob);
+    }
+    writer.writeVarint(0);
+    return writer.toUint8Array();
+  };
+}
+
+/**
+ * Builds a decoder for the chunked container written by
+ * {@link encodeBeast2ChunkedFor}, merging every chunk into one collection:
+ * Array chunks concatenate in order, Set chunks union, and Dict chunks
+ * insert with later chunks overwriting duplicate keys. Zero chunks decode
+ * to the empty collection; bytes after the terminator are an error.
+ *
+ * @param type - the collection type every chunk conforms to (Array, Set or Dict)
+ * @param options - decode options (platform functions for function values)
+ * @returns a function decoding a chunked blob into the merged collection
+ */
+export function decodeBeast2ChunkedFor(type: EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => any
+export function decodeBeast2ChunkedFor<T extends EastType>(type: T, options?: Beast2DecodeOptions): (data: Uint8Array) => ValueTypeOf<T>
+export function decodeBeast2ChunkedFor(type: EastTypeValue | EastType, options?: Beast2DecodeOptions): (data: Uint8Array) => any {
+  const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
+  const kind = checkChunkable(typeValue);
+  const decodeChunk = decodeBeast2For(typeValue, options);
+
+  return (data: Uint8Array) => {
+    for (let i = 0; i < CHUNKED_MAGIC_BYTES.length; i++) {
+      if (data[i] !== CHUNKED_MAGIC_BYTES[i]) throw new Error("beast2 chunked: bad magic");
+    }
+    let offset = CHUNKED_MAGIC_BYTES.length;
+    let acc: any = null;
+    while (true) {
+      const [length, next] = readVarint(data, offset);
+      offset = next;
+      if (length === 0) {
+        if (offset !== data.length) {
+          throw new Error(`beast2 chunked: ${data.length - offset} bytes after the terminator`);
+        }
+        break;
+      }
+      if (offset + length > data.length) throw new Error("beast2 chunked: truncated chunk");
+      const chunk = decodeChunk(data.subarray(offset, offset + length));
+      offset += length;
+      if (acc === null) {
+        acc = chunk; // freshly decoded — safe to keep and extend
+      } else if (kind === "Array") {
+        for (const item of chunk) acc.push(item);
+      } else if (kind === "Set") {
+        for (const item of chunk) acc.add(item);
+      } else {
+        for (const [k, v] of chunk) acc.set(k, v);
+      }
+    }
+    if (acc !== null) return acc;
+    if (kind === "Array") return [];
+    if (kind === "Set") return new SortedSet(undefined, compareFor(typeValue.value as EastTypeValue));
+    return new SortedMap(undefined, compareFor((typeValue.value as { key: EastTypeValue }).key));
+  };
+}
+
 // These helpers serialize / deserialize the bundle end-to-end so that loc_ids
 // remain resolvable across process boundaries. Mirrors the C native shape:
 // `east_beast2_decode_ir(data, len, &ir_value, &source_map)` — both come out

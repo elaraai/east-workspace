@@ -25,6 +25,8 @@ import {
   encodeBeast2For,
   decodeBeast2For,
   decodeBeast2,
+  encodeBeast2ChunkedFor,
+  decodeBeast2ChunkedFor,
 } from "./index.js";
 
 const typeEqual = equalFor(EastTypeValueType);
@@ -653,3 +655,49 @@ describe("Beast2 v2 — Decoder reuse", () => {
     assert.deepEqual(decoder(encode([])), []);
   });
 });
+
+describe("Beast2 chunked — bounded-memory collections (#414)", () => {
+  // The SAME bytes are pinned in east-py's test_beast2_chunked.py: the two
+  // runtimes must produce and accept identical chunked blobs.
+  const SHARED_HEX =
+    "89456173740d0a431f89456173740d0a04050102010a0005020161016201000701050a00020001001c89456173740d0a04050102010a000301016301000601040a0001000000";
+
+  test("array chunks concatenate; bytes match the cross-runtime fixture", () => {
+    const AT = ArrayType(StringType);
+    const blob = encodeBeast2ChunkedFor(AT)([["a", "b"], ["c"], []]);
+    assert.equal(Buffer.from(blob).toString("hex"), SHARED_HEX);
+    assert.deepEqual(decodeBeast2ChunkedFor(AT)(blob), ["a", "b", "c"]);
+  });
+
+  test("set chunks union and dict chunks keep the last occurrence", () => {
+    const ST = SetType(IntegerType);
+    const sBlob = encodeBeast2ChunkedFor(ST)([new Set([3n, 1n]), new Set([1n, 2n])]);
+    assert.deepEqual([...decodeBeast2ChunkedFor(ST)(sBlob)].sort(), [1n, 2n, 3n]);
+
+    const DT = DictType(StringType, IntegerType);
+    const dBlob = encodeBeast2ChunkedFor(DT)([
+      new Map([["a", 1n], ["b", 2n]]),
+      new Map([["b", 9n]]),
+    ]);
+    const merged = decodeBeast2ChunkedFor(DT)(dBlob);
+    assert.equal(merged.get("a"), 1n);
+    assert.equal(merged.get("b"), 9n);
+  });
+
+  test("zero chunks decode to the empty collection of each kind", () => {
+    assert.deepEqual(decodeBeast2ChunkedFor(ArrayType(StringType))(encodeBeast2ChunkedFor(ArrayType(StringType))([])), []);
+    assert.equal(decodeBeast2ChunkedFor(SetType(IntegerType))(encodeBeast2ChunkedFor(SetType(IntegerType))([])).size, 0);
+    assert.equal(decodeBeast2ChunkedFor(DictType(StringType, IntegerType))(encodeBeast2ChunkedFor(DictType(StringType, IntegerType))([])).size, 0);
+  });
+
+  test("non-collection types are refused and malformed streams are loud", () => {
+    assert.throws(() => encodeBeast2ChunkedFor(StringType as any), /Array, Set or Dict/);
+    const AT = ArrayType(StringType);
+    const blob = encodeBeast2ChunkedFor(AT)([["a"]]);
+    assert.throws(() => decodeBeast2ChunkedFor(AT)(blob.subarray(1)), /bad magic/);
+    assert.throws(() => decodeBeast2ChunkedFor(AT)(blob.subarray(0, blob.length - 2)), /truncated|varint/);
+    const trailing = new Uint8Array([...blob, 0x00]);
+    assert.throws(() => decodeBeast2ChunkedFor(AT)(trailing), /after the terminator/);
+  });
+});
+

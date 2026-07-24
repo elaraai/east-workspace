@@ -146,9 +146,38 @@ The source map is created during `East.function()` / `East.asyncFunction()` body
 
 ## File structure
 
+## Chunked container (bounded-memory collections)
+
+The full container above is globally sectioned — its type/string/value tables
+span the whole blob — so it cannot be appended to: encoding a large collection
+holds the whole value AND its whole image. The chunked container frames a
+sequence of full containers so both sides work one chunk at a time:
+
+```
+chunk_magic[8]              0x89 "East" 0x0D 0x0A 0x43   (full magic, 0x04 -> 'C')
+repeat:
+  varint(byte_length > 0)
+  chunk bytes               one COMPLETE full container (magic + sections)
+                            holding a value of the SAME declared collection type
+varint(0)                   terminator (required)
+```
+
+- The declared type must be `Array<T>`, `Set<T>` or `Dict<K, V>`.
+- Decode merges chunks in stream order: Array concatenates, Set unions, Dict
+  inserts with later chunks overwriting duplicate keys (update semantics).
+- Zero chunks decode to the empty collection. Encoders skip empty batches, so
+  a chunk length of 0 is unambiguous as the terminator. Bytes after the
+  terminator are an error.
+- Cross-runtime: TS (`encodeBeast2ChunkedFor`/`decodeBeast2ChunkedFor`) and
+  east-py (`encode_beast2_chunked_for`/`decode_beast2_chunked_for`,
+  `Beast2ChunkWriter`, `iter_beast2_chunks_for`) produce byte-identical
+  streams for identical batches; a shared hex fixture is pinned in both test
+  suites.
+
 ```
 beast2/
-  index.ts              public API: encodeBeast2For, decodeBeast2For, decodeBeast2
+  index.ts              public API: encodeBeast2For, decodeBeast2For, decodeBeast2,
+                         encodeBeast2ChunkedFor, decodeBeast2ChunkedFor
   type-table.ts          TypeTableBuilder, read/write type table section
   string-table.ts        read/write string table section
   sourcemap-table.ts     read/write source map section

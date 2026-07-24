@@ -464,6 +464,8 @@ Task → What do you need?
     │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
     │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
+    │   ├─ Collection too big to encode/decode whole → chunked beast2: Beast2ChunkWriter / iter_beast2_chunks_for
+    │   │   (O(batch) both sides; Array/Set/Dict; cross-runtime with TS encodeBeast2ChunkedFor)
     │   ├─ Compile IR you built programmatically (east.ir.builders values) → compile_from_value — no serialization round-trip
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
@@ -679,6 +681,9 @@ key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#
 | `decode_utf8() -> str` / `decode_utf16() -> str` | Text decode |
 | `EastBlob.encode_beast2(value) -> EastBlob` *(static)* | Serialize an East value to BEAST2 (type inferred via `type_of`) |
 | `decode_beast2(typ) -> value` | Decode BEAST2 as `typ` |
+| `east.serialization.beast2.Beast2ChunkWriter(T, stream)` | Stream a HUGE Array/Set/Dict to a file one batch at a time — `.write(batch)` per chunk, context manager; peak memory = one batch + its image, never the collection (the plain container holds both whole) |
+| `east.serialization.beast2.encode_beast2_chunked_for(T)(batches) -> bytes` / `decode_beast2_chunked_for(T)(src) -> value` | Chunked-container codec (T = Array/Set/Dict). Decode merges: Array concatenates, Set unions, Dict keeps the LAST occurrence of a key. `src` is bytes or a binary stream |
+| `east.serialization.beast2.iter_beast2_chunks_for(T)(src)` | Streaming decode: yields one decoded collection per chunk — process each batch and drop it; O(chunk) memory on the read side too |
 | `decode_csv(element_type, config=None) -> EastArray` | Decode CSV rows into `Array<element_type>` (east-c decoder). Build `config` with `east.serialization.csv.csv_parse_config(...)`: by default **no field text is null** (empty field == empty string); opt in with `null_strings=[""]` (`none` for Option columns, error for required); `defaults={"qty": "0.0"}` gives per-column fallbacks for unparseable fields and constant-fill for absent columns |
 
 ### EastStruct / EastVariant / EastRef
