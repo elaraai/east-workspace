@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { createHash } from "node:crypto";
-import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none } from "../src/index.js";
+import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none, PatchType } from "../src/index.js";
 import type { ValueTypeOf } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import { generateFuzzTestCases } from "../src/patch/fuzz.js";
@@ -664,6 +664,31 @@ await describe("Patch - Dicts", (test) => {
         $(assert.equal(patch.getTag(), "replace"));
         const result = $.const(East.applyPatch(before, patch));
         $(assert.equal(East.equal(result, after), true));
+    });
+
+    test("Dict: patch text round-trip applies identically", $ => {
+        // Printers/parsers/Equal pair type fields with value fields
+        // positionally, so a runner must STORE the replace payload in the
+        // canonical { before, after } declaration order (#402): a swapped
+        // storage order printed and reparsed with the values crossed while
+        // apply (by name) stayed correct — so the reparsed patch compared
+        // equal yet applied differently.
+        const before = $.const(new Map([["a", 1n], ["b", 9n]]), DictType(StringType, IntegerType));
+        const after = $.const(new Map([["a", 2n], ["b", 9n]]), DictType(StringType, IntegerType));
+        const patch = $.const(East.diff(before, after));
+        const reparsed = $.const(East.print(patch).parse(PatchType(DictType(StringType, IntegerType))) as any);
+        $(assert.equal(East.equal(reparsed as any, patch as any), true));
+        const appliedOriginal = $.const(East.applyPatch(before, patch));
+        const appliedReparsed = $.const(East.applyPatch(before, reparsed as any));
+        $(assert.equal(East.equal(appliedOriginal, after), true));
+        $(assert.equal(East.equal(appliedReparsed as any, after as any), true));
+    });
+
+    test("Dict: nested replace prints before then after", $ => {
+        const before = $.const(new Map([["a", 1n]]), DictType(StringType, IntegerType));
+        const after = $.const(new Map([["a", 2n]]), DictType(StringType, IntegerType));
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(East.print(patch), '.patch {"a":.update .replace (before=1, after=2)}'));
     });
 
     test("Dict: diff from empty stays patch", $ => {
