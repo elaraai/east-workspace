@@ -688,6 +688,25 @@ def test_fold_runs_precompiled_step_kernel_natively():
     assert total == 162.5
 
 
+def test_sorted_and_to_dict_run_kernel_callbacks_natively():
+    from east.runtime.compiler import eager_stats
+
+    kkey = kernel([ROW], lambda r: r.sku)
+    before = eager_stats()
+    out = _rows().sorted(key=kkey)
+    after = eager_stats()
+    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert [r["sku"] for r in out] == ["A-1", "A-1", "B-2"]
+
+    totals = _rows().to_dict(
+        key=kernel([ROW], lambda r: r.sku),
+        value=kernel([ROW], lambda r: r.price * r.qty),
+        combine=kernel([FloatType, FloatType], lambda a, b: a + b),
+    )
+    assert totals["A-1"] == 30.0
+    assert totals["B-2"] == 150.0
+
+
 def test_builtin_shadowing_field_names_trace():
     from east import EastArray
 

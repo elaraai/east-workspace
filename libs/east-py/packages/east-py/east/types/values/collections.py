@@ -418,7 +418,7 @@ class EastArray(MutableSequence, Generic[T]):
             callback = EastFunction(lambda el, idx: el, [self.element_type, IntegerType], k2)
         else:
             k2 = _ev.type_of(key(self[0])) if len(self) else self.element_type
-            callback = EastFunction(lambda el, idx: key(el), [self.element_type, IntegerType], k2)
+            callback = EastFunction(_mark_kernel(lambda el, idx: key(el), key), [self.element_type, IntegerType], k2)
         return _call_builtin("ArrayToSet", [self.element_type, k2], [self, callback], SetType(k2))
 
     def unique(self) -> EastSet:
@@ -452,10 +452,10 @@ class EastArray(MutableSequence, Generic[T]):
         k2 = _ev.type_of(key(self[0]))
         value_fn = (lambda el: el) if value is None else value
         t2 = self.element_type if value is None else _ev.type_of(value(self[0]))
-        key_cb = EastFunction(lambda el, idx: key(el), [self.element_type, IntegerType], k2)
-        val_cb = EastFunction(lambda el, idx: value_fn(el), [self.element_type, IntegerType], t2)
+        key_cb = EastFunction(_mark_kernel(lambda el, idx: key(el), key), [self.element_type, IntegerType], k2)
+        val_cb = EastFunction(_mark_kernel(lambda el, idx: value_fn(el), value_fn), [self.element_type, IntegerType], t2)
         combine_cb = EastFunction(
-            (lambda v1, v2, k: v2) if combine is None else (lambda v1, v2, k: combine(v1, v2)),
+            (lambda v1, v2, k: v2) if combine is None else _mark_kernel(lambda v1, v2, k: combine(v1, v2), combine),
             [t2, t2, k2],
             t2,
         )
@@ -587,8 +587,8 @@ class EastArray(MutableSequence, Generic[T]):
         else:
             _ko = _kernel_out_type(map_fn)
             t2 = _ko if _ko is not None else _ev.type_of(map_fn(self[0]))
-        map_cb = EastFunction(lambda el, idx: map_fn(el), [self.element_type, IntegerType], t2)
-        reduce_cb = EastFunction(lambda a, b: reduce_fn(a, b), [t2, t2], t2)
+        map_cb = EastFunction(_mark_kernel(lambda el, idx: map_fn(el), map_fn), [self.element_type, IntegerType], t2)
+        reduce_cb = EastFunction(_mark_kernel(lambda a, b: reduce_fn(a, b), reduce_fn), [t2, t2], t2)
         return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
 
     def fold(self, initial: Any, fn: Any) -> Any:
@@ -680,9 +680,9 @@ class EastArray(MutableSequence, Generic[T]):
             sample = fn(self[0])
             k2 = sample.key_type
             t2 = sample.value_type
-        map_cb = EastFunction(lambda el, idx: fn(el), [self.element_type, IntegerType], DictType(k2, t2))
+        map_cb = EastFunction(_mark_kernel(lambda el, idx: fn(el), fn), [self.element_type, IntegerType], DictType(k2, t2))
         combine_cb = EastFunction(
-            (lambda v1, v2, k: v2) if combine is None else (lambda v1, v2, k: combine(v1, v2)),
+            (lambda v1, v2, k: v2) if combine is None else _mark_kernel(lambda v1, v2, k: combine(v1, v2), combine),
             [t2, t2, k2],
             t2,
         )
@@ -724,7 +724,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         # ArrayGroupFold callbacks carry the element index: key(elem, idx),
         # init(group_key), fold(acc, elem, idx).
-        key_cb = EastFunction(lambda el, _idx: key(el), [self.element_type, IntegerType], k2)
+        key_cb = EastFunction(_mark_kernel(lambda el, _idx: key(el), key), [self.element_type, IntegerType], k2)
 
         # When the key traces to a native kernel, pair it with hand-built
         # init/append kernels so the whole grouping runs inside east-c (the
@@ -2315,7 +2315,7 @@ class EastDict(Generic[K, V]):
 
         result = _call_builtin("DictCopy", [self.key_type, self.value_type], [self], DictType(self.key_type, self.value_type))
         callback = EastFunction(
-            (lambda v1, v2, k: v2) if combine is None else (lambda v1, v2, k: combine(v1, v2)),
+            (lambda v1, v2, k: v2) if combine is None else _mark_kernel(lambda v1, v2, k: combine(v1, v2), combine),
             [self.value_type, self.value_type, self.key_type],
             self.value_type,
         )
