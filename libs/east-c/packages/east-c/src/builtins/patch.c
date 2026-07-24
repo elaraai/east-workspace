@@ -77,8 +77,14 @@ static EastValue *mk_unchanged(void)
 
 static EastValue *mk_replace(EastValue *before, EastValue *after)
 {
-    const char *fn[] = {"after", "before"};
-    EastValue *fv[] = {after, before};
+    /* Field order MUST match the canonical PatchType declaration
+     * (StructType({ before, after }) — declaration order is significant):
+     * the text printer/parser, Equal, and beast2 pair type fields with
+     * value fields positionally, so a value stored in any other order
+     * prints/parses/compares with before and after swapped (#402). Only
+     * ApplyPatch reads the fields by name and was immune. */
+    const char *fn[] = {"before", "after"};
+    EastValue *fv[] = {before, after};
     EastValue *s = east_struct_new(fn, fv, 2, NULL);
     EastValue *v = east_variant_new("replace", s, NULL);
     east_value_release(s);
