@@ -42,41 +42,53 @@ kind 2 (well-known + fb):  varint(id) u64-LE(content_hash) + structural section
   `0xcbf29ce484222325`, prime `0x100000001b3`) of the schema's structural
   section bytes (including the leading length varint).
 
-### Registry
+### Registry — a constant of the format
 
-Ids are pinned — never renumber. Packages register with
-`registerWellKnownType(id, type, { name })` at module load and record their
-claim here.
+Ids are pinned; never renumber.
 
-| id | schema | registered by | form |
-|---|---|---|---|
-| 1 | `IRType` | east (core) | kind 1 — universal |
-| 2 | `EastTypeValueType` | east (core) | kind 1 — universal |
-| 3 | `UIComponentType` | east-ui | kind 2 — fallback |
+| id | schema | form |
+|---|---|---|
+| 1 | `IRType` | kind 1 |
+| 2 | `EastTypeValueType` | kind 1 |
 
-**`universal` (kind 1, no fallback) is reserved for schemas every runtime has
-by construction** — the two core ones, hard-coded in the TS, C, and Python
-implementations. Everything else uses kind 2.
+**The registry is part of the wire format, not a runtime extension point.**
+The id set is fixed in each runtime (`v5/type-section.ts`, `v5/container.c`,
+and east-py through the C bridge) and adding an id is a format change that
+ships in all three together.
 
-### Why an open registry is safe
+It is deliberately **not** open to downstream packages. If a package could
+register an id, the same value would encode to different bytes depending on
+which packages a process happened to import — and e3 content-addresses
+beast2 bytes, so one logical value would land under two different hashes,
+splitting caches and duplicating stored objects. An encode must be a pure
+function of `(value, type, options)`, which requires the registry to be
+constant. (Both current ids qualify precisely because every runtime has them
+by construction, so no import can change the outcome.)
 
-- **The hash makes id collisions loud.** A decoder compares the wire hash
-  against the hash of its own schema for that id. Two packages claiming one
-  id with different schemas produce a clear error, never silent schema
-  confusion. Encoders emit a well-known form only on an **exact byte match**
-  of the structural encoding, so a hash collision cannot mislabel an encode
-  either. The hash is a drift guard, not a security boundary.
-- **The fallback makes registration an optimization, not a requirement.**
-  Kind 2 carries the structural bytes alongside the id, so a reader that has
-  never registered the id decodes the blob exactly as it would a kind-0
-  section. This is what lets east-ui claim id 3 while east-c, east-py, and
-  e3-core — none of which know `UIComponentType` — keep decoding those blobs.
-  A kind-2 section whose id IS registered but whose hash disagrees also falls
-  back to the structural bytes rather than substituting a drifted schema.
-- Consequence: **the well-known id is a per-process optimization hint, not a
-  wire contract** (except for `universal` ids). Encoders recognize a schema
-  by content, not by call site — registering it is enough; no encode call
-  site changes.
+Consequences:
+
+- A custom type — however large or recursive — always uses kind 0. The win is
+  available to `IRType` and `EastTypeValueType` only. Large third-party
+  schemas (e.g. east-ui's `UIComponentType`) get the per-process
+  decoder skip-cache (issue #417) instead, which parses them once per process
+  rather than never.
+- Encoders recognize a well-known schema **by content** (hash of its
+  structural bytes, then a full byte compare), so no encode call site names an
+  id, and a hash collision can never mislabel an encode.
+- Decoders compare the wire hash against their own schema for that id; a
+  mismatch is a hard error naming both hashes (runtime version drift). The
+  hash is a drift guard, not a security boundary — a forged hash only makes
+  the decoder use its own registered schema, which the type-directed decoder
+  bounds-checks like any wrong-type input.
+
+### Kind 2 — decode-only, for forward compatibility
+
+Nothing in this release emits kind 2. Decoders accept it so that a **later**
+release can add a well-known id and decoders shipped now degrade gracefully:
+an unknown id with a fallback parses the structural bytes exactly as kind 0,
+and a known id whose hash disagrees also falls back rather than substituting
+a drifted schema. An unknown id **without** a fallback (kind 1) is a hard
+error telling the operator to upgrade.
 
 Unlike v4, the type section is **exactly the root type closure**. v4 also
 registered types discovered during the value walk (capture types, recursive

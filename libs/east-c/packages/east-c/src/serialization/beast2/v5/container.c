@@ -253,16 +253,15 @@ EastType *b2v5_read_type_section(const uint8_t *data, size_t len, size_t *offset
     if (!has_fallback) {
         char msg[192];
         snprintf(msg, sizeof(msg),
-                 "beast2 v5: well-known type id %llu is not registered in this runtime, and the "
-                 "blob carries no structural fallback",
+                 "beast2 v5: unknown well-known type id %llu with no structural fallback — the "
+                 "blob was written by a newer runtime whose format registry this one lacks",
                  (unsigned long long)id);
         east_builtin_error(msg);
         return NULL;
     }
 
-    /* Unregistered (or drifted) id with a fallback: decode the structural
-     * bytes exactly as a kind-0 section. This is what lets a runtime that has
-     * never heard of east-ui decode a UIComponentType blob. */
+    /* Unknown (or drifted) id carrying a fallback: decode the structural
+     * bytes exactly as a kind-0 section. */
     {
         TypeTableResult tt = read_type_table_section(data, len, offset);
         EastType *root = tt.root_type;

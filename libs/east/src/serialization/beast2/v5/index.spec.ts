@@ -34,8 +34,6 @@ import {
   encodeBeast2SegmentsFor,
   iterBeast2SegmentsFor,
   openBeast2PagesFor,
-  registerWellKnownType,
-  registeredWellKnownIds,
   MAGIC_BYTES_V5,
 } from "../index.js";
 import { writeTypeSection } from "./type-section.js";
@@ -478,10 +476,11 @@ describe("Beast2 v5 — Hardening", () => {
     assert.deepEqual(Array.from(FOOTER_MAGIC_V5.subarray(0, 7)), Array.from(MAGIC_BYTES_V5.subarray(0, 7)), "footer magic family");
   });
 
-  test("an unregistered well-known id decodes via the structural fallback", () => {
-    // The cross-runtime contract: a package (east-ui) claims an id this
-    // runtime has never registered. The blob must still decode — only the
-    // parse-skip is lost. Hand-built so no registration is needed here.
+  test("an unknown well-known id decodes via the structural fallback (forward compat)", () => {
+    // Kind 2 is decode-only in this release: nothing emits it. It exists so a
+    // LATER release can add a well-known id and decoders shipped now fall
+    // back to the structural bytes instead of hard-failing on an id they have
+    // never heard of.
     const T = ArrayType(StringType);
     const structural = new BufferWriter();
     writeTypeSection(toEastTypeValue(T), structural);
@@ -505,30 +504,17 @@ describe("Beast2 v5 — Hardening", () => {
     assert.deepEqual(decodeBeast2For(T)(head.toUint8Array()), ["x"]);
   });
 
-  test("registering a schema makes encodes name it, and re-registration is checked", () => {
+  test("the well-known registry is a format constant, so encodes are deterministic", () => {
+    // Only ids 1 and 2 exist, and only for schemas every runtime has. A
+    // custom type — however large or recursive — always encodes structurally,
+    // so the bytes never depend on which packages a process imported. e3
+    // content-addresses these bytes, so this is what keeps one value from
+    // landing under two hashes.
     const Custom = StructType({ tag: StringType, n: IntegerType });
-    const before = encodeBeast2For(Custom, V5_PLAIN)({ tag: "a", n: 1n });
-    assert.equal(before[8], 0, "structural before registration");
-
-    registerWellKnownType(4242, Custom, { name: "CustomTestType" });
-    assert.ok(registeredWellKnownIds().includes(4242));
-
-    // The encoder recognizes it by CONTENT — no call-site change, and a
-    // structurally identical but distinct type object matches too.
-    const after = encodeBeast2For(Custom, V5_PLAIN)({ tag: "a", n: 1n });
-    assert.equal(after[8], 2, "well-known + fallback after registration");
-    const twin = StructType({ tag: StringType, n: IntegerType });
-    assert.equal(encodeBeast2For(twin, V5_PLAIN)({ tag: "a", n: 1n })[8], 2, "matched by content");
-
-    // Round-trips, and the payload is unchanged (the fallback carries the schema).
-    assert.deepEqual(decodeBeast2For(Custom)(after), { tag: "a", n: 1n });
-
-    // Idempotent re-registration; conflicting re-registration is refused.
-    registerWellKnownType(4242, Custom, { name: "CustomTestType" });
-    assert.throws(
-      () => registerWellKnownType(4242, StructType({ other: StringType }), { name: "Conflicting" }),
-      /already registered/,
-    );
+    const a = encodeBeast2For(Custom, V5_PLAIN)({ tag: "a", n: 1n });
+    const b = encodeBeast2For(StructType({ tag: StringType, n: IntegerType }), V5_PLAIN)({ tag: "a", n: 1n });
+    assert.equal(a[8], 0, "custom types are always structural");
+    assert.deepEqual(Array.from(b), Array.from(a), "identical value ⇒ identical bytes");
   });
 
   test("well-known hash drift fails loudly", () => {
@@ -539,7 +525,7 @@ describe("Beast2 v5 — Hardening", () => {
     drifted[10] = drifted[10]! ^ 0xff;  // flip a hash byte
     assert.throws(() => decodeEastIR(drifted), /hash mismatch/);
     const unknownId = Uint8Array.from(blob);
-    unknownId[9] = 0x60;  // unregistered well-known id
-    assert.throws(() => decodeEastIR(unknownId), /not registered/);
+    unknownId[9] = 0x60;  // an id not in this runtime's format registry
+    assert.throws(() => decodeEastIR(unknownId), /unknown well-known type id/);
   });
 });

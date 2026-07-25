@@ -19,9 +19,12 @@
 
 #define B2V5_TYPE_SECTION_STRUCTURAL 0
 #define B2V5_TYPE_SECTION_WELL_KNOWN 1
-/* id + hash + structural bytes: the id is an optimization hint, so a runtime
- * that has not registered it still decodes the blob (e.g. east-c meeting a
- * UIComponentType blob registered only by east-ui). */
+/* id + hash + structural bytes. DECODE-ONLY in this release: nothing emits
+ * it. It exists so a later release can add a well-known id and decoders
+ * shipped now fall back to the structural bytes rather than hard-failing on
+ * an id they have never heard of. The well-known registry below is part of
+ * the wire format (mirrored in the TS and Python runtimes), not a runtime
+ * extension point — see v5/SPEC.md. */
 #define B2V5_TYPE_SECTION_WELL_KNOWN_FALLBACK 2
 
 #define B2V5_WELL_KNOWN_IR_TYPE 1
