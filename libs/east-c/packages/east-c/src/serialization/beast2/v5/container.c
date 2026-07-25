@@ -205,10 +205,11 @@ EastType *b2v5_read_type_section(const uint8_t *data, size_t len, size_t *offset
         type_table_result_free(&tt);
         return root;
     }
-    if (kind != B2V5_TYPE_SECTION_WELL_KNOWN) {
+    if (kind != B2V5_TYPE_SECTION_WELL_KNOWN && kind != B2V5_TYPE_SECTION_WELL_KNOWN_FALLBACK) {
         east_builtin_error("beast2 v5: unknown type section kind");
         return NULL;
     }
+    bool has_fallback = kind == B2V5_TYPE_SECTION_WELL_KNOWN_FALLBACK;
 
     uint64_t id;
     if (!read_varint_checked(data, len, offset, &id)) return NULL;
@@ -223,7 +224,18 @@ EastType *b2v5_read_type_section(const uint8_t *data, size_t len, size_t *offset
         if (b2v5_well_known[i].id != id) continue;
         B2V5WellKnown *e = b2v5_well_known_entry(i);
         if (!e) return NULL;
-        if (e->hash != hash) {
+        if (e->hash == hash) {
+            /* The whole point: skip the schema entirely. */
+            if (has_fallback) {
+                uint64_t section_len;
+                if (!read_varint_checked(data, len, offset, &section_len)) return NULL;
+                if (section_len > len - *offset) return NULL;
+                *offset += (size_t)section_len;
+            }
+            east_type_retain(*e->type_slot);
+            return *e->type_slot;
+        }
+        if (!has_fallback) {
             char msg[256];
             snprintf(msg, sizeof(msg),
                      "beast2 v5: well-known type %u (%s) hash mismatch — blob 0x%016llx, "
@@ -233,18 +245,31 @@ EastType *b2v5_read_type_section(const uint8_t *data, size_t len, size_t *offset
             east_builtin_error(msg);
             return NULL;
         }
-        east_type_retain(*e->type_slot);
-        return *e->type_slot;
+        /* Drifted, but the blob carries its own schema — decode that rather
+         * than silently substituting this runtime's idea of the id. */
+        break;
     }
-    {
-        char msg[128];
+
+    if (!has_fallback) {
+        char msg[192];
         snprintf(msg, sizeof(msg),
-                 "beast2 v5: well-known type id %llu is not registered in this runtime "
-                 "(encoder/decoder version drift?)",
+                 "beast2 v5: well-known type id %llu is not registered in this runtime, and the "
+                 "blob carries no structural fallback",
                  (unsigned long long)id);
         east_builtin_error(msg);
+        return NULL;
     }
-    return NULL;
+
+    /* Unregistered (or drifted) id with a fallback: decode the structural
+     * bytes exactly as a kind-0 section. This is what lets a runtime that has
+     * never heard of east-ui decode a UIComponentType blob. */
+    {
+        TypeTableResult tt = read_type_table_section(data, len, offset);
+        EastType *root = tt.root_type;
+        if (root) east_type_retain(root);
+        type_table_result_free(&tt);
+        return root;
+    }
 }
 
 /* ================================================================== */

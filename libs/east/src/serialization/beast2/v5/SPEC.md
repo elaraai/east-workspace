@@ -27,32 +27,56 @@ trailing sections.
 
 ```
 varint(kind)
-kind 0 (structural):   the v4 type-table section verbatim:
-                       varint(byte_len) varint(root_idx) varint(count) entries…
-kind 1 (well-known):   varint(id) u64-LE(content_hash)
+kind 0 (structural):       the v4 type-table section verbatim:
+                           varint(byte_len) varint(root_idx) varint(count) entries…
+kind 1 (well-known):       varint(id) u64-LE(content_hash)
+kind 2 (well-known + fb):  varint(id) u64-LE(content_hash) + structural section
 ```
 
 - The **structural** payload reuses the v4 type-table encoding byte-for-byte
   (see `../v4/SPEC.md` — entry grammar, tag bytes, recursion). It stays
   length-prefixed so a decoder-side content-hash skip-cache (issue #417)
   applies to custom types unchanged.
-- The **well-known** form names a schema registered identically in every
-  runtime. `content_hash` is the FNV-1a 64-bit hash (offset basis
+- The **well-known** forms name a schema by reference so decoders skip
+  parsing it. `content_hash` is the FNV-1a 64-bit hash (offset basis
   `0xcbf29ce484222325`, prime `0x100000001b3`) of the schema's structural
   section bytes (including the leading length varint).
-  - Registry (pinned — never renumber): `1 = IRType`,
-    `2 = EastTypeValueType`, `3 = reserved for UIComponentType` (not
-    registered by the core runtimes; emitting an id requires every possible
-    reader to know it).
-  - Encoders emit the well-known form only on an **exact byte match** of the
-    structural encoding, so a hash collision cannot mislabel an encode.
-  - Decoders compare the wire hash against the hash of their **own**
-    registered encoding: a mismatch is a hard error naming the schema and
-    both hashes (runtime version drift); an unregistered id is a hard error.
-    On match, schema parsing is skipped entirely. The hash is a drift guard,
-    not a security boundary — a forged hash only makes the decoder use its
-    own registered schema, which the type-directed decoder bounds-checks as
-    for any wrong-type input.
+
+### Registry
+
+Ids are pinned — never renumber. Packages register with
+`registerWellKnownType(id, type, { name })` at module load and record their
+claim here.
+
+| id | schema | registered by | form |
+|---|---|---|---|
+| 1 | `IRType` | east (core) | kind 1 — universal |
+| 2 | `EastTypeValueType` | east (core) | kind 1 — universal |
+| 3 | `UIComponentType` | east-ui | kind 2 — fallback |
+
+**`universal` (kind 1, no fallback) is reserved for schemas every runtime has
+by construction** — the two core ones, hard-coded in the TS, C, and Python
+implementations. Everything else uses kind 2.
+
+### Why an open registry is safe
+
+- **The hash makes id collisions loud.** A decoder compares the wire hash
+  against the hash of its own schema for that id. Two packages claiming one
+  id with different schemas produce a clear error, never silent schema
+  confusion. Encoders emit a well-known form only on an **exact byte match**
+  of the structural encoding, so a hash collision cannot mislabel an encode
+  either. The hash is a drift guard, not a security boundary.
+- **The fallback makes registration an optimization, not a requirement.**
+  Kind 2 carries the structural bytes alongside the id, so a reader that has
+  never registered the id decodes the blob exactly as it would a kind-0
+  section. This is what lets east-ui claim id 3 while east-c, east-py, and
+  e3-core — none of which know `UIComponentType` — keep decoding those blobs.
+  A kind-2 section whose id IS registered but whose hash disagrees also falls
+  back to the structural bytes rather than substituting a drifted schema.
+- Consequence: **the well-known id is a per-process optimization hint, not a
+  wire contract** (except for `universal` ids). Encoders recognize a schema
+  by content, not by call site — registering it is enough; no encode call
+  site changes.
 
 Unlike v4, the type section is **exactly the root type closure**. v4 also
 registered types discovered during the value walk (capture types, recursive

@@ -41,6 +41,12 @@ export { MAGIC_BYTES_V5 } from "./v5/codec.js";
 export type { Beast2DecodeOptions } from "./shared.js";
 export type { Beast2Codec } from "./v5/frames.js";
 export {
+  registerWellKnownType,
+  registeredWellKnownIds,
+  WELL_KNOWN_CORE_ID_MAX,
+  type RegisterWellKnownOptions,
+} from "./v5/type-section.js";
+export {
   Beast2Writer,
   type Beast2WriterOptions,
   encodeBeast2SegmentsFor,

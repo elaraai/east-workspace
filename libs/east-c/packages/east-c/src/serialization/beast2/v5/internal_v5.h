@@ -19,6 +19,10 @@
 
 #define B2V5_TYPE_SECTION_STRUCTURAL 0
 #define B2V5_TYPE_SECTION_WELL_KNOWN 1
+/* id + hash + structural bytes: the id is an optimization hint, so a runtime
+ * that has not registered it still decodes the blob (e.g. east-c meeting a
+ * UIComponentType blob registered only by east-ui). */
+#define B2V5_TYPE_SECTION_WELL_KNOWN_FALLBACK 2
 
 #define B2V5_WELL_KNOWN_IR_TYPE 1
 #define B2V5_WELL_KNOWN_EAST_TYPE_VALUE_TYPE 2

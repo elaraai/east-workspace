@@ -34,6 +34,8 @@ import {
   encodeBeast2SegmentsFor,
   iterBeast2SegmentsFor,
   openBeast2PagesFor,
+  registerWellKnownType,
+  registeredWellKnownIds,
   MAGIC_BYTES_V5,
 } from "../index.js";
 import { writeTypeSection } from "./type-section.js";
@@ -474,6 +476,59 @@ describe("Beast2 v5 — Hardening", () => {
     corrupt[idx + 3] = 99;
     assert.throws(() => decode(corrupt), /disagrees|count/);
     assert.deepEqual(Array.from(FOOTER_MAGIC_V5.subarray(0, 7)), Array.from(MAGIC_BYTES_V5.subarray(0, 7)), "footer magic family");
+  });
+
+  test("an unregistered well-known id decodes via the structural fallback", () => {
+    // The cross-runtime contract: a package (east-ui) claims an id this
+    // runtime has never registered. The blob must still decode — only the
+    // parse-skip is lost. Hand-built so no registration is needed here.
+    const T = ArrayType(StringType);
+    const structural = new BufferWriter();
+    writeTypeSection(toEastTypeValue(T), structural);
+    // writeTypeSection emitted kind 0 (T is not well-known); re-frame those
+    // same structural bytes as kind 2 under an id nobody registers.
+    const structuralBytes = structural.toUint8Array().subarray(1);
+    const head = new BufferWriter();
+    head.writeBytes(MAGIC_BYTES_V5);
+    head.writeVarint(2);        // kind: well-known + fallback
+    head.writeVarint(9999);     // an id no runtime registers
+    for (let i = 0; i < 8; i++) head.writeUint8(0xAB);  // a hash that matches nothing
+    head.writeBytes(structuralBytes);
+    writeSourceMapSectionV5(null, head);
+    const logical = new BufferWriter();
+    logical.writeUint8(0x00);   // NEW
+    logical.writeVarint(1);
+    logical.writeStringUtf8Varint("x");
+    logical.writeVarint(0);
+    writeFrame(head, logical.toUint8Array(), "none");
+
+    assert.deepEqual(decodeBeast2For(T)(head.toUint8Array()), ["x"]);
+  });
+
+  test("registering a schema makes encodes name it, and re-registration is checked", () => {
+    const Custom = StructType({ tag: StringType, n: IntegerType });
+    const before = encodeBeast2For(Custom, V5_PLAIN)({ tag: "a", n: 1n });
+    assert.equal(before[8], 0, "structural before registration");
+
+    registerWellKnownType(4242, Custom, { name: "CustomTestType" });
+    assert.ok(registeredWellKnownIds().includes(4242));
+
+    // The encoder recognizes it by CONTENT — no call-site change, and a
+    // structurally identical but distinct type object matches too.
+    const after = encodeBeast2For(Custom, V5_PLAIN)({ tag: "a", n: 1n });
+    assert.equal(after[8], 2, "well-known + fallback after registration");
+    const twin = StructType({ tag: StringType, n: IntegerType });
+    assert.equal(encodeBeast2For(twin, V5_PLAIN)({ tag: "a", n: 1n })[8], 2, "matched by content");
+
+    // Round-trips, and the payload is unchanged (the fallback carries the schema).
+    assert.deepEqual(decodeBeast2For(Custom)(after), { tag: "a", n: 1n });
+
+    // Idempotent re-registration; conflicting re-registration is refused.
+    registerWellKnownType(4242, Custom, { name: "CustomTestType" });
+    assert.throws(
+      () => registerWellKnownType(4242, StructType({ other: StringType }), { name: "Conflicting" }),
+      /already registered/,
+    );
   });
 
   test("well-known hash drift fails loudly", () => {

@@ -21,6 +21,7 @@ import {
     AsyncFunctionType,
     LiteralValueType,
     EastTypeType,
+    registerWellKnownType,
 } from "@elaraai/east";
 
 // Typography
@@ -1543,6 +1544,17 @@ export const UIComponentType: RecursiveType<UIComponentNode> = UIComponentTypeIm
  * Type alias for UIComponentType.
  */
 export type UIComponentType = typeof UIComponentType;
+
+// Claim beast2 v5 well-known id 3 for UIComponentType (registry table in
+// libs/east/src/serialization/beast2/v5/SPEC.md). This is the single most
+// expensive schema in the platform to parse, and UI page loads decode many
+// component blobs, so naming it by reference removes that parse from every
+// decode in a process that has east-ui loaded.
+//
+// Registration is an optimization only: blobs carry a structural fallback, so
+// runtimes without east-ui — e3-core's self-describing decodes, east-c, the
+// python bridge — decode the very same bytes by parsing the schema as before.
+registerWellKnownType(3, UIComponentType, { name: "UIComponentType" });
 
 /**
  * Standalone `StructType` mirroring the inline `App` variant payload (#367) — the
