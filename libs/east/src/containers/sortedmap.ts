@@ -4,8 +4,13 @@
  */
 import sorted_btree from "sorted-btree";
 
-// Deal with CJS default import
-const BTree = sorted_btree.default;
+// Deal with CJS default import. Node's ESM interop hands back the whole
+// `module.exports`, so the class is under `.default`; Vite/vitest (and other
+// bundlers) already unwrap it, leaving `.default` undefined. Take whichever is
+// callable — decoded Dicts/Sets are SortedMap/SortedSet, so getting this wrong
+// throws "BTree is not a constructor" the moment a browser decodes a blob.
+const BTree = (sorted_btree as unknown as { default?: typeof sorted_btree.default }).default
+  ?? (sorted_btree as unknown as typeof sorted_btree.default);
 type BTree<K, T> = sorted_btree.default<K, T>;
 
 /**
