@@ -51,12 +51,35 @@
 /* Map EastTypeKind → tag byte */
 extern const uint8_t BEAST2_TAG_FOR_KIND[];
 
-/* Magic bytes for beast2-full format */
+/* Magic bytes for the beast2 container family (v4 = version byte 0x04) */
 extern const uint8_t BEAST2_MAGIC[8];
+/* v5 container magic (version byte 0x05) and v5 footer magic (0xF5) */
+extern const uint8_t BEAST2_MAGIC_V5[8];
+extern const uint8_t BEAST2_FOOTER_MAGIC_V5[8];
 
 /* Maximum value-decode recursion depth (untrusted input may nest
  * Struct/Variant/Recursive arbitrarily deep) */
 #define BEAST2_MAX_DEPTH 8192
+
+/* ================================================================== */
+/*  Version-specific container entry points                             */
+/*  (public east_beast2_* names dispatch on the magic in full.c)        */
+/* ================================================================== */
+
+/* v4 — globally-sectioned container (v4/container.c) */
+ByteBuffer *east_beast2_v4_encode_full(EastValue *value, EastType *type);
+EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_v4_decode_auto(const uint8_t *data, size_t len);
+IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
+                                 EastSourceMap **source_map_out);
+EastType *east_beast2_v4_extract_type(const uint8_t *data, size_t len);
+
+/* v5 — segment-terminated record stream (v5/container.c) */
+EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_v5_decode_auto(const uint8_t *data, size_t len);
+IRNode *east_beast2_v5_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
+                                 EastSourceMap **source_map_out);
+EastType *east_beast2_v5_extract_type(const uint8_t *data, size_t len);
 
 /* ================================================================== */
 /*  Shared low-level helpers                                            */

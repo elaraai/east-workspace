@@ -15,7 +15,7 @@
  * Entry 0 (empty stack sentinel) is implicit — not written.
  */
 
-#include "internal.h"
+#include "../internal.h"
 
 /* ================================================================== */
 /*  Write source map section                                           */

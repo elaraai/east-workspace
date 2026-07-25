@@ -132,7 +132,9 @@ if(WIN32)
         OUTPUT_NAME                east_c_shared
         ARCHIVE_OUTPUT_NAME        east_c_shared
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+    # miniz (beast2 v5 deflate) is declared inside packages/east-c with the
+    # same defensive if(NOT TARGET) shape as btreec, so the target exists here.
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz)
     set(EAST_PY_LINK_EASTC east-c-shared)
     # Ship the .dll (a RUNTIME artifact) beside the .pyd's; the import .lib is
     # build-time only — do NOT install it.
@@ -148,13 +150,14 @@ else()
     if(APPLE)
         target_link_options(east-c-shared PRIVATE
             "LINKER:-force_load,$<TARGET_FILE:east-c>")
-        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz)
     else()
         target_link_options(east-c-shared PRIVATE
             "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
             "LINKER:--exclude-libs,libpcre2-8.a"
-            "LINKER:--exclude-libs,libbtreec.a")
-        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec m)
+            "LINKER:--exclude-libs,libbtreec.a"
+            "LINKER:--exclude-libs,libminiz.a")
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz m)
     endif()
     set(EAST_PY_LINK_EASTC east-c-shared)
 

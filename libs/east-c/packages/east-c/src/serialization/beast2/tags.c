@@ -33,6 +33,10 @@ const uint8_t BEAST2_TAG_FOR_KIND[] = {
 /* Magic bytes for beast2-full format */
 const uint8_t BEAST2_MAGIC[8] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x04};
 
+/* v5 container magic (version byte 0x05) and v5 footer magic (0xF5) */
+const uint8_t BEAST2_MAGIC_V5[8] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x05};
+const uint8_t BEAST2_FOOTER_MAGIC_V5[8] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0xF5};
+
 /* ================================================================== */
 /*  Helpers for little-endian float writing/reading                    */
 /* ================================================================== */

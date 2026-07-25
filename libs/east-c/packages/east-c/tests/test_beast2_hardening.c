@@ -30,6 +30,18 @@
 
 static int failures = 0;
 
+static size_t hex_to_bytes(const char *hex, uint8_t *out, size_t cap)
+{
+    size_t n = strlen(hex) / 2;
+    if (n > cap) return 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned v;
+        sscanf(hex + i * 2, "%2x", &v);
+        out[i] = (uint8_t)v;
+    }
+    return n;
+}
+
 /* List = Recursive(self => Variant{ nil: Null,
  *                                   cons: Struct{head: Integer, tail: self} }) */
 static EastType *make_list_type(void)
@@ -143,6 +155,345 @@ static void sweep_corruption(const char *label, const uint8_t *data, size_t len)
     }
     free(copy);
     printf("  [+] %s: corruption sweep (%zu positions x 3 patterns)\n", label, len - 8);
+}
+
+/* ---- 6. beast2 v5 — segment-terminated record stream (issue #416) ---- */
+
+static void v5_gate(void)
+{
+    printf("---- 6. beast2 v5 (record stream, #416) ----\n");
+
+    /* 6a. Cross-runtime pinned writer fixture: batches ["a","b"] + ["c"],
+     * codec none, self-contained, indexed. The SAME hex is pinned in
+     * libs/east/src/serialization/beast2/v5/index.spec.ts and east-py's
+     * tests/serialization/test_beast2_v5.py — the three runtimes must
+     * produce and accept identical v5 streams. */
+    static const char *shared_hex =
+        "89456173740d0a0500050102010a00010000010100000505020161016200030301016300010100"
+        "010215020801270000000000000089456173740d0af5";
+    uint8_t shared[128];
+    size_t shared_len = hex_to_bytes(shared_hex, shared, sizeof shared);
+
+    EastType *arr_str = east_array_type(&east_string_type);
+    {
+        Beast2StreamWriter *w = east_beast2_writer_new(arr_str, EAST_BEAST2_CODEC_NONE, true, true);
+        if (!w) {
+            printf("FAIL: v5 writer_new\n");
+            failures++;
+        } else {
+            const char *batch_strs[2][2] = {{"a", "b"}, {"c", NULL}};
+            for (int b = 0; b < 2; b++) {
+                EastValue *batch = east_array_new(&east_string_type);
+                for (int i = 0; i < 2 && batch_strs[b][i]; i++) {
+                    EastValue *s = east_string(batch_strs[b][i]);
+                    east_array_push(batch, s);
+                    east_value_release(s);
+                }
+                if (!east_beast2_writer_write(w, batch)) {
+                    printf("FAIL: v5 writer_write batch %d\n", b);
+                    failures++;
+                }
+                east_value_release(batch);
+            }
+            EastValue *empty = east_array_new(&east_string_type);
+            east_beast2_writer_write(w, empty); /* skipped — no empty segments */
+            east_value_release(empty);
+            if (!east_beast2_writer_finish(w)) {
+                printf("FAIL: v5 writer_finish\n");
+                failures++;
+            }
+            ByteBuffer *out = east_beast2_writer_take(w);
+            if (!out || out->len != shared_len || memcmp(out->data, shared, shared_len) != 0) {
+                printf("FAIL: v5 writer bytes differ from the cross-runtime fixture\n");
+                failures++;
+            } else {
+                printf("  [+] v5 writer matches the cross-runtime pinned bytes\n");
+            }
+            if (out) byte_buffer_free(out);
+            east_beast2_writer_free(w);
+        }
+
+        /* Whole decode of the pinned bytes merges the segments. */
+        EastValue *decoded = east_beast2_decode_full(shared, shared_len, arr_str);
+        EastValue *expected = east_array_new(&east_string_type);
+        const char *elems[3] = {"a", "b", "c"};
+        for (int i = 0; i < 3; i++) {
+            EastValue *s = east_string(elems[i]);
+            east_array_push(expected, s);
+            east_value_release(s);
+        }
+        if (!decoded || east_value_compare(decoded, expected) != 0) {
+            printf("FAIL: v5 whole decode of the pinned fixture\n");
+            failures++;
+        } else {
+            printf("  [+] v5 whole decode of the pinned fixture\n");
+        }
+        if (decoded) east_value_release(decoded);
+
+        /* Segment reader sees the original batching + index counts. */
+        Beast2SegmentReader *r = east_beast2_reader_new(shared, shared_len, arr_str);
+        size_t seg_n = 0, elem_n = 0;
+        if (!r || !east_beast2_reader_counts(r, &seg_n, &elem_n) || seg_n != 2 || elem_n != 3) {
+            printf("FAIL: v5 reader counts (got %zu segments / %zu elements)\n", seg_n, elem_n);
+            failures++;
+        }
+        int seen = 0;
+        for (;;) {
+            EastValue *seg = r ? east_beast2_reader_next(r) : NULL;
+            if (!seg) break;
+            seen++;
+            east_value_release(seg);
+        }
+        if (!r || !east_beast2_reader_done(r) || seen != 2) {
+            printf("FAIL: v5 reader iteration (saw %d segments)\n", seen);
+            failures++;
+        } else {
+            printf("  [+] v5 reader yields the original segments\n");
+        }
+        if (r) east_beast2_reader_free(r);
+        east_value_release(expected);
+
+        sweep_truncation("v5 pinned fixture", shared, shared_len);
+        sweep_corruption("v5 pinned fixture", shared, shared_len);
+    }
+
+    /* 6b. Well-known type-section hashes must match the TS runtime's — the
+     * pinned constants below are the TS encoder's output. A drifted schema
+     * (or a divergent structural type encoding) fails here. */
+    {
+        static const char *ir_header_hex = "89456173740d0a05010145cf4e0706d397df0100";
+        static const char *etv_header_hex = "89456173740d0a0501020947b0dde16f86410100";
+        uint8_t hdr[32];
+        size_t hdr_len = hex_to_bytes(ir_header_hex, hdr, sizeof hdr);
+        EastType *t = east_beast2_extract_type(hdr, hdr_len);
+        if (t != east_ir_type) {
+            printf("FAIL: v5 well-known IRType hash rejected (C/TS schema drift?)\n");
+            failures++;
+        } else {
+            printf("  [+] v5 well-known IRType hash matches TS\n");
+        }
+        if (t) east_type_release(t);
+
+        hdr_len = hex_to_bytes(etv_header_hex, hdr, sizeof hdr);
+        t = east_beast2_extract_type(hdr, hdr_len);
+        if (t != east_type_type) {
+            printf("FAIL: v5 well-known EastTypeValueType hash rejected (C/TS schema drift?)\n");
+            failures++;
+        } else {
+            printf("  [+] v5 well-known EastTypeValueType hash matches TS\n");
+        }
+        if (t) east_type_release(t);
+
+        /* A flipped hash byte and an unregistered id must fail loudly. */
+        hdr_len = hex_to_bytes(ir_header_hex, hdr, sizeof hdr);
+        hdr[10] ^= 0xFF;
+        if (east_beast2_extract_type(hdr, hdr_len) != NULL) {
+            printf("FAIL: v5 drifted well-known hash was accepted\n");
+            failures++;
+        }
+        free(east_builtin_get_error());
+        hex_to_bytes(ir_header_hex, hdr, sizeof hdr);
+        hdr[9] = 0x60;
+        if (east_beast2_extract_type(hdr, hdr_len) != NULL) {
+            printf("FAIL: v5 unknown well-known id was accepted\n");
+            failures++;
+        }
+        free(east_builtin_get_error());
+        printf("  [+] v5 well-known drift and unknown ids are refused\n");
+    }
+
+    /* 6c. Well-known round-trip through encode_v5: a type value under
+     * east_type_type must emit the well-known section (kind 1, id 2). */
+    {
+        EastValue *tv = east_type_to_value(&east_integer_type);
+        ByteBuffer *b = east_beast2_encode_v5(tv, east_type_type, EAST_BEAST2_CODEC_NONE, false);
+        if (!b || b->len < 10 || b->data[8] != 0x01 || b->data[9] != 0x02) {
+            printf("FAIL: v5 encode of a type value did not use the well-known section\n");
+            failures++;
+        } else {
+            EastValue *back = east_beast2_decode_full(b->data, b->len, east_type_type);
+            if (!back || east_value_compare(back, tv) != 0) {
+                printf("FAIL: v5 type value round-trip\n");
+                failures++;
+            } else {
+                printf("  [+] v5 type values round-trip via the well-known section\n");
+            }
+            if (back) east_value_release(back);
+        }
+        if (b) byte_buffer_free(b);
+        east_value_release(tv);
+    }
+
+    /* 6d. Aliasing: a shared container encodes once (REF) and decodes to one
+     * shared object; re-encoding the decoded value reproduces the bytes.
+     * This also exercises refcount-1 elision — `inner` is multiply
+     * referenced, the root is not. */
+    {
+        EastType *arr_int = east_array_type(&east_integer_type);
+        EastType *arr_arr = east_array_type(arr_int);
+        EastValue *inner = east_array_new(&east_integer_type);
+        for (int i = 1; i <= 3; i++) {
+            EastValue *n = east_integer(i);
+            east_array_push(inner, n);
+            east_value_release(n);
+        }
+        EastValue *outer = east_array_new(arr_int);
+        east_array_push(outer, inner);
+        east_array_push(outer, inner);
+        east_value_release(inner);
+
+        ByteBuffer *b = east_beast2_encode_v5(outer, arr_arr, EAST_BEAST2_CODEC_NONE, false);
+        EastValue *decoded = b ? east_beast2_decode_full(b->data, b->len, arr_arr) : NULL;
+        if (!decoded || decoded->data.array.len != 2 ||
+            decoded->data.array.items[0] != decoded->data.array.items[1]) {
+            printf("FAIL: v5 aliasing did not round-trip to a shared object\n");
+            failures++;
+        } else {
+            ByteBuffer *b2 = east_beast2_encode_v5(decoded, arr_arr, EAST_BEAST2_CODEC_NONE, false);
+            if (!b2 || b2->len != b->len || memcmp(b2->data, b->data, b->len) != 0) {
+                printf("FAIL: v5 re-encode of aliased value differs\n");
+                failures++;
+            } else {
+                printf("  [+] v5 aliasing round-trips (shared object, stable bytes)\n");
+            }
+            if (b2) byte_buffer_free(b2);
+        }
+        if (decoded) east_value_release(decoded);
+        if (b) byte_buffer_free(b);
+        east_value_release(outer);
+        east_type_release(arr_arr);
+        east_type_release(arr_int);
+    }
+
+    /* 6e. Deflate stream: 20 batches x 50 integers through the writer, whole
+     * decode equals the batch concatenation, the reader sees 20 segments,
+     * and the (compressed) blob survives the adversarial sweeps. */
+    {
+        EastType *arr_int = east_array_type(&east_integer_type);
+        Beast2StreamWriter *w =
+            east_beast2_writer_new(arr_int, EAST_BEAST2_CODEC_DEFLATE, true, true);
+        EastValue *expected = east_array_new(&east_integer_type);
+        for (int b = 0; b < 20 && w; b++) {
+            EastValue *batch = east_array_new(&east_integer_type);
+            for (int i = 0; i < 50; i++) {
+                EastValue *n = east_integer(b * 50 + i);
+                east_array_push(batch, n);
+                east_array_push(expected, n);
+                east_value_release(n);
+            }
+            if (!east_beast2_writer_write(w, batch)) {
+                printf("FAIL: v5 deflate writer_write\n");
+                failures++;
+            }
+            east_value_release(batch);
+        }
+        ByteBuffer *blob = NULL;
+        if (w && east_beast2_writer_finish(w)) blob = east_beast2_writer_take(w);
+        if (w) east_beast2_writer_free(w);
+
+        EastValue *decoded = blob ? east_beast2_decode_full(blob->data, blob->len, arr_int) : NULL;
+        if (!decoded || east_value_compare(decoded, expected) != 0) {
+            printf("FAIL: v5 deflate whole decode\n");
+            failures++;
+        } else {
+            printf("  [+] v5 deflate stream round-trips (%zu bytes for 1000 ints)\n", blob->len);
+        }
+        if (decoded) east_value_release(decoded);
+
+        if (blob) {
+            Beast2SegmentReader *r = east_beast2_reader_new(blob->data, blob->len, arr_int);
+            size_t seg_n = 0, elem_n = 0;
+            int seen = 0;
+            if (r) {
+                east_beast2_reader_counts(r, &seg_n, &elem_n);
+                for (;;) {
+                    EastValue *seg = east_beast2_reader_next(r);
+                    if (!seg) break;
+                    seen++;
+                    east_value_release(seg);
+                }
+            }
+            if (!r || !east_beast2_reader_done(r) || seen != 20 || seg_n != 20 || elem_n != 1000) {
+                printf("FAIL: v5 deflate reader (%d segments, index %zu/%zu)\n", seen, seg_n,
+                       elem_n);
+                failures++;
+            } else {
+                printf("  [+] v5 deflate reader yields 20 segments (index 20/1000)\n");
+            }
+            if (r) east_beast2_reader_free(r);
+
+            sweep_truncation("v5 deflate stream", blob->data, blob->len);
+            sweep_corruption("v5 deflate stream", blob->data, blob->len);
+            byte_buffer_free(blob);
+        }
+        east_value_release(expected);
+        east_type_release(arr_int);
+    }
+
+    /* 6f. Crafted rejects: reserved zstd codec, unknown codec, oversized
+     * frame declarations, and out-of-range backref deltas all fail cleanly. */
+    {
+        EastType *arr_int = east_array_type(&east_integer_type);
+        /* magic + structural type section Array<Integer> + empty source map */
+        static const char *hdr_hex = "89456173740d0a0500050102020a000100";
+        uint8_t blob[64];
+        size_t hdr_len = hex_to_bytes(hdr_hex, blob, sizeof blob);
+
+        /* zstd frame (codec 2) */
+        size_t len = hdr_len;
+        blob[len++] = 0x02; /* codec 2 */
+        blob[len++] = 0x01;
+        blob[len++] = 0x01;
+        blob[len++] = 0x00;
+        if (east_beast2_decode_full(blob, len, arr_int) != NULL) {
+            printf("FAIL: v5 zstd frame was accepted\n");
+            failures++;
+        }
+        free(east_builtin_get_error());
+
+        /* unknown codec 7 */
+        blob[hdr_len] = 0x07;
+        if (east_beast2_decode_full(blob, len, arr_int) != NULL) {
+            printf("FAIL: v5 unknown codec was accepted\n");
+            failures++;
+        }
+        free(east_builtin_get_error());
+
+        /* decompression bomb: declared uncompressed length over the 1 GiB cap */
+        len = hdr_len;
+        blob[len++] = 0x00; /* codec none */
+        blob[len++] = 0x81;
+        blob[len++] = 0x80; /* varint 2^31 */
+        blob[len++] = 0x80;
+        blob[len++] = 0x80;
+        blob[len++] = 0x08;
+        blob[len++] = 0x00;
+        if (east_beast2_decode_full(blob, len, arr_int) != NULL) {
+            printf("FAIL: v5 oversized frame declaration was accepted\n");
+            failures++;
+        }
+        free(east_builtin_get_error());
+
+        /* out-of-range backref delta inside Array<Array<Integer>> */
+        EastType *arr_arr = east_array_type(arr_int);
+        static const char *ref_hex =
+            "89456173740d0a0500070203020a000a01" /* magic + structural section */
+            "0100"                               /* empty source map */
+            "000505"                             /* frame: codec 0, 5 bytes */
+            "0001010900";                        /* NEW, n=1, REF delta 9, term */
+        uint8_t ref_blob[64];
+        size_t ref_len = hex_to_bytes(ref_hex, ref_blob, sizeof ref_blob);
+        if (east_beast2_decode_full(ref_blob, ref_len, arr_arr) != NULL) {
+            printf("FAIL: v5 out-of-range backref was accepted\n");
+            failures++;
+        }
+        free(east_builtin_get_error());
+        printf("  [+] v5 crafted rejects (zstd, unknown codec, bomb, backref)\n");
+        east_type_release(arr_arr);
+        east_type_release(arr_int);
+    }
+
+    east_type_release(arr_str);
 }
 
 int main(void)
@@ -394,6 +745,35 @@ int main(void)
         if (sb) byte_buffer_free(sb);
         east_value_release(scalar);
     }
+
+    /* ---- 5b. type-table section skip-cache (#417) ----
+     * The truncation/corruption sweeps above already hammer the cache's
+     * miss/verify paths; here: warm-hit correctness, and repopulation after
+     * an explicit purge. */
+    {
+        EastValue *first = east_beast2_decode_auto(deep_buf->data, deep_buf->len);
+        EastValue *second = east_beast2_decode_auto(deep_buf->data, deep_buf->len);
+        if (!first || !second || east_value_compare(first, second) != 0) {
+            printf("FAIL: cached type-table decode changed the result\n");
+            failures++;
+        } else {
+            printf("  [+] type-table cache: warm decode equals cold decode\n");
+        }
+        if (first) east_value_release(first);
+        if (second) east_value_release(second);
+
+        east_beast2_type_cache_clear();
+        EastValue *after = east_beast2_decode_auto(deep_buf->data, deep_buf->len);
+        if (!after) {
+            printf("FAIL: decode after type-cache purge\n");
+            failures++;
+        } else {
+            printf("  [+] type-table cache: repopulates after purge\n");
+            east_value_release(after);
+        }
+    }
+
+    v5_gate();
 
     byte_buffer_free(deep_buf);
     byte_buffer_free(mixed_buf);

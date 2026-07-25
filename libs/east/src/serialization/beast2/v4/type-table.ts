@@ -13,11 +13,11 @@
  * See devdocs/BEAST2.md for the format specification.
  */
 
-import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
-import type { EastType } from "../../types.js";
-import { getTypeId } from "../../types.js";
-import { isVariant, variant } from "../../containers/variant.js";
-import { BufferWriter, BufferReader } from "../binary-utils.js";
+import { toEastTypeValue, type EastTypeValue } from "../../../type_of_type.js";
+import type { EastType } from "../../../types.js";
+import { getTypeId } from "../../../types.js";
+import { isVariant, variant } from "../../../containers/variant.js";
+import { BufferWriter, BufferReader } from "../../binary-utils.js";
 
 // =============================================================================
 // Tag bytes (frequency-ordered, used as direct array indices)
@@ -456,19 +456,102 @@ interface ParsedEntry {
   names?: string[];
 }
 
+// ── Section skip-cache (#417) ─────────────────────────────────────────
+// Every decode used to re-parse (and re-intern) the blob's whole type-table
+// section; for recursive schemas (IRType, EastTypeValueType, UIComponentType)
+// that parse dominates small-blob decode time. Sections are content-addressed
+// here: same payload bytes ⇒ the same parsed (frozen, shared) table. Keyed on
+// the FNV-1a-64 of the payload with a full byte compare on hit, so a corrupted
+// section misses and parses/fails exactly as before. Bounded — the distinct
+// schema count per process is tiny.
+
+interface CachedTypeSection {
+  /** A private copy of the section payload (the decode-time view aliases the
+   *  caller's blob and must not be retained). */
+  payload: Uint8Array;
+  rootType: EastTypeValue;
+  typeTable: readonly EastTypeValue[];
+}
+
+const TYPE_SECTION_CACHE_MAX = 128;
+const typeSectionCache = new Map<number, CachedTypeSection[]>();
+let typeSectionCacheCount = 0;
+
+/** Fast FNV-1a-32 for the cache key. Number arithmetic on purpose — the
+ *  BigInt FNV-1a-64 used for the v5 well-known wire hash costs more per byte
+ *  than the parse this cache skips. Collisions are handled by the full byte
+ *  compare below; the hash only needs distribution, not identity. */
+function hashSectionPayload(bytes: Uint8Array): number {
+  let h = 0x811c9dc5 | 0;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i]!;
+    h = Math.imul(h, 0x01000193);
+  }
+  // Fold the length in so same-hash different-length buckets never mix.
+  return (h ^ bytes.length) >>> 0;
+}
+
+function payloadEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /**
  * Read the type table section from a BufferReader.
  * Returns the root EastTypeValue and the full type table for IR restoration.
  *
- * The reader must be positioned after the magic bytes.
+ * The reader must be positioned after the magic bytes. Parsed sections are
+ * cached by content (#417): decoding N blobs of the same schema parses the
+ * section once and shares one frozen table.
  */
 export function readTypeTableSection(reader: BufferReader): {
   rootType: EastTypeValue;
   typeTable: EastTypeValue[];
 } {
   const headerByteLength = reader.readVarint();
-  const headerEnd = reader.offset + headerByteLength;
+  const payload = reader.readBytesView(headerByteLength);
 
+  const key = hashSectionPayload(payload);
+  const bucket = typeSectionCache.get(key);
+  if (bucket) {
+    for (const entry of bucket) {
+      if (payloadEqual(entry.payload, payload)) {
+        return { rootType: entry.rootType, typeTable: entry.typeTable as EastTypeValue[] };
+      }
+    }
+  }
+
+  const result = parseTypeTableSectionPayload(payload);
+
+  if (typeSectionCacheCount >= TYPE_SECTION_CACHE_MAX) {
+    // Evict the oldest hash bucket (Map preserves insertion order).
+    const oldest = typeSectionCache.keys().next().value;
+    if (oldest !== undefined) {
+      typeSectionCacheCount -= typeSectionCache.get(oldest)!.length;
+      typeSectionCache.delete(oldest);
+    }
+  }
+  const stored: CachedTypeSection = {
+    payload: new Uint8Array(payload),
+    rootType: result.rootType,
+    typeTable: Object.freeze(result.typeTable),
+  };
+  const existing = typeSectionCache.get(key);
+  if (existing) existing.push(stored);
+  else typeSectionCache.set(key, [stored]);
+  typeSectionCacheCount++;
+
+  return { rootType: stored.rootType, typeTable: stored.typeTable as EastTypeValue[] };
+}
+
+/** Parse a type table section payload (`varint(root_idx) varint(count)
+ *  entries…`) — the uncached path behind {@link readTypeTableSection}. */
+function parseTypeTableSectionPayload(payload: Uint8Array): {
+  rootType: EastTypeValue;
+  typeTable: EastTypeValue[];
+} {
+  const reader = new BufferReader(payload, 0);
   const rootIdx = reader.readVarint();
   const entryCount = reader.readVarint();
 
@@ -478,8 +561,8 @@ export function readTypeTableSection(reader: BufferReader): {
     parsed[i] = ENTRY_PARSERS[reader.readUint8()]!(reader);
   }
 
-  if (reader.offset !== headerEnd) {
-    throw new Error(`Type table size mismatch: expected offset ${headerEnd}, got ${reader.offset}`);
+  if (reader.offset !== payload.length) {
+    throw new Error(`Type table size mismatch: expected offset ${payload.length}, got ${reader.offset}`);
   }
 
   // Phase 2: Reconstruct EastTypeValue tree with depth-based Recursive references

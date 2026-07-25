@@ -681,6 +681,33 @@ key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#
 | `decode_beast2(typ) -> value` | Decode BEAST2 as `typ` |
 | `decode_csv(element_type, config=None) -> EastArray` | Decode CSV rows into `Array<element_type>` (east-c decoder). Build `config` with `east.serialization.csv.csv_parse_config(...)`: by default **no field text is null** (empty field == empty string); opt in with `null_strings=[""]` (`none` for Option columns, error for required); `defaults={"qty": "0.0"}` gives per-column fallbacks for unparseable fields and constant-fill for absent columns |
 
+### Beast2 streaming — bounded-memory collections (`from east.serialization.beast2 import ...`)
+
+Beast2 v5 encodes a large Array/Set/Dict as an append-only segment stream:
+writer memory is one batch (never the whole collection), decoders accept v4
+and v5 through the same entry points, and each batch becomes one
+independently decodable segment. Use for exports too big to hold, or to
+re-read a huge file one batch at a time.
+
+| Signature | Description |
+|-----------|-------------|
+| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches |
+| `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory convenience over the writer — one segment per non-empty batch |
+| `encode_beast2_v5_for(T, *, codec="deflate", index=False) -> (value) -> bytes` | Whole-value v5 encode (any root type); decode with `decode_beast2_with_header_for` |
+| `iter_beast2_segments_for(T) -> (source) -> iterator` | Yield one decoded collection per segment, O(segment) memory; `source` is bytes / `mmap` / binary stream |
+| `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments merge: Array concat, Set union, Dict last-wins) |
+| `read_beast2_index(T, blob) -> (segments, elements) \| None` | O(1) totals from a v5 blob's trailing index |
+
+```python
+from east.serialization.beast2 import Beast2Writer, iter_beast2_segments_for
+rows_t = ArrayType(row_type)
+with open(path, "wb") as f, Beast2Writer(rows_t, f) as w:
+    for batch in produce_batches():          # each an EastArray(row_type, ...)
+        w.write(batch)                       # O(batch) memory, one segment each
+for batch in iter_beast2_segments_for(rows_t)(open(path, "rb").read()):
+    consume(batch)                           # O(segment) decoded at a time
+```
+
 ### EastStruct / EastVariant / EastRef
 
 - **`EastStruct`** — frozen record; read fields by name: `s["price"]` or as an

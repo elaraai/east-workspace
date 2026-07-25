@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { SourceMap, type Location } from "../../location.js";
-import { BufferWriter, BufferReader } from "../binary-utils.js";
+import { SourceMap, type Location } from "../../../location.js";
+import { BufferWriter, BufferReader } from "../../binary-utils.js";
 
 /**
  * Write the source_map_section in beast2 v3 bespoke format.

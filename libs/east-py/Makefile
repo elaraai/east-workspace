@@ -85,6 +85,7 @@ QUIET_FLAG = $(if $(EAST_QUIET),-q)
 
 test-east-py:
 	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
+	cd packages/east-py && uv run pytest tests/serialization -q --no-cov
 
 test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)

@@ -16,7 +16,7 @@
  *     [element data...]
  */
 
-#include "internal.h"
+#include "../internal.h"
 
 /* ================================================================== */
 /*  Value table init / free                                            */

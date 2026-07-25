@@ -653,3 +653,49 @@ describe("Beast2 v2 — Decoder reuse", () => {
     assert.deepEqual(decoder(encode([])), []);
   });
 });
+
+describe("Beast2 — type-table section cache (#417)", () => {
+  const RowType = StructType({ a: IntegerType, b: StringType });
+
+  test("repeated decodes share one parsed table", () => {
+    const tv = toEastTypeValue(RowType);
+    const blob = encodeBeast2For(EastTypeValueType)(tv);
+    const first = decodeBeast2(blob);
+    const second = decodeBeast2(blob);
+    // Content-addressed skip-cache: the second decode reuses the first
+    // parse's table, so the root types are the same object.
+    assert.ok(first.type === second.type, "cached decodes share the root type object");
+    assert.ok(typeEqual(first.value, tv));
+    assert.ok(typeEqual(second.value, tv));
+  });
+
+  test("corrupted sections miss the cache and the cache is not poisoned", () => {
+    const encode = encodeBeast2For(EastTypeValueType);
+    const decode = decodeBeast2For(EastTypeValueType);
+    const tv = toEastTypeValue(RowType);
+    const blob = encode(tv);
+    assert.ok(typeEqual(decode(blob), tv), "warm the cache");
+    // Truncating inside the type section must fail regardless of cache state.
+    assert.throws(() => decode(blob.subarray(0, 12)));
+    // And the original still decodes correctly afterwards.
+    assert.ok(typeEqual(decode(blob), tv));
+  });
+
+  test("encoder section cache keeps encodes byte-identical", () => {
+    const value = { a: 42n, b: "x" };
+    // Two closures over the SAME type object (WeakMap hit) and one over a
+    // structurally identical but distinct type object (cache miss) must all
+    // produce identical bytes.
+    const sameA = encodeBeast2For(RowType)(value);
+    const sameB = encodeBeast2For(RowType)(value);
+    const fresh = encodeBeast2For(StructType({ a: IntegerType, b: StringType }))(value);
+    assert.deepEqual(Array.from(sameB), Array.from(sameA));
+    assert.deepEqual(Array.from(fresh), Array.from(sameA));
+    // Container-bearing values grow the table past the cached root closure —
+    // the grown path must still round-trip.
+    const NestedType = StructType({ rows: ArrayType(IntegerType) });
+    const nested = { rows: [1n, 2n, 3n] };
+    const nestedBlob = encodeBeast2For(NestedType)(nested);
+    assert.deepEqual(decodeBeast2For(NestedType)(nestedBlob), nested);
+  });
+});
