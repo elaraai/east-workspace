@@ -24,6 +24,7 @@
  */
 
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
+import { deterministicDeflateRaw } from "./deflate.js";
 
 /** Codec id: store logical bytes uncompressed. */
 export const CODEC_NONE = 0;
@@ -62,18 +63,18 @@ const zlib: ZlibModule | null =
   (globalThis as any).process?.getBuiltinModule?.("node:zlib") ?? null;
 
 /**
- * Compresses logical bytes with raw DEFLATE synchronously.
+ * Compresses logical bytes with raw DEFLATE.
+ *
+ * Uses beast2's own specified encoder rather than the platform's zlib, so the
+ * bytes are identical in every runtime — see `./deflate.ts` for why that
+ * matters (content-addressing) and how the algorithm is pinned. It needs no
+ * platform support at all, so browsers can compress too.
  *
  * @param data - the logical bytes to compress
  * @returns the raw DEFLATE stream
- * @throws {Error} When no synchronous deflate implementation is available
- *   (browsers) — use codec `"none"` there.
  */
 export function deflateRawSync(data: Uint8Array): Uint8Array {
-  if (!zlib) {
-    throw new Error(`beast2 v5: synchronous deflate needs Node's zlib; use codec "none" in browsers`);
-  }
-  return zlib.deflateRawSync(data);
+  return deterministicDeflateRaw(data);
 }
 
 /**

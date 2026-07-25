@@ -39,6 +39,8 @@ import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType } from "../../../types.js";
 import { variant } from "../../../containers/variant.js";
 import { ref } from "../../../containers/ref.js";
+import { SortedSet } from "../../../containers/sortedset.js";
+import { SortedMap } from "../../../containers/sortedmap.js";
 import { matrix } from "../../../containers/matrix.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { compareFor } from "../../../comparison.js";
@@ -432,38 +434,6 @@ function readContainerTag(reader: BufferReader, ctx: V5DecodeContext): any | und
   return ctx.containers[ctx.containers.length - delta];
 }
 
-/** Fills a Set from collected elements. Multi-segment content is
- *  canonicalized: stable-sorted and structurally deduplicated, matching the
- *  C runtime's btree semantics. */
-function fillSet(set: Set<any>, elems: any[], multiSegment: boolean, cmp: (a: any, b: any) => number): void {
-  if (!multiSegment) {
-    for (const e of elems) set.add(e);
-    return;
-  }
-  elems.sort(cmp);
-  for (let i = 0; i < elems.length; i++) {
-    if (i > 0 && cmp(elems[i - 1], elems[i]) === 0) continue;
-    set.add(elems[i]);
-  }
-}
-
-/** Fills a Dict from collected pairs. Multi-segment content is canonicalized:
- *  stable-sorted by key with the last occurrence of each key winning (update
- *  semantics), matching the C runtime's btree insert. */
-function fillDict(map: Map<any, any>, pairs: [any, any][], multiSegment: boolean, cmpKey: (a: any, b: any) => number): void {
-  if (!multiSegment) {
-    for (const [k, v] of pairs) map.set(k, v);
-    return;
-  }
-  pairs.sort((a, b) => cmpKey(a[0], b[0]));
-  for (let i = 0; i < pairs.length; i++) {
-    // Stable sort keeps arrival order within equal keys — the last of an
-    // equal-key run is the latest write.
-    if (i + 1 < pairs.length && cmpKey(pairs[i]![0], pairs[i + 1]![0]) === 0) continue;
-    map.set(pairs[i]![0], pairs[i]![1]);
-  }
-}
-
 /**
  * Builds a v5 value decoder closure tree for the given type.
  *
@@ -521,17 +491,15 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       const ret: V5Decoder = (reader, ctx) => {
         const aliased = readContainerTag(reader, ctx);
         if (aliased !== undefined) return aliased;
-        const set = new Set<any>();
+        // A SortedSet keeps East's total order, which also gives the
+        // cross-segment merge semantics for free: inserts sort and dedup.
+        const set = new SortedSet<any>(undefined, cmp);
         ctx.containers.push(set);
-        const elems: any[] = [];
-        let segments = 0;
         for (;;) {
           const n = reader.readVarint();
           if (n === 0) break;
-          segments++;
-          for (let i = 0; i < n; i++) elems.push(elem(reader, ctx));
+          for (let i = 0; i < n; i++) set.add(elem(reader, ctx));
         }
-        fillSet(set, elems, segments > 1, cmp);
         return set;
       };
       elem = buildV5Decoder(type.value, typeCtx);
@@ -545,21 +513,19 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       const ret: V5Decoder = (reader, ctx) => {
         const aliased = readContainerTag(reader, ctx);
         if (aliased !== undefined) return aliased;
-        const map = new Map<any, any>();
+        // A SortedMap keeps East's total order; a later set() on an existing
+        // key overwrites, which IS the cross-segment last-wins rule.
+        const map = new SortedMap<any, any>(undefined, cmpKey);
         ctx.containers.push(map);
-        const pairs: [any, any][] = [];
-        let segments = 0;
         for (;;) {
           const n = reader.readVarint();
           if (n === 0) break;
-          segments++;
           for (let i = 0; i < n; i++) {
             const k = key(reader, ctx);
             const v = val(reader, ctx);
-            pairs.push([k, v]);
+            map.set(k, v);
           }
         }
-        fillDict(map, pairs, segments > 1, cmpKey);
         return map;
       };
       key = buildV5Decoder(type.value.key, typeCtx);
@@ -1011,14 +977,16 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
   }
 
   const kind = typeValue.type as "Array" | "Set" | "Dict";
-  const container: any = kind === "Array" ? [] : kind === "Set" ? new Set<any>() : new Map<any, any>();
+  // Sorted containers keep East's total order and give the cross-segment
+  // merge rules for free (Set inserts dedup; a later Dict set() overwrites).
+  const container: any = kind === "Array" ? []
+    : kind === "Set" ? new SortedSet<any>(undefined, compareFor((typeValue as any).value))
+    : new SortedMap<any, any>(undefined, compareFor((typeValue as any).value.key));
   ctx.containers.push(container);
 
   const typeCtx = new Map<bigint, V5Decoder>();
   const { elemDec, keyDec, valDec } = cachedElementDecoders(typeValue, kind, typeCtx);
 
-  const elems: any[] = [];
-  const pairs: [any, any][] = [];
   for (;;) {
     if (reader.offset === reader.buffer.length) reader = cursor.next();
     const n = reader.readVarint();
@@ -1027,12 +995,12 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
     if (kind === "Array") {
       for (let i = 0; i < n; i++) container.push(elemDec!(reader, ctx));
     } else if (kind === "Set") {
-      for (let i = 0; i < n; i++) elems.push(elemDec!(reader, ctx));
+      for (let i = 0; i < n; i++) container.add(elemDec!(reader, ctx));
     } else {
       for (let i = 0; i < n; i++) {
         const k = keyDec!(reader, ctx);
         const v = valDec!(reader, ctx);
-        pairs.push([k, v]);
+        container.set(k, v);
       }
     }
   }
@@ -1040,12 +1008,6 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
     throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after the root terminator`);
   }
 
-  const multi = segmentCounts.length > 1;
-  if (kind === "Set") {
-    fillSet(container, elems, multi, compareFor((typeValue as any).value));
-  } else if (kind === "Dict") {
-    fillDict(container, pairs, multi, compareFor((typeValue as any).value.key));
-  }
   return container;
 }
 

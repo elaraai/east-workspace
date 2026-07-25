@@ -22,6 +22,9 @@ import type { EastType, ValueTypeOf } from "../../../types.js";
 import { isVariant, variant } from "../../../containers/variant.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { ref } from "../../../containers/ref.js";
+import { SortedSet } from "../../../containers/sortedset.js";
+import { SortedMap } from "../../../containers/sortedmap.js";
+import { compareFor } from "../../../comparison.js";
 import { matrix } from "../../../containers/matrix.js";
 import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type RuntimeContext } from "../../../compile.js";
 import { InternalError } from "../../../error.js";
@@ -525,16 +528,23 @@ function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext):
         break;
       }
       case TAG_SET: {
-        reader.readVarint(); // elem type idx (skip)
-        reader.readVarint(); // count (skip — Set doesn't pre-allocate by count)
-        ctx.mutableValues.push(new Set<any>());
+        // Sets and Dicts are ORDERED by East's total order — a decoded one
+        // must be a SortedSet/SortedMap, not a plain Set/Map. A plain
+        // container preserves wire order instead, which (a) violates the
+        // ordering invariant every East-created collection holds (see
+        // compile.ts) and (b) made TS re-encode a value to different bytes
+        // than east-c, whose btrees always sort. That broke cross-runtime
+        // byte parity, and with it content-addressing.
+        const setElemIdx = reader.readVarint();
+        reader.readVarint(); // count (skip — SortedSet doesn't pre-allocate)
+        ctx.mutableValues.push(new SortedSet<any>(undefined, compareFor(ctx.typeTable[setElemIdx]!)));
         break;
       }
       case TAG_DICT: {
-        reader.readVarint(); // key type idx (skip)
+        const dictKeyIdx = reader.readVarint();
         reader.readVarint(); // val type idx (skip)
         reader.readVarint(); // count (skip)
-        ctx.mutableValues.push(new Map<any, any>());
+        ctx.mutableValues.push(new SortedMap<any, any>(undefined, compareFor(ctx.typeTable[dictKeyIdx]!)));
         break;
       }
       case TAG_REF: {
@@ -592,7 +602,7 @@ function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext):
         const elemTypeIdx = r.readVarint();
         const elemType = ctx.typeTable[elemTypeIdx]!;
         const count = r.readVarint();
-        const set = ctx.mutableValues[i]! as Set<any>;
+        const set = ctx.mutableValues[i]! as SortedSet<any>;
         const isMut = isMutableType(elemType);
         const dec = isMut ? null : getCachedDecoder(elemTypeIdx);
         for (let j = 0; j < count; j++) {
@@ -606,7 +616,7 @@ function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext):
         const keyType = ctx.typeTable[keyTypeIdx]!;
         const valType = ctx.typeTable[valTypeIdx]!;
         const count = r.readVarint();
-        const map = ctx.mutableValues[i]! as Map<any, any>;
+        const map = ctx.mutableValues[i]! as SortedMap<any, any>;
         const keyMut = isMutableType(keyType);
         const valMut = isMutableType(valType);
         const keyDec = keyMut ? null : getCachedDecoder(keyTypeIdx);
