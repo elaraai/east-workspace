@@ -470,6 +470,15 @@ Task → What do you need?
     │
     ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()   (no arithmetic methods)
     │
+    ├─ Serialize a collection that does NOT fit in memory (beast2 v5 streaming)
+    │   ├─ Write it → Beast2Writer(T, stream) as w: w.write(batch) per batch — peak memory is ONE batch
+    │   │   └─ already in memory, just want the bytes → encode_beast2_segments_for(T)(batches)
+    │   ├─ Read it back one batch at a time → for b in iter_beast2_segments_for(T)(source)  — O(segment)
+    │   │   (source: bytes / mmap / binary stream; pass an mmap for a large file)
+    │   ├─ Read it whole (segments merge: Array concat, Set union, Dict last-wins)
+    │   │                                 → decode_beast2_with_header_for(T)(blob)   — v4 AND v5
+    │   └─ How many rows without decoding → read_beast2_index(T, blob) -> (segments, elements)
+    │
     └─ Let East call your Python function
         ├─ Concrete types → @platform_function(inputs=[…], output=…)  +  platform_functions(__name__)
         ├─ Type-parameterized → @generic_platform_function(type_parameters=[…], is_async=…)
