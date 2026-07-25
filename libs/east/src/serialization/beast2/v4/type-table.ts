@@ -669,11 +669,28 @@ const PRIMITIVE_ETV: EastTypeValue[] = [
  * Recursive entries are converted to proper EastTypeValue trees where
  * self-references use depth-based Recursive(N) — compatible with
  * _decodeCursorFor's typeCtx stack mechanism.
+ *
+ * One table index yields exactly **one** object, shared by every reference to
+ * it. That is what makes a decoded type round-trip: {@link TypeTableBuilder}
+ * dedups EastTypeValues by identity, so re-encoding a decoded value must see
+ * the same object wherever the wire table said "same index". Rebuilding a
+ * nested recursive type per reference (as this did before) gave `IRType` 25
+ * wrapper entries instead of 2 and made TS re-encode a decoded IR program to
+ * 5426 bytes where east-c — which interns decoded types — produced the
+ * original 1792.
  */
 function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValue[] {
   const table = new Array<EastTypeValue>(parsed.length);
   // Track which indices are Recursive wrappers and their inner indices
   const recursiveEntries = new Map<number, number>(); // wrapper_idx → inner_idx
+  // Wrapper indices whose rebuilt subtree references no *enclosing* wrapper.
+  // Such a wrapper is self-contained, so one object can serve every reference
+  // to it — see the `closed` computation below.
+  const closedWrappers = new Set<number>();
+  // Shallowest depthStack position referenced by the subtree currently under
+  // construction (Infinity = nothing referenced). Read/reset around each
+  // wrapper to decide whether that wrapper escaped its own scope.
+  let minRefPos = Infinity;
 
   // First pass: identify all Recursive entries
   for (let i = 0; i < parsed.length; i++) {
@@ -697,11 +714,14 @@ function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValu
     // The id is the table index of the wrapper entry.
     const stackPos = depthStack.indexOf(idx);
     if (stackPos !== -1) {
+      if (stackPos < minRefPos) minRefPos = stackPos;
       return variant("Recursive", variant("ref", BigInt(idx))) as EastTypeValue;
     }
 
-    // If already built and not a recursive wrapper, reuse
-    if (table[idx] !== undefined && !recursiveEntries.has(idx)) {
+    // If already built, reuse. A Recursive wrapper only qualifies once it is
+    // known to be closed: an *open* wrapper's `ref`s resolve against the scope
+    // it was built in, so it cannot be shared with a different scope.
+    if (table[idx] !== undefined && (!recursiveEntries.has(idx) || closedWrappers.has(idx))) {
       return table[idx]!;
     }
 
@@ -712,11 +732,21 @@ function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValu
     // type onto its stack, so we mirror that here for matching depth values.
     if (entry.tag === TAG_RECURSIVE) {
       const innerIdx = entry.childIndices[0]!;
+      const base = depthStack.length; // the position this wrapper occupies
+      const outerMinRefPos = minRefPos;
+      minRefPos = Infinity;
       depthStack.push(idx); // Push wrapper — stays on stack for depth counting
       const inner = buildCompound(innerIdx, depthStack, null);
       depthStack.pop();
+      // Closed ⇔ nothing under this wrapper referenced a wrapper above it.
+      // East guarantees this for every type it can construct (RecursiveType
+      // rejects SCC > 1), so this is the universal case; the check only keeps
+      // a hand-crafted mutually-recursive table from sharing a scoped object.
+      const closed = minRefPos >= base;
+      minRefPos = closed ? outerMinRefPos : Math.min(outerMinRefPos, minRefPos);
       const wrapped = variant("Recursive", variant("wrapper", { id: BigInt(idx), inner })) as unknown as EastTypeValue;
       table[idx] = wrapped;
+      if (closed) closedWrappers.add(idx);
       return wrapped;
     }
 

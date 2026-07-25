@@ -28,6 +28,9 @@ import {
   MatrixType,
 } from "./types.js";
 import { matrix } from "./containers/matrix.js";
+import { SortedSet } from "./containers/sortedset.js";
+import { SortedMap } from "./containers/sortedmap.js";
+import { compareFor } from "./comparison.js";
 import { isVariant, variant } from "./containers/variant.js";
 import { printType } from "./types.js";
 import { printFor } from "./serialization/east.js";
@@ -342,11 +345,16 @@ function buildValueGenerator(
     itemGen = buildValueGenerator(type.value, ctx);
     return ret;
   } else if (type.type === "Set") {
+    // SortedSet, not Set: every East-created Set is ordered by East's total
+    // order (compile.ts) and east-c's btrees sort unconditionally. A plain
+    // insertion-ordered Set is a value no runtime can hold, and it serializes
+    // to bytes that differ from the same value's canonical encoding.
+    const keyComparer = compareFor(type.value);
     let itemGen: (depth: number) => any;
     const ret = (depth: number) => {
       const maxLen = depth >= ctx.maxDepth ? 0 : 5;
       const length = Math.floor(Math.random() * (maxLen + 1));
-      const set = new Set();
+      const set = new SortedSet<any>(undefined, keyComparer);
       for (let i = 0; i < length; i++) {
         set.add(itemGen(depth));
       }
@@ -355,12 +363,13 @@ function buildValueGenerator(
     itemGen = buildValueGenerator(type.value, ctx);
     return ret;
   } else if (type.type === "Dict") {
+    const keyComparer = compareFor(type.value.key);
     let keyGen: (depth: number) => any;
     let valueGen: (depth: number) => any;
     const ret = (depth: number) => {
       const maxLen = depth >= ctx.maxDepth ? 0 : 5;
       const length = Math.floor(Math.random() * (maxLen + 1));
-      const dict = new Map();
+      const dict = new SortedMap<any, any>(undefined, keyComparer);
       for (let i = 0; i < length; i++) {
         dict.set(keyGen(depth), valueGen(depth));
       }
