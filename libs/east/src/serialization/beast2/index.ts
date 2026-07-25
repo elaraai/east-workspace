@@ -87,7 +87,8 @@ function sniffVersion(data: Uint8Array): 4 | 5 {
 export type Beast2EncodeOptions = {
   /** Explicit source map to embed (overrides discovery from function values). */
   sourceMap?: SourceMap | null;
-  /** Container version to write. Defaults to `4`. */
+  /** Container version to write. Defaults to `5`. Pass `4` to write the
+   *  legacy globally-sectioned container for a reader that predates v5. */
   version?: Beast2Version;
   /** v5 only: per-frame codec. Defaults to `"deflate"`. */
   codec?: Beast2Codec;
@@ -100,9 +101,10 @@ export type Beast2EncodeOptions = {
  * Builds an encoder closure for the given type.
  *
  * The returned function encodes values of `type` into a self-contained beast2
- * blob. The container version defaults to v4; decode entry points accept every
- * version regardless. Version 5 writes the segment-terminated record stream
- * (see `v5/SPEC.md`) and accepts the `codec` and `index` options.
+ * blob. The container version defaults to v5 — the segment-terminated record
+ * stream (see `v5/SPEC.md`), deflate-framed — and accepts the `codec` and
+ * `index` options. Pass `version: 4` for the legacy container; decode entry
+ * points accept every version regardless.
  *
  * @param type - the root East type (as `EastType` or `EastTypeValue`)
  * @param options - encode options (source map, container version, v5 codec/index)
@@ -111,10 +113,10 @@ export type Beast2EncodeOptions = {
 export function encodeBeast2For(type: EastTypeValue, options?: Beast2EncodeOptions): (value: any) => Uint8Array
 export function encodeBeast2For<T extends EastType>(type: T, options?: Beast2EncodeOptions): (value: ValueTypeOf<T>) => Uint8Array
 export function encodeBeast2For(type: EastTypeValue | EastType, options?: Beast2EncodeOptions): (value: any) => Uint8Array {
-  if ((options?.version ?? 4) === 5) {
-    return encodeBeast2V5For(type as EastTypeValue, options);
+  if ((options?.version ?? 5) === 4) {
+    return encodeBeast2V4For(type as EastTypeValue, options);
   }
-  return encodeBeast2V4For(type as EastTypeValue, options);
+  return encodeBeast2V5For(type as EastTypeValue, options);
 }
 
 // =============================================================================

@@ -4,9 +4,12 @@
  *
  *  The 8th magic byte is the container version: 0x04 = the globally-sectioned
  *  v4 container (v4/), 0x05 = the segment-terminated v5 record stream (v5/).
- *  Every decode entry point accepts both; encoders write v4 by default
- *  (east_beast2_encode_full) with v5 available explicitly
- *  (east_beast2_encode_v5 and the streaming writer in v5/stream.c).
+ *  Every decode entry point accepts both; encoders write v5 by default
+ *  (east_beast2_encode_full), matching the TypeScript encodeBeast2For default
+ *  — the shared compliance goldens pin one byte string per value, so the two
+ *  defaults must move together. v4 stays reachable explicitly
+ *  (east_beast2_encode_v4 — the sibling of TS's `{ version: 4 }` and
+ *  east-py's `version=4`), as does the v5 streaming writer (v5/stream.c).
  *  See libs/east/src/serialization/beast2/SPEC.md for the magic registry
  *  and version policy.                                                 */
 /* ================================================================== */
@@ -30,6 +33,12 @@ static int beast2_detect_version(const uint8_t *data, size_t len)
 }
 
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
+{
+    /* Deflate-framed, no trailing index — the TS encodeBeast2For defaults. */
+    return east_beast2_encode_v5(value, type, EAST_BEAST2_CODEC_DEFLATE, false);
+}
+
+ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type)
 {
     return east_beast2_v4_encode_full(value, type);
 }

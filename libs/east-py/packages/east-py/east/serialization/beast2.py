@@ -6,7 +6,9 @@
 
 All encode/decode is handled by east-c via the _beast2_eastc Cython extension.
 The decode entry points dispatch on the container magic's version byte, so v4
-and v5 blobs decode through the same functions. The v5 streaming APIs below
+and v5 blobs decode through the same functions; only encoding picks a version,
+and ``encode_beast2_with_header_for(T, version=4)`` is the escape hatch for a
+reader that predates v5 (the default is v5). The v5 streaming APIs below
 (``Beast2Writer``, ``iter_beast2_segments_for``) give bounded-memory encode
 and decode of large collections (issue #416); the wire specification lives in
 libs/east/src/serialization/beast2/v5/SPEC.md.

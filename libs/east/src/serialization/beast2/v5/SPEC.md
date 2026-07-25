@@ -284,7 +284,8 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
 
 - v5 decoding ships behind the same entry points as v4 (magic dispatch);
   v4 blobs decode unchanged, indefinitely.
-- Encoders default to v4 until the phase-2 flip (issue #416): e3
-  content-addresses beast2 bytes, so changing the default changes object
-  hashes — cache invalidation that needs an explicit, coordinated release.
+- Encoders write v5 by default (issue #416 phase 2), in all three runtimes at
+  once. e3 content-addresses beast2 bytes, so the flip changed every object
+  hash — cache invalidation, which is why it shipped as one coordinated
+  release rather than per-runtime.
 - The streaming/paging APIs are v5-only (v4 cannot stream by construction).

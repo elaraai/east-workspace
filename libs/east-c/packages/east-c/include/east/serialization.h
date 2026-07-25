@@ -30,7 +30,9 @@ void byte_buffer_write_bytes(ByteBuffer *buf, const uint8_t *data, size_t len);
 ByteBuffer *east_beast2_encode(EastValue *value, EastType *type);
 EastValue *east_beast2_decode(const uint8_t *data, size_t len, EastType *type);
 
-// BEAST2 with header (magic bytes + type schema + value)
+// BEAST2 with header (magic bytes + type schema + value). Writes the current
+// default container — v5 since issue #416; see east_beast2_encode_v4 /
+// east_beast2_encode_v5 below to pin one explicitly.
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type);
 EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *type);
 // Purge the type-table section skip-cache (#417). Called by
@@ -50,6 +52,13 @@ EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 //   free with east_source_map_free + free). When NULL, the decoded source map is discarded.
 IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
                               EastSourceMap **source_map_out);
+
+// Whole-value v4 encode — the legacy globally-sectioned container, for a
+// reader that predates v5. The escape hatch matching TypeScript's
+// encodeBeast2For(type, { version: 4 }); decoding needs no such choice, since
+// every entry point above sniffs the magic. Returns NULL on failure (message
+// via east_builtin_get_error).
+ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type);
 
 // ============================================================================
 // BEAST2 v5 — segment-terminated record stream (issue #416).

@@ -50,6 +50,7 @@ SHARED_HEX = (
 TS_DEFLATE_HEX = "89456173740d0a0500050102020a000100016710634861606261e3e0e2e11310a2210b00"
 
 
+
 def test_writer_matches_the_cross_runtime_fixture(tmp_path):
     path = tmp_path / "rows.beast2"
     with open(path, "wb") as stream, Beast2Writer(AT, stream, codec="none") as writer:
@@ -89,10 +90,38 @@ def test_whole_value_v5_round_trips_and_v4_still_decodes():
     assert len(encode_beast2_v5_for(at, codec="deflate")(rows)) < len(
         encode_beast2_v5_for(at, codec="none")(rows)
     )
-    # v4 blobs keep decoding through the same entry point
-    v4 = encode_beast2_with_header_for(at)(rows)
+    # the default encoder now writes v5 (elaraai/east-workspace#416)
+    assert encode_beast2_with_header_for(at)(rows)[7] == 0x05
+    # ...and v4 blobs keep decoding through the same entry point
+    v4 = encode_beast2_with_header_for(at, version=4)(rows)
     assert v4[7] == 0x04
     assert list(decode_beast2_with_header_for(at)(v4)) == list(rows)
+
+
+def test_container_version_is_selectable_and_v5_is_the_default():
+    """``version=`` pins the container; leaving it unset follows the default."""
+    at = ArrayType(StringType)
+    rows = EastArray(StringType, ["a", "b", "c"])
+
+    default = bytes(encode_beast2_with_header_for(at)(rows))
+    explicit_v5 = bytes(encode_beast2_with_header_for(at, version=5)(rows))
+    explicit_v4 = bytes(encode_beast2_with_header_for(at, version=4)(rows))
+
+    assert default[7] == 0x05
+    assert explicit_v5 == default, "version=5 must be exactly the default"
+    assert explicit_v4[7] == 0x04
+    # The TS reference writes these same v4 bytes for this value — the escape
+    # hatch has to stay byte-compatible across runtimes, not merely readable.
+    assert explicit_v4.hex() == (
+        "89456173740d0a04050102010a00070301610162016301000801060a000300010200"
+    )
+
+    decode = decode_beast2_with_header_for(at)
+    assert list(decode(explicit_v4)) == list(rows)
+    assert list(decode(explicit_v5)) == list(rows)
+
+    with pytest.raises(ValueError, match="unsupported container version"):
+        encode_beast2_with_header_for(at, version=3)
 
 
 def test_ts_deflate_blob_decodes():

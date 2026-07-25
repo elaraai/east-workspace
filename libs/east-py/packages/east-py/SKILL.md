@@ -702,7 +702,7 @@ re-read a huge file one batch at a time.
 
 | Signature | Description |
 |-----------|-------------|
-| `encode_beast2_with_header_for(T)` / `decode_beast2_with_header_for(T)` | **The one you want.** The full, self-describing container: magic + type schema + value. Decode accepts v4 **and** v5 |
+| `encode_beast2_with_header_for(T, *, version=None)` / `decode_beast2_with_header_for(T)` | **The one you want.** The full, self-describing container: magic + type schema + value. Encode writes the current default container (v5); pass `version=4` only for a reader that predates v5. Decode accepts v4 **and** v5 — it never needs a version |
 | `encode_beast2_for(T)` / `decode_beast2_for(T)` | **Headerless** — raw type-directed bytes, no magic and no schema, so the reader must already know `T` exactly, and mutable containers (Array/Set/Dict/Ref) are rejected outright. Note this name means the *full container* in the TypeScript API (`encodeBeast2For`) — the two languages disagree, so do not port a call site by name |
 
 | Signature | Description |

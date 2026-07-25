@@ -135,6 +135,33 @@ cpdef bytes _encode_beast2_full(object py_type, object value):
     return result
 
 
+cpdef bytes _encode_beast2_v4(object py_type, object value):
+    """Pin the legacy v4 container. Same shape as _encode_beast2_full, which
+    writes whatever the current default is (v5 since #416)."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_v4(c_val, c_type)
+    _eastc.east_value_release(c_val)
+
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 v4 encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
 cpdef object _decode_beast2_full(object py_type, bytes data):
     _ensure_eastc_runtime()
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
@@ -171,11 +198,29 @@ def decode_beast2_for(type_val, options=None):
     return decode
 
 
-def encode_beast2_with_header_for(type_val):
-    """Create encoder for beast2-full format (magic + type schema + value)."""
-    def encode(value):
-        return _encode_beast2_full(type_val, value)
-    return encode
+def encode_beast2_with_header_for(type_val, *, version=None):
+    """Create encoder for beast2-full format (magic + type schema + value).
+
+    ``version`` pins the container: ``5`` (the default — the segment-terminated
+    record stream) or ``4`` (the legacy globally-sectioned container, for a
+    reader that predates v5). Leave it unset to follow the runtime default,
+    which is what TypeScript's ``encodeBeast2For(type)`` and the East builtin
+    ``Blob.encodeBeast(value, 'v2')`` do. Decoding never needs a version —
+    every entry point dispatches on the blob's magic.
+    """
+    if version is None:
+        def encode(value):
+            return _encode_beast2_full(type_val, value)
+        return encode
+    if version == 4:
+        def encode(value):
+            return _encode_beast2_v4(type_val, value)
+        return encode
+    if version == 5:
+        def encode(value):
+            return _encode_beast2_v5(type_val, value, "deflate", False)
+        return encode
+    raise ValueError(f"beast2: unsupported container version {version!r} (expected 4 or 5)")
 
 
 def decode_beast2_with_header_for(type_val, options=None):

@@ -42,6 +42,8 @@ import { writeFrame } from "./frames.js";
 
 const V5 = { version: 5 as const };
 const V5_PLAIN = { version: 5 as const, codec: "none" as const };
+/** v5 is the encoder default, so writing v4 is the explicit request now. */
+const V4 = { version: 4 as const };
 
 /** Round-trip a value through the v5 whole-value encoder with both codecs. */
 function roundTrip(type: EastType | EastTypeValue, value: any, label: string) {
@@ -125,7 +127,7 @@ describe("Beast2 v5 — Round-trips", () => {
   test("one decoder closure accepts both container versions", () => {
     const type = ArrayType(StringType);
     const decode = decodeBeast2For(type);
-    const v4 = encodeBeast2For(type)(["v", "4"]);
+    const v4 = encodeBeast2For(type, V4)(["v", "4"]);
     const v5 = encodeBeast2For(type, V5)(["v", "5"]);
     assert.equal(v4[7], 0x04);
     assert.equal(v5[7], 0x05);
@@ -304,7 +306,7 @@ describe("Beast2 v5 — Streaming (#414/#416)", () => {
     assert.throws(() => encodeBeast2SegmentsFor(StringType as any), /Array, Set or Dict/);
     assert.throws(() => iterBeast2SegmentsFor(StringType as any), /Array, Set or Dict/);
     const AT = ArrayType(StringType);
-    const v4 = encodeBeast2For(AT)(["x"]);
+    const v4 = encodeBeast2For(AT, V4)(["x"]);
     assert.throws(() => [...iterBeast2SegmentsFor(AT)(v4)], /v4 container/);
   });
 

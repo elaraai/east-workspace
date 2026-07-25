@@ -324,6 +324,63 @@ static void v5_gate(void)
         east_value_release(tv);
     }
 
+    /* 6c-bis. Container selection: encode_full writes the current default
+     * (v5), encode_v4 pins the legacy container, and both decode through the
+     * same magic-dispatching entry point. The v4 bytes are pinned against the
+     * TypeScript reference — the escape hatch has to stay byte-compatible
+     * across runtimes, not merely readable. */
+    {
+        static const char *TS_V4_HEX =
+            "89456173740d0a04050102010a00070301610162016301000801060a000300010200";
+        EastType *arr_str = east_array_type(&east_string_type);
+        EastValue *rows = east_array_new(&east_string_type);
+        const char *items[3] = {"a", "b", "c"};
+        for (int i = 0; i < 3; i++) {
+            EastValue *sv = east_string(items[i]);
+            east_array_push(rows, sv);
+            east_value_release(sv);
+        }
+
+        ByteBuffer *dflt = east_beast2_encode_full(rows, arr_str);
+        ByteBuffer *v4 = east_beast2_encode_v4(rows, arr_str);
+        if (!dflt || !v4 || dflt->len < 8 || v4->len < 8) {
+            printf("FAIL: container-selection encode returned NULL\n");
+            failures++;
+        } else if (dflt->data[7] != 0x05 || v4->data[7] != 0x04) {
+            printf("FAIL: expected default=v5 and encode_v4=v4, got 0x%02x / 0x%02x\n",
+                   dflt->data[7], v4->data[7]);
+            failures++;
+        } else {
+            char *hex = malloc(v4->len * 2 + 1);
+            for (size_t i = 0; i < v4->len; i++)
+                sprintf(hex + 2 * i, "%02x", v4->data[i]);
+            hex[v4->len * 2] = '\0';
+            if (strcmp(hex, TS_V4_HEX) != 0) {
+                printf("FAIL: encode_v4 bytes differ from the TS reference\n"
+                       "  got:      %s\n  expected: %s\n",
+                       hex, TS_V4_HEX);
+                failures++;
+            } else {
+                EastValue *from_v4 = east_beast2_decode_full(v4->data, v4->len, arr_str);
+                EastValue *from_v5 = east_beast2_decode_full(dflt->data, dflt->len, arr_str);
+                if (!from_v4 || !from_v5 || east_value_compare(from_v4, rows) != 0 ||
+                    east_value_compare(from_v5, rows) != 0) {
+                    printf("FAIL: v4/v5 blobs did not both decode to the original value\n");
+                    failures++;
+                } else {
+                    printf("  [+] encode_full writes v5, encode_v4 pins v4, both decode\n");
+                }
+                if (from_v4) east_value_release(from_v4);
+                if (from_v5) east_value_release(from_v5);
+            }
+            free(hex);
+        }
+        if (dflt) byte_buffer_free(dflt);
+        if (v4) byte_buffer_free(v4);
+        east_value_release(rows);
+        east_type_release(arr_str);
+    }
+
     /* 6d. Aliasing: a shared container encodes once (REF) and decodes to one
      * shared object; re-encoding the decoded value reproduces the bytes.
      * This also exercises refcount-1 elision — `inner` is multiply

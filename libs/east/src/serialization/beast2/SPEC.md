@@ -13,8 +13,8 @@ dispatches on it, so callers never name a version to read.
 | Byte | Container | Status | Spec |
 |---|---|---|---|
 | `0x02` | v2 — type table + string table | superseded (no decoder in tree) | `devdocs/BEAST2.md` (historical) |
-| `0x04` | v4 — globally sectioned (type/string/source-map/value tables) | **current default write format**; decoded indefinitely | [`v4/SPEC.md`](v4/SPEC.md) |
-| `0x05` | v5 — segment-terminated record stream, per-segment compression, optional paging index | decoded everywhere; written on request (`version: 5`) and by the streaming writer APIs | [`v5/SPEC.md`](v5/SPEC.md) |
+| `0x04` | v4 — globally sectioned (type/string/source-map/value tables) | decoded indefinitely; written on request (`version: 4`) | [`v4/SPEC.md`](v4/SPEC.md) |
+| `0x05` | v5 — segment-terminated record stream, per-segment compression, optional paging index | **current default write format**; decoded everywhere | [`v5/SPEC.md`](v5/SPEC.md) |
 | `0x43` | chunked container (`'C'`) | reserved — prototype superseded by v5 before release (PR #415) | — |
 | `0xF5` | v5 **footer** magic (end of blob, not a container version) | — | [`v5/SPEC.md`](v5/SPEC.md) |
 
@@ -27,14 +27,17 @@ check and the version check are distinct errors in every runtime).
   (`decodeBeast2For`, `decodeBeast2`, `decodeEastIR`, the C
   `east_beast2_decode_*` family, the east-py bridge) sniff the magic and
   dispatch — no consumer call-site names a version to read.
-- **Encoders write v4 by default.** v5 is opt-in per encode (`version: 5`) or
-  implied by the v5-only streaming/paging APIs. Flipping the default is a
-  separate, explicitly gated release: e3 content-addresses beast2 bytes
-  (SHA-256 of the blob), so a default flip changes every object hash — cache
-  invalidation, not corruption, but it needs e3 sign-off on timing
-  (issue #416, phase 2).
-- The v4 write path is retained at least until one release after the default
-  flips.
+- **Encoders write v5 by default** (deflate-framed, no trailing index), since
+  issue #416 phase 2. v4 is opt-in per encode, and every runtime carries the
+  same escape hatch: `encodeBeast2For(t, { version: 4 })` in TS,
+  `east_beast2_encode_v4()` in C, `encode_beast2_with_header_for(T, version=4)`
+  in Python. Every runtime's default moved in the same
+  release: the compliance suite pins one golden byte string per value and runs
+  it in TS, east-c and east-py, so the defaults cannot drift apart.
+- **The flip changed every e3 object hash.** e3 content-addresses beast2 bytes
+  (SHA-256 of the blob), so the same logical value now lands under a different
+  hash than it did before this release — cache invalidation, not corruption.
+- The v4 write path is retained at least until one release after this one.
 
 ## Layout
 

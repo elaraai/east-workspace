@@ -357,8 +357,10 @@ cdef extern from "east/serialization.h":
     ByteBuffer *east_beast2_encode(EastValue *value, EastType *type)
     EastValue *east_beast2_decode(const uint8_t *data, size_t length, EastType *type)
 
-    # BEAST2 with header (magic bytes + type schema + value)
+    # BEAST2 with header (magic bytes + type schema + value). *_full writes the
+    # current default container (v5 since #416); *_v4 pins the legacy one.
     ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
+    ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type)
     EastValue *east_beast2_decode_full(const uint8_t *data, size_t length, EastType *type)
     # BEAST2 IR decode+convert in one shot (keeps type table alive for O(1) resolution)
     IRNode *east_beast2_decode_ir(const uint8_t *data, size_t length, EastValue **ir_value_out,
