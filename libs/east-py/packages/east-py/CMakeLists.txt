@@ -84,6 +84,26 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(btreec PRIVATE -w)
 endif()
 
+# miniz — east-c's beast2 v5 raw-DEFLATE codec. Declared here for the same
+# reason as btreec above: east-c-shared below links it by name, and a target
+# that does not yet exist silently degrades to a bare `-lminiz`, which fails
+# at link time (undefined tdefl_/tinfl_ symbols) on every platform whose
+# linker has no system miniz to fall back on.
+FetchContent_Declare(
+    miniz
+    URL https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
+    URL_HASH SHA256=ada38db0b703a56d3dd6d57bf84a9c5d664921d870d8fea4db153979fb5332c5
+)
+FetchContent_GetProperties(miniz)
+if(NOT miniz_POPULATED)
+    FetchContent_Populate(miniz)
+endif()
+add_library(miniz STATIC ${miniz_SOURCE_DIR}/miniz.c)
+target_include_directories(miniz PUBLIC ${miniz_SOURCE_DIR})
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(miniz PRIVATE -w)
+endif()
+
 # We disable mimalloc (Python has its own allocator) and east-c's tests.
 set(EAST_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
