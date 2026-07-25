@@ -959,7 +959,7 @@ function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: B
     value = decodeSegmentedRoot(typeValue, cursor, ctx, segmentCounts);
   } else {
     const reader = cursor.next();
-    const dec = buildV5Decoder(typeValue);
+    const dec = cachedRootDecoder(typeValue);
     value = dec(reader, ctx);
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after the root value`);
@@ -968,6 +968,38 @@ function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: B
 
   verifyTrailing(data, cursor.wireOffset, segmentCounts);
   return { value, rootType, sourceMap };
+}
+
+// Decoder closure trees, shared across decodes of the same root type.
+//
+// Building them per decode is the dominant cost for a large recursive schema
+// — a UIComponentType blob spent ~200 ms per decode in buildDecoder and the
+// GC churn of the closures it allocates, versus 0.04 ms in east-c, whose
+// decoder is a switch over types and allocates nothing. Decoders take their
+// DecodeContext as a parameter and capture nothing per-decode, so sharing
+// them is safe; the key is the root type object, which is a module-level
+// singleton for well-known schemas and the #417-cached instance otherwise.
+const rootDecoderCache = new WeakMap<object, V5Decoder>();
+const elementDecoderCache = new WeakMap<object, { elemDec: V5Decoder | null; keyDec: V5Decoder | null; valDec: V5Decoder | null }>();
+
+function cachedRootDecoder(typeValue: EastTypeValue): V5Decoder {
+  const hit = rootDecoderCache.get(typeValue as object);
+  if (hit) return hit;
+  const dec = buildV5Decoder(typeValue);
+  rootDecoderCache.set(typeValue as object, dec);
+  return dec;
+}
+
+function cachedElementDecoders(typeValue: EastTypeValue, kind: string, typeCtx: Map<bigint, V5Decoder>) {
+  const hit = elementDecoderCache.get(typeValue as object);
+  if (hit) return hit;
+  const built = {
+    elemDec: kind === "Dict" ? null : buildV5Decoder((typeValue as any).value, typeCtx),
+    keyDec: kind === "Dict" ? buildV5Decoder((typeValue as any).value.key, typeCtx) : null,
+    valDec: kind === "Dict" ? buildV5Decoder((typeValue as any).value.value, typeCtx) : null,
+  };
+  elementDecoderCache.set(typeValue as object, built);
+  return built;
 }
 
 /** Decodes a segmented (Array/Set/Dict) root across frames. */
@@ -983,9 +1015,7 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
   ctx.containers.push(container);
 
   const typeCtx = new Map<bigint, V5Decoder>();
-  const elemDec = kind === "Dict" ? null : buildV5Decoder((typeValue as any).value, typeCtx);
-  const keyDec = kind === "Dict" ? buildV5Decoder((typeValue as any).value.key, typeCtx) : null;
-  const valDec = kind === "Dict" ? buildV5Decoder((typeValue as any).value.value, typeCtx) : null;
+  const { elemDec, keyDec, valDec } = cachedElementDecoders(typeValue, kind, typeCtx);
 
   const elems: any[] = [];
   const pairs: [any, any][] = [];

@@ -456,6 +456,45 @@ function writeValueTableEntry(entry: ValueTableEntry, writer: BufferWriter, ctx:
   }
 }
 
+/** Decoder closure trees derived from one decoded type table. */
+interface TableDecoders {
+  /** Recursive-wrapper id → decoder, shared so cross-type recursion resolves
+   *  (e.g. IR arrays inside Functions reference both IRType and EastTypeType). */
+  decTypeCtx: Map<bigint, ValueDecoder>;
+  /** Type-table index → decoder; most entries share a type. */
+  decoderCache: Map<number, ValueDecoder>;
+}
+
+/** Built decoder trees, keyed on the decoded type table itself.
+ *
+ * These trees were rebuilt on EVERY decode, which for a large recursive
+ * schema is the dominant cost of decoding at all: a UIComponentType blob
+ * (1127 type-table entries, 5 recursive wrappers) spent ~200 ms per decode
+ * with 86% of it in buildDecoder plus the GC churn from the closures it
+ * allocates — while east-c, whose decoder is a switch over types and
+ * allocates nothing, decoded the same blob in 0.04 ms.
+ *
+ * Decoders take their DecodeContext as a parameter and close over nothing
+ * per-decode, so they are safe to share. The key is the type-table array,
+ * which the section skip-cache (#417) returns as one frozen instance per
+ * distinct schema — so repeat decodes of a schema hit this cache, and a
+ * genuinely new schema simply builds once. */
+const tableDecoderCache = new WeakMap<object, TableDecoders>();
+
+function decodersForTypeTable(typeTable: EastTypeValue[]): TableDecoders {
+  const cached = tableDecoderCache.get(typeTable as object);
+  if (cached) return cached;
+  const decTypeCtx = new Map<bigint, ValueDecoder>();
+  for (const t of typeTable) {
+    if (t.type === "Recursive" && (t.value as any)?.type === "wrapper") {
+      buildDecoder(t, decTypeCtx);
+    }
+  }
+  const entry: TableDecoders = { decTypeCtx, decoderCache: new Map<number, ValueDecoder>() };
+  tableDecoderCache.set(typeTable as object, entry);
+  return entry;
+}
+
 function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext): void {
   const sectionByteLength = reader.readVarint();
   const sectionEnd = reader.offset + sectionByteLength;
@@ -517,18 +556,9 @@ function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext):
     throw new Error(`Value table section size mismatch: expected ${sectionEnd}, got ${reader.offset}`);
   }
 
-  // Pre-build decoders for ALL recursive types in the decoded type table into
-  // a shared typeCtx. This ensures cross-type references resolve correctly
-  // (e.g., IR arrays inside Functions reference both IRType and EastTypeType).
-  const decTypeCtx = new Map<bigint, ValueDecoder>();
-  for (const t of ctx.typeTable) {
-    if (t.type === "Recursive" && (t.value as any)?.type === "wrapper") {
-      buildDecoder(t, decTypeCtx);
-    }
-  }
-
-  // Cache decoders by element type index — most entries share the same type
-  const decoderCache = new Map<number, ValueDecoder>();
+  // Decoder trees for the decoded type table, shared across decodes of the
+  // same schema (see decodersForTypeTable).
+  const { decTypeCtx, decoderCache } = decodersForTypeTable(ctx.typeTable);
   const getCachedDecoder = (typeIdx: number): ValueDecoder => {
     let dec = decoderCache.get(typeIdx);
     if (!dec) {

@@ -219,3 +219,10 @@ add_executable(profile_collections scripts/profile_collections.c)
 target_link_libraries(profile_collections east-c)
 add_executable(profile_beast2_decode scripts/profile_beast2_decode.c)
 target_link_libraries(profile_beast2_decode east-c)
+
+# beast2 v4-vs-v5 benchmark (issue #416/#417). Reads the shared corpus written
+# by libs/east/contrib/beast2-bench/generate-corpus.ts and emits JSON; see that
+# directory's README.md for the three-runtime pipeline. Build Release for real
+# numbers.
+add_executable(bench_beast2_versions scripts/bench_beast2_versions.c)
+target_link_libraries(bench_beast2_versions east-c)
