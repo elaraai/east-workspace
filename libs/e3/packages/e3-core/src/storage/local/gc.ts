@@ -20,7 +20,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2 } from '@elaraai/east';
+import { decodeBeast2, isEastDict } from '@elaraai/east';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from '../interfaces.js';
 
 /**
@@ -282,19 +282,19 @@ function extractChildren(
       children.push({ hash: taskHash, isLeaf: false });
     }
     // Function objects (absent on pre-`functions` packages)
-    if (pkg.functions instanceof Map) {
+    if (isEastDict(pkg.functions)) {
       for (const fnHash of pkg.functions.values()) {
         children.push({ hash: fnHash, isLeaf: false });
       }
     }
     // Record objects (absent on pre-`records` packages)
-    if (pkg.records instanceof Map) {
+    if (isEastDict(pkg.records)) {
       for (const recHash of pkg.records.values()) {
         children.push({ hash: recHash, isLeaf: false });
       }
     }
     // Extract value hashes from inline per-dataset refs
-    if (pkg.data.refs instanceof Map) {
+    if (isEastDict(pkg.data.refs)) {
       for (const ref of pkg.data.refs.values()) {
         if (ref.type === 'value' && typeof ref.value?.hash === 'string') {
           children.push({ hash: ref.value.hash, isLeaf: true });

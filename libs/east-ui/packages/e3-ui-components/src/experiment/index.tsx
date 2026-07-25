@@ -35,7 +35,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { Box, Text, Menu, Portal, Spinner, useRecipe, useSlotRecipe } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowDown, faArrowUp, faCheck, faChevronDown, faPlus, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { fromEastTypeValue, variant, some, none, equalFor, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { fromEastTypeValue, variant, some, none, equalFor, isEastSet, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
 import { Experiment } from '@elaraai/e3-ui/internal';
 import {
     implementUIComponent,
@@ -126,8 +126,8 @@ function rowMatchesAll(row: Record<string, unknown>, preds: PredicateValue[]): b
             case 'lte': return num(v) != null && num(ov) != null ? num(v)! <= num(ov)! : true;
             case 'gt': return num(v) != null && num(ov) != null ? num(v)! > num(ov)! : true;
             case 'gte': return num(v) != null && num(ov) != null ? num(v)! >= num(ov)! : true;
-            case 'in': return ov instanceof Set ? ov.has(v) : true;
-            case 'notIn': return ov instanceof Set ? !ov.has(v) : true;
+            case 'in': return isEastSet(ov) ? ov.has(v) : true;
+            case 'notIn': return isEastSet(ov) ? !ov.has(v) : true;
             default: return true; // between / before / after / contains / matches — keep (modelled UI-side later)
         }
     });

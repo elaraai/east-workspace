@@ -338,3 +338,27 @@ export class SortedSet<K> implements Set<K> {
     }
 
 }
+/**
+ * Tests whether a value is an East Set.
+ *
+ * @param value - the value to test
+ * @returns `true` for a {@link SortedSet} or a plain `Set`
+ *
+ * @remarks
+ * Use this instead of `value instanceof Set`. {@link SortedSet} implements the
+ * `Set` interface but does not extend `Set`, so `instanceof Set` is `false`
+ * for it — and every East Set that comes out of a decoder or out of a compiled
+ * East program is a {@link SortedSet}. A bare `instanceof Set` therefore reads
+ * as "not a Set" for exactly the values East actually produces, which fails
+ * silently: guards fall through and references go unseen.
+ *
+ * @example
+ * ```ts
+ * const decoded = decodeBeast2For(SetType(StringType))(blob);
+ * decoded instanceof Set   // false — it is a SortedSet
+ * isEastSet(decoded)       // true
+ * ```
+ */
+export function isEastSet(value: unknown): value is Set<any> {
+    return value instanceof Set || value instanceof SortedSet;
+}

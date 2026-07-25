@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
+import { isEastSet, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 
 /** One filter clause, unwrapped — shared by `Slice.Filter` and `Slice.Cohort`. */
@@ -25,7 +25,7 @@ const SET_PREVIEW_MAX = 3;
  *  into a `+N` tail — a 100-member `in` set must stay a legible chip. */
 function formatValue(v: unknown): string {
     if (v === null || v === undefined) return "";
-    if (v instanceof Set) {
+    if (isEastSet(v)) {
         const members = [...v].map(formatValue);
         if (members.length <= SET_PREVIEW_MAX) return members.join(", ");
         return `${members.slice(0, SET_PREVIEW_MAX).join(", ")} +${members.length - SET_PREVIEW_MAX}`;

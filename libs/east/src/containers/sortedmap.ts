@@ -257,3 +257,27 @@ export class SortedMap<K, T> implements Map<K, T> {
         return map;
     }
 }
+/**
+ * Tests whether a value is an East Dict.
+ *
+ * @param value - the value to test
+ * @returns `true` for a {@link SortedMap} or a plain `Map`
+ *
+ * @remarks
+ * Use this instead of `value instanceof Map`. {@link SortedMap} implements the
+ * `Map` interface but does not extend `Map`, so `instanceof Map` is `false`
+ * for it — and every East Dict that comes out of a decoder or out of a compiled
+ * East program is a {@link SortedMap}. A bare `instanceof Map` therefore reads
+ * as "not a Map" for exactly the values East actually produces, which fails
+ * silently: guards fall through and references go unseen.
+ *
+ * @example
+ * ```ts
+ * const decoded = decodeBeast2For(DictType(StringType, IntegerType))(blob);
+ * decoded instanceof Map   // false — it is a SortedMap
+ * isEastDict(decoded)      // true
+ * ```
+ */
+export function isEastDict(value: unknown): value is Map<any, any> {
+    return value instanceof Map || value instanceof SortedMap;
+}

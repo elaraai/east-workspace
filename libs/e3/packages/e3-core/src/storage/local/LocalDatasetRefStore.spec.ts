@@ -18,11 +18,25 @@ import * as fs from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { variant, encodeBeast2For } from '@elaraai/east';
+import { variant, encodeBeast2For, equalFor } from '@elaraai/east';
 import { DatasetRefType } from '@elaraai/e3-types';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
 import { InMemoryStorage } from '../in-memory/InMemoryStorage.js';
 import { DatasetRefConflictError } from '../../errors.js';
+
+/**
+ * DatasetRefs round-trip through beast2, so a decoded ref's `versions` Dict is
+ * a SortedMap, not a plain Map — `deepStrictEqual` compares the container's
+ * internals and fails on a value that is equal by East's own definition.
+ * Compare with East's equality (docs/conventions/EAST_TS_INTEROP.md).
+ */
+const refsEqual = equalFor(DatasetRefType);
+function assertRefEqual(actual: unknown, expected: unknown, message?: string): void {
+  assert.ok(refsEqual(actual as never, expected as never),
+    message ?? `expected refs to be East-equal\n  actual:   ${JSON.stringify(actual, bigintSafe)}\n  expected: ${JSON.stringify(expected, bigintSafe)}`);
+}
+const bigintSafe = (_k: string, v: unknown) =>
+  typeof v === 'bigint' ? `${v}n` : v instanceof Map || v instanceof Set ? [...v] : v;
 import type { DatasetRefStore } from '../interfaces.js';
 import { createTestRepo, removeTestRepo } from '../../test-helpers.js';
 
@@ -88,7 +102,7 @@ for (const [name, make] of Object.entries(backends)) {
       await fx.store.write(fx.repo, ws, path, variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() }));
       const result = await fx.store.readVersioned(fx.repo, ws, path);
       assert.ok(result);
-      assert.deepStrictEqual(result.ref, variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() }));
+      assertRefEqual(result.ref, variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() }));
       assert.strictEqual(typeof result.revision, 'string');
       assert.ok(result.revision.length > 0);
     });
@@ -107,7 +121,7 @@ for (const [name, make] of Object.entries(backends)) {
 
         const read = await fx.store.readVersioned(fx.repo, ws, path);
         assert.ok(read, 'legacy file decodes');
-        assert.deepStrictEqual(read.ref, legacyRef);
+        assertRefEqual(read.ref, legacyRef);
         assert.ok(read.revision.length > 0, 'a stable revision is derived from the legacy bytes');
 
         // A conditional write against the derived revision succeeds and rotates it,
@@ -116,7 +130,7 @@ for (const [name, make] of Object.entries(backends)) {
         const { revision } = await fx.store.writeIf(fx.repo, ws, path, next, read.revision);
         assert.notStrictEqual(revision, read.revision);
         const after = await fx.store.readVersioned(fx.repo, ws, path);
-        assert.deepStrictEqual(after!.ref, next);
+        assertRefEqual(after!.ref, next);
       });
 
       // The cross-process guarantee, exercised by REAL separate OS processes.
@@ -170,7 +184,7 @@ for (const [name, make] of Object.entries(backends)) {
       );
       // …and must not have changed the stored value.
       const result = await fx.store.readVersioned(fx.repo, ws, path);
-      assert.deepStrictEqual(result?.ref, variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() }));
+      assertRefEqual(result?.ref, variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() }));
     });
 
     it('writeIf succeeds on a matching revision and rotates it', async () => {
@@ -184,7 +198,7 @@ for (const [name, make] of Object.entries(backends)) {
         DatasetRefConflictError
       );
       const result = await fx.store.readVersioned(fx.repo, ws, path);
-      assert.deepStrictEqual(result?.ref, variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() }));
+      assertRefEqual(result?.ref, variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() }));
     });
 
     it('two concurrent writeIf on one revision: exactly one wins', async () => {
