@@ -25,7 +25,7 @@
  */
 import {
   East,
-  IntegerType, FloatType, StringType, BlobType,
+  IntegerType, FloatType, StringType, BlobType, NullType,
   ArrayType, SetType, DictType, StructType, OptionType,
   some,
 } from "../src/index.js";
@@ -137,6 +137,32 @@ await describe("Blob (Beast v5 decode)", (test) => {
       0x89, 0x45, 0x61, 0x73, 0x74, 0x0d, 0x0a, 0x06, 0x00, 0x00, 0x00,
     ]), BlobType);
     $(assert.throws(blob.decodeBeast(ArrayType(StringType), 'v2')));
+  });
+
+  // Zero-width element types: a Null encodes to no bytes at all, so a
+  // container of them carries a positive element count and an EMPTY payload.
+  // Decoders that bound a declared count by "every element costs >= 1 byte"
+  // reject these legitimate blobs — east-c and east-py did, while TS accepted
+  // them, so the value round-tripped in one runtime and failed in the other
+  // two. Found by fuzzing Array<Null> across all three runtimes; this suite is
+  // replayed by the east-c and east-py compliance harnesses, so it guards the
+  // v4 encoder/decoder path in each of them.
+  test("Beast - containers of zero-width elements round-trip", $ => {
+    const NullsType = ArrayType(NullType);
+    const nulls = $.let(East.value([null, null, null, null, null], NullsType));
+    $(assert.equal(East.Blob.encodeBeast(nulls, 'v2').decodeBeast(NullsType, 'v2'), nulls));
+
+    // Same shape one level in: a struct whose every field is zero-width.
+    const RowsOfEmpty = ArrayType(StructType({ a: NullType, b: NullType }));
+    const empties = $.let(East.value([
+      { a: null, b: null }, { a: null, b: null }, { a: null, b: null },
+    ], RowsOfEmpty));
+    $(assert.equal(East.Blob.encodeBeast(empties, 'v2').decodeBeast(RowsOfEmpty, 'v2'), empties));
+
+    // Dict with zero-width values (only the keys carry bytes).
+    const DictNull = DictType(StringType, NullType);
+    const d = $.let(East.value(new Map([["a", null], ["b", null]]), DictNull));
+    $(assert.equal(East.Blob.encodeBeast(d, 'v2').decodeBeast(DictNull, 'v2'), d));
   });
 
   test("Beast v5 - truncated stream fails loudly", $ => {

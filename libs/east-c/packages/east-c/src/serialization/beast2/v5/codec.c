@@ -493,8 +493,16 @@ static bool b2v5_decode_container_content(EastValue *container, EastType *type, 
         uint64_t n;
         if (!read_varint_checked(data, len, offset, &n)) return false;
         if (n == 0) return true;
-        /* Each element costs at least one byte. */
-        if (n > len - *offset) return false;
+        /* Each element costs at least one byte — except for zero-width
+         * element types (Array<Null>), where only the absolute cap applies. */
+        {
+            const EastType *elem =
+                type->kind == EAST_TYPE_DICT ? type->data.dict.key : type->data.element;
+            const EastType *val = type->kind == EAST_TYPE_DICT ? type->data.dict.value : NULL;
+            bool ok = b2_count_within_bounds(n, elem, len - *offset);
+            if (!ok && val) ok = b2_count_within_bounds(n, val, len - *offset);
+            if (!ok) return false;
+        }
         if (!b2v5_decode_elements_into(container, type, n, data, len, offset, ctx)) return false;
     }
 }

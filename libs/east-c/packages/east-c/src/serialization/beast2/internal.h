@@ -101,6 +101,28 @@ static inline uint32_t b2_hash_ptr(uintptr_t p)
 void b2_write_float64_le(ByteBuffer *buf, double val);
 double b2_read_float64_le(const uint8_t *data, size_t *offset);
 
+/* True when a value of `type` encodes to ZERO bytes (Null, Never, and
+ * aggregates built only from those). Container decoders bound a declared
+ * element count by the bytes remaining — "every element costs >= 1 byte" —
+ * which is false for these types and would reject a legitimate blob
+ * (e.g. Array<Null>, which TS encodes and decodes happily). */
+bool b2_type_is_zero_width(const EastType *type);
+
+/* Absolute element-count cap applied when the element type is zero-width and
+ * the byte-length bound therefore says nothing. Keeps a tiny malformed blob
+ * from requesting an astronomically large allocation. */
+#define BEAST2_MAX_ZERO_WIDTH_ELEMS ((uint64_t)1 << 28)
+
+/* Is a declared element `count` plausible given `bytes_remaining`?  Non-empty
+ * element types cost >= 1 byte each; zero-width ones cost nothing, so they
+ * fall back to the absolute cap above. */
+static inline bool b2_count_within_bounds(uint64_t count, const EastType *elem_type,
+                                          size_t bytes_remaining)
+{
+    if (b2_type_is_zero_width(elem_type)) return count <= BEAST2_MAX_ZERO_WIDTH_ELEMS;
+    return count <= (uint64_t)bytes_remaining;
+}
+
 /* ================================================================== */
 /*  String Table (string_table.c)                                       */
 /* ================================================================== */

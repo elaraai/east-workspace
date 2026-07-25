@@ -37,6 +37,31 @@ const uint8_t BEAST2_MAGIC[8] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x04}
 const uint8_t BEAST2_MAGIC_V5[8] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x05};
 const uint8_t BEAST2_FOOTER_MAGIC_V5[8] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0xF5};
 
+bool b2_type_is_zero_width(const EastType *type)
+{
+    if (!type) return false;
+    switch (type->kind) {
+    case EAST_TYPE_NULL:
+    case EAST_TYPE_NEVER:
+        return true;
+    case EAST_TYPE_STRUCT: {
+        /* A struct of zero-width fields is itself zero-width (an empty
+         * struct trivially so). */
+        for (size_t i = 0; i < type->data.struct_.num_fields; i++) {
+            if (!b2_type_is_zero_width(type->data.struct_.fields[i].type)) return false;
+        }
+        return true;
+    }
+    case EAST_TYPE_RECURSIVE:
+        /* Guard against a self-referential walk: a recursive type always
+         * reaches a variant tag or a container header, so it is never
+         * zero-width in practice. */
+        return false;
+    default:
+        return false;
+    }
+}
+
 /* ================================================================== */
 /*  Helpers for little-endian float writing/reading                    */
 /* ================================================================== */
