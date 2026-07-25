@@ -14,11 +14,62 @@
  * Build Release for meaningful numbers.
  */
 #include <east/east.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* Directory listing: dirent.h is POSIX and MSVC does not ship it. */
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dirent.h>
+#endif
+
+#define MAX_CASES 64
+#define MAX_NAME 128
+
+/* Collect the corpus case names (files called "<name>.v4.beast2", excluding
+ * the "<name>.type.beast2" companions). Returns how many were found. */
+static int list_cases(const char *dir, char names[MAX_CASES][MAX_NAME])
+{
+    int n = 0;
+    const char *suffix_str = ".v4.beast2";
+    const size_t suffix_len = 10;
+
+#ifdef _WIN32
+    char pattern[512];
+    snprintf(pattern, sizeof pattern, "%.480s\\*.v4.beast2", dir);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do {
+        const char *found = strstr(fd.cFileName, suffix_str);
+        if (!found || found[suffix_len] != '\0') continue;
+        size_t base = (size_t)(found - fd.cFileName);
+        if (base == 0 || base >= MAX_NAME) continue;
+        memcpy(names[n], fd.cFileName, base);
+        names[n][base] = '\0';
+        n++;
+    } while (n < MAX_CASES && FindNextFileA(h, &fd));
+    FindClose(h);
+#else
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *ent;
+    while (n < MAX_CASES && (ent = readdir(d))) {
+        const char *found = strstr(ent->d_name, suffix_str);
+        if (!found || found[suffix_len] != '\0') continue;
+        size_t base = (size_t)(found - ent->d_name);
+        if (base == 0 || base >= MAX_NAME) continue;
+        memcpy(names[n], ent->d_name, base);
+        names[n][base] = '\0';
+        n++;
+    }
+    closedir(d);
+#endif
+    return n;
+}
 
 static double now_ms(void)
 {
@@ -52,24 +103,12 @@ int main(int argc, char **argv)
     const char *dir = argc > 1 ? argv[1] : "/tmp/beast2-bench";
     east_type_of_type_init();
 
-    DIR *d = opendir(dir);
-    if (!d) {
-        fprintf(stderr, "cannot open %s\n", dir);
+    char names[MAX_CASES][MAX_NAME];
+    int n_names = list_cases(dir, names);
+    if (n_names == 0) {
+        fprintf(stderr, "no corpus cases found in %s\n", dir);
         return 1;
     }
-
-    char names[64][128];
-    int n_names = 0;
-    struct dirent *ent;
-    while ((ent = readdir(d)) && n_names < 64) {
-        const char *suffix = strstr(ent->d_name, ".v4.beast2");
-        if (!suffix || suffix[10] != '\0') continue;
-        size_t base = (size_t)(suffix - ent->d_name);
-        memcpy(names[n_names], ent->d_name, base);
-        names[n_names][base] = '\0';
-        n_names++;
-    }
-    closedir(d);
 
     printf("[\n");
     int emitted = 0;

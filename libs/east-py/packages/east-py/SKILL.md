@@ -698,6 +698,13 @@ and v5 through the same entry points, and each batch becomes one
 independently decodable segment. Use for exports too big to hold, or to
 re-read a huge file one batch at a time.
 
+**Pick the right pair first — `_for` is NOT the same format as `_with_header_for`:**
+
+| Signature | Description |
+|-----------|-------------|
+| `encode_beast2_with_header_for(T)` / `decode_beast2_with_header_for(T)` | **The one you want.** The full, self-describing container: magic + type schema + value. Decode accepts v4 **and** v5 |
+| `encode_beast2_for(T)` / `decode_beast2_for(T)` | **Headerless** — raw type-directed bytes, no magic and no schema, so the reader must already know `T` exactly, and mutable containers (Array/Set/Dict/Ref) are rejected outright. Note this name means the *full container* in the TypeScript API (`encodeBeast2For`) — the two languages disagree, so do not port a call site by name |
+
 | Signature | Description |
 |-----------|-------------|
 | `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches |
