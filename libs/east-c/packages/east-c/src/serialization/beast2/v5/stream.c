@@ -322,7 +322,7 @@ EastValue *east_beast2_reader_next(Beast2SegmentReader *r)
         }
         return NULL;
     }
-    if (n > r->frames.chunk_len - r->frames.chunk_off) {
+    if (!b2_container_count_within_bounds(n, r->type, r->frames.chunk_len - r->frames.chunk_off)) {
         east_builtin_error("beast2 v5: segment count exceeds its frame");
         r->failed = true;
         return NULL;

@@ -123,6 +123,22 @@ static inline bool b2_count_within_bounds(uint64_t count, const EastType *elem_t
     return count <= (uint64_t)bytes_remaining;
 }
 
+/* The same bound for a whole container type: an Array/Set passes on its
+ * element type, a Dict on EITHER half (only one of key/value need carry
+ * bytes). Every site that reads a v5 segment count must use this — the root
+ * segment loop and the streaming reader as much as the nested-value decoder,
+ * since a root Array<Null> reaches only the first of those. */
+static inline bool b2_container_count_within_bounds(uint64_t count, const EastType *container_type,
+                                                    size_t bytes_remaining)
+{
+    if (!container_type) return count <= (uint64_t)bytes_remaining;
+    if (container_type->kind == EAST_TYPE_DICT) {
+        return b2_count_within_bounds(count, container_type->data.dict.key, bytes_remaining) ||
+               b2_count_within_bounds(count, container_type->data.dict.value, bytes_remaining);
+    }
+    return b2_count_within_bounds(count, container_type->data.element, bytes_remaining);
+}
+
 /* ================================================================== */
 /*  String Table (string_table.c)                                       */
 /* ================================================================== */

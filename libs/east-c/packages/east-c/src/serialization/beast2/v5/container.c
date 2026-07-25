@@ -701,7 +701,8 @@ static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header
                 goto corrupt;
             }
             if (n == 0) break;
-            if (n > frames.chunk_len - frames.chunk_off) {
+            if (!b2_container_count_within_bounds(n, decode_type,
+                                                  frames.chunk_len - frames.chunk_off)) {
                 east_value_release(container);
                 goto corrupt;
             }
