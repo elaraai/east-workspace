@@ -110,6 +110,8 @@ export interface LocalStack {
 }
 
 let cached: LocalStack | null | undefined;
+let failure: string | undefined;
+let step = 'not started';
 let registry: ChildProcess | undefined;
 
 function run(command: string, args: string[], cwd?: string): void {
@@ -223,19 +225,42 @@ export async function ensureLocalStack(): Promise<LocalStack | null> {
     // The wheel build and e3's own `uv venv` must agree on the interpreter, or
     // the cp3xx wheel will not install into the materialized env.
     process.env['UV_PYTHON'] ??= '3.11';
+    // Label each step: when this fails on a platform you cannot reproduce
+    // locally, the skip reason must name WHICH step broke, not just that
+    // something did.
+    step = 'building east-py wheels (uv build)';
     buildPythonWheels();
+    step = 'packing @elaraai npm tarballs (pnpm pack)';
     const tarballs = buildNpmTarballs();
+    step = 'starting the stand-in npm registry';
     const npmRegistryUrl = await startNpmRegistry();
+    step = 'reading packed manifests (tar)';
     cached = {
       pypiDir: PYPI_DIR,
       pypiIndexUrl: pathToFileURL(PYPI_DIR).href,
       npmRegistryUrl,
       servedNpmNames: servedNames(tarballs),
     };
-  } catch {
+  } catch (error) {
+    // NEVER fall through silently. Without the stack the suites would install
+    // the LAST RELEASE and quietly pass — which is the exact defect this module
+    // exists to remove, and it is invisible until a wire change makes it fail
+    // somewhere confusing. Record why, and let callers skip with the reason.
+    failure = `${step}: ${(error as Error).message.split('\n')[0]}`;
     cached = null;
   }
   return cached;
+}
+
+/**
+ * Why the local stack is unavailable — a skip reason, never an empty string.
+ *
+ * Call only after {@link ensureLocalStack} has returned null.
+ */
+export function localStackUnavailable(): string {
+  return `local @elaraai stack unavailable (${failure ?? 'unknown'}) — the environment e2e `
+    + 'would otherwise silently materialize the LAST RELEASE instead of this tree; '
+    + "run 'make -C libs/e3 e2e-stack' (needs uv + pnpm + network)";
 }
 
 /** Stop the stand-in npm registry. Idempotent. */

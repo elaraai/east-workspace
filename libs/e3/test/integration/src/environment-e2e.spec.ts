@@ -49,7 +49,7 @@ import { pathToFileURL } from 'node:url';
 import { East, IntegerType, FloatType, ArrayType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
-import { ensureLocalStack, injectLocalNpmRegistry, injectLocalPythonIndex, stopLocalStack, type LocalStack } from './localStack.js';
+import { ensureLocalStack, injectLocalNpmRegistry, injectLocalPythonIndex, localStackUnavailable, stopLocalStack } from './localStack.js';
 
 const WORKSPACE_LIBS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const TEMPLATE_DIR = join(WORKSPACE_LIBS, 'create', 'templates', 'e3');
@@ -75,9 +75,13 @@ const RELEASED_VERSION = (JSON.parse(
   readFileSync(join(WORKSPACE_LIBS, 'east', 'package.json'), 'utf-8'),
 ) as { version: string }).version;
 
-/** Local stand-in registries serving THIS tree's @elaraai build; null when they
- *  cannot be built, in which case the env suites skip with a clear reason. */
-let stack: LocalStack | null = null;
+/** Local stand-in registries serving THIS tree's @elaraai build.
+ *
+ *  Built once at module load so the `skip:` expressions below can see it: when
+ *  it is null every suite that needs it SKIPS with the reason. It must never
+ *  degrade silently — without it these tests install the last release and pass,
+ *  which is precisely the defect localStack.ts exists to remove. */
+const stack = await ensureLocalStack();
 
 function toolAvailable(command: string, args: string[]): boolean {
   try {
@@ -189,7 +193,6 @@ describe('execution environments e2e — scaffolded python platform travels with
 
   before(async () => {
     if (!hasUv || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldPlatformProject(testDir, 'envpy', { py: true, node: false });
@@ -204,7 +207,7 @@ describe('execution environments e2e — scaffolded python platform travels with
   });
 
   it('runs the scaffolded @platform_function from the materialized env after the project is deleted',
-    { skip: (!hasUv && 'uv not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+    { skip: (!hasUv && 'uv not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of the scaffolded platform_module example:
       //   @platform_function(name="envpy.example_python",
       //                      inputs=[ArrayType(FloatType)], output=FloatType)
@@ -237,7 +240,6 @@ describe('execution environments e2e — scaffolded node platform travels with t
 
   before(async () => {
     if (!hasNpm || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldPlatformProject(testDir, 'envnode', { py: false, node: true });
@@ -253,7 +255,7 @@ describe('execution environments e2e — scaffolded node platform travels with t
   });
 
   it('runs the scaffolded East.platform implementation from the materialized env after the project is deleted',
-    { skip: (!hasNpm && 'npm not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+    { skip: (!hasNpm && 'npm not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of the scaffolded src/platform/example.ts:
       //   East.platform("envnode.example_node", [IntegerType, FloatType], IntegerType)
       //   impl: ceil(value * factor)
@@ -286,7 +288,6 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
 
   before(async () => {
     if (!hasUv || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     // Two INDEPENDENT python packages; only `pricing` is referenced below, so
@@ -301,7 +302,7 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
   });
 
   it('derives a task env from its { custom } platform reference (NO environment field) and runs after the project is deleted',
-    { skip: (!hasUv && 'uv not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+    { skip: (!hasUv && 'uv not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of the scaffolded packages/python/pricing/src/pricing/example.py:
       //   @platform_function(name="pricing.example", inputs=[ArrayType(FloatType)], output=FloatType)
       const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
@@ -340,7 +341,6 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
 
   before(async () => {
     if (!hasNpm || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { node: ['api'] });
@@ -356,7 +356,7 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
   });
 
   it('derives a node task env from its { custom } platform reference (NO environment field) and runs after the project is deleted',
-    { skip: (!hasNpm && 'npm not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+    { skip: (!hasNpm && 'npm not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of packages/node/api/src/platform.ts: api.example = ceil(value * factor)
       const api = East.platform('api.example', [IntegerType, FloatType], IntegerType);
       const value = e3.input('api_value', IntegerType, 21n);
@@ -396,7 +396,6 @@ describe('execution environments e2e — C tool scaffold, explicit tools environ
 
   before(async () => {
     if (!hasCc || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { c: ['solver'] });
@@ -441,7 +440,6 @@ describe('execution environments e2e — mixed python + node + C in one package'
 
   before(async () => {
     if (!hasAll || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing'], node: ['api'], c: ['solver'] });
@@ -463,7 +461,7 @@ describe('execution environments e2e — mixed python + node + C in one package'
   });
 
   it('one bundle carries auto-derived python + node envs AND an explicit C tool env; all run after the project is deleted',
-    { skip: (!hasAll && 'need uv + npm + cc/make (non-windows)') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+    { skip: (!hasAll && 'need uv + npm + cc/make (non-windows)') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // python (auto-derived from { custom: 'pricing' })
       const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
       const pv = e3.input('m_pv', ArrayType(FloatType), [2.0, 4.0, 6.0]);
@@ -584,7 +582,6 @@ describe('execution environments e2e — per-package granularity CACHES across a
 
   before(async () => {
     if (!hasUv || !hasScaffoldCore) return;
-    stack = await ensureLocalStack();
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
@@ -598,7 +595,7 @@ describe('execution environments e2e — per-package granularity CACHES across a
   });
 
   it('editing one package re-runs only its task; the sibling is CACHED across the redeploy',
-    { skip: (!hasUv && 'uv not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+    { skip: (!hasUv && 'uv not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       await runE3Command(['repo', 'create', repoDir], testDir);
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
 
