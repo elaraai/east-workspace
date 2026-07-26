@@ -110,6 +110,32 @@ before(() => {
 /** A resolved location looks like `<file>:<line>:<col>` (an `at …:12:5` frame). */
 const LOCATION = /:\d+:\d+/;
 
+/** The `at <file>:<line>:<col>` frames of a runner's error output, innermost first. */
+function stackFrames(out: string): string[] {
+  return [...out.matchAll(/^\s*at\s+(\S.*:\d+:\d+)\s*$/gm)].map(m => m[1]!);
+}
+
+/**
+ * Every runner must resolve an East IR runtime error identically: the message,
+ * then a stack that descends past the enclosing East function to the operation
+ * that actually threw.
+ *
+ * Two frames IS that property — one would mean the stack stopped at the
+ * function entry and never reached the failing op. (This replaces a grep for
+ * the literal word "array", which no runner emits: frames carry the file that
+ * authored the IR, so it only ever matched if that file was itself named
+ * something like `array.ts`.)
+ */
+function assertOutOfBoundsError(out: string, runner: string): void {
+  assert.match(out, /Array index \d+ out of bounds/, `${runner}: the message is present`);
+  assert.match(out, LOCATION, `${runner}: the error must carry a source location, got:\n${out}`);
+  const frames = stackFrames(out);
+  assert.ok(frames.length >= 2,
+    `${runner}: the stack should reach the array op frame, got:\n${out}`);
+  assert.match(frames[0]!, /error-locations\.spec\./,
+    `${runner}: the innermost frame is where the array op was authored, got:\n${out}`);
+}
+
 // ===========================================================================
 // east-c
 // ===========================================================================
@@ -119,9 +145,7 @@ describe('error locations — east-c runner', () => {
   it('an East IR runtime error resolves to a source location',
     { skip: has ? false : 'east-c not built' }, () => {
       const out = runRunner(EAST_C, ['run', join(dir, 'oob.beast2'), '-p', 'east-c-std', '-i', join(dir, 'in.beast2'), '-o', join(dir, 'o.beast2')]);
-      assert.match(out, /Array index \d+ out of bounds/, 'the message is present');
-      assert.match(out, LOCATION, `the error must carry a source location, got:\n${out}`);
-      assert.match(out, /\bat\b[\s\S]*array/i, 'the stack should reach the array op frame');
+      assertOutOfBoundsError(out, 'east-c');
     });
 });
 
@@ -136,8 +160,7 @@ describe('error locations — east-node runner', () => {
   it('an East IR runtime error resolves to a source location',
     { skip: has ? false : 'east-node / east-node-std not built' }, () => {
       const out = runRunner('node', [EAST_NODE_BIN, ...nodeArgs('oob.beast2', '@elaraai/east-node-std')], { E3_RUNNER_SEARCH_DIRS: searchDir });
-      assert.match(out, /Array index \d+ out of bounds/, 'the message is present');
-      assert.match(out, LOCATION, `the error must carry a source location, got:\n${out}`);
+      assertOutOfBoundsError(out, 'east-node');
     });
 
   it('a throwing custom platform function resolves to the platform source location (regression: was message-only)',
@@ -160,8 +183,7 @@ describe('error locations — east-py runner', () => {
   it('an East IR runtime error resolves to a source location',
     { skip: has ? false : 'east-py venv not built' }, () => {
       const out = runRunner(EAST_PY, pyArgs('oob.beast2', 'east-py-std'));
-      assert.match(out, /Array index \d+ out of bounds/, 'the message is present');
-      assert.match(out, LOCATION, `the error must carry a source location, got:\n${out}`);
+      assertOutOfBoundsError(out, 'east-py');
     });
 
   it('a raising custom platform function resolves to a source location',
