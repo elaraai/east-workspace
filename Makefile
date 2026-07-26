@@ -293,6 +293,7 @@ set-version:
 ## Check that all manifests are aligned (no version drift)
 check-version:
 	node scripts/check-version-drift.mjs
+	node scripts/check-wire-compat.mjs
 
 # ── Clean ────────────────────────────────────────────────────────────
 

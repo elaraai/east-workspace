@@ -305,6 +305,30 @@ export const ToolsEnvironmentType = StructType({
 
 **Backward-compatibility stance (owner decision, 2026-07-08): none — lockstep upgrade.** e3 and e3-cloud upgrade together; we do **not** support an old reader decoding new-SDK bytes, and we do **not** carry a legacy decoder for old bytes. This removes the readers-first two-phase gate and all old-reader compatibility machinery. The two things that survive are *not* backward compatibility — they prevent a live repo from corrupting **its own** already-persisted objects across a single deploy: the frozen case **order** (§4.1) and the robust GC predicate (§4.3). Existing repos that already declared an `environment` must be **re-exported** after upgrade (the one-time hash shift, §4.2, re-runs those tasks once anyway).
 
+#### 4.0.1 What the environment e2e proves (2026-07-26)
+
+The lockstep stance above is the reason `test/integration/src/environment-e2e.spec.ts`
+materializes its environment from a **local stand-in registry** serving the
+working tree's `@elaraai` build (`src/localStack.ts`), rather than from PyPI/npm.
+
+Left to resolve from the public registries, that suite installed the LAST
+RELEASE: the create-e3 scaffold pins `@elaraai/*` to the workspace version, and
+the release workflow pushes the version bump to `main`, so the repo version is
+always equal to the published one. The suite therefore never exercised the code
+under review, and instead silently gated on "the N-1 release can read what the
+working tree writes" — precisely the backward-compatibility contract this
+section declines to offer. It passed for any change that did not alter runtime
+behaviour, and fired on the first one that did (the beast2 v5 container bump,
+issue #416), blaming the change rather than the scaffolding.
+
+The property the suite actually proves is transport of first-party project code
+— scaffold, export, **delete the project**, import, deploy, run. That is
+unchanged. Cross-version behaviour now lives in
+`test/integration/src/released-runtime-compat.spec.ts`, asserted deliberately
+and narrowly, where a genuine incompatibility surfaces as a named skip rather
+than as six confusing failures elsewhere. See
+`docs/conventions/BEAST2_WIRE_VERSION.md`.
+
 ### 4.1 The one schema change (both cases together)
 
 BEAST2 variant tags are positional indexes into the **alphabetically sorted** case list (`libs/east/src/types.ts:346–348`; decoder dispatch `beast2/index.ts:349–360` — both re-verified). New cases are appended so the sorted order only grows at the end: `image, node, python, tools, workspace_node`. This is required not for old-reader compat but so a **repo's own** persisted specs keep decoding across future edits — reordering the cases re-tags every later case and mis-decodes stored specs. Verified this pass (`final-variant-probe.mjs`): a 5-case reader round-trips every case and decodes existing python/node/image bytes unchanged (tags 0–2 unmoved); the rejected `node_workspace` name would have re-tagged `python`, mis-decoding every stored python spec — the rename to `workspace_node` (sorts last) avoids that.

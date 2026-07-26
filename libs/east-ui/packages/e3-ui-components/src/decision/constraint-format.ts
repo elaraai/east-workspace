@@ -15,7 +15,7 @@
  * falling back to the contract case name.
  */
 
-import type { ValueTypeOf } from '@elaraai/east';
+import { isEastSet, type ValueTypeOf } from '@elaraai/east';
 import type { LeverType } from '@elaraai/e3-ui/internal';
 
 import type { ConstraintValue } from './handle-runtime.js';
@@ -41,7 +41,7 @@ function formatScalar(v: unknown): string {
     if (v instanceof Date) {
         return `${v.toLocaleString('en', { month: 'short' })} ${v.getDate()}`;
     }
-    if (v instanceof Set) {
+    if (isEastSet(v)) {
         return `{${[...v].map(formatScalar).join(', ')}}`;
     }
     if (v !== null && typeof v === 'object' && !(v as { type?: unknown }).type) {

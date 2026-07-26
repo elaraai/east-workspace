@@ -4,7 +4,7 @@
  * interned EastType* share the SAME EastValue* sub-tree. The beast2 value
  * encoder dedups by pointer identity, so without the memo the shared
  * sub-type's value is emitted twice and the type-of-type encoding bloats
- * (302 bytes instead of the TS-canonical 293).
+ * (65 bytes instead of the TS-canonical 51).
  *
  * This mirrors the TS reference's persistent toEastTypeValueCache
  * (libs/east/src/type_of_type.ts:119). The companion east-py fix lands the
@@ -14,9 +14,13 @@
  *   T = Variant{none: Null, some: Vector(Integer)}
  * so the two fields point at the same interned variant. We encode the
  * type-of-type with east_beast2_encode_full and assert the bytes are exactly
- * the 293-byte TS-canonical encoding (CANON_HEX below — produced by the TS
+ * the 51-byte TS-canonical encoding (CANON_HEX below — produced by the TS
  * reference implementation). Run under ASan/LSan for the leak oracle on the
  * new memo retain/release balance.
+ *
+ * The encoding is the v5 container (the encoder default since issue #416):
+ * the type section is the well-known EastTypeValueType id, and the shared
+ * sub-tree's arrays become REF backrefs rather than a second definition.
  */
 #include <east/east.h>
 
@@ -24,22 +28,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* TS-canonical 293-byte beast2-full encoding of Struct{a: T, b: T} as an
- * EastTypeType value (T = Variant{none: Null, some: Vector(Integer)}). */
+/* TS-canonical 51-byte beast2-full (v5 container) encoding of Struct{a: T, b: T}
+ * as an EastTypeType value (T = Variant{none: Null, some: Vector(Integer)}). */
 static const char *CANON_HEX =
-    "89456173740d0a04f201000c120b0a00090206696e7075747301066f757470757400000902036b"
-    "65790005"
-    "76616c7565000209020269640505696e6e65720008020372656605077772617070657206010902"
-    "046e616d65"
-    "080474797065000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f6203"
-    "07426f6f6c"
-    "65616e03084461746554696d650304446963740405466c6f6174030846756e6374696f6e020749"
-    "6e74656765"
-    "7203064d617472697800054e6576657203044e756c6c0309526563757273697665070352656600"
-    "03536574"
-    "0006537472696e6703065374727563740a0756617269616e740a06566563746f72000f04016101"
-    "62046e6f6e"
-    "6504736f6d6501001402090a0902001101011101080a0902020b0312081000";
+    "89456173740d0a0501020947b0dde16f86410100001c1c1000020161110002046e6f6e650b0473"
+    "6f6d65120800016211010100";
 
 int main(void)
 {
@@ -101,7 +94,7 @@ int main(void)
 
     if (failures == 0) {
         printf("GATE PASS: east_type_to_value memoizes shared interned sub-types "
-               "(type-of-type encodes to the 293-byte TS-canonical form, issue #83)\n");
+               "(type-of-type encodes to the 51-byte TS-canonical form, issue #83)\n");
         return 0;
     }
     printf("GATE FAIL: %d check(s) failed\n", failures);

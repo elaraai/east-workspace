@@ -13,11 +13,11 @@
  * See devdocs/BEAST2.md for the format specification.
  */
 
-import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
-import type { EastType } from "../../types.js";
-import { getTypeId } from "../../types.js";
-import { isVariant, variant } from "../../containers/variant.js";
-import { BufferWriter, BufferReader } from "../binary-utils.js";
+import { toEastTypeValue, type EastTypeValue } from "../../../type_of_type.js";
+import type { EastType } from "../../../types.js";
+import { getTypeId } from "../../../types.js";
+import { isVariant, variant } from "../../../containers/variant.js";
+import { BufferWriter, BufferReader } from "../../binary-utils.js";
 
 // =============================================================================
 // Tag bytes (frequency-ordered, used as direct array indices)
@@ -456,19 +456,102 @@ interface ParsedEntry {
   names?: string[];
 }
 
+// ── Section skip-cache (#417) ─────────────────────────────────────────
+// Every decode used to re-parse (and re-intern) the blob's whole type-table
+// section; for recursive schemas (IRType, EastTypeValueType, UIComponentType)
+// that parse dominates small-blob decode time. Sections are content-addressed
+// here: same payload bytes ⇒ the same parsed (frozen, shared) table. Keyed on
+// the FNV-1a-64 of the payload with a full byte compare on hit, so a corrupted
+// section misses and parses/fails exactly as before. Bounded — the distinct
+// schema count per process is tiny.
+
+interface CachedTypeSection {
+  /** A private copy of the section payload (the decode-time view aliases the
+   *  caller's blob and must not be retained). */
+  payload: Uint8Array;
+  rootType: EastTypeValue;
+  typeTable: readonly EastTypeValue[];
+}
+
+const TYPE_SECTION_CACHE_MAX = 128;
+const typeSectionCache = new Map<number, CachedTypeSection[]>();
+let typeSectionCacheCount = 0;
+
+/** Fast FNV-1a-32 for the cache key. Number arithmetic on purpose — the
+ *  BigInt FNV-1a-64 used for the v5 well-known wire hash costs more per byte
+ *  than the parse this cache skips. Collisions are handled by the full byte
+ *  compare below; the hash only needs distribution, not identity. */
+function hashSectionPayload(bytes: Uint8Array): number {
+  let h = 0x811c9dc5 | 0;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i]!;
+    h = Math.imul(h, 0x01000193);
+  }
+  // Fold the length in so same-hash different-length buckets never mix.
+  return (h ^ bytes.length) >>> 0;
+}
+
+function payloadEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /**
  * Read the type table section from a BufferReader.
  * Returns the root EastTypeValue and the full type table for IR restoration.
  *
- * The reader must be positioned after the magic bytes.
+ * The reader must be positioned after the magic bytes. Parsed sections are
+ * cached by content (#417): decoding N blobs of the same schema parses the
+ * section once and shares one frozen table.
  */
 export function readTypeTableSection(reader: BufferReader): {
   rootType: EastTypeValue;
   typeTable: EastTypeValue[];
 } {
   const headerByteLength = reader.readVarint();
-  const headerEnd = reader.offset + headerByteLength;
+  const payload = reader.readBytesView(headerByteLength);
 
+  const key = hashSectionPayload(payload);
+  const bucket = typeSectionCache.get(key);
+  if (bucket) {
+    for (const entry of bucket) {
+      if (payloadEqual(entry.payload, payload)) {
+        return { rootType: entry.rootType, typeTable: entry.typeTable as EastTypeValue[] };
+      }
+    }
+  }
+
+  const result = parseTypeTableSectionPayload(payload);
+
+  if (typeSectionCacheCount >= TYPE_SECTION_CACHE_MAX) {
+    // Evict the oldest hash bucket (Map preserves insertion order).
+    const oldest = typeSectionCache.keys().next().value;
+    if (oldest !== undefined) {
+      typeSectionCacheCount -= typeSectionCache.get(oldest)!.length;
+      typeSectionCache.delete(oldest);
+    }
+  }
+  const stored: CachedTypeSection = {
+    payload: new Uint8Array(payload),
+    rootType: result.rootType,
+    typeTable: Object.freeze(result.typeTable),
+  };
+  const existing = typeSectionCache.get(key);
+  if (existing) existing.push(stored);
+  else typeSectionCache.set(key, [stored]);
+  typeSectionCacheCount++;
+
+  return { rootType: stored.rootType, typeTable: stored.typeTable as EastTypeValue[] };
+}
+
+/** Parse a type table section payload (`varint(root_idx) varint(count)
+ *  entries…`) — the uncached path behind {@link readTypeTableSection}. */
+function parseTypeTableSectionPayload(payload: Uint8Array): {
+  rootType: EastTypeValue;
+  typeTable: EastTypeValue[];
+} {
+  const reader = new BufferReader(payload, 0);
   const rootIdx = reader.readVarint();
   const entryCount = reader.readVarint();
 
@@ -478,8 +561,8 @@ export function readTypeTableSection(reader: BufferReader): {
     parsed[i] = ENTRY_PARSERS[reader.readUint8()]!(reader);
   }
 
-  if (reader.offset !== headerEnd) {
-    throw new Error(`Type table size mismatch: expected offset ${headerEnd}, got ${reader.offset}`);
+  if (reader.offset !== payload.length) {
+    throw new Error(`Type table size mismatch: expected offset ${payload.length}, got ${reader.offset}`);
   }
 
   // Phase 2: Reconstruct EastTypeValue tree with depth-based Recursive references
@@ -586,11 +669,28 @@ const PRIMITIVE_ETV: EastTypeValue[] = [
  * Recursive entries are converted to proper EastTypeValue trees where
  * self-references use depth-based Recursive(N) — compatible with
  * _decodeCursorFor's typeCtx stack mechanism.
+ *
+ * One table index yields exactly **one** object, shared by every reference to
+ * it. That is what makes a decoded type round-trip: {@link TypeTableBuilder}
+ * dedups EastTypeValues by identity, so re-encoding a decoded value must see
+ * the same object wherever the wire table said "same index". Rebuilding a
+ * nested recursive type per reference (as this did before) gave `IRType` 25
+ * wrapper entries instead of 2 and made TS re-encode a decoded IR program to
+ * 5426 bytes where east-c — which interns decoded types — produced the
+ * original 1792.
  */
 function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValue[] {
   const table = new Array<EastTypeValue>(parsed.length);
   // Track which indices are Recursive wrappers and their inner indices
   const recursiveEntries = new Map<number, number>(); // wrapper_idx → inner_idx
+  // Wrapper indices whose rebuilt subtree references no *enclosing* wrapper.
+  // Such a wrapper is self-contained, so one object can serve every reference
+  // to it — see the `closed` computation below.
+  const closedWrappers = new Set<number>();
+  // Shallowest depthStack position referenced by the subtree currently under
+  // construction (Infinity = nothing referenced). Read/reset around each
+  // wrapper to decide whether that wrapper escaped its own scope.
+  let minRefPos = Infinity;
 
   // First pass: identify all Recursive entries
   for (let i = 0; i < parsed.length; i++) {
@@ -614,11 +714,14 @@ function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValu
     // The id is the table index of the wrapper entry.
     const stackPos = depthStack.indexOf(idx);
     if (stackPos !== -1) {
+      if (stackPos < minRefPos) minRefPos = stackPos;
       return variant("Recursive", variant("ref", BigInt(idx))) as EastTypeValue;
     }
 
-    // If already built and not a recursive wrapper, reuse
-    if (table[idx] !== undefined && !recursiveEntries.has(idx)) {
+    // If already built, reuse. A Recursive wrapper only qualifies once it is
+    // known to be closed: an *open* wrapper's `ref`s resolve against the scope
+    // it was built in, so it cannot be shared with a different scope.
+    if (table[idx] !== undefined && (!recursiveEntries.has(idx) || closedWrappers.has(idx))) {
       return table[idx]!;
     }
 
@@ -629,11 +732,21 @@ function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValu
     // type onto its stack, so we mirror that here for matching depth values.
     if (entry.tag === TAG_RECURSIVE) {
       const innerIdx = entry.childIndices[0]!;
+      const base = depthStack.length; // the position this wrapper occupies
+      const outerMinRefPos = minRefPos;
+      minRefPos = Infinity;
       depthStack.push(idx); // Push wrapper — stays on stack for depth counting
       const inner = buildCompound(innerIdx, depthStack, null);
       depthStack.pop();
+      // Closed ⇔ nothing under this wrapper referenced a wrapper above it.
+      // East guarantees this for every type it can construct (RecursiveType
+      // rejects SCC > 1), so this is the universal case; the check only keeps
+      // a hand-crafted mutually-recursive table from sharing a scoped object.
+      const closed = minRefPos >= base;
+      minRefPos = closed ? outerMinRefPos : Math.min(outerMinRefPos, minRefPos);
       const wrapped = variant("Recursive", variant("wrapper", { id: BigInt(idx), inner })) as unknown as EastTypeValue;
       table[idx] = wrapped;
+      if (closed) closedWrappers.add(idx);
       return wrapped;
     }
 

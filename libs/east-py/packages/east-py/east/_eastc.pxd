@@ -16,7 +16,7 @@ platform bridge module.
 """
 
 from libc.stddef cimport size_t
-from libc.stdint cimport int64_t, uint8_t, uint64_t
+from libc.stdint cimport int32_t, int64_t, uint8_t, uint64_t
 
 
 # ─── types.h ──────────────────────────────────────────────────────────────
@@ -357,12 +357,49 @@ cdef extern from "east/serialization.h":
     ByteBuffer *east_beast2_encode(EastValue *value, EastType *type)
     EastValue *east_beast2_decode(const uint8_t *data, size_t length, EastType *type)
 
-    # BEAST2 with header (magic bytes + type schema + value)
+    # BEAST2 with header (magic bytes + type schema + value). *_full writes the
+    # current default container (v5 since #416); *_v4 pins the legacy one.
     ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
+    ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type)
     EastValue *east_beast2_decode_full(const uint8_t *data, size_t length, EastType *type)
     # BEAST2 IR decode+convert in one shot (keeps type table alive for O(1) resolution)
     IRNode *east_beast2_decode_ir(const uint8_t *data, size_t length, EastValue **ir_value_out,
                                   EastSourceMap **source_map_out)
+
+    # BEAST2 v5 — segment-terminated record stream (issue #416)
+    ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
+                                      bint with_index)
+
+    ctypedef struct Beast2StreamWriter:
+        pass
+    Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id,
+                                               bint self_contained, bint with_index)
+    bint east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
+    ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w)
+    bint east_beast2_writer_finish(Beast2StreamWriter *w)
+    void east_beast2_writer_free(Beast2StreamWriter *w)
+
+    ctypedef struct Beast2SegmentReader:
+        pass
+    Beast2SegmentReader *east_beast2_reader_new(const uint8_t *data, size_t length,
+                                                EastType *type)
+    EastValue *east_beast2_reader_next(Beast2SegmentReader *r)
+    bint east_beast2_reader_done(Beast2SegmentReader *r)
+    bint east_beast2_reader_counts(Beast2SegmentReader *r, size_t *segment_count,
+                                   size_t *element_count)
+    void east_beast2_reader_free(Beast2SegmentReader *r)
+
+    # v5 paging reader — random access over an indexed, self-contained blob
+    ctypedef struct Beast2Pages:
+        pass
+    Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t length, EastType *type)
+    size_t east_beast2_pages_segment_count(Beast2Pages *p)
+    size_t east_beast2_pages_element_count(Beast2Pages *p)
+    bint east_beast2_pages_self_contained(Beast2Pages *p)
+    const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
+    EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
+    EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
+    void east_beast2_pages_free(Beast2Pages *p)
 
     # JSON serialization
     char *east_json_encode(EastValue *value, EastType *type)

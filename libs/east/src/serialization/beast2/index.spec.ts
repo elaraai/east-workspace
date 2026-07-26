@@ -18,6 +18,7 @@ import {
   type EastType,
 } from "../../types.js";
 import { toEastTypeValue, EastTypeValueType } from "../../type_of_type.js";
+import { IRType } from "../../ir.js";
 import { equalFor } from "../../comparison.js";
 import { East, variant, ref, some, none } from "../../index.js";
 import { matrix } from "../../containers/matrix.js";
@@ -34,6 +35,24 @@ const M = [0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x02];
 
 // Empty string table section: header_byte_length=1, count=0
 const S0 = [0x01, 0x00];
+
+/**
+ * Reads the entry count out of a blob's structural type table, for either
+ * container version: v4 opens with `varint(byte_len) varint(root) varint(count)`
+ * and v5 prefixes that with the type-section kind.
+ */
+function typeTableEntryCount(blob: Uint8Array): number {
+  let offset = 8;
+  const varint = () => {
+    let result = 0, shift = 0, byte: number;
+    do { byte = blob[offset++]!; result |= (byte & 0x7f) << shift; shift += 7; } while (byte & 0x80);
+    return result;
+  };
+  if (blob[7] === 0x05) assert.equal(varint(), 0, "structural type section");
+  varint();        // section byte length
+  varint();        // root index
+  return varint(); // entry count
+}
 
 /** Assert exact encoded bytes and round-trip value equality. */
 function assertExact(type: EastType, value: any, expectedBytes: number[], label: string) {
@@ -529,10 +548,7 @@ describe("Beast2 v2 — Recursive with closures (round-trip)", () => {
     // Verify header: type table should be compact with no repeated types.
     // Root type entries (5): Recursive, String, Function([]→self), Struct(button), Struct(text), Variant
     // IR-only entries may add more, but the root 5-6 entries should be shared.
-    const headerLen = encoded[8]!;
-    const headerBytes = encoded.slice(9, 9 + headerLen);
-    // Count entries (second varint in header)
-    const entryCount = headerBytes[1]!;
+    const entryCount = typeTableEntryCount(encoded);
     assert.ok(entryCount <= 15, `type table should be compact, got ${entryCount} entries`);
 
     const decoded = decodeBeast2For(ComponentType)(encoded);
@@ -651,5 +667,143 @@ describe("Beast2 v2 — Decoder reuse", () => {
     assert.deepEqual(decoder(encode([1n, 2n])), [1n, 2n]);
     assert.deepEqual(decoder(encode([3n, 4n, 5n])), [3n, 4n, 5n]);
     assert.deepEqual(decoder(encode([])), []);
+  });
+});
+
+describe("Beast2 — type-table section cache (#417)", () => {
+  const RowType = StructType({ a: IntegerType, b: StringType });
+
+  test("repeated decodes share one parsed table", () => {
+    const tv = toEastTypeValue(RowType);
+    const blob = encodeBeast2For(EastTypeValueType)(tv);
+    const first = decodeBeast2(blob);
+    const second = decodeBeast2(blob);
+    // Content-addressed skip-cache: the second decode reuses the first
+    // parse's table, so the root types are the same object.
+    assert.ok(first.type === second.type, "cached decodes share the root type object");
+    assert.ok(typeEqual(first.value, tv));
+    assert.ok(typeEqual(second.value, tv));
+  });
+
+  test("corrupted sections miss the cache and the cache is not poisoned", () => {
+    const encode = encodeBeast2For(EastTypeValueType);
+    const decode = decodeBeast2For(EastTypeValueType);
+    const tv = toEastTypeValue(RowType);
+    const blob = encode(tv);
+    assert.ok(typeEqual(decode(blob), tv), "warm the cache");
+    // Truncating inside the type section must fail regardless of cache state.
+    assert.throws(() => decode(blob.subarray(0, 12)));
+    // And the original still decodes correctly afterwards.
+    assert.ok(typeEqual(decode(blob), tv));
+  });
+
+  test("encoder section cache keeps encodes byte-identical", () => {
+    const value = { a: 42n, b: "x" };
+    // Two closures over the SAME type object (WeakMap hit) and one over a
+    // structurally identical but distinct type object (cache miss) must all
+    // produce identical bytes.
+    const sameA = encodeBeast2For(RowType)(value);
+    const sameB = encodeBeast2For(RowType)(value);
+    const fresh = encodeBeast2For(StructType({ a: IntegerType, b: StringType }))(value);
+    assert.deepEqual(Array.from(sameB), Array.from(sameA));
+    assert.deepEqual(Array.from(fresh), Array.from(sameA));
+    // Container-bearing values grow the table past the cached root closure —
+    // the grown path must still round-trip.
+    const NestedType = StructType({ rows: ArrayType(IntegerType) });
+    const nested = { rows: [1n, 2n, 3n] };
+    const nestedBlob = encodeBeast2For(NestedType)(nested);
+    assert.deepEqual(decodeBeast2For(NestedType)(nestedBlob), nested);
+  });
+});
+// =============================================================================
+// 12. Canonical type table — a decoded type re-encodes to the same bytes
+// =============================================================================
+
+describe("Beast2 — canonical type table", () => {
+  /**
+   * A value must encode identically whether its type is the static `EastType`
+   * or the `EastTypeValue` read back off the wire. e3 content-addresses beast2
+   * bytes, so two encodings of one logical value split caches and duplicate
+   * stored objects; east-c (which interns decoded types) has always satisfied
+   * this, so a TS-only difference is also a cross-runtime parity hole.
+   */
+  function assertCanonical(staticType: EastType, value: any, label: string): void {
+    const variants = [
+      { label: "v4", options: { version: 4 } as const },
+      { label: "v5/none", options: { version: 5, codec: "none" } as const },
+      { label: "v5/deflate", options: { version: 5, codec: "deflate" } as const },
+    ];
+    for (const { label: vlabel, options } of variants) {
+      const blob = encodeBeast2For(staticType, options)(value);
+      const wire = decodeBeast2(blob);
+      const reencoded = encodeBeast2For(wire.type, options)(wire.value);
+      assert.deepEqual(
+        Array.from(reencoded), Array.from(blob),
+        `${label} (${vlabel}): re-encoding from the decoded type must reproduce the bytes`,
+      );
+      // ...and stay a fixpoint, so nothing drifts on a second hop.
+      const again = decodeBeast2(reencoded);
+      assert.deepEqual(
+        Array.from(encodeBeast2For(again.type, options)(again.value)), Array.from(blob),
+        `${label} (${vlabel}): second round-trip must be a fixpoint`,
+      );
+    }
+  }
+
+  test("IR program — every e3 task IR travels as this type", () => {
+    const fn = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => {
+      const s = $.let(a.add(b));
+      const t = $.let(s.multiply(3n));
+      return t.subtract(a);
+    });
+    assertCanonical(IRType, fn.toIR().ir, "IRType");
+  });
+
+  test("a recursive type referenced many times from another recursive type", () => {
+    // The IRType shape in miniature: rebuilding the inner wrapper once per
+    // reference (rather than sharing one object) grew IRType's table from 53
+    // to 99 entries and an IR program from 1792 to 5426 bytes.
+    const ListType = RecursiveType(self => VariantType({
+      nil: NullType,
+      cons: StructType({ head: IntegerType, tail: self }),
+    }));
+    const TreeType = RecursiveType(self => VariantType({
+      leaf: ListType,
+      pair: StructType({ left: self, right: self, tag: ListType }),
+      many: ArrayType(ListType),
+      keyed: DictType(StringType, ListType),
+    }));
+    const list = variant("cons", { head: 7n, tail: variant("nil", null) });
+    assertCanonical(TreeType, variant("pair", {
+      left: variant("leaf", list),
+      right: variant("many", [list, variant("nil", null)]),
+      tag: list,
+    }), "nested recursive types");
+  });
+
+  test("decoded types stay canonical through EastTypeValueType", () => {
+    const T = StructType({
+      a: IntegerType,
+      b: ArrayType(StructType({ x: FloatType, y: SetType(StringType) })),
+      c: RecursiveType(self => VariantType({ nil: NullType, next: self })),
+    });
+    assertCanonical(EastTypeValueType as unknown as EastType, toEastTypeValue(T), "EastTypeValueType");
+  });
+
+  test("one table index yields one shared object", () => {
+    // Identity, not just structure: TypeTableBuilder dedups EastTypeValues by
+    // object identity, so a decoded type that hands out two objects for one
+    // wire index silently doubles the table.
+    const ListType = RecursiveType(self => VariantType({
+      nil: NullType,
+      cons: StructType({ head: IntegerType, tail: self }),
+    }));
+    const PairType = StructType({ first: ListType, second: ListType });
+    const { type } = decodeBeast2(encodeBeast2For(PairType)({
+      first: variant("nil", null), second: variant("nil", null),
+    }));
+    const fields = type.value as { name: string; type: unknown }[];
+    assert.equal(fields.length, 2);
+    assert.ok(fields[0]!.type === fields[1]!.type, "both fields must share one type object");
   });
 });

@@ -1739,7 +1739,7 @@
       "imports": [
         "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
-      "source": "// Encode a value to Beast v2 binary format\n// inputs: []  returns: new Uint8Array([\n        137, 69, 97, 115, 116, 13, 10, 4,  // magic v4\n        3, 0, 1, 2,                          // type table: header=3, root=0, count=1, Integer\n        1, 0,                                // string table: empty\n        1, 0,                                // source map: empty\n        1, 0,                                // value table: empty\n        84,                                  // zigzag(42) = 84\n    ])\nEast.function([], BlobType, ($) => {\n        const value = $.const(42n, IntegerType);\n        return East.Blob.encodeBeast(value, 'v2');\n    })"
+      "source": "// Encode a value to Beast v2 binary format\n// inputs: []  returns: new Uint8Array([\n        137, 69, 97, 115, 116, 13, 10, 5,  // magic v5\n        0,                                   // type section: kind 0 (structural)\n        3, 0, 1, 2,                          //   byte_len=3, root=0, count=1, Integer\n        1, 0,                                // source map: payload_len=1, no stacks\n        0, 1, 1,                             // frame: codec none, 1 byte\n        84,                                  // zigzag(42) = 84\n    ])\nEast.function([], BlobType, ($) => {\n        const value = $.const(42n, IntegerType);\n        return East.Blob.encodeBeast(value, 'v2');\n    })"
     },
     {
       "id": "east:blob.examples.ts:blobDecodeBeastV2",

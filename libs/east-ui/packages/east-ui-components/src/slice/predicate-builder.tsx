@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { type ValueTypeOf, variant } from "@elaraai/east";
+import { isEastSet, type ValueTypeOf, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { ClauseBuilder, type ClauseKind, type ClauseOpSpec, type ClauseSubmitValue } from "../forms/clause-builder/index.js";
 
@@ -126,7 +126,7 @@ export function predicateOpValue(kind: string, op: string, raw: unknown): unknow
  */
 export function predicateControlValue(kind: string, op: string, raw: unknown): unknown {
     if (op === "in" || op === "notIn") {
-        return raw instanceof Set ? [...raw].map(v => String(v)) : raw;
+        return isEastSet(raw) ? [...raw].map(v => String(v)) : raw;
     }
     if (op === "between" && kind === "datetime") {
         const { from, to } = raw as { from: Date; to: Date };

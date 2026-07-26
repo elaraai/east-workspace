@@ -24,7 +24,7 @@
 
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
-import { some, none, variant } from "@elaraai/east";
+import { some, none, variant, isEastSet } from "@elaraai/east";
 import { useDensity } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { EastChakraSelect } from "../select/index.js";
@@ -185,7 +185,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     // A Set seed becomes the TagsInput's string entries regardless of member
     // type (bigints round-trip back through the consumer's submit conversion).
     const seedValue = initial !== undefined
-        ? (initial.value instanceof Set ? [...initial.value].map(v => String(v)) : initial.value)
+        ? (isEastSet(initial.value) ? [...initial.value].map(v => String(v)) : initial.value)
         : emptyValue(kind, input);
     const valRef = useRef<unknown>(seedValue);
     // Validity mirrors valRef for the submit button + hint. Commits call

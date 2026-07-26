@@ -30,9 +30,23 @@ void byte_buffer_write_bytes(ByteBuffer *buf, const uint8_t *data, size_t len);
 ByteBuffer *east_beast2_encode(EastValue *value, EastType *type);
 EastValue *east_beast2_decode(const uint8_t *data, size_t len, EastType *type);
 
-// BEAST2 with header (magic bytes + type schema + value)
+// The container version this build's encoders write by default. Kept in
+// lockstep with BEAST2_WRITE_VERSION in
+// libs/east/src/serialization/beast2/version.ts -- scripts/check-wire-compat.mjs
+// (via `make check-version`) fails the build if the two disagree, because the
+// compliance suite pins ONE golden byte string per value and replays it in
+// TypeScript, east-c and east-py alike.
+#define EAST_BEAST2_WRITE_VERSION 5
+
+// BEAST2 with header (magic bytes + type schema + value). Writes
+// EAST_BEAST2_WRITE_VERSION; see east_beast2_encode_v4 / east_beast2_encode_v5
+// below to pin a container explicitly.
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type);
 EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *type);
+// Purge the type-table section skip-cache (#417). Called by
+// east_type_registry_clear (cached tables retain arena-backed types); useful
+// directly only in tests or before tearing down the runtime by other means.
+void east_beast2_type_cache_clear(void);
 // BEAST2-full decode using the embedded type schema (self-describing)
 EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len);
 // Extract the type schema from beast2-full encoded data (returns retained EastType*)
@@ -46,6 +60,78 @@ EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 //   free with east_source_map_free + free). When NULL, the decoded source map is discarded.
 IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
                               EastSourceMap **source_map_out);
+
+// Whole-value v4 encode — the legacy globally-sectioned container, for a
+// reader that predates v5. The escape hatch matching TypeScript's
+// encodeBeast2For(type, { version: 4 }); decoding needs no such choice, since
+// every entry point above sniffs the magic. Returns NULL on failure (message
+// via east_builtin_get_error).
+ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type);
+
+// ============================================================================
+// BEAST2 v5 — segment-terminated record stream (issue #416).
+// Every east_beast2_decode_* entry point above already accepts v5 blobs (the
+// magic's version byte dispatches); the functions below are the v5-only
+// writers and readers.
+// ============================================================================
+
+// v5 frame codecs
+#define EAST_BEAST2_CODEC_NONE 0
+#define EAST_BEAST2_CODEC_DEFLATE 1
+
+// Whole-value v5 encode. codec_id compresses data-sized frames
+// (EAST_BEAST2_CODEC_*); with_index appends the paging index + footer for
+// Array/Set/Dict roots. Returns NULL on failure (message via
+// east_builtin_get_error).
+ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
+                                  bool with_index);
+
+// Streaming v5 writer: each write() encodes one batch (a value of the declared
+// Array/Set/Dict type) as one root segment, so writer memory is O(batch).
+// Output bytes accumulate internally; drain with take() (returns a ByteBuffer
+// the caller frees, or NULL when nothing is pending). finish() appends the
+// terminator (and index + footer unless disabled). self_contained scopes
+// aliasing per segment so the output is pageable (the default for paging).
+typedef struct Beast2StreamWriter Beast2StreamWriter;
+Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
+                                           bool with_index);
+bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch);
+ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w);
+bool east_beast2_writer_finish(Beast2StreamWriter *w);
+void east_beast2_writer_free(Beast2StreamWriter *w);
+
+// Sequential v5 segment reader over a complete blob (the caller keeps `data`
+// alive and unchanged for the reader's lifetime). next() returns one decoded
+// collection per root segment (caller releases), NULL when done or on error —
+// distinguish with done(). counts() reports the trailing index's totals when
+// present (returns false for index-less blobs).
+typedef struct Beast2SegmentReader Beast2SegmentReader;
+Beast2SegmentReader *east_beast2_reader_new(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_reader_next(Beast2SegmentReader *r);
+bool east_beast2_reader_done(Beast2SegmentReader *r);
+bool east_beast2_reader_counts(Beast2SegmentReader *r, size_t *segment_count,
+                               size_t *element_count);
+void east_beast2_reader_free(Beast2SegmentReader *r);
+
+// Random access over an indexed, self-contained v5 collection blob (the caller
+// keeps `data` alive and unchanged for the pages object's lifetime). new()
+// parses the header + trailing index once, so counts are O(1); it fails when
+// the blob carries no index. segment() seeks to and decodes exactly ONE segment
+// (caller releases the returned collection) and additionally requires
+// self-contained segments — self_contained() reports the flag either way.
+// element() addresses Array roots only: it binary-searches the index and
+// decodes just the owning segment. Both return NULL on failure (message via
+// east_builtin_get_error). counts() borrows the per-segment element (pair)
+// counts, valid until free().
+typedef struct Beast2Pages Beast2Pages;
+Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type);
+size_t east_beast2_pages_segment_count(Beast2Pages *p);
+size_t east_beast2_pages_element_count(Beast2Pages *p);
+bool east_beast2_pages_self_contained(Beast2Pages *p);
+const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
+EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
+EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
+void east_beast2_pages_free(Beast2Pages *p);
 
 // Decode JSON IR in wrapper format {ir, source_map} and convert to IRNode.
 // Tries wrapper format first (TS test suite export), falls back to raw IR.

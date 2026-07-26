@@ -13,7 +13,7 @@ export default {
    * Encodes a value to the binary East format (BEAST).
    *
    * @param value - The East value to encode
-   * @param version - The BEAST format version to use: `'v1'` or `'v2'` (default: `'v1'`)
+   * @param version - The BEAST format **family** to use: `'v1'` or `'v2'` (default: `'v1'`)
    * @returns A blob expression containing the encoded binary data
    *
    * @throws Error when an unsupported version string is provided
@@ -22,6 +22,15 @@ export default {
    * BEAST (Binary East) is a compact binary serialization format for East values.
    * Version 1 (v1) is the original format, while version 2 (v2) provides improved
    * encoding for certain types.
+   *
+   * `'v1'`/`'v2'` name the format **family**, not the container version on the
+   * wire. The beast2 family currently writes the v5 container (magic byte
+   * `0x05`); it wrote v4 before issue #416 phase 2. Which container a release
+   * writes is an encoder choice, identical in every runtime and readable by all
+   * of them — {@link decodeBeast} dispatches on the magic, so `'v2'` decodes
+   * every beast2 container ever released. East programs therefore never name a
+   * container version; the TypeScript `encodeBeast2For(type, { version: 4 })`
+   * is the escape hatch for writing the older container.
    *
    * @example
    * ```ts

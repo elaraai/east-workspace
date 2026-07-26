@@ -320,7 +320,127 @@ static void parsed_entries_free(ParsedEntry *parsed, size_t count)
     free(parsed);
 }
 
+/* ── Section skip-cache (#417) ───────────────────────────────────────
+ * Every decode used to re-parse (and re-intern) the blob's whole type-table
+ * section; for recursive schemas (IRType, EastTypeValueType, UIComponentType)
+ * that parse dominates small-blob decode time. Sections are content-addressed
+ * here: hash of the payload bytes plus a full memcmp on hit, so a corrupted
+ * section misses and parses/fails exactly as before. Slots hold their own
+ * retained refs; east_type_registry_clear() purges the cache (the type arena
+ * frees types regardless of refcount). Single-thread contract (east.h). */
+
+#define B2_TT_CACHE_SLOTS 64
+
+typedef struct {
+    uint8_t *payload; /* malloc'd copy of the section payload; NULL = empty */
+    size_t payload_len;
+    uint64_t hash;
+    uint64_t age;
+    TypeTableResult result; /* cache-owned refs */
+} B2TTCacheSlot;
+
+static B2TTCacheSlot g_tt_cache[B2_TT_CACHE_SLOTS];
+static uint64_t g_tt_cache_age = 0;
+
+void east_beast2_type_cache_clear(void)
+{
+    for (int i = 0; i < B2_TT_CACHE_SLOTS; i++) {
+        if (!g_tt_cache[i].payload) continue;
+        free(g_tt_cache[i].payload);
+        type_table_result_free(&g_tt_cache[i].result);
+        memset(&g_tt_cache[i], 0, sizeof(g_tt_cache[i]));
+    }
+    g_tt_cache_age = 0;
+}
+
+/* Duplicate a parsed table with the copy holding its own retained refs.
+ * root_type borrows into types[] (as in every TypeTableResult). */
+static bool tt_result_copy_retained(const TypeTableResult *src, TypeTableResult *dst)
+{
+    dst->root_type = src->root_type;
+    dst->count = src->count;
+    dst->types = NULL;
+    dst->type_values = NULL;
+    if (src->count == 0) return true;
+    dst->types = calloc(src->count, sizeof(EastType *));
+    dst->type_values = calloc(src->count, sizeof(EastValue *));
+    if (!dst->types || !dst->type_values) {
+        free(dst->types);
+        free(dst->type_values);
+        memset(dst, 0, sizeof(*dst));
+        return false;
+    }
+    for (size_t i = 0; i < src->count; i++) {
+        dst->types[i] = src->types ? src->types[i] : NULL;
+        if (dst->types[i]) east_type_retain(dst->types[i]);
+        dst->type_values[i] = src->type_values ? src->type_values[i] : NULL;
+        if (dst->type_values[i]) east_value_retain(dst->type_values[i]);
+    }
+    return true;
+}
+
+static TypeTableResult read_type_table_section_uncached(const uint8_t *data, size_t len,
+                                                        size_t *offset);
+
 TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t *offset)
+{
+    /* Peek the section payload span for the cache key without consuming;
+     * malformed headers fall through to the uncached path, which fails
+     * exactly as before. */
+    size_t peek = *offset;
+    uint64_t header_byte_length;
+    if (!read_varint_checked(data, len, &peek, &header_byte_length) ||
+        header_byte_length > len - peek) {
+        return read_type_table_section_uncached(data, len, offset);
+    }
+    const uint8_t *payload = data + peek;
+    size_t payload_len = (size_t)header_byte_length;
+    uint64_t hash = hash_byte_range(payload, payload_len, 0);
+
+    for (int i = 0; i < B2_TT_CACHE_SLOTS; i++) {
+        B2TTCacheSlot *slot = &g_tt_cache[i];
+        if (!slot->payload || slot->hash != hash || slot->payload_len != payload_len) continue;
+        if (memcmp(slot->payload, payload, payload_len) != 0) continue;
+        TypeTableResult copy;
+        if (!tt_result_copy_retained(&slot->result, &copy)) break; /* OOM: parse instead */
+        slot->age = ++g_tt_cache_age;
+        *offset = peek + payload_len;
+        return copy;
+    }
+
+    TypeTableResult result = read_type_table_section_uncached(data, len, offset);
+    if (!result.types || result.count == 0) return result; /* failed or empty — not cached */
+
+    B2TTCacheSlot *victim = &g_tt_cache[0];
+    for (int i = 0; i < B2_TT_CACHE_SLOTS; i++) {
+        if (!g_tt_cache[i].payload) {
+            victim = &g_tt_cache[i];
+            break;
+        }
+        if (g_tt_cache[i].age < victim->age) victim = &g_tt_cache[i];
+    }
+    uint8_t *payload_copy = malloc(payload_len);
+    if (!payload_copy) return result;
+    TypeTableResult own;
+    if (!tt_result_copy_retained(&result, &own)) {
+        free(payload_copy);
+        return result;
+    }
+    if (victim->payload) {
+        free(victim->payload);
+        type_table_result_free(&victim->result);
+    }
+    memcpy(payload_copy, payload, payload_len);
+    victim->payload = payload_copy;
+    victim->payload_len = payload_len;
+    victim->hash = hash;
+    victim->result = own;
+    victim->age = ++g_tt_cache_age;
+    return result;
+}
+
+static TypeTableResult read_type_table_section_uncached(const uint8_t *data, size_t len,
+                                                        size_t *offset)
 {
     /* Input bytes are untrusted: every varint is bounds-checked, every
      * child/root index is validated against entry_count, and child-count

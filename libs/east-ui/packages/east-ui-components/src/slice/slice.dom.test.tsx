@@ -880,7 +880,9 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
 
         // Selecting EU narrows the row feed (what a sibling Table sees)…
         fireEvent.click(screen.getByLabelText("Filter to EU"));
-        expect(handle.read().filters[0].value.op.value).toEqual(new Set(["EU"]));
+        // The store holds East Sets (SortedSet), so compare membership rather
+        // than the container: toEqual would demand a plain JS Set.
+        expect([...handle.read().filters[0].value.op.value].sort()).toEqual(["EU"]);
         expect(handle.resultCount()).toBe(2n);
         // …but the facet options are SELF-EXCLUDING: NA is still offered.
         expect(handle.facetGroups().map((g: { key: string }) => g.key).sort()).toEqual(["EU", "NA"]);
@@ -888,7 +890,7 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
         // Adding NA ORs within the field — both regions' rows return.
         rerender(<ChakraProvider value={system}><EastChakraSliceLegend value={{ slice: handle } as never} /></ChakraProvider>);
         fireEvent.click(screen.getByLabelText("Filter to NA"));
-        expect(handle.read().filters[0].value.op.value).toEqual(new Set(["EU", "NA"]));
+        expect([...handle.read().filters[0].value.op.value].sort()).toEqual(["EU", "NA"]);
         expect(handle.resultCount()).toBe(3n);
     });
 

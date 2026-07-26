@@ -3,7 +3,7 @@
  * de-duplication during decode.
  */
 
-#include "internal.h"
+#include "../internal.h"
 
 #if defined(_MSC_VER)
 #include <intrin.h> /* _umul128 */

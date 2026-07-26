@@ -1,0 +1,4 @@
+# Locally-built @elaraai wheels/tarballs served by src/localStack.ts so the
+# environment e2e materializes THIS tree's runtime rather than the last
+# release. Rebuilt on demand; never committed.
+.local-stack/

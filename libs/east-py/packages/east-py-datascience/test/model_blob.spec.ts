@@ -35,11 +35,12 @@ test("ModelBlobType beast2 type-descriptor is byte-stable (TS reference)", () =>
     const bytes = encodeBeast2For(EastTypeType)(toEastTypeValue(ModelBlobType));
     const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
 
-    // The TS (reference-implementation) hash. The structural type is identical
-    // across the TS and Python (east-c) runtimes, but east-c currently encodes the
-    // XGBoost cases differently — each repeats an `Option<Vector<Integer>>` field and
-    // east-c does not yet intern structurally-equal composite sub-types the way the TS
-    // constructors do (it emits `84aaec7f…` instead). When east-c gains that interning
-    // (elaraai/east-workspace#83), the runtimes converge on this value.
-    assert.equal(hash, "02fff35cc5345cb78e3475eb78cf2ccb635c0e052595051f13e44da3c7de2c0a");
+    // The TS (reference-implementation) hash, over the v5 container — the
+    // encoder default since elaraai/east-workspace#416. east-c reproduces these
+    // 609 bytes exactly when it decodes and re-encodes them, so the two runtimes
+    // now agree on this type's canonical wire form. (What has not been
+    // re-measured here is east-c encoding a natively *constructed* ModelBlobType:
+    // that path depends on east-c interning structurally-equal composite
+    // sub-types the way the TS constructors do — elaraai/east-workspace#83.)
+    assert.equal(hash, "2992ba0ab10d18461b4cdde700cbe3c66abf49dfeb4abb679962742eb87468eb");
 });

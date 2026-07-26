@@ -189,7 +189,17 @@ Task → What do you need?
     │
     └─ Serialization
         ├─ IR → fn.toIR(), ir.toJSON(), EastIR.fromJSON(data).compile(platform)
-        └─ Data → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
+        ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
+        └─ Data, from TypeScript (host side, `@elaraai/east`) — see "Binary serialization (beast2)"
+            ├─ Whole value → encodeBeast2For(T)(value) / decodeBeast2For(T)(blob)
+            │   └─ Don't know the type? → decodeBeast2(blob) → { type, value }
+            ├─ Collection too big for memory
+            │   ├─ Write → new Beast2Writer(T, sink); w.write(batch); w.finish()  — memory is ONE batch
+            │   │   └─ already in memory → encodeBeast2SegmentsFor(T)(batches)
+            │   ├─ Read a batch at a time → iterBeast2SegmentsFor(T)(blob)   — O(segment)
+            │   └─ Read whole (batches merge) → decodeBeast2For(T)(blob)
+            ├─ Random access by row → openBeast2PagesFor(T)(blob) → .elementCount, .segment(i), .element(row)
+            └─ In a browser (no node:zlib) → decodeBeast2ForAsync(T)(blob)
 ```
 
 ## Type System Summary
@@ -358,6 +368,69 @@ and the e3 runner loads it. Two rules then apply:
 See **east-project** for the full wiring (the `./platform` export, the
 `--platform` scaffold) and **e3** for the task runner; **east-py** for the Python
 sibling (`@platform_function`).
+
+### Binary serialization (beast2)
+
+`East.Blob.encodeBeast(value, 'v2')` is the builtin you call **inside** an East
+function. The functions below are the **host-side TypeScript** API for the same
+format — you call them from ordinary TypeScript, not from an East body.
+
+Blobs are self-describing and the container version is sniffed on read, so a
+decoder built for a type reads any version that type was written in. There is
+no call-site change to adopt a newer container.
+
+| Signature | Description |
+|-----------|-------------|
+| **Whole value** |
+| `encodeBeast2For(T, opts?): (value) => Uint8Array` | Curried encoder. `opts.version` picks the container (`4` default, `5`); `opts.codec` (`"deflate"` default \| `"none"`) and `opts.index` apply to v5 |
+| `decodeBeast2For(T, opts?): (blob) => ValueTypeOf<T>` | Curried decoder; accepts **any** container version. `opts.platform` supplies platform fns for decoded East functions |
+| `decodeBeast2(blob, opts?): { type, value }` | Decode without knowing the type — reads the type embedded in the blob |
+| `decodeBeast2ForAsync(T, opts?): (blob) => Promise<…>` | Same as `decodeBeast2For`, but decompresses via `DecompressionStream` — use in browsers, where `node:zlib` is unavailable |
+| `encodeEastIR(eastIR)` / `decodeEastIR(blob)` | A program plus its source map, so `loc_id`s stay resolvable across processes |
+| **Collections larger than memory** (v5) |
+| `new Beast2Writer(T, sink, opts?)` | Append-only writer. `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch, never the collection; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void` |
+| `encodeBeast2SegmentsFor(T, opts?): (batches) => Uint8Array` | In-memory convenience over the writer |
+| `iterBeast2SegmentsFor(T, opts?): (blob) => Generator` | Yields one decoded collection per segment — O(segment) decoded memory |
+| `openBeast2PagesFor(T, opts?): (blob) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)` and `.element(row)` decode only the segment they touch |
+
+**Example:**
+```typescript
+import { createWriteStream } from "node:fs";
+import {
+    ArrayType, StructType, StringType, IntegerType,
+    Beast2Writer, iterBeast2SegmentsFor, openBeast2PagesFor, decodeBeast2For,
+} from "@elaraai/east";
+
+const Rows = ArrayType(StructType({ id: IntegerType, name: StringType }));
+
+// Write a collection that never exists in memory in full.
+const out = createWriteStream("rows.beast2");
+const writer = new Beast2Writer(Rows, bytes => out.write(bytes));
+for (const batch of batches) writer.write(batch);   // one segment each
+writer.finish();
+
+const blob = new Uint8Array(readFileSync("rows.beast2"));
+
+// Read it whole — segments merge on decode.
+decodeBeast2For(Rows)(blob);                        // all rows
+
+// Or a batch at a time, holding only one segment.
+for (const segment of iterBeast2SegmentsFor(Rows)(blob)) consume(segment);
+
+// Or address a single row without decoding the rest.
+const pages = openBeast2PagesFor(Rows)(blob);
+pages.elementCount;                                 // O(1), from the index
+pages.element(4_000_000);                           // decodes ONE segment
+```
+
+**Notes:**
+- Merging on decode follows the collection: **Array** concatenates, **Set**
+  unions, **Dict** keeps the last occurrence of a key (update semantics).
+- `write()` skips empty batches, so a segment count is never zero.
+- Streaming and paging are v5-only — v4 cannot be appended to, by construction.
+- The writer defaults to self-contained segments plus an index, which is what
+  makes `openBeast2PagesFor` and parallel decode possible; pass
+  `{ selfContained: false }` only if you need aliasing to span segments.
 
 ## Related skills
 

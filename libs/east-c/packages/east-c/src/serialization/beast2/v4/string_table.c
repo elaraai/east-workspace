@@ -5,7 +5,7 @@
  * with deduplication.  Decode side: simple array of (string, length).
  */
 
-#include "internal.h"
+#include "../internal.h"
 
 /* ================================================================== */
 /*  Beast2 v2 String Table                                             */

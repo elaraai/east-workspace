@@ -27,15 +27,20 @@ set(EAST_C_SOURCES
     src/serialization/json.c
     src/serialization/beast.c
     src/serialization/beast2/tags.c
-    src/serialization/beast2/string_table.c
     src/serialization/beast2/type_table.c
-    src/serialization/beast2/backref.c
-    src/serialization/beast2/dedup.c
-    src/serialization/beast2/value_encode.c
-    src/serialization/beast2/value_decode.c
     src/serialization/beast2/full.c
-    src/serialization/beast2/sourcemap_table.c
-    src/serialization/beast2/value_table.c
+    src/serialization/beast2/v4/string_table.c
+    src/serialization/beast2/v4/backref.c
+    src/serialization/beast2/v4/dedup.c
+    src/serialization/beast2/v4/value_encode.c
+    src/serialization/beast2/v4/value_decode.c
+    src/serialization/beast2/v4/container.c
+    src/serialization/beast2/v4/sourcemap_table.c
+    src/serialization/beast2/v4/value_table.c
+    src/serialization/beast2/v5/deflate.c
+    src/serialization/beast2/v5/codec.c
+    src/serialization/beast2/v5/container.c
+    src/serialization/beast2/v5/stream.c
     src/serialization/csv.c
     src/serialization/east_parser.c
     src/serialization/east_printer.c
@@ -71,6 +76,29 @@ if(NOT TARGET btreec)
     endif()
 endif()
 target_link_libraries(east-c PRIVATE btreec)
+# beast2 v5's baseline frame codec is raw DEFLATE, provided by the vendored
+# single-file miniz (zlib-compatible streams, no system dependency — builds
+# under MSVC/Ninja on windows-latest unchanged). Declared with the same
+# defensive if(NOT TARGET) shape as btreec so east-py's direct
+# add_subdirectory of this package resolves it too.
+if(NOT TARGET miniz)
+    include(FetchContent)
+    FetchContent_Declare(
+        miniz
+        URL https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
+        URL_HASH SHA256=ada38db0b703a56d3dd6d57bf84a9c5d664921d870d8fea4db153979fb5332c5
+    )
+    FetchContent_GetProperties(miniz)
+    if(NOT miniz_POPULATED)
+        FetchContent_Populate(miniz)
+    endif()
+    add_library(miniz STATIC ${miniz_SOURCE_DIR}/miniz.c)
+    target_include_directories(miniz PUBLIC ${miniz_SOURCE_DIR})
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(miniz PRIVATE -w)
+    endif()
+endif()
+target_link_libraries(east-c PRIVATE miniz)
 # libm is part of the CRT on Windows/MSVC; only link the separate libm elsewhere.
 if(NOT WIN32)
     target_link_libraries(east-c PRIVATE m)
@@ -109,7 +137,7 @@ endif()
 if(EAST_C_BUILD_OBJECT)
     add_library(east-c-obj OBJECT ${EAST_C_SOURCES})
     target_include_directories(east-c-obj PUBLIC include)
-    target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec)
+    target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec miniz)
     # Mark east-c's extern DATA singletons (the type/value globals) dllexport so
     # they're in the DLL's export table; consumers see them as dllimport. Functions
     # auto-export via WINDOWS_EXPORT_ALL_SYMBOLS and need no marker. (EAST_DATA is a
@@ -191,3 +219,10 @@ add_executable(profile_collections scripts/profile_collections.c)
 target_link_libraries(profile_collections east-c)
 add_executable(profile_beast2_decode scripts/profile_beast2_decode.c)
 target_link_libraries(profile_beast2_decode east-c)
+
+# beast2 v4-vs-v5 benchmark (issue #416/#417). Reads the shared corpus written
+# by libs/east/contrib/beast2-bench/generate-corpus.ts and emits JSON; see that
+# directory's README.md for the three-runtime pipeline. Build Release for real
+# numbers.
+add_executable(bench_beast2_versions scripts/bench_beast2_versions.c)
+target_link_libraries(bench_beast2_versions east-c)

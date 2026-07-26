@@ -6,7 +6,7 @@
  * source map) and struct/variant dedup for decode.
  */
 
-#include "internal.h"
+#include "../internal.h"
 
 void beast2_enc_ctx_init(Beast2EncodeCtx *ctx)
 {

@@ -10,7 +10,7 @@
 All beast2 serialization goes through east-c. No Python fallback.
 """
 
-from libc.stdint cimport uint8_t
+from libc.stdint cimport int32_t, uint8_t
 from libc.stddef cimport size_t
 from libc.stdlib cimport free
 
@@ -36,6 +36,17 @@ cdef void _ensure_eastc_runtime():
     _eastc.east_set_thread_context(_platform, _builtins)
     _eastc.east_type_of_type_init()
     _eastc_initialized = True
+
+
+cdef object _consume_eastc_error(str fallback, object exc_type=RuntimeError):
+    """Drain east-c's error slot and raise. Always consuming the slot matters:
+    a stale message would make the next encode's own error check misfire."""
+    cdef char *err = _eastc.east_builtin_get_error()
+    if err != NULL:
+        msg = (<bytes>err).decode("utf-8", errors="replace")
+        free(err)
+        raise exc_type(msg)
+    raise exc_type(fallback)
 
 
 # ─── Headerless ───────────────────────────────────────────────────────────
@@ -80,7 +91,7 @@ cpdef object _decode_beast2(object py_type, bytes data):
     cdef _eastc.EastValue* c_val = _eastc.east_beast2_decode(data_ptr, data_len, c_type)
     if c_val == NULL:
         _eastc.east_type_release(c_type)
-        raise ValueError("beast2 decode failed in east-c")
+        _consume_eastc_error("beast2 decode failed in east-c", ValueError)
 
     try:
         result = c_value_to_py(c_val, c_type)
@@ -124,6 +135,33 @@ cpdef bytes _encode_beast2_full(object py_type, object value):
     return result
 
 
+cpdef bytes _encode_beast2_v4(object py_type, object value):
+    """Pin the legacy v4 container. Same shape as _encode_beast2_full, which
+    writes whatever the current default is (v5 since #416)."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_v4(c_val, c_type)
+    _eastc.east_value_release(c_val)
+
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 v4 encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
 cpdef object _decode_beast2_full(object py_type, bytes data):
     _ensure_eastc_runtime()
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
@@ -133,7 +171,7 @@ cpdef object _decode_beast2_full(object py_type, bytes data):
     cdef _eastc.EastValue* c_val = _eastc.east_beast2_decode_full(data_ptr, data_len, c_type)
     if c_val == NULL:
         _eastc.east_type_release(c_type)
-        raise ValueError("beast2 full decode failed in east-c")
+        _consume_eastc_error("beast2 full decode failed in east-c", ValueError)
 
     try:
         result = c_value_to_py(c_val, c_type)
@@ -160,11 +198,29 @@ def decode_beast2_for(type_val, options=None):
     return decode
 
 
-def encode_beast2_with_header_for(type_val):
-    """Create encoder for beast2-full format (magic + type schema + value)."""
-    def encode(value):
-        return _encode_beast2_full(type_val, value)
-    return encode
+def encode_beast2_with_header_for(type_val, *, version=None):
+    """Create encoder for beast2-full format (magic + type schema + value).
+
+    ``version`` pins the container: ``5`` (the default — the segment-terminated
+    record stream) or ``4`` (the legacy globally-sectioned container, for a
+    reader that predates v5). Leave it unset to follow the runtime default,
+    which is what TypeScript's ``encodeBeast2For(type)`` and the East builtin
+    ``Blob.encodeBeast(value, 'v2')`` do. Decoding never needs a version —
+    every entry point dispatches on the blob's magic.
+    """
+    if version is None:
+        def encode(value):
+            return _encode_beast2_full(type_val, value)
+        return encode
+    if version == 4:
+        def encode(value):
+            return _encode_beast2_v4(type_val, value)
+        return encode
+    if version == 5:
+        def encode(value):
+            return _encode_beast2_v5(type_val, value, "deflate", False)
+        return encode
+    raise ValueError(f"beast2: unsupported container version {version!r} (expected 4 or 5)")
 
 
 def decode_beast2_with_header_for(type_val, options=None):
@@ -172,6 +228,202 @@ def decode_beast2_with_header_for(type_val, options=None):
     def decode(data):
         return _decode_beast2_full(type_val, data)
     return decode
+
+
+# ─── v5: segment-terminated record stream (issue #416) ────────────────────
+
+cdef int32_t _codec_id(object codec) except -1:
+    if codec == "none":
+        return 0
+    if codec == "deflate":
+        return 1
+    raise ValueError(f"beast2 v5 codec must be 'none' or 'deflate', not {codec!r}")
+
+
+cpdef bytes _encode_beast2_v5(object py_type, object value, object codec, bint with_index):
+    _ensure_eastc_runtime()
+    cdef int32_t codec_id = _codec_id(codec)
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_v5(c_val, c_type, codec_id, with_index)
+    _eastc.east_value_release(c_val)
+
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 v5 encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
+cdef class _Beast2WriterCore:
+    """Thin wrapper over east-c's streaming v5 writer. The Python-facing
+    Beast2Writer in east.serialization.beast2 owns the output stream and
+    drains pending bytes after every operation."""
+
+    cdef _eastc.Beast2StreamWriter* _w
+    cdef _eastc.EastType* _type
+
+    def __cinit__(self, object py_type, object codec, bint self_contained, bint with_index):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        self._type = py_type_to_c(py_type)
+        self._w = _eastc.east_beast2_writer_new(self._type, codec_id, self_contained, with_index)
+        if self._w == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 v5 writer construction failed")
+
+    def write(self, object batch):
+        cdef _eastc.EastValue* c_val = py_value_to_c(batch, self._type)
+        cdef bint ok = _eastc.east_beast2_writer_write(self._w, c_val)
+        _eastc.east_value_release(c_val)
+        if not ok:
+            _consume_eastc_error("east-c beast2 v5 writer write failed")
+
+    def take(self):
+        cdef _eastc.ByteBuffer* buf = _eastc.east_beast2_writer_take(self._w)
+        if buf == NULL:
+            return b""
+        cdef bytes result = buf.data[:buf.len]
+        _eastc.byte_buffer_free(buf)
+        return result
+
+    def finish(self):
+        if not _eastc.east_beast2_writer_finish(self._w):
+            _consume_eastc_error("east-c beast2 v5 writer finish failed")
+
+    def __dealloc__(self):
+        if self._w != NULL:
+            _eastc.east_beast2_writer_free(self._w)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
+cdef class _Beast2ReaderCore:
+    """Thin wrapper over east-c's sequential v5 segment reader. Holds a
+    contiguous view of the source bytes for the reader's whole lifetime
+    (the C reader borrows the buffer)."""
+
+    cdef _eastc.Beast2SegmentReader* _r
+    cdef _eastc.EastType* _type
+    cdef const uint8_t[::1] _view
+
+    def __cinit__(self, object py_type, object data):
+        _ensure_eastc_runtime()
+        self._view = data
+        self._type = py_type_to_c(py_type)
+        cdef const uint8_t* ptr = NULL
+        if self._view.shape[0] > 0:
+            ptr = &self._view[0]
+        self._r = _eastc.east_beast2_reader_new(ptr, <size_t>self._view.shape[0], self._type)
+        if self._r == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 v5 reader construction failed")
+
+    def next(self):
+        """Decode the next segment, or return None at the terminator."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_reader_next(self._r)
+        if c_val == NULL:
+            if _eastc.east_beast2_reader_done(self._r):
+                return None
+            _consume_eastc_error("east-c beast2 v5 reader failed")
+        try:
+            return c_value_to_py(c_val, self._type)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def counts(self):
+        """Return (segment_count, element_count) from the index, or None."""
+        cdef size_t segs = 0
+        cdef size_t elems = 0
+        if not _eastc.east_beast2_reader_counts(self._r, &segs, &elems):
+            return None
+        return (segs, elems)
+
+    def __dealloc__(self):
+        if self._r != NULL:
+            _eastc.east_beast2_reader_free(self._r)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
+cdef class _Beast2PagesCore:
+    """Thin wrapper over east-c's v5 paging reader. Holds a contiguous view of
+    the source bytes for the pages object's whole lifetime — the C pager
+    borrows the buffer and every segment() call reads from it, so the view
+    must live on the extension type, never as a local."""
+
+    cdef _eastc.Beast2Pages* _p
+    cdef _eastc.EastType* _type
+    cdef const uint8_t[::1] _view
+
+    def __cinit__(self, object py_type, object data):
+        _ensure_eastc_runtime()
+        self._view = data
+        self._type = py_type_to_c(py_type)
+        cdef const uint8_t* ptr = NULL
+        if self._view.shape[0] > 0:
+            ptr = &self._view[0]
+        self._p = _eastc.east_beast2_pages_new(ptr, <size_t>self._view.shape[0], self._type)
+        if self._p == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 v5 pages construction failed")
+
+    def segment_count(self):
+        return _eastc.east_beast2_pages_segment_count(self._p)
+
+    def element_count(self):
+        return _eastc.east_beast2_pages_element_count(self._p)
+
+    def self_contained(self):
+        return _eastc.east_beast2_pages_self_contained(self._p) != 0
+
+    def counts(self):
+        """Per-segment element (pair) counts, in segment order."""
+        cdef size_t n = 0
+        cdef const size_t* c = _eastc.east_beast2_pages_counts(self._p, &n)
+        if c == NULL:
+            return ()
+        return tuple([c[k] for k in range(n)])
+
+    def segment(self, object i):
+        """Seek to and decode exactly one segment."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_segment(self._p, <size_t>i)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 pages segment failed")
+        try:
+            return c_value_to_py(c_val, self._type)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def element(self, object row):
+        """Decode the one element at `row` (Array roots only)."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_element(self._p, <size_t>row)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 pages element failed")
+        try:
+            return c_value_to_py(c_val, self._type.data.element)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def __dealloc__(self):
+        if self._p != NULL:
+            _eastc.east_beast2_pages_free(self._p)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
 
 
 cpdef str beast2_auto_to_east_text(bytes data):
@@ -185,11 +437,11 @@ cpdef str beast2_auto_to_east_text(bytes data):
 
     cdef _eastc.EastType *c_type = _eastc.east_beast2_extract_type(data_ptr, data_len)
     if c_type == NULL:
-        raise ValueError("beast2 auto-decode: input is not a beast2-full blob")
+        _consume_eastc_error("beast2 auto-decode: input is not a beast2-full blob", ValueError)
     cdef _eastc.EastValue *c_val = _eastc.east_beast2_decode_auto(data_ptr, data_len)
     if c_val == NULL:
         _eastc.east_type_release(c_type)
-        raise ValueError("beast2 auto-decode failed")
+        _consume_eastc_error("beast2 auto-decode failed", ValueError)
 
     cdef char *text = _eastc.east_print_value(c_val, c_type)
     _eastc.east_value_release(c_val)

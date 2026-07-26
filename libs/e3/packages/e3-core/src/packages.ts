@@ -14,7 +14,7 @@ import * as fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import yauzl from 'yauzl';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, isEastDict } from '@elaraai/east';
 import { DataflowRunType, ExecutionStatusType, DatasetRefType, EnvironmentSpecType, environmentSpecObjectHashes, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
 import type { PackageObject, TaskObject, FunctionObject } from '@elaraai/e3-types';
 import {
@@ -467,7 +467,7 @@ export async function packageExport(
   }
 
   // Collect value objects from inline per-dataset refs and write data/ ref files
-  if (packageObject.data.refs instanceof Map) {
+  if (isEastDict(packageObject.data.refs)) {
     const refEncoder = encodeBeast2For(DatasetRefType);
     for (const [refPath, ref] of packageObject.data.refs) {
       if (ref.type === 'value' && typeof ref.value?.hash === 'string') {

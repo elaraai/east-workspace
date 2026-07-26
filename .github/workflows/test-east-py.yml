@@ -118,6 +118,10 @@ jobs:
         working-directory: libs/east-py
         run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
+      - name: Run east-py serialization tests
+        working-directory: libs/east-py/packages/east-py
+        run: uv run pytest tests/serialization -q --no-cov
+
   test-east-py-std:
     name: Test east-py-std (${{ matrix.os }})
     needs: export-ir

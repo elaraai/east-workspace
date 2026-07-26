@@ -130,6 +130,10 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   — `find_spec` + lazy import guard pattern.
 - [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md)
   — canonical `make` targets.
+- [`docs/conventions/BEAST2_WIRE_VERSION.md`](docs/conventions/BEAST2_WIRE_VERSION.md)
+  — where the beast2 container version is declared, what it guarantees
+  (readers accept every released version; writers are lockstep), and why the
+  environment e2e uses a local stand-in registry rather than the last release.
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
 - [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)

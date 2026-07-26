@@ -172,10 +172,15 @@ export class BlobExpr extends Expr<BlobType> {
    * Decodes a value from East's binary format (BEAST).
    *
    * @param type - The expected East type of the decoded value
-   * @param version - The BEAST format version ('v1' or 'v2', default 'v1')
+   * @param version - The BEAST format **family** ('v1' or 'v2', default 'v1')
    * @returns An expression of the specified type containing the decoded value
    *
    * @throws East runtime error if the blob does not contain a valid BEAST encoding of the specified type
+   *
+   * @remarks
+   * `'v2'` names the beast2 family, not a container version: it decodes every
+   * beast2 container ever released (the decoder dispatches on the blob's magic
+   * byte), so a `'v2'` blob written by an older release still reads here.
    *
    * @example
    * ```ts

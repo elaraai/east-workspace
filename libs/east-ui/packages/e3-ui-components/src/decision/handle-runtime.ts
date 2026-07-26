@@ -33,6 +33,8 @@ import {
     variant,
     some,
     none,
+    isEastSet,
+    isEastDict,
     type ValueTypeOf,
     type EastTypeValue,
 } from '@elaraai/east';
@@ -118,8 +120,8 @@ function stableStringify(v: unknown): string {
     return JSON.stringify(v, (_k, x) => {
         if (typeof x === 'bigint') return `${x}n`;
         if (x instanceof Date) return x.toISOString();
-        if (x instanceof Set) return [...x].sort();
-        if (x instanceof Map) return [...x.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+        if (isEastSet(x)) return [...x].sort();
+        if (isEastDict(x)) return [...x.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
         return x;
     });
 }

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { BufferWriter, BufferReader } from "../binary-utils.js";
+import { BufferWriter, BufferReader } from "../../binary-utils.js";
 
 /**
  * Write the string table section:

@@ -4,8 +4,13 @@
  */
 import sorted_btree from "sorted-btree";
 
-// Deal with CJS default import
-const BTree = sorted_btree.default;
+// Deal with CJS default import. Node's ESM interop hands back the whole
+// `module.exports`, so the class is under `.default`; Vite/vitest (and other
+// bundlers) already unwrap it, leaving `.default` undefined. Take whichever is
+// callable — decoded Dicts/Sets are SortedMap/SortedSet, so getting this wrong
+// throws "BTree is not a constructor" the moment a browser decodes a blob.
+const BTree = (sorted_btree as unknown as { default?: typeof sorted_btree.default }).default
+  ?? (sorted_btree as unknown as typeof sorted_btree.default);
 type BTree<K, T> = sorted_btree.default<K, T>;
 
 // Note: Enhanced SetIterator types from ES2024 aren't fully stabilized in TypeScript yet
@@ -332,4 +337,28 @@ export class SortedSet<K> implements Set<K> {
         return "SortedSet";
     }
 
+}
+/**
+ * Tests whether a value is an East Set.
+ *
+ * @param value - the value to test
+ * @returns `true` for a {@link SortedSet} or a plain `Set`
+ *
+ * @remarks
+ * Use this instead of `value instanceof Set`. {@link SortedSet} implements the
+ * `Set` interface but does not extend `Set`, so `instanceof Set` is `false`
+ * for it — and every East Set that comes out of a decoder or out of a compiled
+ * East program is a {@link SortedSet}. A bare `instanceof Set` therefore reads
+ * as "not a Set" for exactly the values East actually produces, which fails
+ * silently: guards fall through and references go unseen.
+ *
+ * @example
+ * ```ts
+ * const decoded = decodeBeast2For(SetType(StringType))(blob);
+ * decoded instanceof Set   // false — it is a SortedSet
+ * isEastSet(decoded)       // true
+ * ```
+ */
+export function isEastSet(value: unknown): value is Set<any> {
+    return value instanceof Set || value instanceof SortedSet;
 }

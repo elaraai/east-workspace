@@ -4,8 +4,13 @@
  */
 import sorted_btree from "sorted-btree";
 
-// Deal with CJS default import
-const BTree = sorted_btree.default;
+// Deal with CJS default import. Node's ESM interop hands back the whole
+// `module.exports`, so the class is under `.default`; Vite/vitest (and other
+// bundlers) already unwrap it, leaving `.default` undefined. Take whichever is
+// callable — decoded Dicts/Sets are SortedMap/SortedSet, so getting this wrong
+// throws "BTree is not a constructor" the moment a browser decodes a blob.
+const BTree = (sorted_btree as unknown as { default?: typeof sorted_btree.default }).default
+  ?? (sorted_btree as unknown as typeof sorted_btree.default);
 type BTree<K, T> = sorted_btree.default<K, T>;
 
 /**
@@ -251,4 +256,28 @@ export class SortedMap<K, T> implements Map<K, T> {
         }
         return map;
     }
+}
+/**
+ * Tests whether a value is an East Dict.
+ *
+ * @param value - the value to test
+ * @returns `true` for a {@link SortedMap} or a plain `Map`
+ *
+ * @remarks
+ * Use this instead of `value instanceof Map`. {@link SortedMap} implements the
+ * `Map` interface but does not extend `Map`, so `instanceof Map` is `false`
+ * for it — and every East Dict that comes out of a decoder or out of a compiled
+ * East program is a {@link SortedMap}. A bare `instanceof Map` therefore reads
+ * as "not a Map" for exactly the values East actually produces, which fails
+ * silently: guards fall through and references go unseen.
+ *
+ * @example
+ * ```ts
+ * const decoded = decodeBeast2For(DictType(StringType, IntegerType))(blob);
+ * decoded instanceof Map   // false — it is a SortedMap
+ * isEastDict(decoded)      // true
+ * ```
+ */
+export function isEastDict(value: unknown): value is Map<any, any> {
+    return value instanceof Map || value instanceof SortedMap;
 }

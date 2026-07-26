@@ -8,10 +8,10 @@
  * mutable containers reference them by varint index instead of inline or backref.
  */
 
-import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
-import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type RuntimeContext } from "../../compile.js";
-import type { SourceMap } from "../../location.js";
-import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
+import { toEastTypeValue, type EastTypeValue } from "../../../type_of_type.js";
+import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type RuntimeContext } from "../../../compile.js";
+import type { SourceMap } from "../../../location.js";
+import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../../ir.js";
 import type { TypeTableBuilder } from "./type-table.js";
 
 // Kind tags matching beast2 type table tag bytes

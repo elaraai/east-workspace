@@ -1,4 +1,4 @@
-#include "internal.h"
+#include "../internal.h"
 
 /*  BEAST2 v4 Decoder                                                  */
 /* ================================================================== */

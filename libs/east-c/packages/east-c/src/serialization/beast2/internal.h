@@ -51,12 +51,35 @@
 /* Map EastTypeKind → tag byte */
 extern const uint8_t BEAST2_TAG_FOR_KIND[];
 
-/* Magic bytes for beast2-full format */
+/* Magic bytes for the beast2 container family (v4 = version byte 0x04) */
 extern const uint8_t BEAST2_MAGIC[8];
+/* v5 container magic (version byte 0x05) and v5 footer magic (0xF5) */
+extern const uint8_t BEAST2_MAGIC_V5[8];
+extern const uint8_t BEAST2_FOOTER_MAGIC_V5[8];
 
 /* Maximum value-decode recursion depth (untrusted input may nest
  * Struct/Variant/Recursive arbitrarily deep) */
 #define BEAST2_MAX_DEPTH 8192
+
+/* ================================================================== */
+/*  Version-specific container entry points                             */
+/*  (public east_beast2_* names dispatch on the magic in full.c)        */
+/* ================================================================== */
+
+/* v4 — globally-sectioned container (v4/container.c) */
+ByteBuffer *east_beast2_v4_encode_full(EastValue *value, EastType *type);
+EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_v4_decode_auto(const uint8_t *data, size_t len);
+IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
+                                 EastSourceMap **source_map_out);
+EastType *east_beast2_v4_extract_type(const uint8_t *data, size_t len);
+
+/* v5 — segment-terminated record stream (v5/container.c) */
+EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_v5_decode_auto(const uint8_t *data, size_t len);
+IRNode *east_beast2_v5_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
+                                 EastSourceMap **source_map_out);
+EastType *east_beast2_v5_extract_type(const uint8_t *data, size_t len);
 
 /* ================================================================== */
 /*  Shared low-level helpers                                            */
@@ -77,6 +100,44 @@ static inline uint32_t b2_hash_ptr(uintptr_t p)
 /* Little-endian float64 helpers */
 void b2_write_float64_le(ByteBuffer *buf, double val);
 double b2_read_float64_le(const uint8_t *data, size_t *offset);
+
+/* True when a value of `type` encodes to ZERO bytes (Null, Never, and
+ * aggregates built only from those). Container decoders bound a declared
+ * element count by the bytes remaining — "every element costs >= 1 byte" —
+ * which is false for these types and would reject a legitimate blob
+ * (e.g. Array<Null>, which TS encodes and decodes happily). */
+bool b2_type_is_zero_width(const EastType *type);
+
+/* Absolute element-count cap applied when the element type is zero-width and
+ * the byte-length bound therefore says nothing. Keeps a tiny malformed blob
+ * from requesting an astronomically large allocation. */
+#define BEAST2_MAX_ZERO_WIDTH_ELEMS ((uint64_t)1 << 28)
+
+/* Is a declared element `count` plausible given `bytes_remaining`?  Non-empty
+ * element types cost >= 1 byte each; zero-width ones cost nothing, so they
+ * fall back to the absolute cap above. */
+static inline bool b2_count_within_bounds(uint64_t count, const EastType *elem_type,
+                                          size_t bytes_remaining)
+{
+    if (b2_type_is_zero_width(elem_type)) return count <= BEAST2_MAX_ZERO_WIDTH_ELEMS;
+    return count <= (uint64_t)bytes_remaining;
+}
+
+/* The same bound for a whole container type: an Array/Set passes on its
+ * element type, a Dict on EITHER half (only one of key/value need carry
+ * bytes). Every site that reads a v5 segment count must use this — the root
+ * segment loop and the streaming reader as much as the nested-value decoder,
+ * since a root Array<Null> reaches only the first of those. */
+static inline bool b2_container_count_within_bounds(uint64_t count, const EastType *container_type,
+                                                    size_t bytes_remaining)
+{
+    if (!container_type) return count <= (uint64_t)bytes_remaining;
+    if (container_type->kind == EAST_TYPE_DICT) {
+        return b2_count_within_bounds(count, container_type->data.dict.key, bytes_remaining) ||
+               b2_count_within_bounds(count, container_type->data.dict.value, bytes_remaining);
+    }
+    return b2_count_within_bounds(count, container_type->data.element, bytes_remaining);
+}
 
 /* ================================================================== */
 /*  String Table (string_table.c)                                       */

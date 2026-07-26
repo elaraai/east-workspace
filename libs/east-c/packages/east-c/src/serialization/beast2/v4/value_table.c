@@ -16,7 +16,7 @@
  *     [element data...]
  */
 
-#include "internal.h"
+#include "../internal.h"
 
 /* ================================================================== */
 /*  Value table init / free                                            */
@@ -364,8 +364,10 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             if (!read_varint_checked(data, entry_end, offset, &eidx)) goto fail;
             if (!read_varint_checked(data, entry_end, offset, &count)) goto fail;
             EastType *etype = (eidx < type_count) ? types[eidx] : NULL;
-            /* Each element costs >= 1 byte in the entry payload */
-            if (count > entry_end - *offset) goto fail;
+            /* Each element costs >= 1 byte in the entry payload — unless the
+             * element type encodes to nothing at all (Array<Null>), where the
+             * byte bound says nothing and a fixed cap is the only guard. */
+            if (!b2_count_within_bounds(count, etype, entry_end - *offset)) goto fail;
             mv.values[i] = east_array_new_with_capacity(etype, (size_t)count);
             break;
         }
@@ -374,7 +376,7 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             if (!read_varint_checked(data, entry_end, offset, &eidx)) goto fail;
             if (!read_varint_checked(data, entry_end, offset, &count)) goto fail;
             EastType *etype = (eidx < type_count) ? types[eidx] : NULL;
-            if (count > entry_end - *offset) goto fail;
+            if (!b2_count_within_bounds(count, etype, entry_end - *offset)) goto fail;
             mv.values[i] = east_set_new_with_capacity(etype, (size_t)count);
             break;
         }
@@ -385,7 +387,10 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             if (!read_varint_checked(data, entry_end, offset, &count)) goto fail;
             EastType *ktype = (kidx < type_count) ? types[kidx] : NULL;
             EastType *vtype = (vidx < type_count) ? types[vidx] : NULL;
-            if (count > entry_end - *offset) goto fail;
+            /* A Dict pair costs >= 1 byte only if key or value is non-empty. */
+            if (!b2_count_within_bounds(count, ktype, entry_end - *offset) &&
+                !b2_count_within_bounds(count, vtype, entry_end - *offset))
+                goto fail;
             mv.values[i] = east_dict_new_with_capacity(ktype, vtype, (size_t)count);
             break;
         }

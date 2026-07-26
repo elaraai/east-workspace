@@ -1,5 +1,6 @@
 #include "east/types.h"
 #include "east/type_of_type.h"
+#include "east/serialization.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,6 +178,11 @@ static void type_free_children(EastType *t)
 
 void east_type_registry_clear(void)
 {
+    /* Purge the beast2 type-section cache first — its slots retain
+     * arena-backed types (and type values) that the arena free below
+     * invalidates regardless of refcount (#417). */
+    east_beast2_type_cache_clear();
+
     /* Free type_of_type globals before arena (they hold refs to arena types) */
     east_type_of_type_free();
 

@@ -14,6 +14,29 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+/**
+ * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
+ *
+ * These fixtures exist to cross a byte-size threshold, so they must not be
+ * compressible: beast2 frames deflate by default (container v5), and a run of
+ * one repeated character shrinks to a few hundred bytes — putting the payload
+ * back under the very threshold the test is probing. A cheap LCG gives content
+ * deflate cannot shrink, without depending on Math.random.
+ */
+function incompressibleString(byteLength: number): string {
+  // Math.imul, not `*`: a 32-bit LCG done in float multiplication loses low
+  // bits past 2^53 and degenerates into a short, highly compressible cycle
+  // (1.1 MB of it deflates to 25 kB). Take the high bits — an LCG's low bits
+  // are weak.
+  let seed = 0x2545f491 >>> 0;
+  const chars = new Array<string>(byteLength);
+  for (let i = 0; i < byteLength; i++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    chars[i] = String.fromCharCode(33 + ((seed >>> 16) % 94)); // printable ASCII: 1 byte in UTF-8
+  }
+  return chars.join('');
+}
+
 import { StringType, encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import { variant } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, computeHash } from '@elaraai/e3-core';
@@ -55,7 +78,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       const opts = await ctx.opts();
 
       // Create a >1MB payload using a large string
-      const largeString = 'x'.repeat(1_100_000);
+      const largeString = incompressibleString(1_100_000);
       const encode = encodeBeast2For(StringType);
       const data = encode(largeString);
       assert.ok(data.byteLength > 1024 * 1024, 'payload should exceed 1MB threshold');
@@ -80,7 +103,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       const ctx = await withStringPackage(t);
       const opts = await ctx.opts();
 
-      const largeString = 'y'.repeat(1_100_000);
+      const largeString = incompressibleString(1_100_001);
       const encode = encodeBeast2For(StringType);
       const data = encode(largeString);
       const expectedHash = computeHash(data);
