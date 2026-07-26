@@ -11,6 +11,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { isEastDict } from '@elaraai/east';
 import { readFileSync } from 'node:fs';
 
 import {
@@ -73,7 +74,7 @@ export function packageTests(setup: TestSetup<TestContext>): void {
 
       const pkg = await packageGet(ctx.config.baseUrl, ctx.repoName, 'test-pkg', '1.0.0', opts);
       // PackageObject has tasks Map with our 'compute' task
-      assert.ok(pkg.tasks instanceof Map);
+      assert.ok(isEastDict(pkg.tasks)); // decoded Dicts are SortedMap, not Map
       assert.strictEqual(pkg.tasks.size, 1);
       assert.ok(pkg.tasks.has('compute'));
     });
