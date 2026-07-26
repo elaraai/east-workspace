@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-core",
-  "version": "1.0.45",
+  "version": "1.0.46",
   "type": "module",
   "description": "East Execution Engine Core - Programmatic API for e3 repository operations",
   "main": "dist/src/index.js",
