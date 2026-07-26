@@ -1,7 +1,7 @@
 # e3 — East Execution Engine
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: all build test lint clean dev link help
+.PHONY: all build test lint clean dev link e2e-stack help
 
 # Default target
 all: build
@@ -27,11 +27,22 @@ lint:
 	@echo "Linting all packages..."
 	pnpm run lint
 
+## Pre-build the local @elaraai stack the environment e2e materializes.
+## Optional: test/integration/src/localStack.ts builds it on demand. Running it
+## as its own step attributes a native-build failure to a named target instead
+## of surfacing as an opaque skip, and keeps `make test` timing honest.
+e2e-stack:
+	@echo "Building local @elaraai python wheels for the environment e2e..."
+	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py
+	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py-std
+	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py-cli
+
 ## Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf packages/*/dist/
 	rm -rf test/*/dist/
+	rm -rf test/integration/.local-stack/
 	@echo "Clean complete"
 
 ## Development setup (build only — deps from monorepo root)

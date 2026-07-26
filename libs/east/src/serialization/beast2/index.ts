@@ -35,6 +35,7 @@ import {
   decodeIRWithSourceMapV5,
 } from "./v5/codec.js";
 import type { Beast2Codec } from "./v5/frames.js";
+import { BEAST2_WRITE_VERSION, type Beast2Version } from "./version.js";
 
 export { MAGIC_BYTES } from "./v4/container.js";
 export { MAGIC_BYTES_V5 } from "./v5/codec.js";
@@ -53,8 +54,7 @@ export {
 // Magic dispatch
 // =============================================================================
 
-/** Container versions selectable by the encode entry points. */
-export type Beast2Version = 4 | 5;
+export { BEAST2_WRITE_VERSION, BEAST2_READ_VERSIONS, type Beast2Version } from "./version.js";
 
 /**
  * Sniffs the container version from a blob's magic bytes.
@@ -113,7 +113,7 @@ export type Beast2EncodeOptions = {
 export function encodeBeast2For(type: EastTypeValue, options?: Beast2EncodeOptions): (value: any) => Uint8Array
 export function encodeBeast2For<T extends EastType>(type: T, options?: Beast2EncodeOptions): (value: ValueTypeOf<T>) => Uint8Array
 export function encodeBeast2For(type: EastTypeValue | EastType, options?: Beast2EncodeOptions): (value: any) => Uint8Array {
-  if ((options?.version ?? 5) === 4) {
+  if ((options?.version ?? BEAST2_WRITE_VERSION) === 4) {
     return encodeBeast2V4For(type as EastTypeValue, options);
   }
   return encodeBeast2V5For(type as EastTypeValue, options);

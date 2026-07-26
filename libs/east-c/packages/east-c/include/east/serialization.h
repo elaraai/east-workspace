@@ -30,9 +30,17 @@ void byte_buffer_write_bytes(ByteBuffer *buf, const uint8_t *data, size_t len);
 ByteBuffer *east_beast2_encode(EastValue *value, EastType *type);
 EastValue *east_beast2_decode(const uint8_t *data, size_t len, EastType *type);
 
-// BEAST2 with header (magic bytes + type schema + value). Writes the current
-// default container — v5 since issue #416; see east_beast2_encode_v4 /
-// east_beast2_encode_v5 below to pin one explicitly.
+// The container version this build's encoders write by default. Kept in
+// lockstep with BEAST2_WRITE_VERSION in
+// libs/east/src/serialization/beast2/version.ts -- scripts/check-wire-compat.mjs
+// (via `make check-version`) fails the build if the two disagree, because the
+// compliance suite pins ONE golden byte string per value and replays it in
+// TypeScript, east-c and east-py alike.
+#define EAST_BEAST2_WRITE_VERSION 5
+
+// BEAST2 with header (magic bytes + type schema + value). Writes
+// EAST_BEAST2_WRITE_VERSION; see east_beast2_encode_v4 / east_beast2_encode_v5
+// below to pin a container explicitly.
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type);
 EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *type);
 // Purge the type-table section skip-cache (#417). Called by

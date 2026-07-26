@@ -35,7 +35,11 @@ static int beast2_detect_version(const uint8_t *data, size_t len)
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
 {
     /* Deflate-framed, no trailing index — the TS encodeBeast2For defaults. */
+#if EAST_BEAST2_WRITE_VERSION == 4
+    return east_beast2_v4_encode_full(value, type);
+#else
     return east_beast2_encode_v5(value, type, EAST_BEAST2_CODEC_DEFLATE, false);
+#endif
 }
 
 ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type)
