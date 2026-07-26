@@ -359,6 +359,73 @@ cdef class _Beast2ReaderCore:
             _eastc.east_type_release(self._type)
 
 
+cdef class _Beast2PagesCore:
+    """Thin wrapper over east-c's v5 paging reader. Holds a contiguous view of
+    the source bytes for the pages object's whole lifetime — the C pager
+    borrows the buffer and every segment() call reads from it, so the view
+    must live on the extension type, never as a local."""
+
+    cdef _eastc.Beast2Pages* _p
+    cdef _eastc.EastType* _type
+    cdef const uint8_t[::1] _view
+
+    def __cinit__(self, object py_type, object data):
+        _ensure_eastc_runtime()
+        self._view = data
+        self._type = py_type_to_c(py_type)
+        cdef const uint8_t* ptr = NULL
+        if self._view.shape[0] > 0:
+            ptr = &self._view[0]
+        self._p = _eastc.east_beast2_pages_new(ptr, <size_t>self._view.shape[0], self._type)
+        if self._p == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 v5 pages construction failed")
+
+    def segment_count(self):
+        return _eastc.east_beast2_pages_segment_count(self._p)
+
+    def element_count(self):
+        return _eastc.east_beast2_pages_element_count(self._p)
+
+    def self_contained(self):
+        return _eastc.east_beast2_pages_self_contained(self._p) != 0
+
+    def counts(self):
+        """Per-segment element (pair) counts, in segment order."""
+        cdef size_t n = 0
+        cdef const size_t* c = _eastc.east_beast2_pages_counts(self._p, &n)
+        if c == NULL:
+            return ()
+        return tuple([c[k] for k in range(n)])
+
+    def segment(self, object i):
+        """Seek to and decode exactly one segment."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_segment(self._p, <size_t>i)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 pages segment failed")
+        try:
+            return c_value_to_py(c_val, self._type)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def element(self, object row):
+        """Decode the one element at `row` (Array roots only)."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_element(self._p, <size_t>row)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 pages element failed")
+        try:
+            return c_value_to_py(c_val, self._type.data.element)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def __dealloc__(self):
+        if self._p != NULL:
+            _eastc.east_beast2_pages_free(self._p)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
 cpdef str beast2_auto_to_east_text(bytes data):
     """Decode a beast2-full blob using its embedded type and return the value
     rendered as east-text. Useful for CLI tools that want to inspect a value

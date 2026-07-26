@@ -302,6 +302,82 @@ static void v5_gate(void)
         printf("  [+] v5 well-known drift and unknown ids are refused\n");
     }
 
+    /* 6b-bis. Paging (random access) over the SAME pinned fixture. It is
+     * indexed and self-contained — the shape random access requires — so it
+     * doubles as the cross-runtime proof that this pager agrees with the
+     * TypeScript Beast2Pages and east-py's open_beast2_pages_for, which
+     * assert these exact values against these exact bytes. */
+    {
+        Beast2Pages *p = east_beast2_pages_new(shared, shared_len, arr_str);
+        if (!p) {
+            printf("FAIL: v5 pages_new: %s\n", east_builtin_get_error());
+            failures++;
+        } else {
+            size_t n_counts = 0;
+            const size_t *counts = east_beast2_pages_counts(p, &n_counts);
+            if (east_beast2_pages_segment_count(p) != 2 ||
+                east_beast2_pages_element_count(p) != 3 || !east_beast2_pages_self_contained(p) ||
+                n_counts != 2 || counts[0] != 2 || counts[1] != 1) {
+                printf("FAIL: v5 pages index totals\n");
+                failures++;
+            }
+
+            /* Each segment decodes standalone from a seek — no scan, and an
+             * EMPTY definition table (a self-contained segment's REF deltas
+             * are relative, so registering a root placeholder like the
+             * sequential reader does would mis-resolve them silently). */
+            const char *want[2] = {"[\"a\", \"b\"]", "[\"c\"]"};
+            for (size_t i = 0; i < 2; i++) {
+                EastValue *seg = east_beast2_pages_segment(p, i);
+                if (!seg) {
+                    printf("FAIL: v5 pages_segment(%zu): %s\n", i, east_builtin_get_error());
+                    failures++;
+                    continue;
+                }
+                char *txt = east_print_value(seg, arr_str);
+                if (!txt || strcmp(txt, want[i]) != 0) {
+                    printf("FAIL: v5 pages_segment(%zu) = %s, want %s\n", i, txt ? txt : "(null)",
+                           want[i]);
+                    failures++;
+                }
+                free(txt);
+                east_value_release(seg);
+            }
+
+            /* element() binary-searches the index and decodes only the owning
+             * segment; the returned value must outlive it (retain-before-release
+             * — east_array_get borrows). */
+            const char *want_elem[3] = {"\"a\"", "\"b\"", "\"c\""};
+            for (size_t row = 0; row < 3; row++) {
+                EastValue *e = east_beast2_pages_element(p, row);
+                if (!e) {
+                    printf("FAIL: v5 pages_element(%zu): %s\n", row, east_builtin_get_error());
+                    failures++;
+                    continue;
+                }
+                char *txt = east_print_value(e, &east_string_type);
+                if (!txt || strcmp(txt, want_elem[row]) != 0) {
+                    printf("FAIL: v5 pages_element(%zu) = %s, want %s\n", row, txt ? txt : "(null)",
+                           want_elem[row]);
+                    failures++;
+                }
+                free(txt);
+                east_value_release(e);
+            }
+
+            /* Out of range must report, never return a value. */
+            if (east_beast2_pages_segment(p, 2) || east_beast2_pages_element(p, 3)) {
+                printf("FAIL: v5 pages accepted an out-of-range index\n");
+                failures++;
+            } else {
+                free(east_builtin_get_error());
+            }
+
+            if (failures == 0) printf("  [+] v5 paging seeks segments and rows by index\n");
+            east_beast2_pages_free(p);
+        }
+    }
+
     /* 6c. Well-known round-trip through encode_v5: a type value under
      * east_type_type must emit the well-known section (kind 1, id 2). */
     {

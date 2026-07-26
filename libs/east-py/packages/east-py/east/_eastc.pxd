@@ -389,6 +389,18 @@ cdef extern from "east/serialization.h":
                                    size_t *element_count)
     void east_beast2_reader_free(Beast2SegmentReader *r)
 
+    # v5 paging reader — random access over an indexed, self-contained blob
+    ctypedef struct Beast2Pages:
+        pass
+    Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t length, EastType *type)
+    size_t east_beast2_pages_segment_count(Beast2Pages *p)
+    size_t east_beast2_pages_element_count(Beast2Pages *p)
+    bint east_beast2_pages_self_contained(Beast2Pages *p)
+    const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
+    EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
+    EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
+    void east_beast2_pages_free(Beast2Pages *p)
+
     # JSON serialization
     char *east_json_encode(EastValue *value, EastType *type)
     EastValue *east_json_decode(const char *json, EastType *type)

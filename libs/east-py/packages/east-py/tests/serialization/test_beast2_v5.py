@@ -31,6 +31,7 @@ from east.serialization.beast2 import (
     encode_beast2_v5_for,
     encode_beast2_with_header_for,
     iter_beast2_segments_for,
+    open_beast2_pages_for,
     read_beast2_index,
 )
 
@@ -201,3 +202,71 @@ def test_malformed_streams_are_loud():
     unknown[7] = 0x77
     with pytest.raises((RuntimeError, ValueError)):
         decode_beast2_with_header_for(AT)(bytes(unknown))
+
+
+# ── Paging (random access) ────────────────────────────────────────────────
+
+
+def test_paging_reads_the_cross_runtime_fixture_without_scanning():
+    """SHARED_HEX is pinned in all three runtimes; all three must page it alike.
+
+    The fixture is indexed and self-contained, which is exactly the shape
+    random access requires — so it doubles as the cross-runtime proof that
+    east-c's pager agrees with the TypeScript Beast2Pages.
+    """
+    pages = open_beast2_pages_for(AT)(bytes.fromhex(SHARED_HEX))
+
+    assert pages.segment_count == 2
+    assert pages.element_count == 3
+    assert pages.self_contained is True
+    assert pages.counts == (2, 1)
+
+    # Each segment decodes standalone — one seek, one frame.
+    assert list(pages.segment(0)) == ["a", "b"]
+    assert list(pages.segment(1)) == ["c"]
+
+    # element() binary-searches the index and decodes only the owning segment.
+    assert [pages.element(i) for i in range(3)] == ["a", "b", "c"]
+    assert len(pages) == 3
+    assert pages[2] == "c"
+
+
+def test_paging_refuses_out_of_range_and_negative_indices():
+    pages = open_beast2_pages_for(AT)(bytes.fromhex(SHARED_HEX))
+
+    with pytest.raises(RuntimeError, match="segment 2 out of range"):
+        pages.segment(2)
+    with pytest.raises(RuntimeError, match="element 3 out of range"):
+        pages.element(3)
+    # Negatives must be rejected in Python: the Cython layer casts to size_t
+    # with bounds checking off, so -1 would wrap to SIZE_MAX and read garbage.
+    with pytest.raises(IndexError):
+        pages.segment(-1)
+    with pytest.raises(IndexError):
+        pages.element(-1)
+
+
+def test_paging_requires_an_index_and_a_collection_root():
+    """A blob with no trailing index cannot be paged — say so, do not guess."""
+    at = ArrayType(IntegerType)
+    rows = EastArray(IntegerType, list(range(50)))
+    unindexed = encode_beast2_v5_for(at, index=False)(rows)
+    with pytest.raises(RuntimeError, match="no index"):
+        open_beast2_pages_for(at)(unindexed)
+
+    with pytest.raises(TypeError, match="Array, Set or Dict"):
+        open_beast2_pages_for(IntegerType)
+
+
+def test_paging_element_addresses_array_roots_only():
+    """Set/Dict roots have no stable row order across segments, so element()
+    refuses rather than inventing one; segment() still works."""
+    st = SetType(StringType)
+    blob = encode_beast2_segments_for(st, codec="none")(
+        [EastSet(StringType, ["a", "b"]), EastSet(StringType, ["c"])]
+    )
+    pages = open_beast2_pages_for(st)(blob)
+    assert pages.segment_count == 2
+    assert sorted(pages.segment(0)) == ["a", "b"]
+    with pytest.raises(RuntimeError, match="Array roots"):
+        pages.element(0)

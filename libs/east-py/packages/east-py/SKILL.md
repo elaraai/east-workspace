@@ -477,6 +477,8 @@ Task → What do you need?
     │   │   (source: bytes / mmap / binary stream; pass an mmap for a large file)
     │   ├─ Read it whole (segments merge: Array concat, Set union, Dict last-wins)
     │   │                                 → decode_beast2_with_header_for(T)(blob)   — v4 AND v5
+    │   ├─ Jump straight to row N / segment i → open_beast2_pages_for(T)(source)
+    │   │   .element(n) / .segment(i) — decodes ONE segment, needs index + self_contained
     │   └─ How many rows without decoding → read_beast2_index(T, blob) -> (segments, elements)
     │
     └─ Let East call your Python function
@@ -707,21 +709,41 @@ re-read a huge file one batch at a time.
 
 | Signature | Description |
 |-----------|-------------|
-| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches |
+| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches. **Keep both defaults unless you know otherwise** — `index` writes the trailing offsets and `self_contained` keeps each segment independently decodable; together they are exactly what `open_beast2_pages_for` needs, and turning either off silently forfeits random access. `codec="none"` skips deflate: right for already-compressed payloads or maximum write throughput |
 | `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory convenience over the writer — one segment per non-empty batch |
 | `encode_beast2_v5_for(T, *, codec="deflate", index=False) -> (value) -> bytes` | Whole-value v5 encode (any root type); decode with `decode_beast2_with_header_for` |
 | `iter_beast2_segments_for(T) -> (source) -> iterator` | Yield one decoded collection per segment, O(segment) memory; `source` is bytes / `mmap` / binary stream |
 | `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments merge: Array concat, Set union, Dict last-wins) |
 | `read_beast2_index(T, blob) -> (segments, elements) \| None` | O(1) totals from a v5 blob's trailing index |
+| `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()`/`[]`). Seeks via the index and decodes ONE segment — O(segment), not O(blob). ❗Needs a blob written with `index=True` **and** `self_contained=True` (both default); `.element()` is Array roots only |
+
+**Batch size is the one number to get right.** A batch is simultaneously your
+memory ceiling, one segment, one compression window, and the granularity of
+random access. ~1000 rows is a good default: measured on 5000 struct rows, one
+row per batch costs **4x the bytes** of 1000-per-batch (79,418 vs 20,066), and
+the curve is flat past ~100. `write()` takes a batch, never a row — accumulate
+and flush yourself.
 
 ```python
-from east.serialization.beast2 import Beast2Writer, iter_beast2_segments_for
+import mmap
+from east.serialization.beast2 import (
+    Beast2Writer, iter_beast2_segments_for, open_beast2_pages_for,
+)
 rows_t = ArrayType(row_type)
+
 with open(path, "wb") as f, Beast2Writer(rows_t, f) as w:
     for batch in produce_batches():          # each an EastArray(row_type, ...)
         w.write(batch)                       # O(batch) memory, one segment each
-for batch in iter_beast2_segments_for(rows_t)(open(path, "rb").read()):
-    consume(batch)                           # O(segment) decoded at a time
+
+# Sequential re-read. mmap, NOT .read() — .read() pulls the whole file in and
+# throws away the bounded-memory property you just paid for.
+with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+    for batch in iter_beast2_segments_for(rows_t)(mm):
+        consume(batch)                       # O(segment) decoded at a time
+
+    # Or jump straight to a row — decodes only the segment that owns it.
+    pages = open_beast2_pages_for(rows_t)(mm)
+    row = pages.element(1_234_567)
 ```
 
 ### EastStruct / EastVariant / EastRef

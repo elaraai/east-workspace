@@ -241,7 +241,12 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
 - **Paging readers** seek to EOF, verify the footer magic, load the index,
   then: `len()` in O(1) from the counts (exact for Array roots; an upper
   bound for Set/Dict roots, where cross-segment duplicates collapse on
-  merge); row N → binary search → seek → decode ONE segment.
+  merge); row N → binary search → seek → decode ONE segment. Implemented in
+  all three runtimes: `openBeast2PagesFor` (TS), `east_beast2_pages_*` (C),
+  `open_beast2_pages_for` (Python). A paged segment decodes against an EMPTY
+  definition table — REF deltas are relative, so a self-contained segment
+  resolves identically, and a blob whose `self_contained` flag lies trips the
+  delta bounds check instead of silently resolving to the wrong container.
 - `self_contained_segments` asserts that no REF delta and no source-map
   delta crosses a root-segment boundary, so each indexed segment decodes
   independently (and in parallel). Random access requires it; sequential

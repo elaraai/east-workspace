@@ -113,6 +113,26 @@ bool east_beast2_reader_counts(Beast2SegmentReader *r, size_t *segment_count,
                                size_t *element_count);
 void east_beast2_reader_free(Beast2SegmentReader *r);
 
+// Random access over an indexed, self-contained v5 collection blob (the caller
+// keeps `data` alive and unchanged for the pages object's lifetime). new()
+// parses the header + trailing index once, so counts are O(1); it fails when
+// the blob carries no index. segment() seeks to and decodes exactly ONE segment
+// (caller releases the returned collection) and additionally requires
+// self-contained segments — self_contained() reports the flag either way.
+// element() addresses Array roots only: it binary-searches the index and
+// decodes just the owning segment. Both return NULL on failure (message via
+// east_builtin_get_error). counts() borrows the per-segment element (pair)
+// counts, valid until free().
+typedef struct Beast2Pages Beast2Pages;
+Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type);
+size_t east_beast2_pages_segment_count(Beast2Pages *p);
+size_t east_beast2_pages_element_count(Beast2Pages *p);
+bool east_beast2_pages_self_contained(Beast2Pages *p);
+const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
+EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
+EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
+void east_beast2_pages_free(Beast2Pages *p);
+
 // Decode JSON IR in wrapper format {ir, source_map} and convert to IRNode.
 // Tries wrapper format first (TS test suite export), falls back to raw IR.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue*.

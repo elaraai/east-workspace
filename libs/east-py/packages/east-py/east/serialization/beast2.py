@@ -45,6 +45,7 @@ class Beast2DecodeOptions(TypedDict, total=False):
 
 
 from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]  # noqa: E402
+    _Beast2PagesCore,
     _Beast2ReaderCore,
     _Beast2WriterCore,
     _encode_beast2_v5,
@@ -165,13 +166,7 @@ def iter_beast2_segments_for(collection_type, options: Beast2DecodeOptions | Non
     _check_segmented(collection_type)
 
     def segments(source) -> Iterator:
-        if isinstance(source, (bytes, bytearray, memoryview)):
-            view = source
-        elif hasattr(source, "read"):
-            view = source.read()
-        else:
-            view = source  # buffer-protocol objects (e.g. mmap)
-        core = _Beast2ReaderCore(collection_type, view)
+        core = _Beast2ReaderCore(collection_type, _as_buffer(source))
         while True:
             segment = core.next()
             if segment is None:
@@ -181,13 +176,91 @@ def iter_beast2_segments_for(collection_type, options: Beast2DecodeOptions | Non
     return segments
 
 
+def _as_buffer(source):
+    """Normalize a source to a buffer-protocol object east-c can borrow.
+
+    Streams are read fully into memory; pass an ``mmap`` for a large file so
+    resident memory stays at one segment.
+    """
+    if isinstance(source, (bytes, bytearray, memoryview)):
+        return source
+    if hasattr(source, "read"):
+        return source.read()
+    return source  # buffer-protocol objects (e.g. mmap)
+
+
 def read_beast2_index(collection_type, source) -> tuple[int, int] | None:
     """Return ``(segment_count, element_count)`` from a v5 blob's trailing
     index, or ``None`` when the blob carries no index. ``element_count`` is
     exact for Array roots and an upper bound for Set/Dict roots (cross-segment
     duplicates collapse on merge)."""
-    core = _Beast2ReaderCore(collection_type, source)
+    core = _Beast2ReaderCore(collection_type, _as_buffer(source))
     return core.counts()
+
+
+class Beast2Pages:
+    """Random access over an indexed, self-contained v5 collection blob.
+
+    The index is read once on construction, so :attr:`element_count` and
+    :attr:`counts` are O(1); :meth:`segment` seeks to and decodes exactly one
+    segment, and :meth:`element` decodes only the segment owning a row.
+
+    Requires a blob written with the index enabled (:class:`Beast2Writer`'s
+    default). Random access *additionally* requires self-contained segments —
+    :attr:`self_contained` reports the flag, and :meth:`segment` refuses rather
+    than returning values whose cross-segment backrefs cannot be resolved.
+
+    The pages object borrows the source bytes: keep them alive and unchanged
+    for as long as you call :meth:`segment` / :meth:`element`. Pass an ``mmap``
+    for a large file so resident memory stays at one segment.
+    """
+
+    def __init__(self, collection_type, source):
+        _check_segmented(collection_type)
+        self._core = _Beast2PagesCore(collection_type, _as_buffer(source))
+        self.segment_count: int = self._core.segment_count()
+        """Number of segments in the blob."""
+        self.element_count: int = self._core.element_count()
+        """Sum of the per-segment counts. Exact for Array roots; an upper bound
+        for Set/Dict roots, where cross-segment duplicates collapse on merge."""
+        self.self_contained: bool = self._core.self_contained()
+        """Whether segments are independently decodable (required to seek)."""
+        self.counts: tuple[int, ...] = self._core.counts()
+        """Per-segment element (pair) counts, in segment order."""
+
+    def segment(self, i: int):
+        """Decode segment ``i`` — one seek, one frame, nothing else read."""
+        if i < 0:
+            raise IndexError(f"beast2 v5: segment index must not be negative, got {i}")
+        return self._core.segment(i)
+
+    def element(self, row: int):
+        """Decode the single element at ``row`` (Array roots only)."""
+        if row < 0:
+            raise IndexError(f"beast2 v5: element index must not be negative, got {row}")
+        return self._core.element(row)
+
+    def __len__(self) -> int:
+        return self.element_count
+
+    def __getitem__(self, row: int):
+        return self.element(row)
+
+
+def open_beast2_pages_for(collection_type, options: Beast2DecodeOptions | None = None):
+    """Curried paging opener: ``open(source) -> Beast2Pages``.
+
+    ``source`` is ``bytes``, ``bytearray``, ``memoryview``, an ``mmap``, or a
+    readable binary stream. The east-c counterpart of TypeScript's
+    ``openBeast2PagesFor``.
+    """
+    del options  # decoded functions are compiled by east-c's own registries
+    _check_segmented(collection_type)
+
+    def opener(source) -> Beast2Pages:
+        return Beast2Pages(collection_type, source)
+
+    return opener
 
 
 __all__ = [
@@ -201,6 +274,8 @@ __all__ = [
     "encode_beast2_segments_for",
     "iter_beast2_segments_for",
     "read_beast2_index",
+    "Beast2Pages",
+    "open_beast2_pages_for",
     "BEAST2_MAGIC_BYTES",
     "BEAST2_V4_MAGIC",
     "BEAST2_V5_MAGIC",

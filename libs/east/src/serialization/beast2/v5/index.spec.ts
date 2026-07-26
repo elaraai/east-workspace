@@ -250,6 +250,22 @@ describe("Beast2 v5 — Streaming (#414/#416)", () => {
     assert.deepEqual(decodeBeast2For(AT)(Buffer.from(SHARED_HEX, "hex")), ["a", "b", "c"]);
   });
 
+  test("the cross-runtime fixture pages identically in every runtime", () => {
+    // Indexed + self-contained, so it is also the shared PAGING fixture:
+    // east-c's test_beast2_hardening.c and east-py's test_beast2_v5.py assert
+    // these same values against these same bytes, which is what proves the
+    // three pagers agree rather than merely each being self-consistent.
+    const AT = ArrayType(StringType);
+    const pages = openBeast2PagesFor(AT)(Buffer.from(SHARED_HEX, "hex"));
+    assert.equal(pages.segmentCount, 2);
+    assert.equal(pages.elementCount, 3);
+    assert.equal(pages.selfContained, true);
+    assert.deepEqual([...pages.counts], [2, 1]);
+    assert.deepEqual(pages.segment(0), ["a", "b"]);
+    assert.deepEqual(pages.segment(1), ["c"]);
+    assert.deepEqual([0, 1, 2].map(i => pages.element(i)), ["a", "b", "c"]);
+  });
+
   test("writer streams through a sink with O(batch) buffering", () => {
     const AT = ArrayType(IntegerType);
     const chunks: Uint8Array[] = [];

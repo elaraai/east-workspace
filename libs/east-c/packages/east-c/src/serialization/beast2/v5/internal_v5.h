@@ -189,6 +189,15 @@ bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, u
 /*  Whole-value entry helpers (v5/container.c)                          */
 /* ================================================================== */
 
+/* Create an empty container for one decoded segment of `type`. Shared by the
+ * sequential reader and the pager so the three-way switch exists once. */
+static inline EastValue *b2v5_new_segment_container(EastType *type, size_t cap)
+{
+    if (type->kind == EAST_TYPE_ARRAY) return east_array_new_with_capacity(type->data.element, cap);
+    if (type->kind == EAST_TYPE_SET) return east_set_new_with_capacity(type->data.element, cap);
+    return east_dict_new_with_capacity(type->data.dict.key, type->data.dict.value, cap);
+}
+
 static inline bool b2v5_is_segmented_root(const EastType *type)
 {
     return type && (type->kind == EAST_TYPE_ARRAY || type->kind == EAST_TYPE_SET ||
