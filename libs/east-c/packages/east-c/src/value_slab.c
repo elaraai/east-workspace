@@ -28,7 +28,7 @@
 /* ------------------------------------------------------------------ */
 
 #define SLAB_GRANULE 8u
-#define SLAB_CLASS_COUNT (sizeof(EastValue) / SLAB_GRANULE + 1u)
+#define SLAB_CLASS_COUNT (EAST_VALUE_SIZE_MAX / SLAB_GRANULE + 1u)
 
 #define SLAB_PAGE_SIZE (64u * 1024u) /* power of two: page_of() masks with it */
 #define SLAB_PAGE_MASK (~(uintptr_t)(SLAB_PAGE_SIZE - 1u))

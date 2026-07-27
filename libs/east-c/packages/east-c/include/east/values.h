@@ -32,11 +32,15 @@ typedef struct EastCompiledFn EastCompiledFn;
  * values.c touches the concrete type; everywhere else holds the opaque pointer. */
 struct btree;
 
-/* Longest string held directly inside the node, excluding the NUL. Sized so the
- * string arm exactly fills the union's widest arm (dict) — inlining costs no
- * growth in sizeof(EastValue), and so cannot skew the layout east-py's
- * extensions share through one libeast-c. */
-#define EAST_STRING_INLINE_CAP 47
+/* Longest string held directly inside the node, excluding the NUL.
+ *
+ * Sized to fill the union's widest OTHER arm exactly, so inlining never grows
+ * sizeof(EastValue) — which would skew the layout east-py's extensions share
+ * through one libeast-c. That arm is `dict`: five pointers, two size_t and a
+ * flag padded to a word, i.e. eight words. So the capacity is word-size
+ * dependent: 47 on LP64, 23 on ILP32 (the win32 wheels cibuildwheel produces).
+ * The static_assert in values.c is what holds this honest if an arm widens. */
+#define EAST_STRING_INLINE_CAP (8 * sizeof(void *) - sizeof(char *) - sizeof(size_t) - 1)
 
 /*
  * A value is allocated in a size class chosen by its kind, not at one uniform
@@ -178,6 +182,10 @@ static inline bool east_value_iter_locked(const EastValue *v)
 #define EAST_VALUE_ARM_SIZE(member)                                                                \
     ((offsetof(EastValue, data) + sizeof(((EastValue *)0)->data.member) + 7u) & ~(size_t)7u)
 
+/* The largest size class: the whole struct, rounded the same way. sizeof is not
+ * itself a multiple of the granule on ILP32, where the struct comes to 60. */
+#define EAST_VALUE_SIZE_MAX ((sizeof(EastValue) + 7u) & ~(size_t)7u)
+
 /* Bytes a node of this kind occupies. Leaf kinds stop after their own union
  * arm; GC kinds take the whole struct, because the GC header sits past the
  * widest arm at a fixed offset. */
@@ -199,7 +207,7 @@ static inline size_t east_value_alloc_size(EastValueKind kind)
     case EAST_VAL_MATRIX:
         return EAST_VALUE_ARM_SIZE(matrix);
     default:
-        return sizeof(EastValue);
+        return EAST_VALUE_SIZE_MAX;
     }
 }
 
