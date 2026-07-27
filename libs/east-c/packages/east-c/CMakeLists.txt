@@ -195,6 +195,15 @@ add_executable(test_type_to_value_interning tests/test_type_to_value_interning.c
 target_link_libraries(test_type_to_value_interning east-c)
 add_test(NAME type_to_value_interning COMMAND test_type_to_value_interning)
 
+# Value representation gate (issue #423): a node is sized by its kind, short
+# strings live inside it, `none` is shared per VariantType, and struct field
+# names are borrowed from the type. Asserts the size classes and the per-shape
+# slab footprint. Run under ASan/LSan (run_leak_check.sh's build-asan config)
+# for the shared-none cache and borrowed-name lifetimes.
+add_executable(test_value_layout tests/test_value_layout.c)
+target_link_libraries(test_value_layout east-c)
+add_test(NAME value_layout COMMAND test_value_layout)
+
 # Beast2 decoder hardening gate (issue #34): truncation/corruption sweeps,
 # crafted out-of-bounds type tables, and allocation-overflow guards. The
 # beast2 decoders are an untrusted-input boundary — run under ASan
@@ -219,6 +228,11 @@ add_executable(profile_collections scripts/profile_collections.c)
 target_link_libraries(profile_collections east-c)
 add_executable(profile_beast2_decode scripts/profile_beast2_decode.c)
 target_link_libraries(profile_beast2_decode east-c)
+
+# Live-footprint profiler (issue #423): bytes per element for the value shapes
+# that issue measured, from both the slab's own accounting and process RSS.
+add_executable(profile_value_memory scripts/profile_value_memory.c)
+target_link_libraries(profile_value_memory east-c)
 
 # beast2 v4-vs-v5 benchmark (issue #416/#417). Reads the shared corpus written
 # by libs/east/contrib/beast2-bench/generate-corpus.ts and emits JSON; see that

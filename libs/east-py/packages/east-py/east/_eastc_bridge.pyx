@@ -657,7 +657,7 @@ cdef object _c_struct_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict
     cdef list vals_list = []
 
     for i in range(n):
-        keys_list.append(val.data.struct_.field_names[i].decode("utf-8"))
+        keys_list.append(_eastc.east_struct_field_name(val, i).decode("utf-8"))
         vals_list.append(_c_value_to_py_impl(
             val.data.struct_.field_values[i],
             c_type.data.struct_.fields[i].type,

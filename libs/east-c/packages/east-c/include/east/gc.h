@@ -21,7 +21,12 @@ typedef struct EastValue EastValue;
 
 /* Add a value to the young generation tracking list.  Called automatically by
  * alloc_value() for cycle-capable types (array, set, dict, struct,
- * variant, ref, function). */
+ * variant, ref, function).
+ *
+ * Both of these read and write the GC header, which only exists on kinds
+ * satisfying east_value_kind_has_gc() — passing a leaf value writes past the
+ * end of its slot. Test with east_value_is_tracked(), never with
+ * v->gc_tracked. */
 void east_gc_track(EastValue *v);
 
 /* Remove a value from whichever generation's tracking list it's in. */

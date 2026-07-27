@@ -56,7 +56,7 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
 
 #define ITER_GUARD_DICT(d)                                                                         \
     do {                                                                                           \
-        if ((d)->iter_lock > 0) {                                                                  \
+        if (east_value_iter_locked(d)) {                                                           \
             east_builtin_error("Cannot modify Dict during iteration");                             \
             return NULL;                                                                           \
         }                                                                                          \

@@ -64,7 +64,9 @@ static inline void gc_ensure_init(void)
 
 void east_gc_track(EastValue *v)
 {
-    if (!v || v->gc_tracked) return;
+    /* The GC header only exists on these kinds — a leaf value's slot stops at
+     * its union arm, so the guard is a bounds check, not a formality. */
+    if (!v || !east_value_kind_has_gc(v->kind) || v->gc_tracked) return;
     gc_ensure_init();
     /* Insert into young generation list */
     v->gc_next = gc_young_sentinel.gc_next;
@@ -79,7 +81,7 @@ void east_gc_track(EastValue *v)
 
 void east_gc_untrack(EastValue *v)
 {
-    if (!v || !v->gc_tracked) return;
+    if (!east_value_is_tracked(v)) return;
     /* Unlink from whichever list it's in */
     v->gc_prev->gc_next = v->gc_next;
     v->gc_next->gc_prev = v->gc_prev;
@@ -210,7 +212,7 @@ static void gc_destroy_contents(EastValue *v)
 
     case EAST_VAL_STRUCT:
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
-            free(v->data.struct_.field_names[i]);
+            if (v->data.struct_.field_names) east_free(v->data.struct_.field_names[i]);
             east_value_release(v->data.struct_.field_values[i]);
         }
         east_free(v->data.struct_.field_names);
@@ -275,7 +277,7 @@ static void gc_promote(EastValue *v)
 static void subtract_ref_young(EastValue *child, void *ctx)
 {
     (void)ctx;
-    if (child && child->gc_tracked && child->gc_gen == 0) {
+    if (east_value_is_tracked(child) && child->gc_gen == 0) {
         child->gc_refs--;
     }
 }
@@ -284,7 +286,7 @@ static void subtract_ref_young(EastValue *child, void *ctx)
 static void rescue_visit_young(EastValue *child, void *ctx)
 {
     (void)ctx;
-    if (child && child->gc_tracked && child->gc_gen == 0 && child->gc_refs == 0) {
+    if (east_value_is_tracked(child) && child->gc_gen == 0 && child->gc_refs == 0) {
         child->gc_refs = 1;
         gc_traverse(child, rescue_visit_young, NULL, true);
     }
@@ -368,7 +370,7 @@ static void gc_collect_young_impl(void)
 static void subtract_ref(EastValue *child, void *ctx)
 {
     (void)ctx;
-    if (child && child->gc_tracked) {
+    if (east_value_is_tracked(child)) {
         child->gc_refs--;
     }
 }
@@ -377,7 +379,7 @@ static void subtract_ref(EastValue *child, void *ctx)
 static void rescue_visit(EastValue *child, void *ctx)
 {
     (void)ctx;
-    if (child && child->gc_tracked && child->gc_refs == 0) {
+    if (east_value_is_tracked(child) && child->gc_refs == 0) {
         child->gc_refs = 1;
         gc_traverse(child, rescue_visit, NULL, true);
     }

@@ -43,6 +43,7 @@ typedef enum {
 } EastTypeKind;
 
 typedef struct EastType EastType;
+struct EastValue;
 
 typedef struct {
     char *name;
@@ -87,6 +88,12 @@ struct EastType {
             // An empty slot has name == NULL. NULL when num_cases == 0.
             struct EastVariantCaseSlot *tag_slots;
             size_t tag_slots_mask;
+            // One immortal EastValue per nullary case, handed out by
+            // east_variant_new instead of allocating a fresh node each time
+            // (`none` is the overwhelming instance). Lazily allocated on first
+            // use, num_cases entries, freed by
+            // east_variant_type_free_shared_cases at registry clear.
+            struct EastValue **shared_case_values;
         } variant;
         // Function, AsyncFunction: inputs and output
         struct {

@@ -2,7 +2,7 @@
 # Native build via CMake.
 
 .PHONY: build rebuild clean install-cli \
-        test test-east-c test-east-c-std test-all \
+        unit test test-east-c test-east-c-std test-all \
         leak-check leak-check-std leak-check-all \
         help lint format ensure-clang-format
 
@@ -49,6 +49,12 @@ install-cli: build
 
 # ── Tests (compliance) ───────────────────────────────────────────────
 
+## Run the ctest gates (value layout, recursive-type lifecycle, type-to-value
+## interning, beast2 hardening, platform-signature parity). These need no
+## exported IR, so they run before the compliance suites.
+unit: build
+	@cd build && ctest --output-on-failure
+
 test-east-c: build
 	@./packages/east-c/scripts/run_compliance.sh
 	@./build/packages/east-c/test_platform_check /tmp/east-test-ir/platform_check || [ $$? -eq 77 ]
@@ -56,11 +62,11 @@ test-east-c: build
 test-east-c-std: build
 	@./packages/east-c/scripts/run_compliance.sh /tmp/east-node-std build/packages/east-c-std/test_std_compliance
 
-## Run native tests (east-c + east-c-std)
-test: test-east-c test-east-c-std
+## Run native tests (gates + east-c + east-c-std)
+test: unit test-east-c test-east-c-std
 
 ## Run all tests
-test-all: test-east-c test-east-c-std
+test-all: unit test-east-c test-east-c-std
 
 # ── Memory leak checks ──────────────────────────────────────────────
 
@@ -113,6 +119,7 @@ help:
 	@echo "  clean          - Remove build directory"
 	@echo "  install-cli    - Install east-c CLI to ~/.local/bin"
 	@echo ""
+	@echo "  unit           - Run the ctest gates (no exported IR needed)"
 	@echo "  test-east-c    - Run east-c compliance tests"
 	@echo "  test-east-c-std - Run east-c-std compliance tests"
 	@echo "  test-all       - Run all compliance tests"

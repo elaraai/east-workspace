@@ -191,6 +191,9 @@ cdef extern from "east/values.h":
 
     # Nested structs for the value union
     ctypedef struct _EastValueStringData:
+        # `data` points into the node itself for strings up to the inline cap
+        # (that trailing buffer is not declared here — nothing reads it from
+        # Python, and cdef extern binds by name rather than by layout).
         char *data
         size_t len
 
@@ -264,15 +267,20 @@ cdef extern from "east/values.h":
         _EastValueMatrixData matrix
         _EastValueFunctionData function
 
+    # The GC header trails `data`, and exists only on the container kinds — a
+    # leaf value's slot stops at its union arm, so reading gc_tracked or
+    # iter_lock on a scalar is out of bounds. cdef extern binds by name, not
+    # offset, so this mirror only has to stay honest, not exhaustive.
     ctypedef struct EastValue:
         EastValueKind kind
         int ref_count
+        _EastValueData data
         EastValue *gc_next
         EastValue *gc_prev
         int gc_refs
         bint gc_tracked
+        unsigned char gc_gen
         int iter_lock
-        _EastValueData data
 
     # Global null singleton
     EastValue east_null_value
@@ -317,6 +325,9 @@ cdef extern from "east/values.h":
 
     EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
     EastValue *east_struct_get_field(EastValue *s, const char *name)
+    # field_names is NULL whenever the instance's StructType supplies the names
+    # (the common case). Always read names through this.
+    const char *east_struct_field_name(const EastValue *s, size_t idx)
 
     EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *type)
 

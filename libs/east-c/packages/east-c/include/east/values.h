@@ -32,25 +32,43 @@ typedef struct EastCompiledFn EastCompiledFn;
  * values.c touches the concrete type; everywhere else holds the opaque pointer. */
 struct btree;
 
+/* Longest string held directly inside the node, excluding the NUL. Sized so the
+ * string arm exactly fills the union's widest arm (dict) — inlining costs no
+ * growth in sizeof(EastValue), and so cannot skew the layout east-py's
+ * extensions share through one libeast-c. */
+#define EAST_STRING_INLINE_CAP 47
+
+/*
+ * A value is allocated in a size class chosen by its kind, not at one uniform
+ * size: `data` sits at a fixed offset, but the slot only extends as far as that
+ * kind's own union arm — plus, for the kinds the cycle collector tracks, the
+ * trailing GC header. An Integer therefore occupies 16 bytes, not 104.
+ *
+ * The corollary is a hard rule: every field AFTER `data` exists only on nodes
+ * whose kind satisfies east_value_kind_has_gc(). Reading `gc_tracked` or
+ * `iter_lock` on an Integer reads past the end of its slot. Reach for
+ * east_value_is_tracked() instead of touching `gc_tracked` directly, and keep
+ * iter_lock behind the kind checks the container builtins already do.
+ *
+ * The static EastValues (east_null_value, the GC list sentinels) are full
+ * structs, so the tail is physically present on them and the rule costs
+ * nothing — no reader consults it, since their kind is not a GC kind.
+ */
 struct EastValue {
     EastValueKind kind;
     int ref_count;
-
-    /* GC cycle-collector tracking (used only for container types) */
-    struct EastValue *gc_next;
-    struct EastValue *gc_prev;
-    int gc_refs;     /* temporary refcount during collection */
-    bool gc_tracked; /* true if in GC tracking list */
-    uint8_t gc_gen;  /* GC generation: 0=young, 1=old */
-    int iter_lock;   /* iteration lock count (>0 = locked, mutation forbidden) */
 
     union {
         bool boolean;
         int64_t integer;
         double float64;
         struct {
+            /* Always valid. Points at `inline_data` when len <= the inline cap,
+             * at a separate allocation otherwise — readers need not care, but
+             * the release path must not free the inline case. */
             char *data;
             size_t len;
+            char inline_data[EAST_STRING_INLINE_CAP + 1];
         } string;
         int64_t datetime; // epoch millis
         struct {
@@ -84,6 +102,9 @@ struct EastValue {
             EastType *val_type;
         } dict;
         struct {
+            /* NULL whenever `type` can supply the names (the common case) —
+             * see east_struct_field_name. Only untyped or type-mismatched
+             * instances carry their own copies. */
             char **field_names;
             EastValue **field_values;
             size_t num_fields;
@@ -113,7 +134,74 @@ struct EastValue {
             EastCompiledFn *compiled;
         } function;
     } data;
+
+    /* Cycle-collector and iteration state. Present ONLY on kinds satisfying
+     * east_value_kind_has_gc() — out of bounds on every other kind. */
+    struct EastValue *gc_next;
+    struct EastValue *gc_prev;
+    int gc_refs;     /* temporary refcount during collection */
+    bool gc_tracked; /* true if in GC tracking list */
+    uint8_t gc_gen;  /* GC generation: 0=young, 1=old */
+    int iter_lock;   /* iteration lock count (>0 = locked, mutation forbidden) */
 };
+
+/* Kinds that can participate in a reference cycle, and so carry the trailing
+ * GC header. Everything else is a leaf whose slot stops at its union arm. */
+#define EAST_VAL_GC_KIND_MASK                                                                      \
+    ((1u << EAST_VAL_ARRAY) | (1u << EAST_VAL_SET) | (1u << EAST_VAL_DICT) |                       \
+     (1u << EAST_VAL_STRUCT) | (1u << EAST_VAL_VARIANT) | (1u << EAST_VAL_REF) |                   \
+     (1u << EAST_VAL_FUNCTION))
+
+static inline bool east_value_kind_has_gc(EastValueKind kind)
+{
+    return ((EAST_VAL_GC_KIND_MASK >> (unsigned)kind) & 1u) != 0u;
+}
+
+/* The only safe way to ask whether a value is in a GC tracking list: reading
+ * v->gc_tracked directly is out of bounds on a leaf kind. */
+static inline bool east_value_is_tracked(const EastValue *v)
+{
+    return v && east_value_kind_has_gc(v->kind) && v->gc_tracked;
+}
+
+/* Whether a container is mid-iteration, and so must not be mutated. Same rule
+ * as east_value_is_tracked: iter_lock lives in the trailing header, so the kind
+ * has to be established before the field is read. */
+static inline bool east_value_iter_locked(const EastValue *v)
+{
+    return v && east_value_kind_has_gc(v->kind) && v->iter_lock > 0;
+}
+
+/* A node holding only this arm, rounded up to the slab's 8-byte granularity —
+ * an arm that is not itself a multiple of 8 (a bare bool) must not land in
+ * between size classes. */
+#define EAST_VALUE_ARM_SIZE(member)                                                                \
+    ((offsetof(EastValue, data) + sizeof(((EastValue *)0)->data.member) + 7u) & ~(size_t)7u)
+
+/* Bytes a node of this kind occupies. Leaf kinds stop after their own union
+ * arm; GC kinds take the whole struct, because the GC header sits past the
+ * widest arm at a fixed offset. */
+static inline size_t east_value_alloc_size(EastValueKind kind)
+{
+    switch (kind) {
+    case EAST_VAL_NULL:
+    case EAST_VAL_BOOLEAN:
+    case EAST_VAL_INTEGER:
+    case EAST_VAL_FLOAT:
+    case EAST_VAL_DATETIME:
+        return EAST_VALUE_ARM_SIZE(datetime); /* widest of the 8-byte arms */
+    case EAST_VAL_STRING:
+        return EAST_VALUE_ARM_SIZE(string);
+    case EAST_VAL_BLOB:
+        return EAST_VALUE_ARM_SIZE(blob);
+    case EAST_VAL_VECTOR:
+        return EAST_VALUE_ARM_SIZE(vector);
+    case EAST_VAL_MATRIX:
+        return EAST_VALUE_ARM_SIZE(matrix);
+    default:
+        return sizeof(EastValue);
+    }
+}
 
 // Global null singleton
 extern EAST_DATA EastValue east_null_value;
@@ -193,6 +281,20 @@ static inline EastValue *east_dict_val_at(EastValue *dict, size_t i)
 
 EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type);
 EastValue *east_struct_get_field(EastValue *s, const char *name);
+
+/* Name of field `idx`. Instances whose StructType lists the same names in the
+ * same order borrow them from that type, which owns them for the process
+ * lifetime; only untyped or mismatched instances carry their own copies. Read
+ * names through here, never through data.struct_.field_names. */
+static inline const char *east_struct_field_name(const EastValue *s, size_t idx)
+{
+    if (!s || s->kind != EAST_VAL_STRUCT || idx >= s->data.struct_.num_fields) return NULL;
+    if (s->data.struct_.field_names) return s->data.struct_.field_names[idx];
+    const EastType *t = s->data.struct_.type;
+    while (t && t->kind == EAST_TYPE_RECURSIVE)
+        t = t->data.recursive.node;
+    return t->data.struct_.fields[idx].name;
+}
 static inline EastValue *east_struct_get_field_idx(EastValue *s, size_t idx)
 {
     return (s && s->kind == EAST_VAL_STRUCT && idx < s->data.struct_.num_fields)
@@ -200,8 +302,17 @@ static inline EastValue *east_struct_get_field_idx(EastValue *s, size_t idx)
                : NULL;
 }
 
+/* Both constructors hand back a shared immortal value for a nullary case of an
+ * interned VariantType carrying the null singleton — `none` above all, which
+ * measured 22% of the cells in the table that motivated this. Retain/release
+ * are no-ops on it, so ownership at the call sites is unchanged. */
 EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *type);
 EastValue *east_variant_new_idx(size_t case_idx, EastValue *value, EastType *type);
+
+/* Frees the shared nullary-case values a VariantType has handed out. Called
+ * from east_type_registry_clear() as the type arena is reclaimed — they borrow
+ * the type's `cases[].name` and would dangle past it. */
+void east_variant_type_free_shared_cases(EastType *type);
 
 /* Get the case name. Returns "" if not set. */
 static inline const char *east_variant_case_name(EastValue *v)

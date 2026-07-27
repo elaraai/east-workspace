@@ -10,7 +10,8 @@ C port of the East language runtime. Three packages:
 
 ```bash
 make build    # Build both packages
-make test     # Run unit tests (ctest)
+make unit     # Run the ctest gates (no exported IR needed)
+make test     # Gates + both compliance suites
 make clean    # Remove build directory
 ```
 
@@ -25,12 +26,15 @@ IR JSON test files are exported from the TypeScript `east` package and live in `
 make test-export
 
 # Then run compliance tests
-make compliance        # east-c core
-make compliance-std    # east-c-std
-make compliance-all    # both
+make test-east-c       # east-c core
+make test-east-c-std   # east-c-std
+make test-all          # gates + both
 
 # Run a single compliance test
 ./build/packages/east-c/test_compliance /tmp/east-test-ir/Array.json
+
+# ASan/LSan over the whole corpus — the oracle for any lifetime change
+REBUILD=1 make leak-check-all
 ```
 
 ## Architecture

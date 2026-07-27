@@ -1,9 +1,22 @@
 # Design: EastValue Slab Allocator
 
+> This records the original design, which targeted decode *speed* with one
+> fixed slot size. Issue #423 then targeted the *footprint*, and the shipped
+> allocator has moved on: a slot is sized by the value's kind
+> (`east_value_alloc_size`) rather than by `sizeof(EastValue)`, and each
+> 8-byte-granular size has its own free list. Pages are *not* segregated by
+> size — fresh slots are bump-allocated from one shared stream, because
+> splitting the pages measurably slowed traversals that interleave kinds
+> (encoding a `Dict<String, Float>` walks key, value, key, value). Pages are
+> power-of-two aligned so a slot's page is a mask away, and are carved from
+> larger aligned blocks to amortise what the C allocator charges for
+> alignment. `include/east/value_slab.h` is the source of truth for the
+> current shape — read the byte counts below as history.
+
 ## Problem
 
 Beast2 data value decode spends 45% of time in glibc malloc/free for ~600K
-EastValue structs (88 bytes each). The pattern is: allocate many fixed-size
+EastValue structs (88 bytes each at the time). The pattern is: allocate many
 objects, use them, then free them (either individually via refcount or in bulk
 via tree release). glibc's general-purpose allocator is not optimized for this
 pattern — it does coalescing, bin management, and consolidation on every
