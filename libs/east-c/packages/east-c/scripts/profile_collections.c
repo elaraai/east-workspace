@@ -20,6 +20,13 @@
 #include <stdlib.h>
 #include <time.h>
 
+static EastType *option_type(EastType *inner)
+{
+    const char *names[2] = {"none", "some"};
+    EastType *types[2] = {&east_null_type, inner};
+    return east_variant_type(names, types, 2);
+}
+
 static double ms_since(struct timespec *a, struct timespec *b)
 {
     return (b->tv_sec - a->tv_sec) * 1000.0 + (b->tv_nsec - a->tv_nsec) / 1e6;
@@ -131,6 +138,80 @@ int main(int argc, char **argv)
         east_value_release(d);
     }
 
+    /* A realistic dataset row: 14 fields, mixed types, one cell in five empty.
+     * struct3 above understates the common case — a Dict/Array of wide structs
+     * is what an East dataset actually is, and per-field costs scale with the
+     * field count. */
+    const char *wnames[] = {"id",  "sku",    "qty",    "price",  "cost",    "uom",  "lot",
+                            "bin", "weight", "volume", "active", "updated", "note", "rank"};
+    EastType *opt_f = option_type(&east_float_type);
+    EastType *opt_s = option_type(&east_string_type);
+    EastType *wtypes[] = {&east_string_type,
+                          &east_string_type,
+                          &east_integer_type,
+                          &east_float_type,
+                          &east_float_type,
+                          &east_string_type,
+                          opt_s,
+                          opt_s,
+                          opt_f,
+                          opt_f,
+                          &east_boolean_type,
+                          &east_datetime_type,
+                          &east_string_type,
+                          &east_integer_type};
+    EastType *wrow_t = east_struct_type(wnames, wtypes, 14);
+    EastType *dict_wrow = east_dict_type(&east_string_type, wrow_t);
+    EastType *arr_wrow = east_array_type(wrow_t);
+    {
+        long n = 10000;
+        EastValue *d = east_dict_new(&east_string_type, wrow_t);
+        EastValue *a = east_array_new_with_capacity(wrow_t, (size_t)n);
+        for (long i = 0; i < n; i++) {
+            char kbuf[24], sbuf[24], nbuf[40];
+            snprintf(kbuf, sizeof kbuf, "key_%08ld", i);
+            snprintf(sbuf, sizeof sbuf, "SKU-%06ld", i);
+            snprintf(nbuf, sizeof nbuf, "line note %ld", i);
+            EastValue *empty = east_null();
+            EastValue *fv[14];
+            fv[0] = east_string(kbuf);
+            fv[1] = east_string(sbuf);
+            fv[2] = east_integer(i);
+            fv[3] = east_float((double)i * 0.5);
+            fv[4] = east_float((double)i * 0.25);
+            fv[5] = east_string("EA");
+            /* One optional cell in five is empty, as in the table behind #423. */
+            fv[6] = i % 5 == 0 ? east_variant_new("none", empty, opt_s)
+                               : east_variant_new("some", fv[1], opt_s);
+            fv[7] = i % 5 == 1 ? east_variant_new("none", empty, opt_s)
+                               : east_variant_new("some", fv[5], opt_s);
+            fv[8] = i % 5 == 2 ? east_variant_new("none", empty, opt_f)
+                               : east_variant_new("some", fv[3], opt_f);
+            fv[9] = i % 5 == 3 ? east_variant_new("none", empty, opt_f)
+                               : east_variant_new("some", fv[4], opt_f);
+            fv[10] = east_boolean(i % 2 == 0);
+            fv[11] = east_datetime(1700000000000LL + i);
+            fv[12] = east_string(nbuf);
+            fv[13] = east_integer(i % 97);
+
+            EastValue *row = east_struct_new(wnames, fv, 14, wrow_t);
+            for (int f = 0; f < 14; f++)
+                east_value_release(fv[f]);
+            EastValue *k = east_string(kbuf);
+            east_dict_set(d, k, row);
+            east_array_push(a, row);
+            east_value_release(k);
+            east_value_release(row);
+        }
+        bench("dict<str,row14> n=10000", d, dict_wrow, iters);
+        bench("array<row14> n=10000", a, arr_wrow, iters);
+        east_value_release(d);
+        east_value_release(a);
+    }
+
+    east_type_release(arr_wrow);
+    east_type_release(dict_wrow);
+    east_type_release(wrow_t);
     east_type_release(dict_struct);
     east_type_release(row_t);
     east_type_release(dict_sf);
