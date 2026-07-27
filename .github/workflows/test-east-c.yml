@@ -102,6 +102,14 @@ jobs:
           fi
           cmake --build build -j
 
+      # The ctest gates (value layout/footprint, recursive-type lifecycle,
+      # type-to-value interning, beast2 hardening). They need no exported IR,
+      # so they run before the artifacts land — and on every OS, since the
+      # value size classes are what the layout gate pins.
+      - name: east-c gates (ctest)
+        working-directory: libs/east-c
+        run: ctest --test-dir build --output-on-failure
+
       # IR into build/ (already gitignored, transient — lives with the build
       # output). Relative forward-slash paths work under Git Bash on Windows;
       # an absolute /tmp or drive-letter path would not.
@@ -183,6 +191,57 @@ jobs:
                 "../elaraai-east-c-cli-${TARGET}-${VERSION}.tgz" )
           echo "--- east-c version via launcher ---"
           "$STAGE/proj/node_modules/.bin/east-c" version
+
+  # ASan + LSan over the whole compliance corpus. east-c is refcounted with a
+  # cycle collector and a hand-rolled value slab, so a lifetime regression is
+  # invisible to the compliance suites — they assert results, not memory.
+  # Linux-only: one sanitizer leg is enough, and it is the cheapest one.
+  leak-check-east-c:
+    name: Leak check east-c (ASan/LSan)
+    needs: export-ir
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: /tmp/east-test-ir
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-std
+          path: /tmp/east-node-std
+
+      # The std corpus includes the fetch suite, which needs a live httpbin.
+      - name: Start httpbin (go-httpbin :8085)
+        run: |
+          go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@v2.18.3
+          "$(go env GOPATH)/bin/go-httpbin" -port 8085 &
+          for ((i = 0; i < 30; i++)); do
+            curl -sf http://localhost:8085/get >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:8085/get >/dev/null
+
+      # The fs compliance IR bakes the export host's tmpdir.
+      - name: Leak check (east-c + east-c-std)
+        working-directory: libs/east-c
+        run: REBUILD=1 make leak-check-all
+
+      # The gates again, this time against the ASan build run_leak_check.sh
+      # just produced — the value-layout gate exercises slab reclamation and
+      # the shared-`none` cache, whose lifetimes only ASan/LSan can judge.
+      - name: east-c gates under ASan
+        working-directory: libs/east-c
+        run: ctest --test-dir build-asan --output-on-failure
 
   lint-east-c:
     name: Lint east-c (clang-format)

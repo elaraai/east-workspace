@@ -26,7 +26,7 @@ static EastType *_make_option_type(EastType *inner)
 /* ------------------------------------------------------------------ */
 #define ITER_GUARD_ARRAY(arr)                                                                      \
     do {                                                                                           \
-        if ((arr)->iter_lock > 0) {                                                                \
+        if (east_value_iter_locked(arr)) {                                                         \
             east_builtin_error("Cannot modify Array during iteration");                            \
             return NULL;                                                                           \
         }                                                                                          \

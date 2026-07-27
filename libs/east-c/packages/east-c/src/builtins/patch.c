@@ -1362,7 +1362,7 @@ static void retype_patch(EastValue *v, EastType *type)
     case EAST_VAL_STRUCT: {
         if (type->kind != EAST_TYPE_STRUCT) return;
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
-            const char *fname = v->data.struct_.field_names[i];
+            const char *fname = east_struct_field_name(v, i);
             EastType *ft = NULL;
             for (size_t j = 0; j < type->data.struct_.num_fields; j++) {
                 if (strcmp(type->data.struct_.fields[j].name, fname) == 0) {

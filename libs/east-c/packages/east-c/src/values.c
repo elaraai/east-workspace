@@ -20,40 +20,44 @@
 
 EastValue east_null_value = {.kind = EAST_VAL_NULL, .ref_count = -1};
 
+/* The string arm is sized to fill the union's widest arm exactly. If a future
+ * arm widens, the inline buffer must shrink to match or every value grows. */
+_Static_assert(sizeof(((EastValue *)0)->data.string) <= sizeof(((EastValue *)0)->data.dict),
+               "string inline buffer must not widen the value union");
+/* A freed slot holds the slab's free-list link in its own memory, so no size
+ * class may be narrower than a pointer. */
+_Static_assert(EAST_VALUE_ARM_SIZE(datetime) >= sizeof(void *),
+               "smallest value size class must hold the slab free-list link");
+
 /* ------------------------------------------------------------------ */
 /*  Internal helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-static bool is_gc_type(EastValueKind kind)
-{
-    switch (kind) {
-    case EAST_VAL_ARRAY:
-    case EAST_VAL_SET:
-    case EAST_VAL_DICT:
-    case EAST_VAL_STRUCT:
-    case EAST_VAL_VARIANT:
-    case EAST_VAL_REF:
-    case EAST_VAL_FUNCTION:
-        return true;
-    default:
-        return false;
-    }
-}
-
 static EastValue *alloc_value(EastValueKind kind)
 {
-    EastValue *v = east_value_slab_alloc();
+    EastValue *v = east_value_slab_alloc(east_value_alloc_size(kind));
     if (!v) return NULL;
     v->kind = kind;
     v->ref_count = 1;
-    v->gc_tracked = false;
-    v->gc_gen = 0;
-    v->gc_next = NULL;
-    v->gc_prev = NULL;
-    if (is_gc_type(kind)) {
+    /* The GC header only exists on tracked kinds — the slot of anything else
+     * stops at its union arm. */
+    if (east_value_kind_has_gc(kind)) {
+        v->gc_tracked = false;
+        v->gc_gen = 0;
+        v->gc_next = NULL;
+        v->gc_prev = NULL;
         east_gc_track(v);
     }
     return v;
+}
+
+/* Discard a value whose construction failed partway. alloc_value has already
+ * put a container kind in the GC young list, so returning the slot without
+ * untracking would leave a dangling list entry. */
+static void abort_value(EastValue *v)
+{
+    if (east_value_is_tracked(v)) east_gc_untrack(v);
+    east_value_slab_free(v, east_value_alloc_size(v->kind));
 }
 
 /*
@@ -200,15 +204,7 @@ EastValue *east_float(double val)
 EastValue *east_string(const char *str)
 {
     if (!str) str = "";
-    EastValue *v = alloc_value(EAST_VAL_STRING);
-    if (!v) return NULL;
-    v->data.string.len = strlen(str);
-    v->data.string.data = east_strdup(str);
-    if (!v->data.string.data) {
-        east_value_slab_free(v);
-        return NULL;
-    }
-    return v;
+    return east_string_len(str, strlen(str));
 }
 
 EastValue *east_string_len(const char *str, size_t len)
@@ -216,16 +212,30 @@ EastValue *east_string_len(const char *str, size_t len)
     EastValue *v = alloc_value(EAST_VAL_STRING);
     if (!v) return NULL;
     v->data.string.len = len;
-    v->data.string.data = east_alloc(len + 1);
-    if (!v->data.string.data) {
-        east_value_slab_free(v);
-        return NULL;
+    if (len <= EAST_STRING_INLINE_CAP) {
+        /* Short strings live in the node itself — no second allocation, and
+         * none of the readers can tell, since `data` still points at the
+         * bytes. string_is_inline() is what keeps release from freeing it. */
+        v->data.string.data = v->data.string.inline_data;
+    } else {
+        v->data.string.data = east_alloc(len + 1);
+        if (!v->data.string.data) {
+            abort_value(v);
+            return NULL;
+        }
     }
     if (str && len > 0) {
         memcpy(v->data.string.data, str, len);
     }
     v->data.string.data[len] = '\0';
     return v;
+}
+
+/* Whether a string value's bytes sit in the node rather than a separate
+ * allocation — the one thing the release paths must ask before freeing. */
+static inline bool string_is_inline(const EastValue *v)
+{
+    return v->data.string.data == v->data.string.inline_data;
 }
 
 EastValue *east_datetime(int64_t millis)
@@ -244,7 +254,7 @@ EastValue *east_blob(const uint8_t *data, size_t len)
     if (len > 0 && data) {
         v->data.blob.data = east_alloc(len);
         if (!v->data.blob.data) {
-            east_value_slab_free(v);
+            abort_value(v);
             return NULL;
         }
         memcpy(v->data.blob.data, data, len);
@@ -266,7 +276,7 @@ EastValue *east_array_new(EastType *elem_type)
     v->data.array.cap = 4;
     v->data.array.items = east_alloc(4 * sizeof(EastValue *));
     if (!v->data.array.items) {
-        east_value_slab_free(v);
+        abort_value(v);
         return NULL;
     }
     v->data.array.elem_type = elem_type;
@@ -287,7 +297,7 @@ EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity)
     if (capacity > 0) {
         v->data.array.items = east_alloc(capacity * sizeof(EastValue *));
         if (!v->data.array.items) {
-            east_value_slab_free(v);
+            abort_value(v);
             return NULL;
         }
     } else {
@@ -419,7 +429,7 @@ EastValue *east_set_new(EastType *elem_type)
     if (!v) return NULL;
     v->data.set.tree = value_btree_new();
     if (!v->data.set.tree) {
-        east_value_slab_free(v);
+        abort_value(v);
         return NULL;
     }
     v->data.set.items = NULL;
@@ -603,7 +613,7 @@ EastValue *east_dict_new(EastType *key_type, EastType *val_type)
     if (!v) return NULL;
     v->data.dict.tree = value_btree_new_dict();
     if (!v->data.dict.tree) {
-        east_value_slab_free(v);
+        abort_value(v);
         return NULL;
     }
     v->data.dict.keys = NULL;
@@ -720,6 +730,27 @@ void east_dict_release_contents(EastValue *v)
 /*  Struct / Variant / Ref                                             */
 /* ------------------------------------------------------------------ */
 
+/* Whether `type` lists exactly `names` in exactly that order, so the instance
+ * can borrow the names instead of copying them. Struct types are interned,
+ * arena-immortal and never reordered, so a borrow outlives every value.
+ *
+ * The check is not a formality: compiler.c takes the field count from the IR
+ * node and the type from a separate conversion, with no cross-check between
+ * them, and a coerced struct can legitimately arrive with its own field order.
+ * A mismatch simply falls back to per-instance copies. */
+static bool struct_names_match_type(const char **names, size_t count, EastType *type)
+{
+    while (type && type->kind == EAST_TYPE_RECURSIVE)
+        type = type->data.recursive.node;
+    if (!type || type->kind != EAST_TYPE_STRUCT) return false;
+    if (type->data.struct_.num_fields != count) return false;
+    for (size_t i = 0; i < count; i++) {
+        const char *tn = type->data.struct_.fields[i].name;
+        if (tn != names[i] && strcmp(tn, names[i]) != 0) return false;
+    }
+    return true;
+}
+
 EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
 {
     EastValue *v = alloc_value(EAST_VAL_STRUCT);
@@ -728,17 +759,21 @@ EastValue *east_struct_new(const char **names, EastValue **values, size_t count,
     v->data.struct_.field_names = NULL;
     v->data.struct_.field_values = NULL;
 
+    bool borrow_names = count == 0 || struct_names_match_type(names, count, type);
+
     if (count > 0) {
-        v->data.struct_.field_names = east_alloc(count * sizeof(char *));
         v->data.struct_.field_values = east_alloc(count * sizeof(EastValue *));
-        if (!v->data.struct_.field_names || !v->data.struct_.field_values) {
+        if (!borrow_names) v->data.struct_.field_names = east_alloc(count * sizeof(char *));
+        if (!v->data.struct_.field_values || (!borrow_names && !v->data.struct_.field_names)) {
             east_free(v->data.struct_.field_names);
             east_free(v->data.struct_.field_values);
-            east_value_slab_free(v);
+            v->data.struct_.field_names = NULL;
+            v->data.struct_.field_values = NULL;
+            abort_value(v);
             return NULL;
         }
         for (size_t i = 0; i < count; i++) {
-            v->data.struct_.field_names[i] = east_strdup(names[i]);
+            if (!borrow_names) v->data.struct_.field_names[i] = east_strdup(names[i]);
             v->data.struct_.field_values[i] = values[i];
             if (values[i]) east_value_retain(values[i]);
         }
@@ -753,11 +788,59 @@ EastValue *east_struct_get_field(EastValue *s, const char *name)
 {
     if (!s || s->kind != EAST_VAL_STRUCT || !name) return NULL;
     for (size_t i = 0; i < s->data.struct_.num_fields; i++) {
-        if (strcmp(s->data.struct_.field_names[i], name) == 0) {
+        if (strcmp(east_struct_field_name(s, i), name) == 0) {
             return s->data.struct_.field_values[i];
         }
     }
     return NULL;
+}
+
+/* The shared value for a nullary case (`none` and enum-like tags), or NULL when
+ * this case cannot be shared. Cached on the VariantType, which is interned and
+ * arena-immortal, so the key is stable and the entry is reclaimed with the
+ * arena — see east_variant_type_free_shared_cases.
+ *
+ * Two constraints make sharing invisible. The value must carry a non-NULL type:
+ * retype_patch() rewrites a variant's case and type in place, and its only
+ * guard is `type != NULL`, so an untyped shared value would be corrupted
+ * process-wide by the first patch that reached it. And the value must never be
+ * GC-tracked: the collector overwrites ref_count during its sweep, which would
+ * destroy the immortal marker. Both are why this bypasses alloc_value. */
+static EastValue *shared_nullary_case(EastType *type, size_t case_idx)
+{
+    if (!type || type->kind != EAST_TYPE_VARIANT) return NULL;
+    if (case_idx >= type->data.variant.num_cases) return NULL;
+    if (type->data.variant.cases[case_idx].type != &east_null_type) return NULL;
+
+    EastValue **slots = type->data.variant.shared_case_values;
+    if (!slots) {
+        slots = east_calloc(type->data.variant.num_cases, sizeof(EastValue *));
+        if (!slots) return NULL;
+        type->data.variant.shared_case_values = slots;
+    }
+    if (!slots[case_idx]) {
+        EastValue *v = east_calloc(1, sizeof(EastValue));
+        if (!v) return NULL;
+        v->kind = EAST_VAL_VARIANT;
+        v->ref_count = -1; /* immortal: retain and release are no-ops */
+        v->data.variant.case_idx = case_idx;
+        v->data.variant.case_tag = type->data.variant.cases[case_idx].name;
+        v->data.variant.value = &east_null_value;
+        v->data.variant.type = type;
+        slots[case_idx] = v;
+    }
+    return slots[case_idx];
+}
+
+void east_variant_type_free_shared_cases(EastType *type)
+{
+    if (!type || type->kind != EAST_TYPE_VARIANT) return;
+    EastValue **slots = type->data.variant.shared_case_values;
+    if (!slots) return;
+    for (size_t i = 0; i < type->data.variant.num_cases; i++)
+        east_free(slots[i]);
+    east_free(slots);
+    type->data.variant.shared_case_values = NULL;
 }
 
 EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *type)
@@ -777,6 +860,13 @@ EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *t
             tag = vt->data.variant.cases[idx].name;
         }
     }
+    /* Only when the caller passed the variant type itself: a Recursive wrapper
+     * and its inner node are different `type` values to every reader, so they
+     * cannot share one instance. */
+    if (value == &east_null_value && vt == type && idx != SIZE_MAX) {
+        EastValue *shared = shared_nullary_case(type, idx);
+        if (shared) return shared;
+    }
     EastValue *v = alloc_value(EAST_VAL_VARIANT);
     if (!v) return NULL;
     v->data.variant.case_idx = idx;
@@ -790,13 +880,17 @@ EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *t
 
 EastValue *east_variant_new_idx(size_t case_idx, EastValue *value, EastType *type)
 {
+    EastType *vt = type;
+    while (vt && vt->kind == EAST_TYPE_RECURSIVE)
+        vt = vt->data.recursive.node;
+    if (value == &east_null_value && vt == type) {
+        EastValue *shared = shared_nullary_case(type, case_idx);
+        if (shared) return shared;
+    }
     EastValue *v = alloc_value(EAST_VAL_VARIANT);
     if (!v) return NULL;
     v->data.variant.case_idx = case_idx;
     /* Look up tag from type */
-    EastType *vt = type;
-    while (vt && vt->kind == EAST_TYPE_RECURSIVE)
-        vt = vt->data.recursive.node;
     v->data.variant.case_tag =
         (vt && vt->kind == EAST_TYPE_VARIANT && case_idx < vt->data.variant.num_cases)
             ? vt->data.variant.cases[case_idx].name
@@ -847,7 +941,7 @@ EastValue *east_vector_new(EastType *elem_type, size_t len)
         v->data.vector.data = east_calloc(len, esize);
         if (!v->data.vector.data) {
             if (elem_type) east_type_release(elem_type);
-            east_value_slab_free(v);
+            abort_value(v);
             return NULL;
         }
     } else {
@@ -874,7 +968,7 @@ EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols)
         v->data.matrix.data = east_calloc(count, esize);
         if (!v->data.matrix.data) {
             if (elem_type) east_type_release(elem_type);
-            east_value_slab_free(v);
+            abort_value(v);
             return NULL;
         }
     } else {
@@ -899,9 +993,12 @@ EastValue *east_function_value(EastCompiledFn *fn)
 /*  Ref counting                                                       */
 /* ------------------------------------------------------------------ */
 
+/* Return a slot to the slab. The GC calls this after gc_destroy_contents,
+ * which nulls payload pointers but never touches `kind` — so the kind is still
+ * readable here, and it is what picks the size class. */
 void east_value_dealloc(EastValue *v)
 {
-    east_value_slab_free(v);
+    east_value_slab_free(v, east_value_alloc_size(v->kind));
 }
 
 void east_value_retain(EastValue *v)
@@ -918,7 +1015,7 @@ void east_value_release(EastValue *v)
     if (__atomic_sub_fetch(&v->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
     /* Remove from GC tracking list before freeing. */
-    if (v->gc_tracked) east_gc_untrack(v);
+    if (east_value_is_tracked(v)) east_gc_untrack(v);
 
     /* ref_count == 0: free resources. */
     switch (v->kind) {
@@ -931,7 +1028,7 @@ void east_value_release(EastValue *v)
         break;
 
     case EAST_VAL_STRING:
-        east_free(v->data.string.data);
+        if (!string_is_inline(v)) east_free(v->data.string.data);
         break;
 
     case EAST_VAL_BLOB:
@@ -956,7 +1053,7 @@ void east_value_release(EastValue *v)
 
     case EAST_VAL_STRUCT:
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
-            free(v->data.struct_.field_names[i]);
+            if (v->data.struct_.field_names) east_free(v->data.struct_.field_names[i]);
             east_value_release(v->data.struct_.field_values[i]);
         }
         east_free(v->data.struct_.field_names);
@@ -990,7 +1087,7 @@ void east_value_release(EastValue *v)
         break;
     }
 
-    east_value_slab_free(v);
+    east_value_slab_free(v, east_value_alloc_size(v->kind));
 }
 
 /* ------------------------------------------------------------------ */
@@ -1062,7 +1159,7 @@ bool east_value_equal(EastValue *a, EastValue *b)
     case EAST_VAL_STRUCT:
         if (a->data.struct_.num_fields != b->data.struct_.num_fields) return false;
         for (size_t i = 0; i < a->data.struct_.num_fields; i++) {
-            if (strcmp(a->data.struct_.field_names[i], b->data.struct_.field_names[i]) != 0)
+            if (strcmp(east_struct_field_name(a, i), east_struct_field_name(b, i)) != 0)
                 return false;
             if (!east_value_equal(a->data.struct_.field_values[i], b->data.struct_.field_values[i]))
                 return false;
@@ -1266,7 +1363,7 @@ int east_value_compare(EastValue *a, EastValue *b)
         int c = cmp_size(a->data.struct_.num_fields, b->data.struct_.num_fields);
         if (c != 0) return c;
         for (size_t i = 0; i < a->data.struct_.num_fields; i++) {
-            c = strcmp(a->data.struct_.field_names[i], b->data.struct_.field_names[i]);
+            c = strcmp(east_struct_field_name(a, i), east_struct_field_name(b, i));
             if (c != 0) return (c < 0) ? -1 : 1;
             c = east_value_compare(a->data.struct_.field_values[i],
                                    b->data.struct_.field_values[i]);
@@ -1450,7 +1547,7 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos)
         pos += buf_append(buf, buf_size, pos, "{");
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
             if (i > 0) pos += buf_append(buf, buf_size, pos, ", ");
-            pos += buf_append(buf, buf_size, pos, "%s: ", v->data.struct_.field_names[i]);
+            pos += buf_append(buf, buf_size, pos, "%s: ", east_struct_field_name(v, i));
             pos = print_value(v->data.struct_.field_values[i], buf, buf_size, pos);
         }
         pos += buf_append(buf, buf_size, pos, "}");

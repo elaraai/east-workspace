@@ -491,7 +491,7 @@ char *east_csv_encode(EastValue *array, EastType *type, EastValue *config)
 
             EastValue *fval = NULL;
             for (size_t j = 0; j < row->data.struct_.num_fields; j++) {
-                if (strcmp(row->data.struct_.field_names[j], fname) == 0) {
+                if (strcmp(east_struct_field_name(row, j), fname) == 0) {
                     fval = row->data.struct_.field_values[j];
                     break;
                 }

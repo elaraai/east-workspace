@@ -131,3 +131,9 @@ echo ""
 echo "========================================="
 echo "  Total: $CLEAN_COUNT clean, $LEAK_COUNT leaking, $ERROR_COUNT errors"
 echo "========================================="
+
+if [ "$LEAK_COUNT" -gt 0 ] || [ "$ERROR_COUNT" -gt 0 ]; then
+    echo "::error::leak check failed: $LEAK_COUNT leaking, $ERROR_COUNT errors"
+    exit 1
+fi
+

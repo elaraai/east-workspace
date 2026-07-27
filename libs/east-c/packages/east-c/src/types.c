@@ -1,4 +1,5 @@
 #include "east/types.h"
+#include "east/values.h"
 #include "east/type_of_type.h"
 #include "east/serialization.h"
 
@@ -162,6 +163,9 @@ static void type_free_children(EastType *t)
         free(t->data.struct_.fields);
         break;
     case EAST_TYPE_VARIANT:
+        /* The shared nullary-case values borrow cases[i].name, so they have to
+         * go before it does. */
+        east_variant_type_free_shared_cases(t);
         for (size_t i = 0; i < t->data.variant.num_cases; i++)
             free(t->data.variant.cases[i].name);
         free(t->data.variant.cases);
@@ -562,6 +566,7 @@ void east_type_release(EastType *t)
         break;
 
     case EAST_TYPE_VARIANT:
+        east_variant_type_free_shared_cases(t); /* they borrow cases[i].name */
         for (size_t i = 0; i < t->data.variant.num_cases; i++) {
             free(t->data.variant.cases[i].name);
             east_type_release(t->data.variant.cases[i].type);

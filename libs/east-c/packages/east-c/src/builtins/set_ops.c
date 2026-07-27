@@ -31,7 +31,7 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
 
 #define ITER_GUARD_SET(s)                                                                          \
     do {                                                                                           \
-        if ((s)->iter_lock > 0) {                                                                  \
+        if (east_value_iter_locked(s)) {                                                           \
             east_builtin_error("Cannot modify Set during iteration");                              \
             return NULL;                                                                           \
         }                                                                                          \
