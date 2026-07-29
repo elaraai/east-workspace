@@ -27,18 +27,17 @@ per-component cards).
 
 ## Which project a sync targets
 
-`config.json` pins the CANONICAL team project (`projectId` 1ee95b77… —
-owned by eforster, org-shared for team write access). That id is an
-address, not a credential: reading/writing it requires a claude.ai login
-with access. Two models for other devs:
+No projectId is committed. Every user supplies their target in the
+gitignored `.design-sync/config.local.json` as `{"projectId": "<uuid>"}`
+— sync flows read it from there. The id is an address, not a credential
+(access requires a claude.ai login with permission on that project), but
+it stays out of the repo by policy. Two models:
 
-- **Team project (default):** get edit access via claude.ai project
-  sharing; the committed `projectId` then works as-is with your own login.
-- **Personal sandbox:** `create_project` under your account, put YOUR id
-  in `.design-sync/config.local.json` (gitignored) as
-  `{"projectId": "<uuid>"}`. Any sync flow must prefer
-  `config.local.json`'s projectId over `config.json`'s when present.
-  Never commit your personal id over the canonical one.
+- **Team project (default):** the canonical project is org-shared from
+  claude.ai; get edit access there, then ask a teammate for the id (or
+  find it via `list_projects`) and put it in your `config.local.json`.
+- **Personal sandbox:** `create_project` under your account and use that
+  id instead.
 
 ## Environment gotchas
 
