@@ -112,7 +112,7 @@ Task → What do you need?
     │   ├─ DateTime
     │   │   ├─ Components → .getYear(), .getMonth(), .getDayOfMonth(), .getDayOfWeek(), .getHour(), .getMinute(), .getSecond(), .getMillisecond()
     │   │   ├─ Arithmetic → .addDays(), .subtractDays(), .addHours(), .subtractHours(), .addMinutes(), .addSeconds(), .addMilliseconds(), .addWeeks()
-    │   │   ├─ Duration → .durationDays(), .durationHours(), .durationMinutes(), .durationSeconds(), .durationMilliseconds(), .durationWeeks()
+    │   │   ├─ Duration → .durationDays(), .durationHours(), .durationMinutes(), .durationSeconds(), .durationMilliseconds(), .durationWeeks() ❗ a.durationDays(b) = b − a (positive when b is later)
     │   │   ├─ Convert → .toEpochMilliseconds(), .printFormatted()
     │   │   └─ Compare → .equals()/.equal()/.eq(), .notEquals()/.notEqual()/.ne(), .lessThan()/.less()/.lt(), .greaterThan()/.greater()/.gt(), .lessThanOrEqual()/.lessEqual()/.lte()/.le(), .greaterThanOrEqual()/.greaterEqual()/.gte()/.ge()
     │   ├─ Blob

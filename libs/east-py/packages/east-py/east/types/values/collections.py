@@ -2057,6 +2057,29 @@ class EastDict(Generic[K, V]):
         """
         return key in self
 
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Value for ``key``, or ``default`` if absent (python ``dict.get``).
+
+        A boundary convenience matching the method most Python readers reach
+        for first. Unlike :meth:`get_or_default` the default may be omitted
+        (returning ``None``, which is not an East value) — so inside a
+        ``kernel()`` lambda use :meth:`get_or_default` / :meth:`try_get`,
+        whose defaults stay in East-value land.
+
+        Args:
+            key: The key to look up, compared under East's total ordering.
+            default: Value returned when ``key`` is not present.
+
+        Returns:
+            The stored value for ``key``, otherwise ``default``.
+        """
+        if _is_traced(key) or _is_traced(default):
+            # Delegate so a traced lookup emits IR rather than silently
+            # falling through `key in self`; a None default fails the lift
+            # with a clear error.
+            return self.get_or_default(key, default)
+        return self[key] if key in self else default  # noqa: SIM401
+
     def get_or_default(self, key: Any, default: Any) -> Any:
         """Value for ``key``, or ``default`` if absent (east-c DictGetOrDefault).
 

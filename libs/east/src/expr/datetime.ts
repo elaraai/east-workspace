@@ -606,6 +606,10 @@ export class DateTimeExpr extends Expr<DateTimeType> {
   /**
    * Calculates the duration in milliseconds between this DateTime and another.
    *
+   * Returns `other - this`: positive when `other` is later than this
+   * DateTime, negative when earlier. Note the direction — `a.duration*(b)`
+   * is the time from `a` to `b`, not the time since `b`.
+   *
    * @param other - The DateTime to compare with
    * @returns An IntegerExpr representing the duration (positive if other is after this, negative if before)
    *
@@ -635,6 +639,10 @@ export class DateTimeExpr extends Expr<DateTimeType> {
 
   /**
    * Calculates the duration in seconds between this DateTime and another.
+   *
+   * Returns `other - this`: positive when `other` is later than this
+   * DateTime, negative when earlier. Note the direction — `a.duration*(b)`
+   * is the time from `a` to `b`, not the time since `b`.
    *
    * @param other - The DateTime to compare with
    * @returns A FloatExpr representing the duration in seconds
@@ -678,6 +686,10 @@ export class DateTimeExpr extends Expr<DateTimeType> {
   /**
    * Calculates the duration in minutes between this DateTime and another.
    *
+   * Returns `other - this`: positive when `other` is later than this
+   * DateTime, negative when earlier. Note the direction — `a.duration*(b)`
+   * is the time from `a` to `b`, not the time since `b`.
+   *
    * @param other - The DateTime to compare with
    * @returns A FloatExpr representing the duration in minutes
    *
@@ -719,6 +731,10 @@ export class DateTimeExpr extends Expr<DateTimeType> {
 
   /**
    * Calculates the duration in hours between this DateTime and another.
+   *
+   * Returns `other - this`: positive when `other` is later than this
+   * DateTime, negative when earlier. Note the direction — `a.duration*(b)`
+   * is the time from `a` to `b`, not the time since `b`.
    *
    * @param other - The DateTime to compare with
    * @returns A FloatExpr representing the duration in hours
@@ -762,6 +778,10 @@ export class DateTimeExpr extends Expr<DateTimeType> {
   /**
    * Calculates the duration in days between this DateTime and another.
    *
+   * Returns `other - this`: positive when `other` is later than this
+   * DateTime, negative when earlier. Note the direction — `a.duration*(b)`
+   * is the time from `a` to `b`, not the time since `b`.
+   *
    * @param other - The DateTime to compare with
    * @returns A FloatExpr representing the duration in days
    *
@@ -803,6 +823,10 @@ export class DateTimeExpr extends Expr<DateTimeType> {
 
   /**
    * Calculates the duration in weeks between this DateTime and another.
+   *
+   * Returns `other - this`: positive when `other` is later than this
+   * DateTime, negative when earlier. Note the direction — `a.duration*(b)`
+   * is the time from `a` to `b`, not the time since `b`.
    *
    * @param other - The DateTime to compare with
    * @returns A FloatExpr representing the duration in weeks

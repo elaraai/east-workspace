@@ -297,9 +297,13 @@ solver_input = coerce_to(                                   # struct fields take
 `Float`/`Integer`/`Boolean` columns move through numpy buffers filled in C
 (`Option<Float>` ↔ float64 with NaN for `none`); `String` columns box once
 through a bounded intern table (repeated categories/ids come back as the
-same python object); other field types fall back to boxed lists. Composition
-rule: **kernels for East-expressible transforms, columns/batches for the
-genuinely-python remainder.**
+same python object); other field types fall back to boxed lists. The same
+contract governs the INPUT direction: `from_columns`/`coerce_to` fill C-side
+only when a numeric column arrives as a numpy array of the matching dtype
+(float64/int64/bool; float64-with-NaN for `Option<Float>`) — a plain python
+list converts per cell, so `np.asarray(col)` first when the source is a
+list. Composition rule: **kernels for East-expressible transforms,
+columns/batches for the genuinely-python remainder.**
 
 ### Put the logic in the platform function, not a pure-Python shim
 
@@ -389,7 +393,8 @@ Task → What do you need?
     │   │   ├─ Search → find_first(target, key=) · find_all(value, by=) · find_maximum(by=)/find_minimum(by=) → some(i)/none ·
     │   │   │            find_sorted_first/last/range(target, key=) · first_map(fn, out=) · is_sorted(key=)
     │   │   ├─ Group → group_by(key) · group_reduce(key, init, fold) · group_size(key=) · group_sum(key, fn=) ·
-    │   │   │            group_mean(key, fn=) · group_maximum/minimum(key, by=) · group_every/some(key, pred) ·
+    │   │   │            group_mean(key, fn=) · group_maximum/minimum(key, by=) ❗returns the projected VALUE per
+    │   │   │            group, not the row/index (find_maximum finds the index) · group_every/some(key, pred) ·
     │   │   │            group_to_arrays(key, value=) · group_to_sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
     │   │   ├─ Convert → to_dict(key, value=, combine=) · to_set(key=) · unique() · string_join(sep) · flatten_to_array/set/dict
     │   │   ├─ Columnar → to_columns(fields=) · EastArray.from_columns(T, cols) · map_batches(fn, out=, batch_size=)
@@ -404,7 +409,7 @@ Task → What do you need?
     │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=)
     │   │   └─ Mutate (in place) → add · insert · remove · delete · discard · clear · copy()
     │   ├─ Dict<K,V>  (callbacks: map=fn(v) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
-    │   │   ├─ Access → d[k] · get_or_default(k, d) · try_get(k) · has(k) · keys()/values()/items() · len() ❗ no python-style .get(k, default=)
+    │   │   ├─ Access → d[k] · get(k, default=None) · get_or_default(k, d) · try_get(k) · has(k) · keys()/values()/items() · len()
     │   │   ├─ Combine → merge(other, combine(existing, incoming)=) · get_keys(keys, fill)
     │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · map_reduce(map_fn, reduce_fn, out=) ❗empty · sum? (use reduce) · mean(fn=)
@@ -460,6 +465,8 @@ Task → What do you need?
     │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
     │   │   ├─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
     │   │   │   SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
+    │   │   │   ❗ read a capture with .get(expr)/.get_or_default(expr, d)/.try_get(expr) — the [expr] subscript
+    │   │   │   spelling does NOT trace (python coerces the index via __index__ and the trace bails)
     │   │   └─ Shared subexpressions → REUSE the python variable (fields = r.data.split("|"); read it N times)
     │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
     │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
@@ -503,8 +510,9 @@ Task → What do you need?
   values** — there an option is an `EastVariant` with `.type` / `.value` /
   `.unwrap(tag)` and **no** `.unwrap_or`; branch on `opt.type == "some"` and
   read `opt.value`.
-- **`EastDict` has no python-style `.get(k, default)`** — use
-  `get_or_default(k, default)` / `try_get(k)` / `has(k)` / `d[k]`.
+- **`EastDict.get(k, default=None)` is a boundary convenience** — inside a
+  `kernel()` lambda use `get_or_default(k, default)` / `try_get(k)` instead;
+  a `None` default cannot lift into IR.
 - **Genuinely-Python loops cross the boundary once** —
   `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
   call or a decode per element.
@@ -601,10 +609,10 @@ input, or a widening map). `.element_type` is the logical element type.
 | Slice & combine | `slice(start, end)` · `concat(other)` · `copy()` |
 | Per-element | `map(fn(el), out=None)` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None)` · `for_each(fn(el)) -> None` |
 | Reduce | `fold(initial, fn(acc, el))` · `map_reduce(map_fn(el), reduce_fn(acc, m), out=None)` · `sum(fn=None)` · `mean(fn=None) -> float` (NaN when empty) · `maximum(by=None)` ❗empty · `minimum(by=None)` ❗empty · `every(pred=None) -> bool` · `some(pred=None) -> bool` (native short-circuit) |
-| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
+| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` (Dict of the projected VALUE per group — `find_maximum` is the index finder) · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
 | Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
 | Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` |
-| Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
+| Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* (C-side fill needs numpy columns — float64/int64/bool, `Option<Float>` as float64+NaN; python lists convert per cell) · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
 | Convert | `string_join(sep) -> str` (String arrays) |
 | Mutate (in place) | `append(item)` · `extend(items)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `clear()` · `count(value) -> int` · `index(value) -> int` |
 
