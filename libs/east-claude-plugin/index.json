@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1076,
+    "totalEntries": 1077,
     "totalFiles": 192,
     "packages": {
-      "east": 499,
+      "east": 500,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -1825,6 +1825,29 @@
         "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Decode a CSV blob into an array of structs\n// inputs: []  returns: [{ name: \"Alice\", age: 30n }, { name: \"Bob\", age: 25n }]\nEast.function([], ArrayType(StructType({ name: StringType, age: IntegerType })), ($) => {\n        const csv = $.const(new TextEncoder().encode(\"name,age\\nAlice,30\\nBob,25\"), BlobType);\n        return csv.decodeCsv(StructType({ name: StringType, age: IntegerType }));\n    })"
+    },
+    {
+      "id": "east:blob.examples.ts:blobDecodeCsvSkipShortRows",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/blob.examples.ts",
+      "suite": "CSV Decoding",
+      "test": "Decode a ragged CSV, skipping short rows instead of erroring",
+      "keywords": [
+        "blob",
+        "decodeCsv",
+        "csv",
+        "skipShortRows",
+        "ragged",
+        "short rows",
+        "tolerance",
+        "machine-generated",
+        "ingestion"
+      ],
+      "imports": [
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Decode a ragged CSV, skipping short rows instead of erroring\n// inputs: []  returns: [{ name: \"Alice\", age: 30n }, { name: \"Bob\", age: 25n }]\nEast.function([], ArrayType(StructType({ name: StringType, age: IntegerType })), ($) => {\n        // The second line is ragged (one field) — machine-generated exports\n        // commonly carry a few; skipShortRows drops it instead of erroring\n        const csv = $.const(new TextEncoder().encode(\"name,age\\nAlice,30\\nshort\\nBob,25\"), BlobType);\n        return csv.decodeCsv(\n            StructType({ name: StringType, age: IntegerType }),\n            { skipShortRows: true }\n        );\n    })"
     },
     {
       "id": "east:blob.examples.ts:blobDecodeCsvDefaults",

@@ -228,6 +228,7 @@ typedef struct {
     int null_strings_count;    /* -1 = use default [] (no strings are null) */
     bool trim_fields;
     bool skip_empty_lines;
+    bool skip_short_rows;
     bool strict;
 } CsvDecodeOpts;
 
@@ -275,6 +276,7 @@ static CsvDecodeOpts resolve_decode_opts(EastValue *config)
     o.has_header = config_get_bool(config, "hasHeader", true);
     o.trim_fields = config_get_bool(config, "trimFields", false);
     o.skip_empty_lines = config_get_bool(config, "skipEmptyLines", true);
+    o.skip_short_rows = config_get_bool(config, "skipShortRows", false);
     o.strict = config_get_bool(config, "strict", false);
 
     o.null_strings_count = config_get_null_strings(config, &o.null_strings);
@@ -973,6 +975,17 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
     bool is_end = false;
 
     if (opts.has_header) {
+        /* Degenerate inputs get their own errors — otherwise an empty header
+         * trips the missing-required-column check below, which points at the
+         * schema when the real problem is that there was no input. */
+        if (offset >= data_len) {
+            if (error_out) *error_out = format_csv_error("CSV error: empty input (no header row)");
+            free_field_defaults(field_defaults, nf);
+            free(col_indices);
+            decode_opts_free(&opts);
+            return NULL;
+        }
+
         /* Parse header row */
         bool unclosed_quote = false;
         FieldArray header = csv_parse_row(csv, data_len, &offset, &is_end, opts.delimiter,
@@ -981,6 +994,15 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
         if (unclosed_quote) {
             if (error_out)
                 *error_out = format_csv_error("CSV error: unclosed quote at end of file");
+            field_array_free(&header);
+            free_field_defaults(field_defaults, nf);
+            free(col_indices);
+            decode_opts_free(&opts);
+            return NULL;
+        }
+
+        if (csv_row_is_empty(&header)) {
+            if (error_out) *error_out = format_csv_error("CSV error: empty header row");
             field_array_free(&header);
             free_field_defaults(field_defaults, nf);
             free(col_indices);
@@ -1068,6 +1090,19 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
         return NULL;
     }
 
+    /* The field count a row must reach for every non-Option column — the
+     * same rows the ragged branch below errors on. Defaults don't rescue
+     * short rows (they apply to unparseable fields and header-absent
+     * columns), so a defaulted column still counts here. */
+    size_t min_required_fields = 0;
+    for (size_t f = 0; f < nf; f++) {
+        EastType *ftype = elem_type->data.struct_.fields[f].type;
+        if (col_indices[f] >= 0 && !is_option_type(ftype) &&
+            (size_t)col_indices[f] >= min_required_fields) {
+            min_required_fields = (size_t)col_indices[f] + 1;
+        }
+    }
+
     int row_num = 1;
     while (offset < data_len && !is_end) {
         bool unclosed_quote = false;
@@ -1087,6 +1122,13 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
 
         /* Skip empty rows (unless skipEmptyLines is false) */
         if (opts.skip_empty_lines && csv_row_is_empty(&row)) {
+            field_array_free(&row);
+            if (is_end) break;
+            continue;
+        }
+
+        /* Skip ragged (short) rows when configured */
+        if (opts.skip_short_rows && row.count < min_required_fields) {
             field_array_free(&row);
             if (is_end) break;
             continue;

@@ -176,6 +176,22 @@ export const blobDecodeCsv = example({
     returns: [{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }],
 });
 
+export const blobDecodeCsvSkipShortRows = example({
+    keywords: ["blob", "decodeCsv", "csv", "skipShortRows", "ragged", "short rows", "tolerance", "machine-generated", "ingestion"],
+    description: "Decode a ragged CSV, skipping short rows instead of erroring",
+    fn: East.function([], ArrayType(StructType({ name: StringType, age: IntegerType })), ($) => {
+        // The second line is ragged (one field) — machine-generated exports
+        // commonly carry a few; skipShortRows drops it instead of erroring
+        const csv = $.const(new TextEncoder().encode("name,age\nAlice,30\nshort\nBob,25"), BlobType);
+        return csv.decodeCsv(
+            StructType({ name: StringType, age: IntegerType }),
+            { skipShortRows: true }
+        );
+    }),
+    inputs: [],
+    returns: [{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }],
+});
+
 export const blobDecodeCsvDefaults = example({
     keywords: ["blob", "decodeCsv", "csv", "defaults", "ingestion", "defensive", "unparseable", "fallback", "constant-fill", "absent column"],
     description: "Decode a defensive CSV with per-column defaults for unparseable fields and absent columns",

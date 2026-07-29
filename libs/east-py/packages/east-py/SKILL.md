@@ -865,7 +865,7 @@ key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#
 | `decode_utf8() -> str` / `decode_utf16() -> str` | Text decode |
 | `EastBlob.encode_beast2(value) -> EastBlob` *(static)* | Serialize an East value to BEAST2 (type inferred via `type_of`) |
 | `decode_beast2(typ) -> value` | Decode BEAST2 as `typ` |
-| `decode_csv(element_type, config=None) -> EastArray` | Decode CSV rows into `Array<element_type>` (east-c decoder). Build `config` with `east.serialization.csv.csv_parse_config(...)`: by default **no field text is null** (empty field == empty string); opt in with `null_strings=[""]` (`none` for Option columns, error for required); `defaults={"qty": "0.0"}` gives per-column fallbacks for unparseable fields and constant-fill for absent columns |
+| `decode_csv(element_type, config=None) -> EastArray` | Decode CSV rows into `Array<element_type>` (east-c decoder). Build `config` with `east.serialization.csv.csv_parse_config(...)`: by default **no field text is null** (empty field == empty string); opt in with `null_strings=[""]` (`none` for Option columns, error for required); `defaults={"qty": "0.0"}` gives per-column fallbacks for unparseable fields and constant-fill for absent columns; `skip_short_rows=True` drops ragged rows instead of erroring |
 
 ### Beast2 streaming — bounded-memory collections (`from east.serialization.beast2 import ...`)
 
