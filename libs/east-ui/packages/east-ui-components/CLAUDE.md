@@ -12,14 +12,14 @@ this file rotted out of sync with the HTML. Use these `make` targets from
 
 | Target | What it does |
 |---|---|
-| `make design` | Serves the reference spec (`app_design_system/guidelines/reference/`) on :5174 for visual review. |
-| `make design-html-all` | Seeds `component_design/` from the reference `.pattern` / `.bsys` elements (committed HTML linking the shared DS CSS). |
+| `make design` | Serves the canonical design system (`app_design_system/`, incl. the `components/rendered/` captures) on :5174 for visual review. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 
 Token tables, semantic tokens, typography, dark-theme overrides — all in
 `libs/east-ui/app_design_system/tokens/` + `base/semantic.css`; the
-dimensional spec is `app_design_system/guidelines/reference/spec.css`.
+appearance ground truth is `app_design_system/components/rendered/`
+(generated captures — real renderer + theme).
 Per `[Always visually verify]` memory: after every component or example
 change, re-snapshot and Read the PNG.
 

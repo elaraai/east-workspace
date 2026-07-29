@@ -7,7 +7,7 @@
   "types": "index.d.ts",
   "scripts": {
     "serve": "node .ds-sync/storybook/http-serve.mjs ./ds-bundle",
-    "spec": "npx serve guidelines/reference"
+    "spec": "npx serve ."
   },
   "peerDependencies": {
     "react": "^19.0.0"

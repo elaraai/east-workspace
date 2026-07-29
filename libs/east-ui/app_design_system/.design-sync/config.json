@@ -8,8 +8,7 @@
   "tokensPkg": "@elaraai/east-app-design-system",
   "tokensGlob": "tokens/*.css",
   "guidelinesGlob": [
-    "guidelines/*.md",
-    "guidelines/proposals/*.md"
+    "guidelines/*.md"
   ],
   "readmeHeader": ".design-sync/conventions.md",
   "overrides": {

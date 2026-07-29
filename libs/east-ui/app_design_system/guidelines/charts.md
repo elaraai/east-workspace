@@ -1,7 +1,8 @@
 # Charts — what East charts look like
 
-Distilled from the chart bootstrap (`guidelines/reference/charts.js`), the
-chart convention specimen, and the component rules §6 — values verbatim.
+Distilled from the retired reference pages' chart bootstrap (`charts.js`,
+git history), the chart convention specimen, and the component rules §6 —
+values verbatim.
 Production implementation: `@elaraai/east-ui` `<Chart layers={…}>`
 (Chart.Line / Chart.Column / Chart.Bar / Chart.Area / Chart.Scatter /
 Chart.Band + Chart.refLine / refBand / refDot — **Column is vertical, Bar

@@ -10,10 +10,13 @@ Non-negotiable for any East component or screen: pass every line of
 guidelines/component-rules.md (semantic tokens only — no raw hex; every
 numeral JetBrains Mono tabular; status = dot + uppercase mono word, never a
 tinted badge; structure from 1px rules, shadows only on overlays; dashed =
-ephemeral; must work with data-theme="dark" unchanged). Compose from the 8
-core atoms in components/core/ (Button, Chip, Status, DeltaPill, Tag, Kbd,
-Banner, Avatar); build larger patterns fresh, copying anatomy and exact
-dimensions from guidelines/reference/ (spec.css is the source of truth).
+ephemeral; must work with data-theme="dark" unchanged). For any component,
+look at the RENDERED example captures in
+components/rendered/<category>/ — one standalone HTML per component
+(Board, Planner, Table, Chart, Story, …), produced by the production
+renderer with the real theme, every example variant included. They are
+the ground truth for how components actually look; reference them when a
+mock must sit alongside real components.
 
 If creating visual artifacts (slides, mocks, throwaway prototypes, etc), copy
 assets out and create static HTML files for the user to view. If working on
