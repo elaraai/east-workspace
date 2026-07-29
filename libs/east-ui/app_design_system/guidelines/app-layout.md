@@ -1,7 +1,9 @@
 # App layout — the canonical East screen
 
-Distilled from the pattern spec (`guidelines/reference/index.html` §1.4–1.5h,
-values verbatim). Production implementation: `@elaraai/east-ui` — `<App>` is
+Distilled from the pattern spec (the retired reference pages' `index.html`
+§1.4–1.5h — git history; the per-pattern extracts live in
+`guidelines/patterns/`), values verbatim. Production implementation:
+`@elaraai/east-ui` — `<App>` is
 the whole shell (collapsible rail + breadcrumb + logo + routed body);
 `<NavList>`, `<Breadcrumb>`, `<Grid>`/`<Stack>` compose the rest.
 

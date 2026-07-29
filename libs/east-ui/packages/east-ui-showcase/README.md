@@ -24,8 +24,7 @@ Run from `libs/east-ui/`:
 ```bash
 make east-ui-examples-html-all                 # Snapshot every east-ui example to standalone HTML
 make east-ui-examples-html-<pathKey>           # Snapshot one example (e.g. disclosure/tabs)
-make design-html-all                           # Snapshot every .pattern / .bsys from design/*.html
-make design                                    # Serve design/ on :5174 for visual review
+make design                                    # Serve app_design_system/ on :5174 for visual review
 ```
 
 Run from this package directory:

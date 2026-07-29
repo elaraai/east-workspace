@@ -10,12 +10,18 @@ node .ds-sync/resync.mjs --config .design-sync/config.json \
   && node .design-sync/extra-cards.mjs
 ```
 
-The `extra-cards.mjs` step is MANDATORY after every build: it copies the 10
+The `extra-cards.mjs` step is MANDATORY after every build: it copies (a) the
 hand-authored specimen cards (`guidelines/cards/*.html` — groups Colors /
-Type / Foundations / Conventions, own `@dsCard` markers, `../../styles.css`
-links valid at that depth) into ds-bundle so they upload with `guidelines/**`
-and register in the picker. Skipping it makes the next close-out
-reconciliation DELETE them remotely. `components/core/core.card.html` is
+Type / Foundations / Conventions / App layout, own `@dsCard` markers,
+`../../styles.css` links valid at that depth) and (b) the ~120 component-level
+pattern specs (`guidelines/patterns/<category>/*.html` + shared
+`guidelines/patterns/spec.css` — `@dsCard` groups "Patterns · <Category>",
+`../../../styles.css` + `../spec.css` links valid at that depth) into
+ds-bundle so they upload with `guidelines/**` and register in the picker.
+Skipping it makes the next close-out reconciliation DELETE them remotely.
+The patterns set is reconciled against packages/east-ui + packages/e3-ui
+(2026-07-29): only implemented subjects are filed — see
+`guidelines/patterns/README.md`. `components/core/core.card.html` is
 deliberately not shipped (unpkg-CDN React + babel — superseded by the 8
 per-component cards).
 
@@ -49,9 +55,11 @@ per-component cards).
   `<Name>.prompt.md`, which sibling discovery (`<Name>.md`) can't match.
   NOTE the repo's `components/core/<Name>.prompt.md` are SOURCE files, not
   sync output — the source layout coincidentally mirrors the upload layout.
-- `guidelines/reference/` and `guidelines/cards/` intentionally NOT shipped
-  (readme: "nothing in here ships to consumers"); the key spec rules are
-  distilled into `.design-sync/conventions.md` instead.
+- `guidelines/cards/` and `guidelines/patterns/` ship via `extra-cards.mjs`,
+  not the converter's `guidelinesGlob`. The old full-page reference pages
+  (`guidelines/reference/`) were removed from the repo 2026-07-29 (git
+  history only); the key spec rules live in `.design-sync/conventions.md`
+  and the per-pattern specs.
 - `[FONT_REMOTE]` for DM Sans / Inter Tight / JetBrains Mono is expected —
   fonts load from Google via the `@import` in `tokens/typography.css`.
 - `cardMode: column` on all atoms except Button + viewport overrides:
@@ -65,12 +73,13 @@ per-component cards).
 ## Distilled guidelines (added after first sync)
 
 - `guidelines/{app-layout,base-components,charts}.md` are DISTILLATIONS with
-  verbatim values from: `guidelines/reference/index.html` (§1.4–1.7 recipes
-  + stdlib), `guidelines/reference/charts.js` (ECharts theme), and
-  `packages/e3-ui/dist/App bar density variants.html` (app-bar densities
-  comfortable/compact/condensed + breadcrumb nesting/overflow rules — that
-  render is the shell's source of truth). If any of those change,
-  re-distill; the .md files do not auto-track them.
+  verbatim values from: the retired reference pages' `index.html` (§1.4–1.7
+  recipes + stdlib) and `charts.js` (ECharts theme) — both git-history-only
+  since 2026-07-29 — and `packages/e3-ui/dist/App bar density variants.html`
+  (app-bar densities comfortable/compact/condensed + breadcrumb
+  nesting/overflow rules — that render is the shell's source of truth).
+  The live per-pattern truth is `guidelines/patterns/`; if the e3-ui render
+  changes, re-distill — the .md files do not auto-track it.
 - Each recipe names its production tag; tag names were validated against
   `packages/east-ui/SKILL.md` — revalidate after east-ui API changes.
 - `.design-sync/conventions.md` frames the handoff: designs map 1:1 onto
@@ -79,6 +88,35 @@ per-component cards).
   already documents loading; the header stays mechanism-neutral.
 
 ## Re-sync risks
+
+- The patterns fold (2026-07-29) was pushed INCREMENTALLY via the DesignSync
+  tool (not the converter): 120 pattern HTML + `guidelines/patterns/spec.css`
+  written, remote `guidelines/guidelines/proposals/*.md` deleted (dropped
+  from `guidelinesGlob` the same day — the proposals were implementation
+  ADRs, all shipped; since removed from the repo too, git history only),
+  and `README.md` + `guidelines/index.md` hand-spliced remotely.
+  GOTCHA: the Design System pane renders ONLY `_ds_manifest.json` — an
+  incremental push does not recompile it, and `register_assets` (legacy
+  store) did NOT surface the cards either. The working fix was rewriting
+  `_ds_manifest.json` itself: cards[] = 24 original + 120 patterns
+  (viewport as a "900x640" STRING, matching existing entries), everything
+  else regenerated from local truth (tokens parsed from `tokens/*.css` —
+  145 entries incl. the 32 dark-scoped duplicates; spot-asserted against
+  the previous manifest before upload). When adding patterns incrementally,
+  update the manifest too — or run the full converter resync, which
+  recompiles it from the `@dsCard` markers. `guidelines/patterns/index.md`
+  (full linked index, also linked from the remote README and
+  `guidelines/index.md`) ships via extra-cards.mjs. The `@dsCard`
+  name/subtitle/viewport values were generated mechanically from filenames
+  and origin titles — refine by hand where they read poorly.
+- NEXT full converter resync: the regenerated README body and
+  `guidelines/index.md` will NOT carry the hand-spliced patterns mentions
+  (the converter only knows `guidelinesGlob`) — re-add the patterns
+  sentence to the README body / index after the build, or fold that splice
+  into `extra-cards.mjs`. The header side is safe (it comes from
+  `conventions.md`, which already names `guidelines/patterns/`).
+  extra-cards.mjs re-uploads identical pattern files (no-op diff) — and
+  remains MANDATORY, else close-out deletes cards AND patterns remotely.
 
 - `conventions.md` names were validated against the 2026-07-22 build. If
   `tokens/*.css` renames/removes tokens, re-run the header validation pass.

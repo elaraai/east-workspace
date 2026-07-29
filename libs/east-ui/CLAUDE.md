@@ -31,9 +31,7 @@ design / snapshot workflow:
 
 | Target | What it does |
 |---|---|
-| `make design` | Serves the canonical visual spec (`app_design_system/guidelines/reference/`) on :5174. |
-| `make design-html-all` | Seeds `component_design/` from every `.pattern` / `.bsys` in the reference pages (committed, individually-managed HTML linking the shared DS CSS). |
-| `make design-html-serve` | Serves `component_design/` + `app_design_system/` on :5175. |
+| `make design` | Serves the canonical design system (`app_design_system/`, incl. `components/rendered/`) on :5174. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 | `make extension` | Builds the VS Code extension. |
@@ -46,18 +44,22 @@ See [`../../docs/conventions/MAKEFILE_TARGETS.md`](../../docs/conventions/MAKEFI
 `app_design_system/` (this lib) holds the canonical **East Application
 Design System** — semantic tokens (`tokens/`, `base/semantic.css`, entry
 `styles.css`), the 8 core atoms (`components/core/`), the hard-constraint
-guidelines (`guidelines/`), and the verbatim pattern-spec reference pages
-(`guidelines/reference/`, the dimensional source of truth incl. `spec.css`).
-It is synced to claude.ai/design via the `/design-sync` skill (see
-`app_design_system/.design-sync/`). The renderer packages **do not**
+guidelines (`guidelines/`), and the rendered component captures
+(`components/rendered/`, generated ground truth for component appearance). It is synced to claude.ai/design via the `/design-sync` skill
+(see `app_design_system/.design-sync/`). The renderer packages **do not**
 maintain their own copy of design tokens — they use Chakra semantic tokens
 (`bg.primary`, `text.muted`, …) which the host app's theme maps back to
 these values.
 
-`component_design/` holds individually-managed component-design HTML files
-seeded from the reference pages by `make design-html-all`; each links the
-shared DS CSS (`app_design_system/styles.css` + `component_design/spec.css`)
-rather than embedding it.
+`app_design_system/components/rendered/` holds the RENDERED example
+captures (generated, gitignored): one standalone HTML per `*.examples.ts`
+file, produced by the real renderer + theme via
+`make east-ui-examples-html-all` and staged/deduped by
+`scripts/design-example-cards.mjs` (first-line `@dsCard` markers,
+"Components · <Category>" picker groups). They are the ground truth for
+component appearance and SHIP with the design-sync. The hand-drawn pattern
+specs, reference pages, and proposals were retired to git history
+(2026-07-29).
 
 Per `[Always visually verify]` memory: after every component or example
 change, rebuild + re-snapshot + Read the PNG. That's the whole point of
