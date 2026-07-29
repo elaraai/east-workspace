@@ -63,6 +63,18 @@ export const integerDivide = example({
     returns: 2n,
 });
 
+export const integerDivideTruncates = example({
+    keywords: ["integer", "IntegerType", "divide", "division", "negative", "truncate", "toward zero", "sign"],
+    description: "Divide a negative integer — the quotient truncates toward zero, it does not floor",
+    fn: East.function([], IntegerType, ($) => {
+        const x = $.const(-10n, IntegerType);
+        // -10 / 3 is -3, not -4: East truncates like C and JS, unlike Python's `//`.
+        return x.divide(3n);
+    }),
+    inputs: [],
+    returns: -3n,
+});
+
 export const integerRemainder = example({
     keywords: ["integer", "IntegerType", "remainder", "modulo"],
     description: "Get the remainder of integer division",

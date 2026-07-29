@@ -8,6 +8,7 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - "libs/east-py/**"
+      - "libs/east-c/**"
       - ".github/workflows/test-e3.yml"
   pull_request:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - "libs/east-py/**"
+      - "libs/east-c/**"
       - ".github/workflows/test-e3.yml"
 
 concurrency:
@@ -108,6 +110,33 @@ jobs:
           uv tool install --force --editable packages/east-py-cli \
             --with-editable ./packages/east-py \
             --with-editable ./packages/east-py-std
+
+      # east-c is an optional runner for the integration suite: its legs
+      # self-skip when the binary is absent, which left them skip-green in
+      # CI forever (#405). Build it so they actually run. `install-cli`
+      # also points node_modules/.bin/east-c at the built binary — in a dev
+      # checkout the published launcher shim there has no per-platform
+      # binary package, so server-side runner spawns would error without
+      # it. Windows is left to test-east-c.yml's own matrix — the vendored
+      # static-curl build is minutes of compile for legs this suite would
+      # skip anyway (the specs probe the bare `east-c` name, not
+      # `east-c.exe`).
+      - name: Install east-c build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Install east-c build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
+
+      - name: Build east-c (integration runner)
+        if: runner.os != 'Windows'
+        working-directory: libs/east-c
+        env:
+          # The job-level CMAKE_GENERATOR=Ninja is for east-py's MSVC build;
+          # the runners don't ship a bare `ninja` for this direct cmake call.
+          CMAKE_GENERATOR: "Unix Makefiles"
+        run: make install-cli
 
       # The environment e2e materializes an env from a scaffolded project's
       # lockfile. Left to resolve from PyPI/npm that env would contain the LAST
