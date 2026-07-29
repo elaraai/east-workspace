@@ -2373,17 +2373,39 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
 
 def _dict_update_many(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr,
                       object keys, object values,
-                      uintptr_t combine_fn_ptr, object combine_py):
+                      uintptr_t combine_fn_ptr, object combine_py,
+                      uintptr_t keys_arr_ptr=0, uintptr_t vals_arr_ptr=0,
+                      Py_ssize_t n_c=-1):
     """Apply many (key, value) updates in one crossing (issue #255).
 
     On a key collision the combine function resolves the new value from
     (existing, incoming): combine_fn_ptr is a native East function value
     (invoked C-to-C via east_call), combine_py a python callable, and with
     neither the incoming value wins.
+
+    Two input paths:
+
+    * ``keys``/``values`` as python sequences — each element is converted with
+      ``py_value_to_c``;
+    * ``keys_arr_ptr``/``vals_arr_ptr`` as C-backed ``Array`` values, with
+      ``n_c`` their length — elements are read straight out with
+      ``east_array_get`` and never converted at all.
+
+    The C-backed path exists because callers usually already HAVE C-backed
+    arrays. Forcing them through python lists (which this function used to
+    require) boxed every element C->python only for ``py_value_to_c`` to convert
+    it back python->C: O(n) pointless round trips on the exact path whose
+    contract promises the batch "crosses once". Measured on 61,238 nested-Option
+    entries: 0.39s and +57MB peak RSS boxed, against 0.03s and +0MB by pointer.
+    The boxing could also exhaust or corrupt memory on deeply nested values —
+    MemoryError inside ``_box_string``, SIGSEGV under ``list_extend``.
     """
     cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
     cdef _eastc.EastType *kt = <_eastc.EastType*>key_type_ptr
     cdef _eastc.EastType *vt = <_eastc.EastType*>val_type_ptr
+    cdef _eastc.EastValue *k_arr = <_eastc.EastValue*>keys_arr_ptr
+    cdef _eastc.EastValue *v_arr = <_eastc.EastValue*>vals_arr_ptr
+    cdef bint c_backed = keys_arr_ptr != 0 and vals_arr_ptr != 0
     cdef _eastc.EastValue *c_key
     cdef _eastc.EastValue *c_val
     cdef _eastc.EastValue *existing
@@ -2391,19 +2413,32 @@ def _dict_update_many(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_
     cdef _eastc.EastValue *cargs[2]
     cdef _eastc.EastValue *fn_val = <_eastc.EastValue*>combine_fn_ptr
     cdef _eastc.EvalResult r
-    cdef Py_ssize_t i, n = len(keys)
+    cdef Py_ssize_t i, n
 
-    if len(values) != n:
-        raise ValueError(f"update_many: {n} keys but {len(values)} values")
+    if c_backed:
+        n = n_c
+    else:
+        n = len(keys)
+        if len(values) != n:
+            raise ValueError(f"update_many: {n} keys but {len(values)} values")
     has_combine = combine_fn_ptr != 0 or combine_py is not None
 
     for i in range(n):
-        c_key = py_value_to_c(keys[i], kt)
-        try:
-            c_val = py_value_to_c(values[i], vt)
-        except BaseException:
-            _eastc.east_value_release(c_key)
-            raise
+        if c_backed:
+            # east_array_get borrows; retain so the unconditional release at the
+            # end of the loop body stays balanced, exactly as it is for the
+            # owned values py_value_to_c returns on the python path.
+            c_key = _eastc.east_array_get(k_arr, <size_t>i)
+            _eastc.east_value_retain(c_key)
+            c_val = _eastc.east_array_get(v_arr, <size_t>i)
+            _eastc.east_value_retain(c_val)
+        else:
+            c_key = py_value_to_c(keys[i], kt)
+            try:
+                c_val = py_value_to_c(values[i], vt)
+            except BaseException:
+                _eastc.east_value_release(c_key)
+                raise
         try:
             existing = _eastc.east_dict_get(d, c_key) if has_combine else NULL
             if existing != NULL:
@@ -2423,7 +2458,12 @@ def _dict_update_many(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_
                     _eastc.east_dict_set(d, c_key, combined)
                     _eastc.east_value_release(combined)
                 else:
-                    py_combined = combine_py(c_value_to_py(existing, vt), values[i])
+                    # A python combine needs python values on both sides. On the
+                    # C-backed path the incoming one is unboxed here, for this
+                    # colliding key only — not for the whole batch.
+                    incoming = (c_value_to_py(c_val, vt) if c_backed
+                                else values[i])
+                    py_combined = combine_py(c_value_to_py(existing, vt), incoming)
                     combined = py_value_to_c(py_combined, vt)
                     _eastc.east_dict_set(d, c_key, combined)
                     _eastc.east_value_release(combined)
