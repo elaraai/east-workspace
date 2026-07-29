@@ -25,6 +25,21 @@ The patterns set is reconciled against packages/east-ui + packages/e3-ui
 deliberately not shipped (unpkg-CDN React + babel — superseded by the 8
 per-component cards).
 
+## Which project a sync targets
+
+`config.json` pins the CANONICAL team project (`projectId` 1ee95b77… —
+owned by eforster, org-shared for team write access). That id is an
+address, not a credential: reading/writing it requires a claude.ai login
+with access. Two models for other devs:
+
+- **Team project (default):** get edit access via claude.ai project
+  sharing; the committed `projectId` then works as-is with your own login.
+- **Personal sandbox:** `create_project` under your account, put YOUR id
+  in `.design-sync/config.local.json` (gitignored) as
+  `{"projectId": "<uuid>"}`. Any sync flow must prefer
+  `config.local.json`'s projectId over `config.json`'s when present.
+  Never commit your personal id over the canonical one.
+
 ## Environment gotchas
 
 - **Any `npm i` inside `.ds-sync/` prunes the tokens self-symlink** (npm
