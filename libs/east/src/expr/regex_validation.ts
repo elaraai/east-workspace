@@ -95,50 +95,6 @@ function validatePattern(pattern: string, result: ValidationResult): void {
   }
 }
 
-// Example usage and test cases
-export function runCompatibilityTests(): void {
-  console.log("=== Cross-Platform RegExp Validation Tests ===\n");
-
-  const testCases: Array<{ name: string; regex: RegExp; expectedValid: boolean }> = [
-    // ✅ Safe cross-platform patterns
-    { name: "Basic word pattern", regex: /\w+/, expectedValid: true },
-    { name: "Email pattern", regex: /\w+@\w+\.\w+/, expectedValid: true },
-    { name: "Case insensitive", regex: /hello/i, expectedValid: true },
-    { name: "Multiline mode", regex: /^test$/m, expectedValid: true },
-    { name: "Dotall mode", regex: /a.*b/s, expectedValid: true },
-    { name: "Character class", regex: /[a-z0-9]+/i, expectedValid: true },
-    { name: "Anchors", regex: /^start.*end$/, expectedValid: true },
-    { name: "Groups and alternation", regex: /(cat|dog)/, expectedValid: true },
-    { name: "Quantifiers", regex: /a{2,5}b*c+d?/, expectedValid: true },
-
-    // ⚠️ Problematic patterns
-    { name: "Global flag", regex: /test/g, expectedValid: false }, // Has warnings
-    { name: "Unicode flag", regex: /test/u, expectedValid: false },
-    { name: "Sticky flag", regex: /test/y, expectedValid: false },
-    
-    // ❌ JavaScript-only features  
-    { name: "Named backreference", regex: /(?<name>\w+)\k<name>/, expectedValid: false },
-    { name: "Unicode property", regex: /\p{Letter}/u, expectedValid: false },
-  ];
-
-  for (const testCase of testCases) {
-    const result = validateCrossPlatformCompatible(testCase.regex);
-    const status = result.isValid ? "✅" : "❌";
-    const expected = testCase.expectedValid ? "should pass" : "should fail";
-    
-    console.log(`${status} ${testCase.name} (${expected})`);
-    console.log(`   Pattern: ${testCase.regex}`);
-    
-    if (result.errors.length > 0) {
-      console.log(`   Errors: ${result.errors.join(", ")}`);
-    }
-    if (result.warnings.length > 0) {
-      console.log(`   Warnings: ${result.warnings.join(", ")}`);
-    }
-    console.log();
-  }
-}
-
 // Recommended patterns that work well across different regex backends
 export const RECOMMENDED_PATTERNS = {
   email: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
@@ -152,7 +108,3 @@ export const RECOMMENDED_PATTERNS = {
   word: /\b\w+\b/,
   lineBreak: /\r?\n/
 };
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runCompatibilityTests();
-}
