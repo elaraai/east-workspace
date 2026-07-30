@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-py-datascience",
-  "version": "1.0.49",
+  "version": "1.0.50",
   "description": "East Data Science - ML/optimization platform functions for East (TypeScript definitions)",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

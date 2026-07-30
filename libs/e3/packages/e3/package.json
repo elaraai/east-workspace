@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3",
-  "version": "1.0.49",
+  "version": "1.0.50",
   "description": "TypeScript SDK for authoring e3 packages",
   "type": "module",
   "main": "dist/src/index.js",
