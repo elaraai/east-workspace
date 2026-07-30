@@ -781,6 +781,7 @@ EastValue *east_struct_new(const char **names, EastValue **values, size_t count,
 
     v->data.struct_.type = type;
     if (type) east_type_retain(type);
+    east_gc_untrack_acyclic(v);
     return v;
 }
 
@@ -875,6 +876,7 @@ EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *t
     if (value) east_value_retain(value);
     v->data.variant.type = type;
     if (type) east_type_retain(type);
+    east_gc_untrack_acyclic(v);
     return v;
 }
 
@@ -899,6 +901,7 @@ EastValue *east_variant_new_idx(size_t case_idx, EastValue *value, EastType *typ
     if (value) east_value_retain(value);
     v->data.variant.type = type;
     if (type) east_type_retain(type);
+    east_gc_untrack_acyclic(v);
     return v;
 }
 

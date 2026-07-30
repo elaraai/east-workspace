@@ -70,8 +70,12 @@ test-all: unit test-east-c test-east-c-std
 
 # ── Memory leak checks ──────────────────────────────────────────────
 
+## Compliance corpus under LSan, plus the ctest gates in the same ASan tree —
+## several gates (recursive-type lifecycle, gc pacing/untracking, value
+## layout) state ASan/LSan as their oracle, which only holds if they run here.
 leak-check:
 	@./packages/east-c/scripts/run_leak_check.sh
+	@ASAN_OPTIONS="detect_leaks=1" ctest --test-dir build-asan --output-on-failure
 
 leak-check-std:
 	@./packages/east-c/scripts/run_leak_check.sh /tmp/east-node-std packages/east-c-std/test_std_compliance

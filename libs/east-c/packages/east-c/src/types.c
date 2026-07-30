@@ -704,6 +704,156 @@ static bool type_equal_ctx(EastType *a, EastType *b, TypeEqualCtx *ctx)
     return false;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Cycle capability (GC untracking of pure-data containers)           */
+/* ------------------------------------------------------------------ */
+
+/* DFS over the type graph looking for anything that lets a VALUE of the type
+ * participate in a reference cycle:
+ *
+ *   - a Function (owns a closure environment) or Ref anywhere, or
+ *   - recursion in the type graph itself. A self-referential type admits a
+ *     value cycle through plain in-place container mutation — e.g. for
+ *     T = Struct{children: Array<T>}, `children.pushLast(node)` where `node`
+ *     transitively holds `children` closes a cycle with no Ref or Function
+ *     involved — so any back-edge answers "can cycle".
+ *
+ * Tri-color: `path` holds the current DFS ancestors (a hit is a back-edge —
+ * can cycle); `done` holds fully explored nodes that found nothing (a hit is
+ * DAG sharing — safe to skip, since anything reachable from them was already
+ * scanned). Memo hits short-circuit; only the query root writes its memo (an
+ * intermediate node's answer may depend on edges outside its own subtree, so
+ * caching mid-walk would be wrong). `saw_unknown` poisons memoisation: a
+ * NULL node (a recursive wrapper queried before east_recursive_type_set)
+ * answers true but must not be cached, since the closed type may classify
+ * differently. */
+typedef struct {
+    EastType **path;
+    size_t path_len;
+    size_t path_cap;
+    EastType **done;
+    size_t done_len;
+    size_t done_cap;
+    bool saw_unknown;
+} CanCycleCtx;
+
+static bool can_cycle_push(EastType ***arr, size_t *len, size_t *cap, EastType *t)
+{
+    if (*len == *cap) {
+        size_t new_cap = *cap ? *cap * 2 : 16;
+        EastType **na = realloc(*arr, new_cap * sizeof(EastType *));
+        if (!na) return false;
+        *arr = na;
+        *cap = new_cap;
+    }
+    (*arr)[(*len)++] = t;
+    return true;
+}
+
+static bool type_can_cycle_walk(EastType *t, CanCycleCtx *ctx)
+{
+    if (!t) {
+        ctx->saw_unknown = true;
+        return true;
+    }
+    {
+        uint8_t memo = __atomic_load_n(&t->gc_can_cycle, __ATOMIC_RELAXED);
+        if (memo) return memo == 2;
+    }
+
+    switch (t->kind) {
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+    case EAST_TYPE_REF:
+        return true;
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+    case EAST_TYPE_DICT:
+    case EAST_TYPE_STRUCT:
+    case EAST_TYPE_VARIANT:
+    case EAST_TYPE_RECURSIVE:
+        break; /* descend below */
+    default:
+        return false; /* primitives, Vector/Matrix (raw numeric buffers) */
+    }
+
+    for (size_t i = 0; i < ctx->path_len; i++) {
+        if (ctx->path[i] == t) return true; /* back-edge: recursive type */
+    }
+    for (size_t i = 0; i < ctx->done_len; i++) {
+        if (ctx->done[i] == t) return false; /* shared subtree, already scanned */
+    }
+    if (!can_cycle_push(&ctx->path, &ctx->path_len, &ctx->path_cap, t)) {
+        ctx->saw_unknown = true; /* OOM — answer conservatively, don't memo */
+        return true;
+    }
+
+    bool result;
+    switch (t->kind) {
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+        result = type_can_cycle_walk(t->data.element, ctx);
+        break;
+    case EAST_TYPE_DICT:
+        result = type_can_cycle_walk(t->data.dict.key, ctx) ||
+                 type_can_cycle_walk(t->data.dict.value, ctx);
+        break;
+    case EAST_TYPE_STRUCT:
+        result = false;
+        for (size_t i = 0; i < t->data.struct_.num_fields; i++) {
+            if (type_can_cycle_walk(t->data.struct_.fields[i].type, ctx)) {
+                result = true;
+                break;
+            }
+        }
+        break;
+    case EAST_TYPE_VARIANT:
+        result = false;
+        for (size_t i = 0; i < t->data.variant.num_cases; i++) {
+            if (type_can_cycle_walk(t->data.variant.cases[i].type, ctx)) {
+                result = true;
+                break;
+            }
+        }
+        break;
+    case EAST_TYPE_RECURSIVE:
+        result = type_can_cycle_walk(t->data.recursive.node, ctx);
+        break;
+    default:
+        result = false; /* unreachable — filtered above */
+        break;
+    }
+
+    ctx->path_len--; /* pop t */
+    if (!result) {
+        if (!can_cycle_push(&ctx->done, &ctx->done_len, &ctx->done_cap, t)) {
+            ctx->saw_unknown = true; /* OOM — lose the pruning, stay correct */
+        }
+    }
+    return result;
+}
+
+bool east_type_can_cycle(EastType *t)
+{
+    if (!t) return true; /* unknown — the caller must track conservatively */
+    {
+        uint8_t memo = __atomic_load_n(&t->gc_can_cycle, __ATOMIC_RELAXED);
+        if (memo) return memo == 2;
+    }
+
+    CanCycleCtx ctx = {0};
+    bool result = type_can_cycle_walk(t, &ctx);
+    free(ctx.path);
+    free(ctx.done);
+    if (!ctx.saw_unknown) {
+        /* Types are interned and immortal; the answer is deterministic, so a
+         * concurrent duplicate store writes the same byte. Relaxed atomics
+         * keep it a defined race, matching the ref_count discipline. */
+        __atomic_store_n(&t->gc_can_cycle, result ? 2 : 1, __ATOMIC_RELAXED);
+    }
+    return result;
+}
+
 bool east_type_equal(EastType *a, EastType *b)
 {
     if (a == b) return true;

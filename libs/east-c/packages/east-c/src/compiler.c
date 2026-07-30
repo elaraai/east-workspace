@@ -1486,9 +1486,9 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
         result = eval_ok(ret_val);
     }
 
-    /* Run scheduled collection (young or full per GC_FULL_INTERVAL) at
-     * outermost call return.  Young-only safe points also fire at loop
-     * back-edges within eval_ir. */
+    /* Run scheduled collection (young, or full when the old generation has
+     * grown past the pacing thresholds — see gc.h) at outermost call return.
+     * Young-only safe points also fire at loop back-edges within eval_ir. */
     east_call_depth--;
     if (east_call_depth == 0 && east_gc_should_collect()) {
         east_gc_collect();

@@ -62,6 +62,9 @@ struct EastType {
     EastTypeKind kind;
     int ref_count;
     int64_t type_id; // stable interned ID (-1 = not interned)
+    // Memo for east_type_can_cycle(): 0 = unknown (zero-init), 1 = no, 2 = yes.
+    // Types are interned/immortal, so the answer is computed once per type.
+    uint8_t gc_can_cycle;
     union {
         // Array, Set, Ref, Vector, Matrix: element type
         EastType *element;
@@ -161,6 +164,13 @@ void east_type_release(EastType *t);
 
 // Comparison
 bool east_type_equal(EastType *a, EastType *b);
+
+// Whether a value of this type can participate in a reference cycle: true iff
+// the type transitively contains a Function (closure environment) or Ref.
+// Pure-data types cannot close a cycle, so the GC need not track their values.
+// Conservative on the unknown: a NULL type, or a recursive wrapper whose node
+// is not yet set, answers true. Memoised on the type (see gc_can_cycle).
+bool east_type_can_cycle(EastType *t);
 
 // Printing (writes to buffer, returns chars written)
 int east_type_print(EastType *t, char *buf, size_t buf_size);

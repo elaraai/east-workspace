@@ -204,6 +204,16 @@ add_executable(test_value_layout tests/test_value_layout.c)
 target_link_libraries(test_value_layout east-c)
 add_test(NAME value_layout COMMAND test_value_layout)
 
+# GC pacing + pure-data untracking gate (issue #437): full collections must be
+# paced on old-generation growth (a fixed interval is quadratic while building
+# a large live structure — CPython bpo-4074), and containers whose type cannot
+# participate in a cycle (no Function/Ref reachable) must never be tracked.
+# Also asserts a real ref cycle is still collected. Run under ASan/LSan
+# (run_leak_check.sh's build-asan config): unsound untracking shows as a leak.
+add_executable(test_gc_pacing tests/test_gc_pacing.c)
+target_link_libraries(test_gc_pacing east-c)
+add_test(NAME gc_pacing COMMAND test_gc_pacing)
+
 # Beast2 decoder hardening gate (issue #34): truncation/corruption sweeps,
 # crafted out-of-bounds type tables, and allocation-overflow guards. The
 # beast2 decoders are an untrusted-input boundary — run under ASan
