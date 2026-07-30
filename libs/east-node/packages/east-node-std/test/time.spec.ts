@@ -30,8 +30,10 @@ describeEast("Time platform functions", (test) => {
 
         const elapsed = $.let(end.subtract(start));
 
-        // Should have slept at least 90ms (allowing for some timing variance)
-        $(Assert.greaterEqual(elapsed, 90n));
+        // Should have slept most of the requested time. The slack must cover
+        // a full Windows timer quantum (~15.6ms) — sleep can wake a tick
+        // early relative to the clock reads (measured 88ms for 100ms in CI).
+        $(Assert.greaterEqual(elapsed, 80n));
     });
 
     // getTimezoneOffset tests — DST-aware
