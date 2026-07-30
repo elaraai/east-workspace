@@ -1079,10 +1079,19 @@ class EastArray(MutableSequence, Generic[T]):
     def _group_pairs(self, key: Any, value: Any, extra: Any = None) -> tuple:
         from east.types.types import IntegerType, StructType
 
-        k_s = key(self[0])
-        v_s = value(self[0])
+        # Declared types first (#450). This site backs group_to_dicts /
+        # group_to_arrays / group_to_sets and was MISSED by the original fix, so
+        # a key OR value containing a `none` still failed here with "Unknown
+        # variant case: none" while group_by and to_dict were already correct.
+        et = [self.element_type]
+        k_t = _kernel_out_type(key, et)
+        v_t = _kernel_out_type(value, et)
+        x_t = _kernel_out_type(extra, et) if extra is not None else None
+        k_s = key(self[0]) if k_t is None else None
+        v_s = value(self[0]) if v_t is None else None
         if extra is None:
-            pair_t = StructType([("k", _ev.type_of(k_s)), ("v", _ev.type_of(v_s))])
+            pair_t = StructType([("k", k_t or _ev.type_of(k_s)),
+                                 ("v", v_t or _ev.type_of(v_s))])
             pair_cb = EastFunction(
                 lambda el, _i: {"k": key(el), "v": value(el)},
                 [self.element_type, IntegerType],
@@ -1090,7 +1099,9 @@ class EastArray(MutableSequence, Generic[T]):
             )
         else:
             pair_t = StructType(
-                [("k", _ev.type_of(k_s)), ("k2", _ev.type_of(extra(self[0]))), ("v", _ev.type_of(v_s))]
+                [("k", k_t or _ev.type_of(k_s)),
+                 ("k2", x_t or _ev.type_of(extra(self[0]))),
+                 ("v", v_t or _ev.type_of(v_s))]
             )
             pair_cb = EastFunction(
                 lambda el, _i: {"k": key(el), "k2": extra(el), "v": value(el)},

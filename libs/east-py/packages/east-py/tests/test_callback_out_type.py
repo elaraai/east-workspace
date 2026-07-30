@@ -105,6 +105,25 @@ def test_the_same_key_has_always_been_fine_elsewhere(rows):
     assert len(keys.sorted()) == 3
 
 
+def test_group_to_dicts_key_or_value_containing_a_none(rows):
+    """`_group_pairs` backs group_to_dicts/group_to_arrays/group_to_sets and was
+    MISSED by the first pass at #450 — group_by and to_dict were fixed while this
+    still sampled, so a `none` anywhere in the key, second key or value failed
+    with "Unknown variant case: none"."""
+    out = rows.group_to_dicts(
+        kernel(ROW, lambda r: r["n"]),          # key
+        kernel(ROW, lambda r: r["a"]),          # key2 — Option, one row is none
+        kernel(ROW, lambda r: r["a"]),          # value — Option too
+    )
+    assert len(out) == 3
+
+
+def test_group_to_arrays_value_containing_a_none(rows):
+    out = rows.group_to_arrays(kernel(ROW, lambda r: r["n"]),
+                               kernel(ROW, lambda r: r["a"]))
+    assert len(out) == 3
+
+
 # ── traced-only methods in a plain lambda ────────────────────────────────────
 
 def test_plain_lambda_may_use_traced_only_methods(rows):
