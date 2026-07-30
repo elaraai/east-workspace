@@ -71,19 +71,44 @@ def _lift_traced(value: Any) -> Any:
 
 
 
-def _kernel_out_type(fn):
-    """Output type from a precompiled-kernel callback's handle, else None.
+def _kernel_out_type(fn, param_types=None):
+    """A callback's output type from the TYPE SYSTEM, or None if unavailable.
 
-    Compiled kernels (east.kernel / compile_from_* / .bind results) carry
-    their signature on ``_eastc_handle`` — inferring from it skips the
-    sampling call entirely (#409).
+    Two exact sources, tried in order:
+
+    1. a precompiled kernel (east.kernel / compile_from_* / ``.bind`` results)
+       carries its signature on ``_eastc_handle`` (#409);
+    2. a traceable lambda gets one from the tracer, once ``param_types`` says
+       what it will be called with.
+
+    Callers fall back to SAMPLING — ``type_of(fn(first_element))`` — only when
+    both fail, and that fallback is lossy in a way worth stating. ``type_of``
+    documents it: "for a variant, the inferred type is a single-case
+    VariantType ... the other cases are unknowable from one value". So an
+    ``Option``-returning callback sampled on an element that happens to carry
+    ``some`` is typed ``Variant<some>`` with no ``none`` arm — after which the
+    first ``none`` fails conversion with "Unknown variant case: none", and even
+    an all-``some`` run silently builds a collection with the wrong key type
+    (#450). The type is already known; it should not be re-derived from data.
+
+    Tracing here runs the lambda once against proxies, which is no more than
+    the sampling call it replaces, and only its TYPE is taken — how the
+    callback actually EXECUTES is still decided independently by
+    ``try_push_down``.
     """
     handle = getattr(fn, "_eastc_handle", None)
-    if handle is None:
+    if handle is not None:
+        try:
+            return handle.get_output_type()
+        except Exception:
+            return None
+    if param_types is None or not callable(fn):
         return None
     try:
-        return handle.get_output_type()
-    except Exception:
+        from east.kernel import trace
+
+        return trace(fn, list(param_types))[1]
+    except Exception:       # untraceable (impure) callback — the caller samples
         return None
 
 
@@ -449,9 +474,12 @@ class EastArray(MutableSequence, Generic[T]):
             k2 = self.element_type
             t2 = self.element_type
             return EastDict(k2, t2)
-        k2 = _ev.type_of(key(self[0]))
+        # Declared type first, sampling only as a fallback — a sampled variant
+        # yields a single-case type and breaks on the first other case (#450).
+        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))
         value_fn = (lambda el: el) if value is None else value
-        t2 = self.element_type if value is None else _ev.type_of(value(self[0]))
+        t2 = self.element_type if value is None else (
+            _kernel_out_type(value, [self.element_type]) or _ev.type_of(value(self[0])))
         key_cb = EastFunction(_mark_kernel(lambda el, idx: key(el), key), [self.element_type, IntegerType], k2)
         val_cb = EastFunction(_mark_kernel(lambda el, idx: value_fn(el), value_fn), [self.element_type, IntegerType], t2)
         combine_cb = EastFunction(
@@ -720,7 +748,9 @@ class EastArray(MutableSequence, Generic[T]):
         bucket_type = ArrayType(self.element_type)
         if len(self) == 0:
             return EastDict(self.element_type, bucket_type)
-        k2 = _ev.type_of(key(self[0]))
+        # Declared type first, sampling only as a fallback — a sampled variant
+        # yields a single-case type and breaks on the first other case (#450).
+        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))
 
         # ArrayGroupFold callbacks carry the element index: key(elem, idx),
         # init(group_key), fold(acc, elem, idx).
@@ -949,8 +979,8 @@ class EastArray(MutableSequence, Generic[T]):
 
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
-        k2 = _ev.type_of(key(self[0]))
-        a_t = _ev.type_of(init(key(self[0])))
+        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
+        a_t = _kernel_out_type(init, [k2]) or _ev.type_of(init(key(self[0])))
         key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
         init_cb = EastFunction(init, [k2], a_t)
         fold_cb = EastFunction(
@@ -1009,7 +1039,7 @@ class EastArray(MutableSequence, Generic[T]):
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
         proj = by if by is not None else (lambda el: el)
-        k2 = _ev.type_of(key(self[0]))
+        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
         p_t = _ev.type_of(proj(self[0]))
         opt_t = OptionType(p_t)
         key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
@@ -1588,8 +1618,8 @@ class EastSet(Generic[T]):
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
         sample = next(iter(self))
-        k2 = _ev.type_of(key(sample))
-        t2 = _ev.type_of(value(sample))
+        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(sample))  # declared type first (#450)
+        t2 = _kernel_out_type(value, [self.element_type]) or _ev.type_of(value(sample))
         key_cb = EastFunction(key, [self.element_type], k2)
         value_cb = EastFunction(value, [self.element_type], t2)
         combine_cb = EastFunction(
@@ -1941,7 +1971,7 @@ class EastSet(Generic[T]):
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
         sample = next(iter(self))
-        k2 = _ev.type_of(key(sample))
+        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(sample))  # declared type first (#450)
         t2 = _ev.type_of(initial(key(sample)))
         key_cb = EastFunction(key, [self.element_type], k2)
         init_cb = EastFunction(initial, [k2], t2)
@@ -2491,7 +2521,11 @@ class EastDict(Generic[K, V]):
         if len(self) == 0:
             return EastDict(self.key_type, out if out is not None else self.value_type)
         first_key = next(iter(self))
-        v2 = out if out is not None else _ev.type_of(fn(self[first_key]))
+        # Declared type first (#450). Sampling calls `fn` on a DECODED value, so
+        # a value function written against the traced surface dies with an
+        # AttributeError before it ever runs, and a variant result gets typed
+        # from whichever single case the sample carried.
+        v2 = out or _kernel_out_type(fn, [self.value_type]) or _ev.type_of(fn(self[first_key]))
         callback = EastFunction(lambda v, k: fn(v), [self.value_type, self.key_type], v2)
         return _call_builtin("DictMap", [self.key_type, self.value_type, v2], [self, callback], DictType(self.key_type, v2))
 
