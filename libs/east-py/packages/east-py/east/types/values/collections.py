@@ -2057,6 +2057,29 @@ class EastDict(Generic[K, V]):
         """
         return key in self
 
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Value for ``key``, or ``default`` if absent (python ``dict.get``).
+
+        A boundary convenience matching the method most Python readers reach
+        for first. Unlike :meth:`get_or_default` the default may be omitted
+        (returning ``None``, which is not an East value) — so inside a
+        ``kernel()`` lambda use :meth:`get_or_default` / :meth:`try_get`,
+        whose defaults stay in East-value land.
+
+        Args:
+            key: The key to look up, compared under East's total ordering.
+            default: Value returned when ``key`` is not present.
+
+        Returns:
+            The stored value for ``key``, otherwise ``default``.
+        """
+        if _is_traced(key) or _is_traced(default):
+            # Delegate so a traced lookup emits IR rather than silently
+            # falling through `key in self`; a None default fails the lift
+            # with a clear error.
+            return self.get_or_default(key, default)
+        return self[key] if key in self else default  # noqa: SIM401
+
     def get_or_default(self, key: Any, default: Any) -> Any:
         """Value for ``key``, or ``default`` if absent (east-c DictGetOrDefault).
 
@@ -2292,9 +2315,51 @@ class EastDict(Generic[K, V]):
                     keep_alive = native
                 else:
                     combine_py = combine
+        # When both inputs are ALREADY C-backed arrays of the right element
+        # type, hand their pointers over and let the bridge index them C-side.
+        # `list(keys), list(values)` boxes every element C->python purely so the
+        # bridge can convert it python->C again — O(n) round trips on the one
+        # path whose contract is "the whole batch crosses once", and on deeply
+        # nested element types the boxing itself could exhaust or corrupt memory
+        # (MemoryError in _box_string, SIGSEGV under list_extend).
+        # `isinstance` covers kernel-produced arrays too (EastArrayProxy is an
+        # EastArray), and `==` on element types compares structurally, so this
+        # matches whether the array came from `array(...)` or a kernel.
+        k_ptr = v_ptr = 0
+        n_c = -1
+        if isinstance(keys, EastArray) and isinstance(values, EastArray):
+            # A wrong element type RAISES rather than falling back: handing
+            # mismatched pointers to the bridge would let east-c read values as
+            # the wrong type, and silently taking the boxing path instead would
+            # hide a caller bug behind a much slower route.
+            if keys.element_type != self.key_type:
+                from east.types.coercion import EastTypeError
+
+                raise EastTypeError(
+                    f"update_many: keys are Array<{keys.element_type}> but this "
+                    f"dict is keyed by {self.key_type}"
+                )
+            if values.element_type != self.value_type:
+                from east.types.coercion import EastTypeError
+
+                raise EastTypeError(
+                    f"update_many: values are Array<{values.element_type}> but "
+                    f"this dict holds {self.value_type}"
+                )
+            if len(keys) != len(values):
+                raise ValueError(
+                    f"update_many: {len(keys)} keys but {len(values)} values"
+                )
+            k_ptr, v_ptr, n_c = keys._c_ptr, values._c_ptr, len(keys)
+
+        # NB do NOT clobber keys/values above: if either pointer turns out to be
+        # 0 the bridge takes the python path, and it needs the originals.
+        fast = k_ptr != 0 and v_ptr != 0
         _proxy_cls("_dict_update_many")(
             self._c_ptr, self._c_key_type_ptr, self._c_val_type_ptr,
-            list(keys), list(values), combine_ptr, combine_py,
+            () if fast else list(keys),
+            () if fast else list(values),
+            combine_ptr, combine_py, k_ptr, v_ptr, n_c,
         )
         del keep_alive
 

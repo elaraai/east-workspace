@@ -9,6 +9,11 @@ import numpy as np
 import pytest
 
 from east import (
+    where,
+    some,
+    none,
+    array,
+    ArrayType,
     BooleanType,
     EastArray,
     EastBlob,
@@ -241,3 +246,109 @@ def test_update_many_accumulator_pattern():
     d.update_many(cols["sku"], cols["price"], combine=lambda cur, new: cur + new)
     assert d["A-1"] == 12.5
     assert d["B-2"] == 150.0
+
+
+# ─── dict update_many: the C-backed path (no python boxing) ─────────────────
+#
+# `update_many` used to force `list(keys), list(values)`, boxing every element
+# C->python only for the bridge to convert it back python->C. That contradicted
+# its own contract ("the whole batch crosses once") and, on deeply nested
+# element types, the boxing exhausted or corrupted memory: MemoryError inside
+# `_box_string` at ~42k entries and SIGSEGV under `list_extend` at ~61k.
+# East-backed arrays now pass by pointer and are read with `east_array_get`.
+
+
+def _nested_value_type():
+    """A value shaped like the one that crashed: a struct holding an inner
+    Array<Struct> of all-Option fields plus a nested struct of Options."""
+    inner = StructType([
+        ("mpf", OptionType(StringType)),
+        ("vintage", OptionType(StringType)),
+        ("litres_before", OptionType(FloatType)),
+        ("litres_after", OptionType(FloatType)),
+    ])
+    return StructType([
+        ("allocations", ArrayType(inner)),
+        ("unallocated", StructType([("before", OptionType(FloatType)),
+                                    ("after", OptionType(FloatType))])),
+        ("quality", OptionType(StringType)),
+    ])
+
+
+def test_update_many_accepts_east_arrays():
+    d = EastDict(StringType, FloatType)
+    d.update_many(array(StringType, ["a", "b"]), array(FloatType, [1.0, 2.0]))
+    assert d["a"] == 1.0 and d["b"] == 2.0
+
+
+def test_update_many_east_arrays_with_native_combine():
+    d = EastDict(StringType, FloatType, {"a": 1.0})
+    d.update_many(array(StringType, ["a", "a", "b"]),
+                  array(FloatType, [2.0, 3.0, 5.0]),
+                  combine=lambda cur, new: cur + new)
+    assert d["a"] == 6.0 and d["b"] == 5.0
+
+
+def test_update_many_east_arrays_with_python_combine():
+    # an impure combine cannot trace, so it runs per collision in python and
+    # the incoming value must still be unboxed correctly on the C-backed path
+    calls = []
+
+    def combine(cur, new):
+        calls.append((cur, new))
+        return cur + new
+
+    d = EastDict(StringType, FloatType, {"a": 1.0})
+    d.update_many(array(StringType, ["a", "a"]), array(FloatType, [2.0, 3.0]),
+                  combine=combine)
+    assert d["a"] == 6.0
+    assert calls == [(1.0, 2.0), (3.0, 3.0)]
+
+
+def test_update_many_rejects_mismatched_element_type():
+    from east.types.coercion import EastTypeError
+
+    d = EastDict(StringType, FloatType)
+    with pytest.raises(EastTypeError, match="keyed by"):
+        d.update_many(array(IntegerType, [1]), array(FloatType, [1.0]))
+    with pytest.raises(EastTypeError, match="this dict holds"):
+        d.update_many(array(StringType, ["a"]), array(IntegerType, [1]))
+
+
+def test_update_many_rejects_length_mismatch_for_east_arrays():
+    d = EastDict(StringType, FloatType)
+    with pytest.raises(ValueError, match="2 keys but 1 values"):
+        d.update_many(array(StringType, ["a", "b"]), array(FloatType, [1.0]))
+
+
+def test_update_many_deeply_nested_option_values_at_scale():
+    """The regression: 61k kernel-produced nested Option values used to SIGSEGV."""
+    val_t = _nested_value_type()
+    key_t = StructType([("chit", StringType), ("tank", StringType)])
+    n = 61_238
+
+    # `allocations` comes from a source field: a bare `[]` cannot be lifted
+    # into a kernel, and the point here is the value SHAPE, not how it is built.
+    inner = val_t.value[0]["type"].value
+    src = StructType([("id", StringType), ("tank", OptionType(StringType)),
+                      ("allocs", ArrayType(inner))])
+    rows = array(src, [{"id": f"C{i}", "tank": some(f"T{i}"),
+                        "allocs": [{"mpf": some("SHZ"), "vintage": some("18"),
+                                    "litres_before": some(1.0),
+                                    "litres_after": none}]} for i in range(n)])
+
+    k_key = kernel(src, lambda r: {"chit": r["id"],
+                                   "tank": r["tank"].unwrap_or("")})
+    k_val = kernel(src, lambda r: {
+        "allocations": r["allocs"],
+        "unallocated": {"before": where(r["tank"].is_some(), some(1.0), none),
+                        "after": where(r["tank"].is_some(), some(2.0), none)},
+        "quality": where(r["tank"].is_some(), some("D2"), none),
+    })
+    keys = rows.map(k_key, out=key_t)
+    values = rows.map(k_val, out=val_t)
+    assert isinstance(keys, EastArray) and isinstance(values, EastArray)
+
+    d = EastDict(key_t, val_t)
+    d.update_many(keys, values)          # SIGSEGV before the fix
+    assert len(d) == n

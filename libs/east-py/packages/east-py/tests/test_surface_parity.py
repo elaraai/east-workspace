@@ -238,6 +238,27 @@ def test_dict_sugar():
     assert {k: dict(v.items()) for k, v in dicts.items()} == {"g": {"A": 12.5, "B": 153.0}}
 
 
+def test_dict_python_get():
+    """Issue #38: python-style ``get(k, default=None)`` on EastDict — including
+    the C-backed proxy you get from a Dict field of a decoded struct."""
+    from east import DictType, coerce_to
+
+    d = _rows().to_dict(lambda r: r.sku, lambda r: r.price, combine=lambda a, b: a + b)
+    assert d.get("A") == pytest.approx(12.5)
+    assert d.get("missing") is None
+    assert d.get("missing", 0.0) == 0.0
+
+    # The issue's repro: an EastDictProxy from a decoded struct field
+    v = coerce_to(
+        {"table": {1: 2.0}},
+        StructType([("table", DictType(IntegerType, FloatType))]),
+    )
+    t = v["table"]
+    assert t.get(1) == 2.0
+    assert t.get(9) is None
+    assert t.get(9, -1.0) == -1.0
+
+
 def test_set_first_map_none_decodes():
     """Regression for the bridge decode: SetFirstMap's none result carries no
     case index and must resolve by name."""
