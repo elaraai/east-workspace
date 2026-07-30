@@ -238,6 +238,21 @@ class EastVariant(Generic[V]):
             raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
         return self.value
 
+    def unwrap_or(self, default):
+        """Option sugar: the payload when the case is ``some``, else ``default``.
+
+        Parity with the traced Option proxy, which has had this while the eager
+        value had only the tag-taking ``unwrap`` (#453)."""
+        return self.value if self.type == "some" else default
+
+    def is_some(self):
+        """Option sugar: is this the ``some`` case? (#453)"""
+        return self.type == "some"
+
+    def is_none(self):
+        """Option sugar: is this the ``none`` case? (#453)"""
+        return self.type == "none"
+
     def match(self, cases: dict, default: Any = None) -> Any:
         """Dispatch on the case, calling the matching handler with the payload.
 
