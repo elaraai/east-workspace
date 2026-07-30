@@ -206,7 +206,7 @@ class EastArray(MutableSequence, Generic[T]):
         if key is None:
             result = _call_builtin("ArraySortDefault", [self.element_type], [self], ArrayType(self.element_type))
         else:
-            t2 = _ev.type_of(key(self[0])) if len(self) else self.element_type
+            t2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0])) if len(self) else self.element_type
             callback = EastFunction(key, [self.element_type], t2)
             result = _call_builtin("ArraySort", [self.element_type, t2], [self, callback], ArrayType(self.element_type))
         return result.reversed() if reverse else result
@@ -227,7 +227,7 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = self.element_type
             callback = EastFunction(lambda el: el, [self.element_type], t2)
         else:
-            t2 = _ev.type_of(key(self[0])) if len(self) else self.element_type
+            t2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0])) if len(self) else self.element_type
             callback = EastFunction(key, [self.element_type], t2)
         return _call_builtin("ArrayIsSorted", [self.element_type, t2], [self, callback], BooleanType)
 
@@ -442,7 +442,7 @@ class EastArray(MutableSequence, Generic[T]):
             k2 = self.element_type
             callback = EastFunction(lambda el, idx: el, [self.element_type, IntegerType], k2)
         else:
-            k2 = _ev.type_of(key(self[0])) if len(self) else self.element_type
+            k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0])) if len(self) else self.element_type
             callback = EastFunction(_mark_kernel(lambda el, idx: key(el), key), [self.element_type, IntegerType], k2)
         return _call_builtin("ArrayToSet", [self.element_type, k2], [self, callback], SetType(k2))
 
@@ -476,10 +476,10 @@ class EastArray(MutableSequence, Generic[T]):
             return EastDict(k2, t2)
         # Declared type first, sampling only as a fallback — a sampled variant
         # yields a single-case type and breaks on the first other case (#450).
-        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))
+        k2 = _kernel_out_type(key, [self.element_type]) or _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))
         value_fn = (lambda el: el) if value is None else value
         t2 = self.element_type if value is None else (
-            _kernel_out_type(value, [self.element_type]) or _ev.type_of(value(self[0])))
+            _kernel_out_type(value, [self.element_type]) or _kernel_out_type(value, [self.element_type]) or _ev.type_of(value(self[0])))
         key_cb = EastFunction(_mark_kernel(lambda el, idx: key(el), key), [self.element_type, IntegerType], k2)
         val_cb = EastFunction(_mark_kernel(lambda el, idx: value_fn(el), value_fn), [self.element_type, IntegerType], t2)
         combine_cb = EastFunction(
@@ -509,7 +509,7 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = out
         else:
             _ko = _kernel_out_type(fn)
-            t2 = _ko if _ko is not None else _ev.type_of(fn(self[0]))
+            t2 = _ko if _ko is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(self[0]))
         callback = EastFunction(_mark_kernel(lambda el, idx: fn(el), fn), [self.element_type, IntegerType], t2)
         return _call_builtin("ArrayMap", [self.element_type, t2], [self, callback], ArrayType(t2))
 
@@ -555,7 +555,10 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = out
         else:
             from east.types.types import get_option_inner_type
-            _ko = _kernel_out_type(fn)
+            # `fn` returns an Option and this site wants its INNER type, so the
+            # declared-type lookup passes the element type too — a traceable
+            # lambda then needs no sampling either (#450).
+            _ko = _kernel_out_type(fn, [self.element_type])
             t2 = get_option_inner_type(_ko) if _ko is not None else _ev.type_of(fn(self[0]).value)
         out_variant = VariantType([("none", NullType), ("some", t2)])
         callback = EastFunction(_mark_kernel(lambda el, idx: fn(el), fn), [self.element_type, IntegerType], out_variant)
@@ -583,7 +586,10 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = out
         else:
             from east.types.types import get_option_inner_type
-            _ko = _kernel_out_type(fn)
+            # `fn` returns an Option and this site wants its INNER type, so the
+            # declared-type lookup passes the element type too — a traceable
+            # lambda then needs no sampling either (#450).
+            _ko = _kernel_out_type(fn, [self.element_type])
             t2 = get_option_inner_type(_ko) if _ko is not None else _ev.type_of(fn(self[0]).value)
         out_variant = VariantType([("none", NullType), ("some", t2)])
         callback = EastFunction(_mark_kernel(lambda el, idx: fn(el), fn), [self.element_type, IntegerType], out_variant)
@@ -614,7 +620,7 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = out
         else:
             _ko = _kernel_out_type(map_fn)
-            t2 = _ko if _ko is not None else _ev.type_of(map_fn(self[0]))
+            t2 = _ko if _ko is not None else _kernel_out_type(map_fn, [self.element_type]) or _ev.type_of(map_fn(self[0]))
         map_cb = EastFunction(_mark_kernel(lambda el, idx: map_fn(el), map_fn), [self.element_type, IntegerType], t2)
         reduce_cb = EastFunction(_mark_kernel(lambda a, b: reduce_fn(a, b), reduce_fn), [t2, t2], t2)
         return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
@@ -750,7 +756,7 @@ class EastArray(MutableSequence, Generic[T]):
             return EastDict(self.element_type, bucket_type)
         # Declared type first, sampling only as a fallback — a sampled variant
         # yields a single-case type and breaks on the first other case (#450).
-        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))
+        k2 = _kernel_out_type(key, [self.element_type]) or _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))
 
         # ArrayGroupFold callbacks carry the element index: key(elem, idx),
         # init(group_key), fold(acc, elem, idx).
@@ -814,7 +820,7 @@ class EastArray(MutableSequence, Generic[T]):
         if _ko is not None:
             t2 = _ko
         else:
-            t2 = _ev.type_of(fn(self[0])) if len(self) else self.element_type
+            t2 = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(self[0])) if len(self) else self.element_type
         zero = self._numeric_zero(t2)
         step = EastFunction(
             lambda acc, el, _i: acc + fn(el), [t2, self.element_type, IntegerType], t2
@@ -850,7 +856,7 @@ class EastArray(MutableSequence, Generic[T]):
         from east.kernel import greatest
         from east.types.types import IntegerType
 
-        t2 = (_ev.type_of(by(self[0])) if by is not None else self.element_type) if len(self) else self.element_type
+        t2 = (_kernel_out_type(by, [self.element_type]) or _ev.type_of(by(self[0])) if by is not None else self.element_type) if len(self) else self.element_type
         map_cb = EastFunction(
             (lambda el, _i: by(el)) if by is not None else (lambda el, _i: el),
             [self.element_type, IntegerType],
@@ -864,7 +870,7 @@ class EastArray(MutableSequence, Generic[T]):
         from east.kernel import least
         from east.types.types import IntegerType
 
-        t2 = (_ev.type_of(by(self[0])) if by is not None else self.element_type) if len(self) else self.element_type
+        t2 = (_kernel_out_type(by, [self.element_type]) or _ev.type_of(by(self[0])) if by is not None else self.element_type) if len(self) else self.element_type
         map_cb = EastFunction(
             (lambda el, _i: by(el)) if by is not None else (lambda el, _i: el),
             [self.element_type, IntegerType],
@@ -979,7 +985,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
-        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
+        k2 = _kernel_out_type(key, [self.element_type]) or _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
         a_t = _kernel_out_type(init, [k2]) or _ev.type_of(init(key(self[0])))
         key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
         init_cb = EastFunction(init, [k2], a_t)
@@ -1010,7 +1016,7 @@ class EastArray(MutableSequence, Generic[T]):
         if _ko is not None:
             t2 = _ko
         else:
-            t2 = _ev.type_of(fn(self[0])) if len(self) else self.element_type
+            t2 = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(self[0])) if len(self) else self.element_type
         zero = self._numeric_zero(t2)
         proj = fn if fn is not None else (lambda el: el)
         return self.group_reduce(key, lambda _k: zero, lambda acc, el: acc + proj(el))
@@ -1039,8 +1045,8 @@ class EastArray(MutableSequence, Generic[T]):
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
         proj = by if by is not None else (lambda el: el)
-        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
-        p_t = _ev.type_of(proj(self[0]))
+        k2 = _kernel_out_type(key, [self.element_type]) or _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
+        p_t = _kernel_out_type(proj, [self.element_type]) or _ev.type_of(proj(self[0]))
         opt_t = OptionType(p_t)
         key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
         fold_cb = EastFunction(
@@ -1100,7 +1106,7 @@ class EastArray(MutableSequence, Generic[T]):
         else:
             pair_t = StructType(
                 [("k", k_t or _ev.type_of(k_s)),
-                 ("k2", x_t or _ev.type_of(extra(self[0]))),
+                 ("k2", x_t or _kernel_out_type(extra, [self.element_type]) or _ev.type_of(extra(self[0]))),
                  ("v", v_t or _ev.type_of(v_s))]
             )
             pair_cb = EastFunction(
@@ -1584,7 +1590,7 @@ class EastSet(Generic[T]):
         elif len(self) == 0:
             return EastArray(self.element_type, [])
         else:
-            t2 = _ev.type_of(key(next(iter(self))))
+            t2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(next(iter(self))))
             callback = EastFunction(key, [self.element_type], t2)
         return _call_builtin("SetToArray", [self.element_type, t2], [self, callback], ArrayType(t2))
 
@@ -1607,7 +1613,7 @@ class EastSet(Generic[T]):
             k2 = out
         else:
             _ko = _kernel_out_type(fn)
-            k2 = _ko if _ko is not None else _ev.type_of(fn(next(iter(self))))
+            k2 = _ko if _ko is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
         callback = EastFunction(fn, [self.element_type], k2)
         return _call_builtin("SetToSet", [self.element_type, k2], [self, callback], SetType(k2))
 
@@ -1658,7 +1664,7 @@ class EastSet(Generic[T]):
         if len(self) == 0:
             t2 = out if out is not None else self.element_type
             return EastDict(self.element_type, t2)
-        t2 = out if out is not None else _ev.type_of(fn(next(iter(self))))
+        t2 = out if out is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
         callback = EastFunction(fn, [self.element_type], t2)
         return _call_builtin("SetMap", [self.element_type, t2], [self, callback], DictType(self.element_type, t2))
 
@@ -1701,7 +1707,7 @@ class EastSet(Generic[T]):
         if out is not None:
             v2 = out
         else:
-            sampled = _ev.type_of(fn(next(iter(self))))
+            sampled = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
             from east.types.types import get_option_inner_type
 
             v2 = get_option_inner_type(sampled)
@@ -1732,7 +1738,7 @@ class EastSet(Generic[T]):
         else:
             from east.types.types import get_option_inner_type
 
-            t2 = get_option_inner_type(_ev.type_of(fn(next(iter(self)))))
+            t2 = get_option_inner_type(_kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))))
         callback = EastFunction(fn, [self.element_type], OptionType(t2))
         return _call_builtin("SetFirstMap", [self.element_type, t2], [self, callback], OptionType(t2))
 
@@ -1790,7 +1796,7 @@ class EastSet(Generic[T]):
 
         if len(self) == 0:
             return EastArray(out if out is not None else self.element_type, [])
-        t2 = out if out is not None else _ev.type_of(fn(next(iter(self)))).element_type
+        t2 = out if out is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))).element_type
         callback = EastFunction(fn, [self.element_type], ArrayType(t2))
         return _call_builtin("SetFlattenToArray", [self.element_type, t2], [self, callback], ArrayType(t2))
 
@@ -1810,7 +1816,7 @@ class EastSet(Generic[T]):
 
         if len(self) == 0:
             return EastSet(out if out is not None else self.element_type)
-        k2 = out if out is not None else _ev.type_of(fn(next(iter(self)))).element_type
+        k2 = out if out is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))).element_type
         callback = EastFunction(fn, [self.element_type], SetType(k2))
         return _call_builtin("SetFlattenToSet", [self.element_type, k2], [self, callback], SetType(k2))
 
@@ -1831,7 +1837,7 @@ class EastSet(Generic[T]):
 
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
-        sampled = _ev.type_of(fn(next(iter(self))))
+        sampled = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
         k2 = sampled.key_type
         t2 = sampled.value_type
         callback = EastFunction(fn, [self.element_type], DictType(k2, t2))
@@ -1849,7 +1855,7 @@ class EastSet(Generic[T]):
         if fn is None:
             t2 = self.element_type
         else:
-            t2 = _ev.type_of(fn(next(iter(self)))) if len(self) else self.element_type
+            t2 = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))) if len(self) else self.element_type
         if t2.type == "Integer":
             zero: Any = 0
         elif t2.type == "Float":
@@ -1922,7 +1928,7 @@ class EastSet(Generic[T]):
     def group_sum(self, key: Any, fn: Any = None) -> EastDict:
         """Sum per group (native SetGroupFold)."""
         proj = fn if fn is not None else (lambda el: el)
-        t2 = _ev.type_of(proj(next(iter(self)))) if len(self) else self.element_type
+        t2 = _kernel_out_type(proj, [self.element_type]) or _ev.type_of(proj(next(iter(self)))) if len(self) else self.element_type
         zero: Any = 0 if t2.type == "Integer" else 0.0
         return self.group_fold(key, lambda _k: zero, lambda acc, el: acc + proj(el))
 
@@ -2637,7 +2643,7 @@ class EastDict(Generic[K, V]):
         if len(self) == 0:
             raise ValueError("map_reduce on an empty Dict")
         first_key = next(iter(self))
-        t2 = out if out is not None else _ev.type_of(map_fn(first_key, self[first_key]))
+        t2 = out if out is not None else _kernel_out_type(map_fn, [self.key_type, self.value_type]) or _ev.type_of(map_fn(first_key, self[first_key]))
         map_cb = EastFunction(lambda v, k: map_fn(k, v), [self.value_type, self.key_type], t2)
         reduce_cb = EastFunction(reduce_fn, [t2, t2], t2)
         return _call_builtin("DictMapReduce", [self.key_type, self.value_type, t2], [self, map_cb, reduce_cb], t2)
@@ -2675,7 +2681,7 @@ class EastDict(Generic[K, V]):
         if len(self) == 0:
             return EastArray(out if out is not None else NullType, [])
         first_key = next(iter(self))
-        t2 = out if out is not None else _ev.type_of(fn(first_key, self[first_key]))
+        t2 = out if out is not None else _kernel_out_type(fn, [self.key_type, self.value_type]) or _ev.type_of(fn(first_key, self[first_key]))
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], t2)
         return _call_builtin("DictToArray", [self.key_type, self.value_type, t2], [self, callback], ArrayType(t2))
 
@@ -2697,7 +2703,7 @@ class EastDict(Generic[K, V]):
         if len(self) == 0:
             return EastSet(out if out is not None else self.key_type)
         first_key = next(iter(self))
-        k2 = out if out is not None else _ev.type_of(fn(first_key, self[first_key]))
+        k2 = out if out is not None else _kernel_out_type(fn, [self.key_type, self.value_type]) or _ev.type_of(fn(first_key, self[first_key]))
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], k2)
         return _call_builtin("DictToSet", [self.key_type, self.value_type, k2], [self, callback], SetType(k2))
 
@@ -2728,8 +2734,8 @@ class EastDict(Generic[K, V]):
                 value_out if value_out is not None else self.value_type,
             )
         first_key = next(iter(self))
-        k2 = key_out if key_out is not None else _ev.type_of(key_fn(first_key, self[first_key]))
-        v2 = value_out if value_out is not None else _ev.type_of(value_fn(first_key, self[first_key]))
+        k2 = key_out if key_out is not None else _kernel_out_type(key_fn, [self.key_type, self.value_type]) or _ev.type_of(key_fn(first_key, self[first_key]))
+        v2 = value_out if value_out is not None else _kernel_out_type(value_fn, [self.key_type, self.value_type]) or _ev.type_of(value_fn(first_key, self[first_key]))
         key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
         value_cb = EastFunction(lambda v, k: value_fn(k, v), [self.value_type, self.key_type], v2)
         combine_cb = EastFunction(combine, [v2, v2, k2], v2)
@@ -2830,7 +2836,7 @@ class EastDict(Generic[K, V]):
                 acc_out if acc_out is not None else self.value_type,
             )
         first_key = next(iter(self))
-        k2 = key_out if key_out is not None else _ev.type_of(key_fn(first_key, self[first_key]))
+        k2 = key_out if key_out is not None else _kernel_out_type(key_fn, [self.key_type, self.value_type]) or _ev.type_of(key_fn(first_key, self[first_key]))
         t2 = acc_out if acc_out is not None else _ev.type_of(init_fn(key_fn(first_key, self[first_key])))
         key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
         init_cb = EastFunction(init_fn, [k2], t2)
