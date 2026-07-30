@@ -1,5 +1,16 @@
 # Design: Generational Cycle Collector
 
+> **Superseded in part (#437).** The fixed `GC_FULL_INTERVAL` full-collection
+> schedule described below was quadratic for programs building large
+> long-lived structures (CPython bpo-4074) and was replaced by growth
+> pacing: a full collection runs when the old generation has grown by
+> `1/GC_FULL_GROWTH_DIVISOR` since the last one, floored at
+> `GC_FULL_MIN_PENDING` promotions. Pure-data structs and variants (types
+> with no Function/Ref reachable, non-recursive) are additionally never
+> tracked at all. `include/east/gc.h` and `src/gc.c` are the current source
+> of truth for scheduling; the sections below describe the original design
+> and remain accurate for everything else.
+
 ## Problem
 
 Beast2 IR decode + execute of a 543KB blob (20 dashboards, 1640 closures) takes 312ms in C vs 140ms in TS. **96% of C execution time is the cycle collector**:
@@ -355,7 +366,7 @@ Young collection sees S and A. Phase 2 traverses S, visits A (young, decrements 
 
 **This is correct behavior.** The young collection conservatively keeps S and A alive (they have an external reference from old R). The cycle will be found by the next full collection, which traverses both young and old objects.
 
-**Deferral bound**: cross-gen cycles are deferred until the next full collection — at most `GC_FULL_INTERVAL × GC_YOUNG_THRESHOLD` = 20 × 500 = 10,000 net allocations. Each deferred cycle leaks a small number of objects (the cycle members). Total deferred leak is bounded by `cycle_size × cycles_per_full_interval`.
+**Deferral bound**: cross-gen cycles are deferred until the next full collection. Under the original fixed interval that was at most `GC_FULL_INTERVAL × GC_YOUNG_THRESHOLD` = 20 × 500 = 10,000 net allocations; under growth pacing (#437) it is `max(GC_FULL_MIN_PENDING, old/GC_FULL_GROWTH_DIVISOR)` further promotions — and unbounded if promotions cease entirely (the CPython `long_lived_pending` tradeoff, bounded by the garbage present when promotions stopped). Each deferred cycle leaks a small number of objects (the cycle members).
 
 This is exactly how CPython handles cross-generational cycles. No write barriers needed.
 
@@ -365,7 +376,7 @@ The old generation grows monotonically between full collections. Every young col
 
 For workloads with many long-lived tracked objects (e.g., a large in-memory data structure), the old generation is proportional to the live set. Full collection cost is O(old generation size). With `GC_FULL_INTERVAL = 20`, full collections are infrequent, but each one scans the entire old generation.
 
-This is inherent to the no-write-barriers generational design (same as CPython). For east-c's primary workloads (short-lived function calls building value trees), the old generation stays small because most objects die young. If a long-running workload accumulates a large old generation, a third generation or adaptive `GC_FULL_INTERVAL` could be added — but this is not expected for current use cases.
+This is inherent to the no-write-barriers generational design (same as CPython). For east-c's primary workloads (short-lived function calls building value trees), the old generation stays small because most objects die young. The "adaptive interval" anticipated here landed as #437's growth pacing: fixed-interval fulls made accumulating builds O(N·A) (an O(live) walk every 10k allocations while `live` grew), the exact quadratic CPython hit as bpo-4074; growth pacing puts the walks on a geometric schedule, amortising to O(1) per allocation, and pure-data structs/variants stop entering the collector at all.
 
 ### Safe-point collection
 

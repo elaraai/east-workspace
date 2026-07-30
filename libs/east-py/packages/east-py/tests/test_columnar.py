@@ -9,10 +9,6 @@ import numpy as np
 import pytest
 
 from east import (
-    where,
-    some,
-    none,
-    array,
     ArrayType,
     BooleanType,
     EastArray,
@@ -23,7 +19,11 @@ from east import (
     OptionType,
     StringType,
     StructType,
+    array,
     kernel,
+    none,
+    some,
+    where,
 )
 
 ROW = StructType(

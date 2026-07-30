@@ -46,9 +46,19 @@ static _Thread_local unsigned gc_generation = 0;
 /* Scheduling counters.
  * gc_young_net_allocs is signed: can go negative when young objects are
  * freed by refcounting before a collection triggers (east_gc_untrack
- * decrements it). Negative values correctly fail the >= threshold check. */
+ * decrements it). Negative values correctly fail the >= threshold check.
+ * gc_old_pending counts promotions into the old generation since the last
+ * full collection — the growth signal that paces full passes (gc.h). It is
+ * deliberately NOT decremented when an old value dies, so as long as
+ * promotions continue, a full pass runs (and finds old-generation cycles)
+ * within max(GC_FULL_MIN_PENDING, old/GC_FULL_GROWTH_DIVISOR) further
+ * promotions. If promotions cease entirely, dead cycles already in the old
+ * generation stay unreclaimed until the next scheduled or forced full pass —
+ * the CPython long_lived_pending tradeoff, bounded by the garbage present
+ * when promotions stopped. */
 static _Thread_local int gc_young_net_allocs = 0;
-static _Thread_local int gc_young_collections = 0;
+static _Thread_local size_t gc_old_pending = 0;
+static _Thread_local size_t gc_full_collections = 0;
 
 static inline void gc_ensure_init(void)
 {
@@ -96,9 +106,54 @@ void east_gc_untrack(EastValue *v)
     }
 }
 
+/* Untrack a construction-complete STRUCT or VARIANT whose type proves it
+ * cannot participate in a reference cycle.
+ *
+ * Only the immutable kinds are eligible, and only where the carried type can
+ * be trusted:
+ *
+ *   - struct: every construction site stamps the value's true type or NULL
+ *     (the compiler uses the IR node's type, the decoders use the decode
+ *     target, builtins pass NULL) — trust the stamp.
+ *   - variant: some builtins stamp a thread-local factory-time option type
+ *     that can belong to another instantiation, so the stamp alone is not
+ *     trustworthy. The payload is the variant's only child and is fixed at
+ *     construction, so additionally require it to be untracked: anything
+ *     that transitively reaches a ref or function is itself tracked (refs,
+ *     functions and all mutable containers unconditionally; structs/variants
+ *     inductively), so an untracked payload proves the variant reaches
+ *     neither.
+ *   - array/set/dict stay tracked unconditionally: they mutate in place
+ *     through too many attach sites to guard (direct items[] fills across
+ *     the builtins and decoders), and several higher-order builtins stamp
+ *     placeholder element types on their results.
+ */
+void east_gc_untrack_acyclic(EastValue *v)
+{
+    if (!east_value_is_tracked(v)) return;
+    bool cycles = true;
+    switch (v->kind) {
+    case EAST_VAL_STRUCT:
+        cycles = east_type_can_cycle(v->data.struct_.type);
+        break;
+    case EAST_VAL_VARIANT:
+        cycles = east_type_can_cycle(v->data.variant.type) ||
+                 east_value_is_tracked(v->data.variant.value);
+        break;
+    default:
+        break;
+    }
+    if (!cycles) east_gc_untrack(v);
+}
+
 size_t east_gc_tracked_count(void)
 {
     return gc_young_count + gc_old_count;
+}
+
+size_t east_gc_full_count(void)
+{
+    return gc_full_collections;
 }
 
 bool east_gc_should_collect(void)
@@ -266,6 +321,7 @@ static void gc_promote(EastValue *v)
     gc_old_sentinel.gc_next = v;
     v->gc_gen = 1;
     gc_old_count++;
+    gc_old_pending++;
 }
 
 /* ------------------------------------------------------------------ */
@@ -399,6 +455,11 @@ static void gc_collect_full_impl(void)
         }
     }
 
+    /* Everything promoted so far is about to be walked — restart the
+     * growth clock that paces the next full pass. */
+    gc_old_pending = 0;
+    gc_full_collections++;
+
     if (gc_old_count == 0) return;
 
     /* Phase 1: copy refcounts */
@@ -480,8 +541,12 @@ void east_gc_collect(void)
     gc_ensure_init();
     if (gc_young_count == 0 && gc_old_count == 0) return;
 
-    bool full = (++gc_young_collections >= GC_FULL_INTERVAL);
-    if (full) gc_young_collections = 0;
+    /* Pace full passes on old-generation growth, not on a fixed allocation
+     * interval — a fixed interval walks the whole live graph every N
+     * allocations while a large structure is still being built, which is
+     * quadratic in the final size (CPython bpo-4074; see gc.h). */
+    bool full = gc_old_pending > GC_FULL_MIN_PENDING &&
+                gc_old_pending > gc_old_count / GC_FULL_GROWTH_DIVISOR;
 
     if (full) {
         gc_collect_full_impl();
@@ -497,5 +562,4 @@ void east_gc_collect_full(void)
     gc_ensure_init();
     gc_collect_full_impl();
     gc_young_net_allocs = 0;
-    gc_young_collections = 0;
 }

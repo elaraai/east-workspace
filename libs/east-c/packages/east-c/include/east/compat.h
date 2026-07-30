@@ -60,6 +60,12 @@
     (_InterlockedExchangeAdd((volatile long *)(ptr), (long)(val)) + (long)(val))
 #define __atomic_sub_fetch(ptr, val, mo)                                                           \
     (_InterlockedExchangeAdd((volatile long *)(ptr), -(long)(val)) - (long)(val))
+/* 8-bit load/store (used for the uint8_t EastType::gc_can_cycle memo). The
+ * GCC builtins are polymorphic; these mappings are 8-bit only — widen them
+ * before using __atomic_load_n/__atomic_store_n on any other width. */
+#define __atomic_load_n(ptr, mo) ((unsigned char)_InterlockedOr8((volatile char *)(ptr), 0))
+#define __atomic_store_n(ptr, val, mo)                                                             \
+    ((void)_InterlockedExchange8((volatile char *)(ptr), (char)(val)))
 
 /* Reentrant time conversions. MinGW does not declare gmtime_r/localtime_r;
  * gmtime/localtime use a static buffer (fine for east-c's single-threaded CLI
