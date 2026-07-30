@@ -255,6 +255,24 @@ cdef class CyEastVariant:
             raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
         return self.value
 
+    def unwrap_or(self, default):
+        """Option sugar: the payload when the case is ``some``, else ``default``.
+
+        The TRACED Option proxy has had this (with ``is_some``/``is_none``) while
+        the eager value had only the tag-taking ``unwrap`` — so a callback that
+        was correct when traced raised AttributeError the moment the library ran
+        it eagerly, which is not something its author chooses (#453).
+        """
+        return self.value if self.type == "some" else default
+
+    def is_some(self):
+        """Option sugar: is this the ``some`` case? (#453)"""
+        return self.type == "some"
+
+    def is_none(self):
+        """Option sugar: is this the ``none`` case? (#453)"""
+        return self.type == "none"
+
     def match(self, dict cases, default=None):
         """Dispatch on the case: ``handler(payload)`` of the matching arm,
         else ``default`` (mirrors the TS variant ``match`` as a method)."""
