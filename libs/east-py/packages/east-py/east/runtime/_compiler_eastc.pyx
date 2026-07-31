@@ -264,6 +264,17 @@ cdef object _native_kernel_for(object east_fn):
     return adapted
 
 
+def native_kernel_for(object east_fn):
+    """Python-visible ``_native_kernel_for`` (used by ``try_push_down``, #470).
+
+    Resolves a precompiled kernel from the callback — directly or via its
+    ``_east_kernel`` mark — with the same declared-signature checks (#467)
+    and arity adaptation as the eager-callback path, so the mark means one
+    thing to every consumer. Returns the native callable or None.
+    """
+    return _native_kernel_for(east_fn)
+
+
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
     """The EastValue* of a compiled East function callable, or 0.
 

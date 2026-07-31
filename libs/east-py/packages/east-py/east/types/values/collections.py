@@ -36,16 +36,6 @@ def _proxy_cls(name: str) -> Any:
     return cls
 
 
-def _opt_unwrap_or(opt: Any, default: Any) -> Any:
-    """Dual-mode Option unwrap: traced .unwrap_or on expressions, eager on
-    runtime variants (shared by the group max/min folds)."""
-    from east.kernel import KernelExpr
-
-    if isinstance(opt, KernelExpr):
-        return opt.unwrap_or(default)
-    return opt.value if opt.type == "some" else default
-
-
 # Cached KernelExpr class for the traced-argument pre-checks (#393): access
 # methods called with a traced key/index re-route through the kernel tracer
 # (this collection lifts to a constant) instead of hitting the C container
@@ -155,6 +145,26 @@ def _check_kernel_out(fn, expected, param="out"):
             f"kernel output is {print_east(ko, EastTypeType)}, "
             f"expected {print_east(expected, EastTypeType)} (from {param}=)"
         )
+
+
+def _float_proj(fn, t):
+    """A Float-typed projection decided from the TYPE SYSTEM, not per value.
+
+    ``t`` is the projection's declared East type: Float passes ``fn`` (or the
+    element) through untouched; Integer widens with the East builtin, which
+    the eager funnel makes dual-mode — it emits IR inside a trace and runs
+    east-c eagerly on values — so the mean/group_mean folds stay traceable
+    and never probe a value's python type per element (#470).
+    """
+    from east.namespace import East
+
+    if t.type == "Float":
+        return fn if fn is not None else (lambda el: el)
+    if t.type == "Integer":
+        if fn is None:
+            return lambda el: East.Integer.to_float(el)
+        return lambda el: East.Integer.to_float(fn(el))
+    raise TypeError(f"expected a numeric (Integer/Float) type, got {t.type}")
 
 
 class EastArray(MutableSequence, Generic[T]):
@@ -876,21 +886,23 @@ class EastArray(MutableSequence, Generic[T]):
         Args:
             fn: Optional numeric projection applied before averaging.
         """
-        from east.kernel import KernelExpr
         from east.types.types import FloatType, IntegerType
 
-        def _to_float(x: Any) -> Any:
-            if isinstance(x, KernelExpr):
-                return x.to_float() if x.east_type.type == "Integer" else x
-            return float(x)
-
-        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        n = len(self)
+        if n == 0:
+            return float("nan")
+        # The Integer-vs-Float decision comes from the TYPE SYSTEM, once —
+        # not from probing each value in python (#470): a Float projection
+        # passes through untouched, an Integer one widens with the East
+        # builtin, which the eager funnel makes dual-mode.
+        t2 = self.element_type if fn is None else (
+            _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(self[0])))
+        proj = _float_proj(fn, t2)
         step = EastFunction(
             lambda acc, el, _i: acc + proj(el), [FloatType, self.element_type, IntegerType], FloatType
         )
         total = _call_builtin("ArrayFold", [self.element_type, FloatType], [self, 0.0, step], FloatType)
-        n = len(self)
-        return total / float(n) if n else float("nan")
+        return total / float(n)
 
     def maximum(self, by: Any = None) -> Any:
         """Largest element (or ``by``-projection) by East total order (native
@@ -1065,20 +1077,22 @@ class EastArray(MutableSequence, Generic[T]):
         return self.group_reduce(key, lambda _k: zero, lambda acc, el: acc + proj(el))
 
     def group_mean(self, key: Any, fn: Any = None) -> EastDict:
-        """Float mean per group (sum and count both computed natively)."""
-        from east.kernel import KernelExpr
+        """Float mean per group (sum, count and the division all native)."""
+        from east.namespace import East
+        from east.types.types import FloatType
 
-        def _to_float(x: Any) -> Any:
-            if isinstance(x, KernelExpr):
-                return x.to_float() if x.east_type.type == "Integer" else x
-            return float(x)
-
-        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        if len(self) == 0:
+            return EastDict(self.element_type, self.element_type)
+        t2 = self.element_type if fn is None else (
+            _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(self[0])))
+        proj = _float_proj(fn, t2)
         sums = self.group_reduce(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
-        counts = self.group_size(key)
-        return sums.to_dict(
-            lambda k, _v: k, lambda k, v: v / float(counts[k]), lambda _a, b, _k: b
-        )
+        # Divide sum by count native-side: merge the (widened) counts into the
+        # fresh sums dict instead of rebuilding through a python closure over
+        # the counts dict, which could never trace (#470).
+        counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
+        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        return sums
 
     def _group_extreme(self, key: Any, by: Any, pick: Any) -> EastDict:
         from east.kernel import _none_init_kernel
@@ -1092,8 +1106,11 @@ class EastArray(MutableSequence, Generic[T]):
         p_t = _kernel_out_type(proj, [self.element_type]) or _ev.type_of(proj(self[0]))
         opt_t = OptionType(p_t)
         key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
+        # `.unwrap_or` is dual-mode since #453 (KernelExpr and eager Options
+        # both have it), so the fold body is traceable — no import-laden
+        # helper in the closure, which would fail the purity scan (#470).
         fold_cb = EastFunction(
-            lambda acc, el, _i: _some(pick(_opt_unwrap_or(acc, proj(el)), proj(el))),
+            lambda acc, el, _i: _some(pick(acc.unwrap_or(proj(el)), proj(el))),
             [opt_t, self.element_type, IntegerType],
             opt_t,
         )
@@ -1923,19 +1940,17 @@ class EastSet(Generic[T]):
 
     def mean(self, fn: Any = None) -> float:
         """Float mean of elements/projections (NaN when empty, like TS)."""
-        from east.kernel import KernelExpr
         from east.types.types import FloatType
 
-        def _to_float(x: Any) -> Any:
-            if isinstance(x, KernelExpr):
-                return x.to_float() if x.east_type.type == "Integer" else x
-            return float(x)
-
-        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        n = len(self)
+        if n == 0:
+            return float("nan")
+        t2 = self.element_type if fn is None else (
+            _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))))
+        proj = _float_proj(fn, t2)
         step = EastFunction(lambda acc, el: acc + proj(el), [FloatType, self.element_type], FloatType)
         total = _call_builtin("SetReduce", [self.element_type, FloatType], [self, step, 0.0], FloatType)
-        n = len(self)
-        return total / float(n) if n else float("nan")
+        return total / float(n)
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
         from east.kernel import KernelExpr, where
@@ -1988,20 +2003,19 @@ class EastSet(Generic[T]):
         return self.group_fold(key, lambda _k: zero, lambda acc, el: acc + proj(el))
 
     def group_mean(self, key: Any, fn: Any = None) -> EastDict:
-        """Float mean per group."""
-        from east.kernel import KernelExpr
+        """Float mean per group (sum, count and the division all native)."""
+        from east.namespace import East
+        from east.types.types import FloatType
 
-        def _to_float(x: Any) -> Any:
-            if isinstance(x, KernelExpr):
-                return x.to_float() if x.east_type.type == "Integer" else x
-            return float(x)
-
-        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        if len(self) == 0:
+            return EastDict(self.element_type, self.element_type)
+        t2 = self.element_type if fn is None else (
+            _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))))
+        proj = _float_proj(fn, t2)
         sums = self.group_fold(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
-        counts = self.group_size(key)
-        return sums.to_dict(
-            lambda k, _v: k, lambda k, v: v / float(counts[k]), lambda _a, b, _k: b
-        )
+        counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
+        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        return sums
 
     def group_every(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for all members (native)."""
@@ -2300,23 +2314,33 @@ class EastDict(Generic[K, V]):
     def mean(self, fn: Any = None) -> float:
         """Float mean over entries: of values, or of ``fn(key, value)``
         (native DictReduce; NaN when empty, like TS)."""
-        from east.kernel import KernelExpr
+        from east.namespace import East
         from east.types.types import FloatType
 
-        def _to_float(x: Any) -> Any:
-            if isinstance(x, KernelExpr):
-                return x.to_float() if x.east_type.type == "Integer" else x
-            return float(x)
-
-        proj = (lambda k, v: _to_float(fn(k, v))) if fn is not None else (lambda _k, v: _to_float(v))
+        n = len(self)
+        if n == 0:
+            return float("nan")
+        if fn is None:
+            t2 = self.value_type
+        else:
+            t2 = _kernel_out_type(fn) or _kernel_out_type(fn, [self.key_type, self.value_type])
+            if t2 is None:
+                k0 = next(iter(self))
+                t2 = _ev.type_of(fn(k0, self[k0]))
+        if t2.type == "Integer":
+            proj = (lambda k, v: East.Integer.to_float(fn(k, v))) if fn is not None else (
+                lambda _k, v: East.Integer.to_float(v))
+        elif t2.type == "Float":
+            proj = fn if fn is not None else (lambda _k, v: v)
+        else:
+            raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
         step = EastFunction(
             lambda acc, v, k: acc + proj(k, v), [FloatType, self.value_type, self.key_type], FloatType
         )
         total = _call_builtin(
             "DictReduce", [self.key_type, self.value_type, FloatType], [self, step, 0.0], FloatType
         )
-        n = len(self)
-        return total / float(n) if n else float("nan")
+        return total / float(n)
 
     def group_size(self, key_fn: Any) -> EastDict:
         """Count per ``key_fn(key, value)`` group (native)."""
@@ -2334,20 +2358,30 @@ class EastDict(Generic[K, V]):
         return self.group_fold(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
 
     def group_mean(self, key_fn: Any, fn: Any = None) -> EastDict:
-        """Float mean per group."""
-        from east.kernel import KernelExpr
+        """Float mean per group (sum, count and the division all native)."""
+        from east.namespace import East
+        from east.types.types import FloatType
 
-        def _to_float(x: Any) -> Any:
-            if isinstance(x, KernelExpr):
-                return x.to_float() if x.east_type.type == "Integer" else x
-            return float(x)
-
-        proj = (lambda k, v: _to_float(fn(k, v))) if fn is not None else (lambda _k, v: _to_float(v))
+        if len(self) == 0:
+            return EastDict(self.key_type, self.value_type)
+        if fn is None:
+            t2 = self.value_type
+        else:
+            t2 = _kernel_out_type(fn) or _kernel_out_type(fn, [self.key_type, self.value_type])
+            if t2 is None:
+                k0 = next(iter(self))
+                t2 = _ev.type_of(fn(k0, self[k0]))
+        if t2.type == "Integer":
+            proj = (lambda k, v: East.Integer.to_float(fn(k, v))) if fn is not None else (
+                lambda _k, v: East.Integer.to_float(v))
+        elif t2.type == "Float":
+            proj = fn if fn is not None else (lambda _k, v: v)
+        else:
+            raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
         sums = self.group_fold(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
-        counts = self.group_size(key_fn)
-        return sums.to_dict(
-            lambda k, _v: k, lambda k, v: v / float(counts[k]), lambda _a, b, _k: b
-        )
+        counts = self.group_size(key_fn).map(lambda c: East.Integer.to_float(c), out=FloatType)
+        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        return sums
 
     def group_every(self, key_fn: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred(key, value)`` holds for all entries."""

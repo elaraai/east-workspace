@@ -1881,11 +1881,17 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
             type raises TypeError.
 
     Returns:
-        The compiled kernel callable. Its ``.bind(*values)`` method pre-binds
-        the TRAILING parameters to live East values by reference (C-level
-        partial application, #399) — the bound callable stays native, is
-        zero-copy at any table size, and observes later mutations to bound
-        collections.
+        The compiled kernel callable. It is dual-mode (#470): called with
+        plain values it executes natively; called with trace proxies — from
+        inside another ``kernel()`` lambda, or a wrapper an eager method is
+        tracing — it re-runs its source lambda so its expression splices
+        into the surrounding trace. Kernels therefore compose: referencing
+        one from another kernel or from any pure wrapper keeps the whole
+        loop native. Its ``.bind(*values)`` method pre-binds the TRAILING
+        parameters to live East values by reference (C-level partial
+        application, #399) — the bound callable stays native, is zero-copy
+        at any table size, and observes later mutations to bound
+        collections (bound callables are not re-traceable).
 
     Raises:
         KernelTraceError: If the lambda cannot be traced (uses python
@@ -1900,7 +1906,28 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
         raise TypeError(f"kernel output is {out_type.type}, expected {out.type}")
     from east.runtime.compiler import compile_from_value
 
-    return compile_from_value(ir_value)
+    compiled = compile_from_value(ir_value)
+
+    def kernel_callable(*args):
+        # Dual-mode (#470): called with expression proxies — i.e. from inside
+        # another trace, e.g. a composing wrapper like
+        # ``lambda el: {"k": key(el), "v": value(el)}`` — re-run the (pure)
+        # source lambda on the proxies so this kernel's expression splices
+        # inline into the surrounding trace. On plain values, execute natively.
+        if any(isinstance(a, KernelExpr) for a in args):
+            return fn(*args)
+        return compiled(*args)
+
+    # The wrapper carries the compiled callable's whole public surface, so
+    # every existing consumer (the native pass-through via _eastc_handle,
+    # _mark_kernel, _kernel_out_type, bind) sees an ordinary kernel.
+    kernel_callable._eastc_handle = compiled._eastc_handle
+    kernel_callable._east_ir = getattr(compiled, "_east_ir", None)
+    kernel_callable._east_captures = getattr(compiled, "_east_captures", {})
+    kernel_callable.bind = compiled.bind
+    kernel_callable._east_compiled = compiled  # owns the C resources; keep alive
+    kernel_callable._east_retrace = fn         # marks the callable trace-safe
+    return kernel_callable
 
 
 # ─── Automatic push-down for eager-method callbacks ─────────────────────────
@@ -1910,13 +1937,20 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
 # a native kernel. Tracing runs the lambda ONCE, so it is only attempted when
 # a conservative purity gate proves the lambda cannot observe per-element
 # python state: it may reference its parameters, plain scalar constants,
-# East types/values, `where`, and (one level deep) other lambdas that pass
-# the same gate. Anything else — modules, arbitrary callables, mutable
-# closures — disables tracing and keeps today's exact python semantics.
+# East types/values, `where`, precompiled kernels (re-traced from their
+# retained source, #470), and — two levels deep, enough for the group-sugar
+# wrappers that compose a user callback through an internal lambda — other
+# lambdas that pass the same gate. Anything else — modules, arbitrary
+# callables, mutable closures — disables tracing and keeps today's exact
+# python semantics.
 
 
 def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     if extra_allowed is not None and extra_allowed(value):
+        return True
+    # A kernel() result retains its source lambda and re-traces when called
+    # with proxies (#470) — safe to reference at any nesting depth.
+    if getattr(value, "_east_retrace", None) is not None:
         return True
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return True
@@ -1998,7 +2032,7 @@ def _code_scan(code: Any) -> tuple[bool, frozenset[str]]:
     return True, frozenset(names)
 
 
-def _eligible(fn: Any, depth: int = 1, extra_allowed: Any = None) -> bool:
+def _eligible(fn: Any, depth: int = 2, extra_allowed: Any = None) -> bool:
     """Whether tracing ``fn`` is provably semantics-preserving (see above)."""
     code = getattr(fn, "__code__", None)
     if code is None:
@@ -2056,9 +2090,26 @@ def try_push_down(east_fn: Any) -> Any | None:
     """Compile an eager-method callback into a native kernel when safe.
 
     ``east_fn`` is an ``EastFunction`` (python callable + declared East
-    signature). Returns the compiled kernel callable, or ``None`` to use the
-    per-element python path. Never raises.
+    signature). Returns a native callable (carrying ``_eastc_handle``), or
+    ``None`` to use the per-element python path. Never raises.
+
+    A callback that already IS a precompiled kernel — directly, or recorded
+    on its wrapper by ``_mark_kernel`` — resolves through the bridge's
+    ``_native_kernel_for``: the same signature checks (#467) and arity
+    adaptation the trampoline-avoidance path uses, so the mark means the
+    same thing to every consumer (#470). ``group_by`` branches on this
+    result to run its whole grouping natively; before, a marked wrapper was
+    judged on its own (ineligible) closure and reported un-pushable even
+    though the bridge would have run the very same kernel natively.
     """
+    try:
+        from east.runtime._compiler_eastc import native_kernel_for
+
+        native = native_kernel_for(east_fn)
+        if native is not None:
+            return native
+    except Exception:
+        pass
     try:
         if not _eligible(east_fn.fn):
             return None
