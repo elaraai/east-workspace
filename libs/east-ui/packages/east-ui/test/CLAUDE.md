@@ -4,6 +4,23 @@ The general `*.spec.ts` ↔ `*.examples.ts` pattern is documented in
 [`../../../../../docs/conventions/EXAMPLES_AUTHORING.md`](../../../../../docs/conventions/EXAMPLES_AUTHORING.md).
 Read that first. This file only covers what's different for east-ui.
 
+## Consolidated example structure (five slots)
+
+Example files follow the **five-slot consolidation rules** of
+[`EXAMPLES_AUTHORING.md §8`](../../../../../docs/conventions/EXAMPLES_AUTHORING.md#8-consolidation-the-five-example-slots-east-ui--e3-ui):
+per component at most `<name>Basic`, ONE static `<name>Variants`
+enumeration panel (captioned rows), ONE interactive
+`<name>Configurator`, per-behavioral-contract isolates, and
+`<name>Stress`. Merged examples keep the **union** of keywords and a
+feature-enumerating description; visually regression-guarded
+combinations never hide behind a configurator switch. Export names
+referenced from `east-ui-components/scripts/probe-*.ts`, `snapshot.ts`,
+or `east-ui-showcase/tests/responsive/*` are frozen — retarget the
+referencing script in the same PR or don't touch the name. Every
+consolidation rewrites the sibling `*.spec.ts` in lockstep (the
+examples↔tests contract) and runs the §8 cascade (goldens, plugin
+index, rendered captures).
+
 ## Test platform
 
 Tests use `TestImpl` (only `testPass` / `testFail` implementations). It
