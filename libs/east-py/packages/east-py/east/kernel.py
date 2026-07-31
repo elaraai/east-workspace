@@ -1915,7 +1915,9 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
 # closures — disables tracing and keeps today's exact python semantics.
 
 
-def _allowed_global(value: Any, depth: int) -> bool:
+def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
+    if extra_allowed is not None and extra_allowed(value):
+        return True
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return True
     if isinstance(value, EastType):  # East variants/types are immutable constants
@@ -1944,7 +1946,7 @@ def _allowed_global(value: Any, depth: int) -> bool:
     if value is some or value is none:
         return True
     if callable(value) and depth > 0:
-        return _eligible(value, depth - 1)
+        return _eligible(value, depth - 1, extra_allowed)
     return False
 
 
@@ -1983,14 +1985,20 @@ def _code_scan(code: Any) -> tuple[bool, frozenset[str]]:
             return False, frozenset()
         if ins.opname in ("LOAD_GLOBAL", "LOAD_NAME"):
             names.add(ins.argval)
-    # Nested code objects (inner lambdas, comprehensions) are conservatively
-    # ineligible — their references are not checked against the allowlist.
-    if any(isinstance(const, _pytypes.CodeType) for const in code.co_consts):
-        return False, frozenset()
+    # Nested code objects (inner lambdas, comprehensions) are scanned
+    # recursively: their mutations and global loads count against the same
+    # gate. (They used to be conservatively ineligible precisely because
+    # their references went unchecked.)
+    for const in code.co_consts:
+        if isinstance(const, _pytypes.CodeType):
+            inner_pure, inner_names = _code_scan(const)
+            if not inner_pure:
+                return False, frozenset()
+            names |= inner_names
     return True, frozenset(names)
 
 
-def _eligible(fn: Any, depth: int = 1) -> bool:
+def _eligible(fn: Any, depth: int = 1, extra_allowed: Any = None) -> bool:
     """Whether tracing ``fn`` is provably semantics-preserving (see above)."""
     code = getattr(fn, "__code__", None)
     if code is None:
@@ -2009,15 +2017,39 @@ def _eligible(fn: Any, depth: int = 1) -> bool:
                 value = getattr(_builtins, name)
             else:
                 continue  # unresolvable global: fails at trace time if reached
-            if not _allowed_global(value, depth):
+            if not _allowed_global(value, depth, extra_allowed):
                 return False
         closure = getattr(fn, "__closure__", None) or ()
         for cell in closure:
-            if not _allowed_global(cell.cell_contents, depth):
+            if not _allowed_global(cell.cell_contents, depth, extra_allowed):
                 return False
     except Exception:
         return False
     return True
+
+
+def _east_value_capture(value: Any) -> bool:
+    """Captured East VALUES — pure to lift, so safe for type-only tracing."""
+    from east.types.values import EastDict, EastSet, is_east_struct, is_east_variant
+
+    if isinstance(value, (EastArray, EastSet, EastDict)):
+        return True
+    return is_east_struct(value) or is_east_variant(value)
+
+
+def _type_traceable(fn: Any) -> bool:
+    """Whether running ``fn`` ONCE against proxies for its output TYPE is safe.
+
+    The same conservative gate as ``_eligible`` with one relaxation: captured
+    East values (collections/structs/variants) are allowed, because lifting
+    them is pure and only the traced TYPE is taken — snapshot-vs-live
+    semantics cannot be observed. Impure lambdas (mutable python captures,
+    arbitrary callables) must keep the sampling fallback instead: sampling
+    calls them with a REAL element, whereas tracing would run them on
+    ``KernelExpr`` proxies and leak those proxies into their python state
+    (e.g. a closure list mutated per call).
+    """
+    return _eligible(fn, extra_allowed=_east_value_capture)
 
 
 def try_push_down(east_fn: Any) -> Any | None:

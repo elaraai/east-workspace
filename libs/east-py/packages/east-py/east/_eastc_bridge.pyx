@@ -51,6 +51,7 @@ from east.types.values import (
     EastVector,
     EAST_ELEMENT_TO_DTYPE,
     east_null,
+    is_east_variant,
 )
 
 # Try to import Cython-accelerated struct/variant construction
@@ -1129,6 +1130,37 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
 
 # ─── py_value_to_c ────────────────────────────────────────────────────────
 
+cdef str _c_type_str(_eastc.EastType *t):
+    """Readable form of a C type for error messages (error paths only)."""
+    try:
+        from east.serialization.east_printer import print_east
+        from east.types.type_of_type import EastTypeType
+        return print_east(_c_type_tag_to_py_type(t), EastTypeType)
+    except BaseException:
+        return "<type>"
+
+
+cdef void _check_proxy_type(uintptr_t got_ptr, _eastc.EastType *want, str what) except *:
+    """A C-backed proxy crosses by POINTER — verify its declared child type.
+
+    The pointer fast path performs no per-element conversion, so this equality
+    is the only check between the proxy's contents and the declared type. A
+    mislabelled value reads fine (len, type labels) and corrupts memory only
+    when an element is decoded, arbitrarily far from the cause (#467).
+    Pointer equality is the common case (py_type_to_c interns per python type
+    object), so the structural comparison rarely runs.
+    """
+    cdef _eastc.EastType *got = <_eastc.EastType*>got_ptr
+    if got == want or got == NULL or want == NULL:
+        return
+    if not _eastc.east_type_equal(got, want):
+        raise TypeError(
+            f"C-backed value has {what} type {_c_type_str(got)} but "
+            f"{_c_type_str(want)} was declared — refusing the by-pointer "
+            "pass-through of a mislabelled value"
+        )
+
+
 cdef _eastc.EastValue* py_value_to_c(object val, _eastc.EastType *c_type) except NULL:
     """Convert a Python value to a C EastValue*.
 
@@ -1156,30 +1188,36 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
         kind = c_type.kind
 
     # Fast path: if value is a C-backed proxy, reuse its pointer (no copy).
-    # Guard each proxy against the expected type kind — passing a
-    # wrong-shaped proxy by raw pointer would hand east-c a union-mismatched
-    # value and cause a wild deref at the next typed access.
+    # Guard each proxy against the expected type kind AND its declared
+    # child type(s) — passing a wrong-shaped or mislabelled proxy by raw
+    # pointer would hand east-c a union-mismatched value and cause a wild
+    # deref at the next typed access (#467).
     if isinstance(val, EastArrayProxy):
         if kind != _eastc.EAST_TYPE_ARRAY:
             raise TypeError(f"EastArrayProxy supplied where C type kind {kind} expected")
+        _check_proxy_type(<uintptr_t>val._c_elem_type_ptr, c_type.data.element, "Array element")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
     if isinstance(val, EastSetProxy):
         if kind != _eastc.EAST_TYPE_SET:
             raise TypeError(f"EastSetProxy supplied where C type kind {kind} expected")
+        _check_proxy_type(<uintptr_t>val._c_elem_type_ptr, c_type.data.element, "Set element")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
     if isinstance(val, EastDictProxy):
         if kind != _eastc.EAST_TYPE_DICT:
             raise TypeError(f"EastDictProxy supplied where C type kind {kind} expected")
+        _check_proxy_type(<uintptr_t>val._c_key_type_ptr, c_type.data.dict.key, "Dict key")
+        _check_proxy_type(<uintptr_t>val._c_val_type_ptr, c_type.data.dict.value, "Dict value")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
     if isinstance(val, EastRefProxy):
         if kind != _eastc.EAST_TYPE_REF:
             raise TypeError(f"EastRefProxy supplied where C type kind {kind} expected")
+        _check_proxy_type(<uintptr_t>val._c_inner_type_ptr, c_type.data.element, "Ref inner")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
@@ -1354,6 +1392,14 @@ cdef _eastc.EastValue* _py_struct_to_c(object val, _eastc.EastType *c_type, dict
 
 
 cdef _eastc.EastValue* _py_variant_to_c(object val, _eastc.EastType *c_type, dict identity_map) except NULL:
+    # A non-variant here is a type-level bug at the caller (e.g. a String
+    # where an Option was declared, #467) — name it instead of dying with
+    # an AttributeError on `.type`.
+    if not is_east_variant(val):
+        raise TypeError(
+            f"expected an East variant value for {_c_type_str(c_type)}, "
+            f"got {type(val).__name__} — construct with variant()/some()/none"
+        )
     cdef str case_name = val.type
     cdef object case_value = val.value
     cdef size_t i

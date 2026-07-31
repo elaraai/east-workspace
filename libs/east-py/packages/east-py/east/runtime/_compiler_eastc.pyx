@@ -218,13 +218,18 @@ cdef object _native_kernel_for(object east_fn):
     """The directly-usable native form of an EastFunction whose ``.fn`` is a
     precompiled kernel, or None when it is not one (or cannot be used).
 
-    Verifies the kernel's output type matches the declared callback output
-    (a mismatch falls back to the trampoline, which converts per element),
-    and prefix-adapts arity when the callback signature passes more
-    arguments than the kernel takes. Eager methods that wrap the user
-    callback tag the wrapper with the underlying kernel via ``_east_kernel``
-    (collections._mark_kernel) — resolve through it.
+    Verifies the kernel's declared signature against the callback's — output
+    AND the input prefix it will receive: the kernel reads its arguments raw
+    with no per-element conversion, so a mismatch on either side would read
+    or write values as the wrong type (#467). A mismatch falls back to the
+    trampoline, which converts (and so validates) per element. Prefix-adapts
+    arity when the callback signature passes more arguments than the kernel
+    takes. Eager methods that wrap the user callback tag the wrapper with the
+    underlying kernel via ``_east_kernel`` (collections._mark_kernel) —
+    resolve through it.
     """
+    cdef _eastc.EastType* want_in
+    cdef bint in_matched
     fn = getattr(east_fn.fn, "_east_kernel", None)
     if fn is None:
         fn = east_fn.fn
@@ -233,22 +238,30 @@ cdef object _native_kernel_for(object east_fn):
         return None
     try:
         handle = fn._eastc_handle
-        n_kernel = len(handle._input_types)
+        input_ptrs = list(handle._input_types)
+        n_kernel = len(input_ptrs)
         kernel_out = handle.get_output_type()
     except BaseException:
         return None
     if kernel_out != east_fn.output_type:
         return None
     n_declared = len(east_fn.input_types)
+    if n_kernel > n_declared:
+        return None
+    for j in range(n_kernel):
+        want_in = py_type_to_c(east_fn.input_types[j])
+        in_matched = _eastc.east_type_equal(
+            <_eastc.EastType*><uintptr_t>input_ptrs[j], want_in)
+        _eastc.east_type_release(want_in)
+        if not in_matched:
+            return None
     if n_kernel == n_declared:
         _eager_counters["kernel_direct"] += 1
         return fn
-    if n_kernel < n_declared:
-        adapted = _adapt_kernel_arity(fn, <size_t>n_kernel)
-        if adapted is not None:
-            _eager_counters["kernel_direct"] += 1
-        return adapted
-    return None
+    adapted = _adapt_kernel_arity(fn, <size_t>n_kernel)
+    if adapted is not None:
+        _eager_counters["kernel_direct"] += 1
+    return adapted
 
 
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
