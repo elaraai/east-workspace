@@ -111,17 +111,40 @@ syntax, fastest first:
    lambda ONCE with typed expression proxies (exactly like a TS
    `East.function` builder); the whole builtin surface records East IR —
    field access, arithmetic, comparisons, boolean algebra, string/datetime
-   methods, every `East.<Type>.*` namespace call, collection transforms with
-   nested lambdas (`.map`/`.filter`/`.fold`/`.some`/`.every`/`.first_map`/
-   `.string_join`/`[index_expr]`/`.try_get` — `some`/`every`/`first_map`
-   compile to the native short-circuiting FirstMap scans, so traced and
-   eager forms have identical early-exit execution), captured East
-   collections (trace-time
-   snapshots hoisted to build-once constants — explicit `kernel()` only), option
-   construct/consume (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
+   methods, every `East.<Type>.*` namespace call, captured East collections
+   (trace-time snapshots hoisted to build-once constants — explicit
+   `kernel()` only), option construct/consume
+   (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
    `.try_parse(T) -> Option<T>` — east-c compiles it, and the loop AND the
    kernel execute natively, zero python per element (~5× a per-element
-   callback on a 300k-row map, and it composes with chaining). Methods that
+   callback on a 300k-row map, and it composes with chaining).
+
+   Collection methods on traced expressions are a **closed, enumerated
+   surface** (an unsupported method raises `KernelTraceError` naming it;
+   with no loop IR these ARE the kernel language's iteration constructs).
+   Nested lambdas trace recursively and may reference outer parameters;
+   `some`/`every`/`first_map` compile to the native short-circuiting
+   FirstMap scans, so traced and eager forms have identical early-exit
+   execution:
+
+   - **Array**: `map` `filter` `filter_map` `first_map` `fold` `map_reduce`
+     `flatten_to_array` `flatten_to_set` `to_dict` `to_set` `unique`
+     `group_by` `sorted` `is_sorted` `some` `every` `string_join` `concat`
+     `slice` `reversed` `copy` `get_keys` `size` `has` `get`
+     `get_or_default` `try_get` `[index_expr]`
+   - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce`
+     `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
+     `intersect` `diff` `sym_diff` `is_subset` `is_disjoint` `copy` `size`
+     `has`
+   - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce`
+     `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
+     `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
+     `try_get` `[key_expr]`
+
+   Mutators and side-effecting methods are deliberately absent (the kernel
+   language is pure), so a whole `record → legs → values` descent — or a
+   `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
+   with no materialised intermediate between stages. Methods that
    exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
    inference otherwise samples the lambda on a decoded python value):
 
