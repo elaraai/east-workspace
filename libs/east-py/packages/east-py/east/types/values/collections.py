@@ -91,10 +91,13 @@ def _kernel_out_type(fn, param_types=None):
     an all-``some`` run silently builds a collection with the wrong key type
     (#450). The type is already known; it should not be re-derived from data.
 
-    Tracing here runs the lambda once against proxies, which is no more than
-    the sampling call it replaces, and only its TYPE is taken — how the
-    callback actually EXECUTES is still decided independently by
-    ``try_push_down``.
+    Tracing here runs the lambda once against proxies, and only its TYPE is
+    taken — how the callback actually EXECUTES is still decided independently
+    by ``try_push_down``. It is attempted only when ``_type_traceable`` proves
+    the run cannot corrupt python state: an impure lambda would receive
+    ``KernelExpr`` proxies and leak them into its captures (a closure list
+    mutated per call ends up holding an expression, not a value), so impure
+    callbacks keep the sampling fallback, which calls them with a REAL element.
     """
     handle = getattr(fn, "_eastc_handle", None)
     if handle is not None:
@@ -105,10 +108,12 @@ def _kernel_out_type(fn, param_types=None):
     if param_types is None or not callable(fn):
         return None
     try:
-        from east.kernel import trace
+        from east.kernel import _type_traceable, trace
 
+        if not _type_traceable(fn):
+            return None      # impure callback — the caller samples
         return trace(fn, list(param_types))[1]
-    except Exception:       # untraceable (impure) callback — the caller samples
+    except Exception:       # untraceable callback — the caller samples
         return None
 
 
@@ -123,6 +128,33 @@ def _mark_kernel(wrapper, fn):
     if getattr(fn, "_eastc_handle", None) is not None:
         wrapper._east_kernel = fn
     return wrapper
+
+
+def _check_kernel_out(fn, expected, param="out"):
+    """Reject a precompiled kernel whose declared output type is not ``expected``.
+
+    Both types are known statically at the call — the kernel carries its
+    signature and ``expected`` derives from an explicitly declared type — so a
+    mismatch is always a caller bug. Accepting it would label the kernel's
+    values with a type that does not describe them: the mislabelled collection
+    still reads fine (``len``, type labels, ``update_many``) and fails only
+    when an element is decoded, arbitrarily far from the cause (#467).
+
+    Only fires for handle-carrying kernels; plain lambdas have no declared
+    signature here and keep their existing trace/sample paths.
+    """
+    if fn is None or expected is None:
+        return
+    ko = _kernel_out_type(fn)
+    if ko is not None and ko != expected:
+        from east.serialization.east_printer import print_east
+        from east.types.coercion import EastTypeError
+        from east.types.type_of_type import EastTypeType
+
+        raise EastTypeError(
+            f"kernel output is {print_east(ko, EastTypeType)}, "
+            f"expected {print_east(expected, EastTypeType)} (from {param}=)"
+        )
 
 
 class EastArray(MutableSequence, Generic[T]):
@@ -503,6 +535,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import ArrayType, IntegerType, NullType
 
+        _check_kernel_out(fn, out)
         if len(self) == 0:
             return EastArray(out if out is not None else NullType, [])
         if out is not None:
@@ -547,8 +580,10 @@ class EastArray(MutableSequence, Generic[T]):
             A new array of the unwrapped ``some`` values; an empty input yields
             an empty array of element type ``out`` (or Null when omitted).
         """
-        from east.types.types import ArrayType, IntegerType, NullType, VariantType
+        from east.types.types import ArrayType, IntegerType, NullType, OptionType, VariantType
 
+        if out is not None:
+            _check_kernel_out(fn, OptionType(out))
         if len(self) == 0:
             return EastArray(out if out is not None else NullType, [])
         if out is not None:
@@ -577,8 +612,10 @@ class EastArray(MutableSequence, Generic[T]):
             ``some(value)`` for the first matching element, else ``none``; an
             empty array yields ``none``.
         """
-        from east.types.types import IntegerType, NullType, VariantType
+        from east.types.types import IntegerType, NullType, OptionType, VariantType
 
+        if out is not None:
+            _check_kernel_out(fn, OptionType(out))
         if len(self) == 0:
             t2 = out if out is not None else self.element_type
             return EastVariant("none", east_null)
@@ -614,6 +651,8 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType
 
+        _check_kernel_out(map_fn, out)
+        _check_kernel_out(reduce_fn, out)
         if len(self) == 0:
             raise ValueError("map_reduce on an empty array has no result (no identity element)")
         if out is not None:
@@ -656,6 +695,8 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import ArrayType, IntegerType, NullType
 
+        if out is not None:
+            _check_kernel_out(fn, ArrayType(out))
         if len(self) == 0:
             return EastArray(out if out is not None else NullType, [])
         if out is not None:
@@ -680,6 +721,8 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType, SetType
 
+        if out is not None:
+            _check_kernel_out(fn, SetType(out))
         if len(self) == 0:
             return EastSet(out if out is not None else self.element_type)
         if out is not None:
@@ -1334,6 +1377,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import ArrayType, IntegerType, NullType
 
+        _check_kernel_out(fn, element_type, param="element_type")
         n = int(count)
         if n == 0:
             return cls(element_type if element_type is not None else NullType, [])
@@ -1462,6 +1506,7 @@ class EastSet(Generic[T]):
         """
         from east.types.types import IntegerType, NullType, SetType
 
+        _check_kernel_out(fn, element_type, param="element_type")
         if int(n) == 0:
             return EastSet(element_type if element_type is not None else NullType)
         k = element_type if element_type is not None else _ev.type_of(fn(0))
@@ -1607,6 +1652,7 @@ class EastSet(Generic[T]):
         """
         from east.types.types import SetType
 
+        _check_kernel_out(fn, out)
         if len(self) == 0:
             return EastSet(out if out is not None else self.element_type)
         if out is not None:
@@ -1661,6 +1707,7 @@ class EastSet(Generic[T]):
         """
         from east.types.types import DictType
 
+        _check_kernel_out(fn, out)
         if len(self) == 0:
             t2 = out if out is not None else self.element_type
             return EastDict(self.element_type, t2)
@@ -1701,6 +1748,8 @@ class EastSet(Generic[T]):
         """
         from east.types.types import DictType, OptionType
 
+        if out is not None:
+            _check_kernel_out(fn, OptionType(out))
         if len(self) == 0:
             v2 = out if out is not None else self.element_type
             return EastDict(self.element_type, v2)
@@ -1731,6 +1780,8 @@ class EastSet(Generic[T]):
         """
         from east.types.types import OptionType
 
+        if out is not None:
+            _check_kernel_out(fn, OptionType(out))
         if len(self) == 0:
             return EastVariant("none", east_null)
         if out is not None:
@@ -1794,6 +1845,8 @@ class EastSet(Generic[T]):
         """
         from east.types.types import ArrayType
 
+        if out is not None:
+            _check_kernel_out(fn, ArrayType(out))
         if len(self) == 0:
             return EastArray(out if out is not None else self.element_type, [])
         t2 = out if out is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))).element_type
@@ -1814,6 +1867,8 @@ class EastSet(Generic[T]):
         """
         from east.types.types import SetType
 
+        if out is not None:
+            _check_kernel_out(fn, SetType(out))
         if len(self) == 0:
             return EastSet(out if out is not None else self.element_type)
         k2 = out if out is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))).element_type
@@ -2349,6 +2404,28 @@ class EastDict(Generic[K, V]):
             handle = getattr(combine, "_eastc_handle", None)
             fn_val = getattr(handle, "_fn_val", 0) if handle is not None else 0
             if fn_val:
+                # A precompiled combine runs C-to-C with no per-call
+                # conversion, so its declared signature is the only check its
+                # values will ever get — a mismatch would write mislabelled
+                # values straight into the dict (#467).
+                sig_out = _kernel_out_type(combine)
+                try:
+                    sig_in = list(handle.get_input_types())
+                except Exception:
+                    sig_in = None
+                if (sig_out is not None and sig_out != self.value_type) or (
+                    sig_in is not None and sig_in != [self.value_type, self.value_type]
+                ):
+                    from east.serialization.east_printer import print_east
+                    from east.types.coercion import EastTypeError
+                    from east.types.type_of_type import EastTypeType
+
+                    raise EastTypeError(
+                        "update_many: combine kernel signature does not match "
+                        f"this dict's value type "
+                        f"{print_east(self.value_type, EastTypeType)} "
+                        "(expected (value, value) -> value)"
+                    )
                 combine_ptr = fn_val
                 keep_alive = combine
             else:
@@ -2535,6 +2612,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType
 
+        _check_kernel_out(fn, out)
         if len(self) == 0:
             return EastDict(self.key_type, out if out is not None else self.value_type)
         first_key = next(iter(self))
@@ -2583,6 +2661,8 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType, OptionType
 
+        if out is not None:
+            _check_kernel_out(fn, OptionType(out))
         if len(self) == 0:
             return EastDict(self.key_type, out if out is not None else self.value_type)
         if out is not None:
@@ -2611,6 +2691,8 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import OptionType
 
+        if out is not None:
+            _check_kernel_out(fn, OptionType(out))
         if len(self) == 0:
             return EastVariant("none", east_null)
         if out is not None:
@@ -2640,6 +2722,8 @@ class EastDict(Generic[K, V]):
         Raises:
             ValueError: If the dict is empty (the reduction has no identity).
         """
+        _check_kernel_out(map_fn, out)
+        _check_kernel_out(reduce_fn, out)
         if len(self) == 0:
             raise ValueError("map_reduce on an empty Dict")
         first_key = next(iter(self))
@@ -2678,6 +2762,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import ArrayType, NullType
 
+        _check_kernel_out(fn, out)
         if len(self) == 0:
             return EastArray(out if out is not None else NullType, [])
         first_key = next(iter(self))
@@ -2700,6 +2785,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import SetType
 
+        _check_kernel_out(fn, out)
         if len(self) == 0:
             return EastSet(out if out is not None else self.key_type)
         first_key = next(iter(self))
@@ -2728,6 +2814,8 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType
 
+        _check_kernel_out(key_fn, key_out, param="key_out")
+        _check_kernel_out(value_fn, value_out, param="value_out")
         if len(self) == 0:
             return EastDict(
                 key_out if key_out is not None else self.key_type,
@@ -2830,6 +2918,9 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType
 
+        _check_kernel_out(key_fn, key_out, param="key_out")
+        _check_kernel_out(init_fn, acc_out, param="acc_out")
+        _check_kernel_out(fold_fn, acc_out, param="acc_out")
         if len(self) == 0:
             return EastDict(
                 key_out if key_out is not None else self.key_type,
@@ -2870,6 +2961,9 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType, IntegerType
 
+        _check_kernel_out(key_fn, key_type, param="key_type")
+        _check_kernel_out(value_fn, value_type, param="value_type")
+        _check_kernel_out(combine, value_type, param="value_type")
         key_cb = EastFunction(key_fn, [IntegerType], key_type)
         value_cb = EastFunction(value_fn, [IntegerType], value_type)
         combine_cb = EastFunction(combine, [value_type, value_type, key_type], value_type)

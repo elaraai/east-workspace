@@ -132,13 +132,23 @@ def test_plain_lambda_may_use_traced_only_methods(rows):
     tracing it for its type never touches a value."""
     grouped = rows.group_by(lambda r: r["a"].unwrap_or("-"))
     assert grouped.key_type == StringType
-    assert sorted(str(k) for k in grouped.keys()) == ["-", "x"]
+    assert sorted(str(k) for k in grouped) == ["-", "x"]
 
 
 def test_dict_map_value_fn_may_use_traced_only_methods(rows):
     grouped = rows.group_by(kernel(ROW, lambda r: r["n"]))
     sizes = grouped.map(lambda v: v.first_map(lambda r: r["a"]))
     assert sizes.value_type == OptionType(StringType)
+
+
+def test_captured_side_table_lambda_still_types_from_the_tracer(rows):
+    """A lambda closing over an East dict cannot push DOWN (snapshot-vs-live
+    semantics), but its output TYPE must still come from the tracer — sampling
+    would narrow the Option to whichever case the first element produced."""
+    table = EastDict(StringType, OptionType(StringType), {"1": some("hit")})
+    grouped = rows.group_by(lambda r: table.get_or_default(r["n"], none))
+    assert grouped.key_type == OptionType(StringType)
+    assert len(grouped) == 2  # some("hit") for row "1", none for "2"/"3"
 
 
 # ── the fallback must survive ────────────────────────────────────────────────
