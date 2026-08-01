@@ -154,3 +154,20 @@ def test_mismatched_operand_type_is_named():
     with pytest.raises(KernelTraceError, match="operand"):
         kernel(Row, lambda r: r["csv"].split(",").concat(
             r["legs"].map(lambda leg: leg["qty"])))
+
+
+def test_skill_documents_the_exact_traced_surface():
+    """SKILL.md's three enumeration bullets must EQUAL ``_TRACED_SURFACE`` —
+    the docs are the enumeration people can trust, so drift in either
+    direction fails here (#452's docs mandate, held by CI)."""
+    import re
+    from pathlib import Path
+
+    skill = (Path(__file__).parent.parent / "SKILL.md").read_text()
+    for tag in ("Array", "Set", "Dict"):
+        m = re.search(rf"- \*\*{tag}\*\*: (.*?)(?=\n   - \*\*|\n\n)", skill, re.S)
+        assert m, f"SKILL.md lost the {tag} traced-surface bullet"
+        listed = set(re.findall(r"`([a-z_]+)`", m.group(1)))
+        assert listed == set(_TRACED_SURFACE[tag]), (
+            f"{tag}: missing from SKILL {sorted(set(_TRACED_SURFACE[tag]) - listed)}; "
+            f"stale in SKILL {sorted(listed - set(_TRACED_SURFACE[tag]))}")

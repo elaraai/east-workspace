@@ -167,7 +167,17 @@ syntax, fastest first:
    including a `.bind(...)` result — passes its native function value
    **straight through every eager method** (#409): the loop runs entirely in
    east-c with zero per-element python, and the output type comes from the
-   kernel's own signature, so no `out=` and no sampling. Compiled East
+   kernel's own signature, so no `out=` and no sampling. If you DO pass
+   `out=` (or the method has a declared type) and the kernel's signature
+   contradicts it, the call raises `EastTypeError` immediately — both types
+   are known statically, and a mislabelled result would corrupt far from the
+   cause (#467). Kernels are also **dual-mode** (#470): called with plain
+   values they execute natively; referenced inside another `kernel()` lambda
+   or a pure wrapper they re-run their source and splice into that trace —
+   so kernels compose (`kernel(Row, lambda r: amount(r) * 1.1)`), and every
+   grouping/sugar method runs them with zero per-element python
+   (`.bind(...)` results are the exception: native everywhere, but not
+   re-traceable inside another trace). Compiled East
    functions loaded from elsewhere (`compile_from_beast2/json/east`, or
    `compile_from_value` for a homoiconic IR value built with
    `east.ir.builders`) are accepted the same way:
@@ -195,16 +205,21 @@ syntax, fastest first:
 
 - Reference only the lambda's parameters, plain scalar constants
   (closure floats/ints/strings are baked — same value per element either
-  way), East types/values, the `East` builtin namespace, and `where`. Any
-  other module reference (`random.…`, `np.…`), mutable closure, callable
-  helper that itself fails these rules, or closure mutation
+  way), East types/values (`east_null` included), the `East` builtin
+  namespace, `where`/`some`/`none`, **precompiled `kernel()` results**
+  (dual-mode: they re-trace from their source, at any nesting depth,
+  #470), and — two wrapper levels deep, enough for helper lambdas that
+  compose a callback — other lambdas that pass the same rules. Any
+  other module reference (`random.…`, `np.…`), mutable closure, arbitrary
+  callable, or closure mutation
   (`nonlocal x; x += 1`) **disables tracing** — the python path runs and
   semantics are exactly today's. A closed-over East *collection* also
   disables auto-tracing (tracing snapshots it, which would diverge from
   live per-element semantics) — capture side-tables in an explicit
   `kernel()`, which opts into the snapshot. Side effects therefore never
   get lost: an impure lambda runs per element; a traced lambda ran once,
-  at trace time.
+  at trace time (type inference likewise never runs an impure lambda
+  against proxies — it samples on a real element instead).
 - Python won't let a library overload `and`/`or`/`not`/`if`, so traced
   kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
   `where(cond, then, otherwise)` for conditionals. `where` is dual-mode:
