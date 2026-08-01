@@ -3,21 +3,42 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType } from "@elaraai/east";
+import { East, NullType, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Matrix } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./matrix.examples.js";
 
 describeEast("Matrix", (test) => {
     Assert.examples(test, {
         matrixHeatGrid: ex.matrixHeatGrid,
-        matrixSegments: ex.matrixSegments,
-        matrixVertical: ex.matrixVertical,
-        matrixMarkers: ex.matrixMarkers,
-        matrixPopover: ex.matrixPopover,
         matrixReactiveAdjust: ex.matrixReactiveAdjust,
-        matrixBounded: ex.matrixBounded,
+        matrixReactivePivot: ex.matrixReactivePivot,
+        matrixVariants: ex.matrixVariants,
         matrixFill: ex.matrixFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("matrixVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.matrixVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SEGMENTS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VERTICAL"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MARKERS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "POPOVER"));
+    });
+
+    test("matrixFill panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.matrixFill.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BOUNDED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL"));
     });
 
     // =========================================================================

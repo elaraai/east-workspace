@@ -3,20 +3,33 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType, StringType } from "@elaraai/east";
+import { East, NullType, StringType, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Deck, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./deck.examples.js";
 
 describeEast("Deck", (test) => {
     Assert.examples(test, {
         deckBasic: ex.deckBasic,
-        deckGroupBy: ex.deckGroupBy,
-        deckListLayout: ex.deckListLayout,
         deckCustomFace: ex.deckCustomFace,
         deckSlice: ex.deckSlice,
         deckDetail: ex.deckDetail,
         deckClickable: ex.deckClickable,
+        deckVariants: ex.deckVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("deckVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.deckVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "GROUP BY"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST LAYOUT"));
     });
 
     const ROWS = [

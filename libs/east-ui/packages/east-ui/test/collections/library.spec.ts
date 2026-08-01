@@ -4,20 +4,40 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, some, none, ArrayType, IntegerType, StringType, StructType } from "@elaraai/east";
+import { East, some, none, ArrayType, IntegerType, StringType, StructType, type ExprType } from "@elaraai/east";
 import { Library } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./library.examples.js";
 
 describeEast("Library", (test) => {
     Assert.examples(test, {
-        libraryScroll: ex.libraryScroll,
-        libraryFill: ex.libraryFill,
         libraryPeople: ex.libraryPeople,
-        libraryAssets: ex.libraryAssets,
-        libraryFlat: ex.libraryFlat,
+        libraryVariants: ex.libraryVariants,
         libraryLarge: ex.libraryLarge,
-        libraryLargeFlat: ex.libraryLargeFlat,
-        libraryLargeSlice: ex.libraryLargeSlice,
+        libraryFill: ex.libraryFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // (libraryLarge is a configurator — a single Reactive tree, no captions —
+    // so Assert.examples coverage suffices for it.)
+    // =========================================================================
+
+    test("libraryVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.libraryVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ASSETS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FLAT"));
+    });
+
+    test("libraryFill panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.libraryFill.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCROLL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("400 generated cards resolve with hoisted per-group summaries", $ => {

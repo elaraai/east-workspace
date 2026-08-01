@@ -4,19 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { variant, some } from "@elaraai/east";
+import { variant, some, type ExprType } from "@elaraai/east";
 import { Map } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./map.examples.js";
 
 describeEast("Map", (test) => {
     Assert.examples(test, {
         mapBasic: ex.mapBasic,
-        mapAreas: ex.mapAreas,
-        mapHexLod: ex.mapHexLod,
-        mapPulse: ex.mapPulse,
         mapOverlayHud: ex.mapOverlayHud,
         mapInteractive: ex.mapInteractive,
-        mapRegions: ex.mapRegions,
+        mapOverlayVariants: ex.mapOverlayVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("mapOverlayVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.mapOverlayVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AREAS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "HEX LOD"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PULSE"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "REGIONS"));
     });
 
     test("resolves markers with defaults and an empty canvas", $ => {

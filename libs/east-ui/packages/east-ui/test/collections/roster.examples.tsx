@@ -7,83 +7,113 @@ import { BooleanType, East, IntegerType, NullType, OptionType, StringType, examp
 import { CellRefType, DragEventType, State, Status, UIComponentType } from "@elaraai/east-ui";
 import { Box, Library, Reactive, Roster, Text, VStack } from "@elaraai/east-ui";
 
-export const rosterEdit = example({
-    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary"],
-    description: "Edit-mode roster — committed, added, removed, and model-ghost shifts with the status strip",
-    fn: East.function([], UIComponentType, ($) => {
-        const people = $.const([
-            { id: "patel", name: "Patel", target: "38h → 30h" },
-            { id: "cho", name: "Cho", target: "26h → 38h" },
-            { id: "rivera", name: "Rivera", target: "32h" },
-            { id: "okafor", name: "Okafor", target: "24h" },
-        ]);
-        const committed = variant("committed", null);
-        const added = variant("proposed", variant("added", null));
-        const removed = variant("proposed", variant("removed", null));
-        const ghost = variant("proposed", variant("model", null));
-        const shifts = $.const([
-            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: committed },
-            { id: "p2", person: "patel", day: "Tue", hours: 8n, state: committed },
-            { id: "p3", person: "patel", day: "Wed", hours: 8n, state: removed },
-            { id: "p4", person: "patel", day: "Fri", hours: 6n, state: committed },
-            { id: "p5", person: "patel", day: "Sat", hours: 8n, state: removed },
-            { id: "c1", person: "cho", day: "Mon", hours: 8n, state: committed },
-            { id: "c2", person: "cho", day: "Tue", hours: 6n, state: committed },
-            { id: "c3", person: "cho", day: "Wed", hours: 8n, state: added },
-            { id: "c4", person: "cho", day: "Thu", hours: 8n, state: committed },
-            { id: "c5", person: "cho", day: "Sat", hours: 8n, state: added },
-            { id: "c6", person: "cho", day: "Sun", hours: 4n, state: ghost },
-            { id: "r1", person: "rivera", day: "Mon", hours: 8n, state: committed },
-            { id: "r2", person: "rivera", day: "Tue", hours: 8n, state: committed },
-            { id: "r3", person: "rivera", day: "Wed", hours: 8n, state: committed },
-            { id: "r4", person: "rivera", day: "Thu", hours: 8n, state: committed },
-            { id: "r5", person: "rivera", day: "Sat", hours: 6n, state: ghost },
-            { id: "o1", person: "okafor", day: "Tue", hours: 6n, state: committed },
-            { id: "o2", person: "okafor", day: "Wed", hours: 6n, state: committed },
-            { id: "o3", person: "okafor", day: "Thu", hours: 6n, state: committed },
-            { id: "o4", person: "okafor", day: "Fri", hours: 6n, state: committed },
-        ]);
-        return (
-            <Roster
-                id="roster-se"
-                sources={["people"]}
-                mode="edit"
-                people={people}
-                person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                shifts={shifts}
-                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                summary="3 dirty · 1 new · 2 model-ghost"
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
 
-export const rosterPublished = example({
-    keywords: ["Roster", "shift", "published", "committed", "read-only", "days"],
-    description: "Published work-week roster — committed shifts only, no grips, pointer-immutable",
-    fn: East.function([], UIComponentType, ($) => {
-        const people = $.const([
-            { id: "patel", name: "Patel" },
-            { id: "cho", name: "Cho" },
-        ]);
-        const committed = variant("committed", null);
-        const shifts = $.const([
-            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: committed },
-            { id: "p2", person: "patel", day: "Wed", hours: 8n, state: committed },
-            { id: "c1", person: "cho", day: "Tue", hours: 6n, state: committed },
-            { id: "c2", person: "cho", day: "Fri", hours: 6n, state: committed },
-        ]);
+// Shared shift-state values for the hoisted fixtures.
+const COMMITTED = variant("committed", null);
+const ADDED = variant("proposed", variant("added", null));
+const REMOVED = variant("proposed", variant("removed", null));
+const GHOST = variant("proposed", variant("model", null));
+
+const ROSTER_EDIT_PEOPLE_DATA = [
+    { id: "patel", name: "Patel", target: "38h → 30h" },
+    { id: "cho", name: "Cho", target: "26h → 38h" },
+    { id: "rivera", name: "Rivera", target: "32h" },
+    { id: "okafor", name: "Okafor", target: "24h" },
+];
+const ROSTER_EDIT_DATA = [
+    { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+    { id: "p2", person: "patel", day: "Tue", hours: 8n, state: COMMITTED },
+    { id: "p3", person: "patel", day: "Wed", hours: 8n, state: REMOVED },
+    { id: "p4", person: "patel", day: "Fri", hours: 6n, state: COMMITTED },
+    { id: "p5", person: "patel", day: "Sat", hours: 8n, state: REMOVED },
+    { id: "c1", person: "cho", day: "Mon", hours: 8n, state: COMMITTED },
+    { id: "c2", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
+    { id: "c3", person: "cho", day: "Wed", hours: 8n, state: ADDED },
+    { id: "c4", person: "cho", day: "Thu", hours: 8n, state: COMMITTED },
+    { id: "c5", person: "cho", day: "Sat", hours: 8n, state: ADDED },
+    { id: "c6", person: "cho", day: "Sun", hours: 4n, state: GHOST },
+    { id: "r1", person: "rivera", day: "Mon", hours: 8n, state: COMMITTED },
+    { id: "r2", person: "rivera", day: "Tue", hours: 8n, state: COMMITTED },
+    { id: "r3", person: "rivera", day: "Wed", hours: 8n, state: COMMITTED },
+    { id: "r4", person: "rivera", day: "Thu", hours: 8n, state: COMMITTED },
+    { id: "r5", person: "rivera", day: "Sat", hours: 6n, state: GHOST },
+    { id: "o1", person: "okafor", day: "Tue", hours: 6n, state: COMMITTED },
+    { id: "o2", person: "okafor", day: "Wed", hours: 6n, state: COMMITTED },
+    { id: "o3", person: "okafor", day: "Thu", hours: 6n, state: COMMITTED },
+    { id: "o4", person: "okafor", day: "Fri", hours: 6n, state: COMMITTED },
+];
+const ROSTER_PUBLISHED_PEOPLE_DATA = [
+    { id: "patel", name: "Patel" },
+    { id: "cho", name: "Cho" },
+];
+const ROSTER_PUBLISHED_DATA = [
+    { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+    { id: "p2", person: "patel", day: "Wed", hours: 8n, state: COMMITTED },
+    { id: "c1", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
+    { id: "c2", person: "cho", day: "Fri", hours: 6n, state: COMMITTED },
+];
+const ROSTER_SCROLL_PEOPLE_DATA = [
+    { id: "patel", name: "Patel", target: "38h" }, { id: "cho", name: "Cho", target: "26h" },
+    { id: "rivera", name: "Rivera", target: "32h" }, { id: "okafor", name: "Okafor", target: "24h" },
+    { id: "nguyen", name: "Nguyen", target: "20h" }, { id: "kim", name: "Kim", target: "22h" },
+    { id: "sato", name: "Sato", target: "30h" }, { id: "diaz", name: "Diaz", target: "28h" },
+];
+const ROSTER_SCROLL_DATA = [
+    { id: "s1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+    { id: "s2", person: "cho", day: "Tue", hours: 8n, state: COMMITTED },
+    { id: "s3", person: "rivera", day: "Wed", hours: 8n, state: COMMITTED },
+    { id: "s4", person: "okafor", day: "Thu", hours: 6n, state: COMMITTED },
+    { id: "s5", person: "nguyen", day: "Fri", hours: 6n, state: COMMITTED },
+    { id: "s6", person: "sato", day: "Mon", hours: 8n, state: COMMITTED },
+];
+const ROSTER_FILL_PEOPLE_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+    id: East.str`p${i}`,
+    name: East.str`Person ${i}`,
+    target: "38h",
+}));
+const ROSTER_FILL_DATA = [
+    { id: "s1", person: "p0", day: "Mon", hours: 8n, state: COMMITTED },
+    { id: "s2", person: "p1", day: "Tue", hours: 8n, state: COMMITTED },
+    { id: "s3", person: "p2", day: "Wed", hours: 8n, state: COMMITTED },
+    { id: "s4", person: "p15", day: "Thu", hours: 6n, state: COMMITTED },
+    { id: "s5", person: "p199", day: "Fri", hours: 6n, state: COMMITTED },
+];
+
+export const rosterModes = example({
+    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days"],
+    description: "Roster mode pair — edit (committed, added, removed, and model-ghost shifts with the status strip) above published (a work-week roster with committed shifts only, no grips, pointer-immutable)",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Roster
-                id="roster-published"
-                people={people}
-                person={p => ({ key: p.id, label: p.name })}
-                shifts={shifts}
-                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                summary="published · wk of Sep 16"
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">EDIT</Text>
+                    <Roster
+                        id="roster-se"
+                        sources={["people"]}
+                        mode="edit"
+                        people={ROSTER_EDIT_PEOPLE_DATA}
+                        person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                        shifts={ROSTER_EDIT_DATA}
+                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                        summary="3 dirty · 1 new · 2 model-ghost"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PUBLISHED</Text>
+                    <Roster
+                        id="roster-published"
+                        people={ROSTER_PUBLISHED_PEOPLE_DATA}
+                        person={p => ({ key: p.id, label: p.name })}
+                        shifts={ROSTER_PUBLISHED_DATA}
+                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                        days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                        summary="published · wk of Sep 16"
+                    />
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],
@@ -301,68 +331,37 @@ export const rosterLibraryDnd = example({
     inputs: [],
 });
 
-
-export const rosterScroll = example({
-    keywords: ["Roster", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320"],
-    description: "Bounded roster (#320) — maxHeight=\"180px\" caps the component; eight people overflow so it clips mid-row and scrolls within",
-    fn: East.function([], UIComponentType, ($) => {
-        const people = $.const([
-            { id: "patel", name: "Patel", target: "38h" }, { id: "cho", name: "Cho", target: "26h" },
-            { id: "rivera", name: "Rivera", target: "32h" }, { id: "okafor", name: "Okafor", target: "24h" },
-            { id: "nguyen", name: "Nguyen", target: "20h" }, { id: "kim", name: "Kim", target: "22h" },
-            { id: "sato", name: "Sato", target: "30h" }, { id: "diaz", name: "Diaz", target: "28h" },
-        ]);
-        const committed = variant("committed", null);
-        const shifts = $.const([
-            { id: "s1", person: "patel", day: "Mon", hours: 8n, state: committed },
-            { id: "s2", person: "cho", day: "Tue", hours: 8n, state: committed },
-            { id: "s3", person: "rivera", day: "Wed", hours: 8n, state: committed },
-            { id: "s4", person: "okafor", day: "Thu", hours: 6n, state: committed },
-            { id: "s5", person: "nguyen", day: "Fri", hours: 6n, state: committed },
-            { id: "s6", person: "sato", day: "Mon", hours: 8n, state: committed },
-        ]);
-        return (
-            <Roster
-                id="roster-scroll"
-                people={people}
-                person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                shifts={shifts}
-                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                maxHeight="180px"
-            />
-        );
-    }),
-    inputs: [],
-});
-
 export const rosterFill = example({
-    keywords: ["Roster", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the roster fills a fixed 180px Box and scrolls within it; two hundred people overflow the box so only the visible person rows (plus overscan) mount",
-    fn: East.function([], UIComponentType, ($) => {
-        const people = $.const(East.Array.range(0n, 200n).map((_$, i) => ({
-            id: East.str`p${i}`,
-            name: East.str`Person ${i}`,
-            target: "38h",
-        })));
-        const committed = variant("committed", null);
-        const shifts = $.const([
-            { id: "s1", person: "p0", day: "Mon", hours: 8n, state: committed },
-            { id: "s2", person: "p1", day: "Tue", hours: 8n, state: committed },
-            { id: "s3", person: "p2", day: "Wed", hours: 8n, state: committed },
-            { id: "s4", person: "p15", day: "Thu", hours: 6n, state: committed },
-            { id: "s5", person: "p199", day: "Fri", hours: 6n, state: committed },
-        ]);
+    keywords: ["Roster", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320", "fill", "height", "Box"],
+    description: "Roster sizing panel (#320) — scroll (maxHeight=\"180px\" caps the component; eight people overflow so it clips mid-row and scrolls within), fill (height=\"fill\": the roster fills a fixed 180px Box and scrolls within it; two hundred people overflow the box so only the visible person rows plus overscan mount)",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box height="180px">
-                <Roster
-                    id="roster-fill"
-                    people={people}
-                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                    shifts={shifts}
-                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                    height="fill"
-                />
-            </Box>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
+                    <Roster
+                        id="roster-scroll"
+                        people={ROSTER_SCROLL_PEOPLE_DATA}
+                        person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                        shifts={ROSTER_SCROLL_DATA}
+                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                        maxHeight="180px"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
+                    <Box height="180px">
+                        <Roster
+                            id="roster-fill"
+                            people={ROSTER_FILL_PEOPLE_DATA}
+                            person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                            shifts={ROSTER_FILL_DATA}
+                            shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                            height="fill"
+                        />
+                    </Box>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

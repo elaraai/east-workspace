@@ -4,29 +4,45 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, BooleanType, NullType, StringType, variant, some } from "@elaraai/east";
+import { East, BooleanType, NullType, StringType, variant, some, type ExprType } from "@elaraai/east";
 import { Schematic, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./schematic.examples.js";
 
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicPlant: ex.schematicPlant,
-        schematicSliceEffect: ex.schematicSliceEffect,
-        schematicLayers: ex.schematicLayers,
-        schematicMinimal: ex.schematicMinimal,
-        schematicInteractive: ex.schematicInteractive,
-        schematicRangeSelect: ex.schematicRangeSelect,
-        schematicSelectFilter: ex.schematicSelectFilter,
-        schematicViewport: ex.schematicViewport,
-        schematicZoneSelect: ex.schematicZoneSelect,
-        schematicLinkEdit: ex.schematicLinkEdit,
-        schematicNets: ex.schematicNets,
-        schematicItemMove: ex.schematicItemMove,
-        schematicHover: ex.schematicHover,
         schematicStress: ex.schematicStress,
         schematicFacility: ex.schematicFacility,
-        schematicGeometry: ex.schematicGeometry,
-        schematicColorOverride: ex.schematicColorOverride,
+        schematicLinkEdit: ex.schematicLinkEdit,
+        schematicNets: ex.schematicNets,
+        schematicVariants: ex.schematicVariants,
+        schematicSlice: ex.schematicSlice,
+        schematicInteractions: ex.schematicInteractions,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // (schematicInteractions is a configurator — a single Reactive tree, no
+    // captions — so Assert.examples coverage suffices for it.)
+    // =========================================================================
+
+    test("schematicVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.schematicVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MINIMAL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LAYERS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "GEOMETRY"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLOR OVERRIDE"));
+    });
+
+    test("schematicSlice panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.schematicSlice.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SLICE EFFECT"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SELECT FILTER"));
     });
 
     test("resolves items with defaults", $ => {

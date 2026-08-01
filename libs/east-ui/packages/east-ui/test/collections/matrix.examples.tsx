@@ -7,6 +7,36 @@ import { ArrayType, DictType, East, FloatType, NullType, StringType, StructType,
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
 
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+const MATRIX_SEGMENTS_DATA = [
+    { sprint: "Sprint 1", committed: new Map([["design", 0.50], ["dev", 0.70], ["qa", 0.30]]), pending: new Map([["design", 0.30], ["dev", 0.20], ["qa", 0.40]]) },
+    { sprint: "Sprint 2", committed: new Map([["design", 0.45], ["dev", 0.80], ["qa", 0.25]]), pending: new Map([["design", 0.35], ["dev", 0.15], ["qa", 0.35]]) },
+];
+const MATRIX_VERTICAL_DATA = [
+    { team: "Team A", booked: new Map([["mon", 0.70], ["tue", 0.55], ["wed", 0.90], ["thu", 0.65], ["fri", 0.45]]) },
+    { team: "Team B", booked: new Map([["mon", 0.50], ["tue", 0.75], ["wed", 0.40], ["thu", 0.85], ["fri", 0.60]]) },
+];
+const MATRIX_MARKERS_DATA = [
+    { name: "Alice", role: "PM", booked: new Map([["mon", 0.80], ["tue", 0.50], ["wed", 1.00]]) },
+    { name: "Bob", role: "Design", booked: new Map([["mon", 0.35], ["tue", 1.00], ["wed", 0.60]]) },
+];
+const MATRIX_POPOVER_DATA = [{ name: "Alice", booked: new Map([["mon", 0.7], ["tue", 0.4]]) }];
+const MATRIX_BOUNDED_DATA = [
+    { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]) },
+    { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30]]) },
+    { name: "Carol", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90]]) },
+    { name: "Dan", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.25], ["tue", 0.80], ["wed", 0.50]]) },
+];
+const MATRIX_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+    name: East.str`Res ${i}`,
+    role: "Engineer",
+    team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
+    booked: East.value(new Map([["mon", 0.45], ["tue", 0.7], ["wed", 0.85]]), DictType(StringType, FloatType)),
+}));
+
 /**
  * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by
  * team. The base configuration: utilisation read as bar fill, no labels.
@@ -38,158 +68,6 @@ export const matrixHeatGrid = example({
                     Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
                 ] })}
                 legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Multi-segment — three categories per cell (committed / pending / slack) with
- * in-bar % labels, drag-resize handles (via `onSegmentChange`), and labels
- * suppressed under `minLabelSize`.
- */
-export const matrixSegments = example({
-    keywords: ["Matrix", "segment", "committed", "pending", "slack", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation"],
-    description: "Multi-segment cells (committed / pending / slack) with in-bar labels, drag-resize, and minLabelSize suppression",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Matrix
-                data={[
-                    { sprint: "Sprint 1", committed: new Map([["design", 0.50], ["dev", 0.70], ["qa", 0.30]]), pending: new Map([["design", 0.30], ["dev", 0.20], ["qa", 0.40]]) },
-                    { sprint: "Sprint 2", committed: new Map([["design", 0.45], ["dev", 0.80], ["qa", 0.25]]), pending: new Map([["design", 0.35], ["dev", 0.15], ["qa", 0.35]]) },
-                ]}
-                columns={[
-                    Matrix.column({ key: "design", label: "Design" }),
-                    Matrix.column({ key: "dev", label: "Development" }),
-                    Matrix.column({ key: "qa", label: "QA" }),
-                ]}
-                rowKey={r => r.sprint}
-                rowHeader="Sprint"
-                minLabelSize={28.0}
-                cell={(r, col) => Matrix.cell({ segments: [
-                    Matrix.segment({ fill: "success", weight: r.committed.get(col.key), label: East.str`${r.committed.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
-                    Matrix.segment({ fill: "warning", weight: r.pending.get(col.key), label: East.str`${r.pending.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
-                    Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.committed.get(col.key)).subtract(r.pending.get(col.key)) }),
-                ] })}
-                legend={[{ fill: "success", label: "Committed" }, { fill: "warning", label: "Pending" }, { fill: "slack", label: "Slack" }]}
-                onSegmentChange={East.function([Matrix.Types.SegmentChangeEvent], NullType, _$ => null)}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Vertical orientation — each cell a bottom-anchored stacked capacity bar
- * (utilisation by height) instead of a horizontal weight bar.
- */
-export const matrixVertical = example({
-    keywords: ["Matrix", "vertical", "orientation", "capacity", "stacked", "utilization", "bar"],
-    description: "Vertical orientation — cells stack bottom-up as capacity bars (height-encoded utilisation)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Matrix
-                data={[
-                    { team: "Team A", booked: new Map([["mon", 0.70], ["tue", 0.55], ["wed", 0.90], ["thu", 0.65], ["fri", 0.45]]) },
-                    { team: "Team B", booked: new Map([["mon", 0.50], ["tue", 0.75], ["wed", 0.40], ["thu", 0.85], ["fri", 0.60]]) },
-                ]}
-                columns={[
-                    Matrix.column({ key: "mon", label: "Mon" }),
-                    Matrix.column({ key: "tue", label: "Tue" }),
-                    Matrix.column({ key: "wed", label: "Wed" }),
-                    Matrix.column({ key: "thu", label: "Thu" }),
-                    Matrix.column({ key: "fri", label: "Fri" }),
-                ]}
-                rowKey={r => r.team}
-                rowHeader="Team"
-                orientation="vertical"
-                cell={(r, col) => Matrix.cell({ segments: [
-                    Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                    Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                ] })}
-                legend={[{ fill: "brand", label: "Used capacity" }, { fill: "free", label: "Available" }]}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Cell status markers — every cell carries a marker (the Matrix analogue of
- * `Planner.marker`) whose status, corner icon, and hover message follow the
- * booked value: over-capacity cells flag `danger`, near-capacity `warning`, the
- * rest `success`. The marker tints a corner ring over the segment bar.
- */
-export const matrixMarkers = example({
-    keywords: ["Matrix", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "capacity", "overbooked"],
-    description: "Cell status markers (the Matrix analogue of Planner.marker) — status/message follow the booked value, tinting a corner ring",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Matrix
-                data={[
-                    { name: "Alice", role: "PM", booked: new Map([["mon", 0.80], ["tue", 0.50], ["wed", 1.00]]) },
-                    { name: "Bob", role: "Design", booked: new Map([["mon", 0.35], ["tue", 1.00], ["wed", 0.60]]) },
-                ]}
-                columns={[
-                    Matrix.column({ key: "mon", label: "Mon" }),
-                    Matrix.column({ key: "tue", label: "Tue" }),
-                    Matrix.column({ key: "wed", label: "Wed" }),
-                ]}
-                rowKey={r => r.name}
-                rowHeader="Resource"
-                rowSublabel={r => r.role}
-                cell={(r, col) => Matrix.cell({
-                    segments: [
-                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key), label: East.str`${r.booked.get(col.key).multiply(8.0)}h` }),
-                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                    ],
-                    markers: [Matrix.marker({
-                        status: r.booked.get(col.key).greaterEqual(1.0).ifElse(
-                            _$ => variant("danger", null),
-                            _$ => r.booked.get(col.key).greaterEqual(0.75).ifElse(_$ => variant("warning", null), _$ => variant("success", null)),
-                        ),
-                        message: East.str`${r.booked.get(col.key).multiply(100.0)}% booked`,
-                        at: "tr",
-                    })],
-                })}
-                legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Per-cell click popover — pass a UIComponent into `popover` for rich detail on
- * click (popover-only, like the Planner event — no tooltip).
- */
-export const matrixPopover = example({
-    keywords: ["Matrix", "popover", "click", "detail", "onCellClick"],
-    description: "Per-cell click popover with rich content",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Matrix
-                data={[{ name: "Alice", booked: new Map([["mon", 0.7], ["tue", 0.4]]) }]}
-                columns={[
-                    Matrix.column({ key: "mon", label: "Mon" }),
-                    Matrix.column({ key: "tue", label: "Tue" }),
-                ]}
-                rowKey={r => r.name}
-                rowHeader="Resource"
-                cell={(r, col) => Matrix.cell({
-                    segments: [
-                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                    ],
-                    popover: (
-                        <VStack gap="1">
-                            <Text fontWeight="semibold">Allocation</Text>
-                            <Text color="fg.muted">{East.str`${r.booked.get(col.key).multiply(100.0)}% booked`}</Text>
-                        </VStack>
-                    ),
-                })}
-                onCellClick={East.function([Matrix.Types.CellClickEvent], NullType, _$ => null)}
             />
         );
     }),
@@ -299,73 +177,165 @@ export const matrixReactivePivot = example({
     inputs: [],
 });
 
-/**
- * Bounded (#320) — a bare-number `maxHeight` (parsed to px) caps the whole
- * matrix; it becomes its own scroll region (chrome-inclusive) and scrolls within.
- */
-export const matrixBounded = example({
-    keywords: ["Matrix", "maxHeight", "height", "bounded", "scroll", "sizing", "#320"],
-    description: "Bounded matrix (#320) — a bare-number maxHeight ('140', parsed to 140px) caps the whole component; it scrolls within its box instead of growing to content",
+export const matrixVariants = example({
+    keywords: ["Matrix", "segment", "committed", "pending", "slack", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick"],
+    description: "Matrix variant panel — segments (multi-segment cells committed / pending / slack with in-bar labels, drag-resize, and minLabelSize suppression), vertical (cells stack bottom-up as capacity bars — height-encoded utilisation), markers (cell status markers, the Matrix analogue of Planner.marker: status/message follow the booked value, tinting a corner ring), popover (per-cell click popover with rich content)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Matrix
-                data={[
-                    { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]) },
-                    { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30]]) },
-                    { name: "Carol", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90]]) },
-                    { name: "Dan", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.25], ["tue", 0.80], ["wed", 0.50]]) },
-                ]}
-                columns={[
-                    Matrix.column({ key: "mon", label: "Mon" }),
-                    Matrix.column({ key: "tue", label: "Tue" }),
-                    Matrix.column({ key: "wed", label: "Wed" }),
-                ]}
-                rowKey={r => r.name}
-                rowHeader="Resource"
-                rowSublabel={r => r.role}
-                groupBy={r => r.team}
-                cell={(r, col) => Matrix.cell({ segments: [
-                    Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                    Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                ] })}
-                legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                maxHeight="140"
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SEGMENTS</Text>
+                    <Matrix
+                        data={MATRIX_SEGMENTS_DATA}
+                        columns={[
+                            Matrix.column({ key: "design", label: "Design" }),
+                            Matrix.column({ key: "dev", label: "Development" }),
+                            Matrix.column({ key: "qa", label: "QA" }),
+                        ]}
+                        rowKey={r => r.sprint}
+                        rowHeader="Sprint"
+                        minLabelSize={28.0}
+                        cell={(r, col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "success", weight: r.committed.get(col.key), label: East.str`${r.committed.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
+                            Matrix.segment({ fill: "warning", weight: r.pending.get(col.key), label: East.str`${r.pending.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
+                            Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.committed.get(col.key)).subtract(r.pending.get(col.key)) }),
+                        ] })}
+                        legend={[{ fill: "success", label: "Committed" }, { fill: "warning", label: "Pending" }, { fill: "slack", label: "Slack" }]}
+                        onSegmentChange={East.function([Matrix.Types.SegmentChangeEvent], NullType, _$ => null)}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VERTICAL</Text>
+                    <Matrix
+                        data={MATRIX_VERTICAL_DATA}
+                        columns={[
+                            Matrix.column({ key: "mon", label: "Mon" }),
+                            Matrix.column({ key: "tue", label: "Tue" }),
+                            Matrix.column({ key: "wed", label: "Wed" }),
+                            Matrix.column({ key: "thu", label: "Thu" }),
+                            Matrix.column({ key: "fri", label: "Fri" }),
+                        ]}
+                        rowKey={r => r.team}
+                        rowHeader="Team"
+                        orientation="vertical"
+                        cell={(r, col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                        ] })}
+                        legend={[{ fill: "brand", label: "Used capacity" }, { fill: "free", label: "Available" }]}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MARKERS</Text>
+                    <Matrix
+                        data={MATRIX_MARKERS_DATA}
+                        columns={[
+                            Matrix.column({ key: "mon", label: "Mon" }),
+                            Matrix.column({ key: "tue", label: "Tue" }),
+                            Matrix.column({ key: "wed", label: "Wed" }),
+                        ]}
+                        rowKey={r => r.name}
+                        rowHeader="Resource"
+                        rowSublabel={r => r.role}
+                        cell={(r, col) => Matrix.cell({
+                            segments: [
+                                Matrix.segment({ fill: "brand", weight: r.booked.get(col.key), label: East.str`${r.booked.get(col.key).multiply(8.0)}h` }),
+                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                            ],
+                            markers: [Matrix.marker({
+                                status: r.booked.get(col.key).greaterEqual(1.0).ifElse(
+                                    _$ => variant("danger", null),
+                                    _$ => r.booked.get(col.key).greaterEqual(0.75).ifElse(_$ => variant("warning", null), _$ => variant("success", null)),
+                                ),
+                                message: East.str`${r.booked.get(col.key).multiply(100.0)}% booked`,
+                                at: "tr",
+                            })],
+                        })}
+                        legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">POPOVER</Text>
+                    <Matrix
+                        data={MATRIX_POPOVER_DATA}
+                        columns={[
+                            Matrix.column({ key: "mon", label: "Mon" }),
+                            Matrix.column({ key: "tue", label: "Tue" }),
+                        ]}
+                        rowKey={r => r.name}
+                        rowHeader="Resource"
+                        cell={(r, col) => Matrix.cell({
+                            segments: [
+                                Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                            ],
+                            popover: (
+                                <VStack gap="1">
+                                    <Text fontWeight="semibold">Allocation</Text>
+                                    <Text color="fg.muted">{East.str`${r.booked.get(col.key).multiply(100.0)}% booked`}</Text>
+                                </VStack>
+                            ),
+                        })}
+                        onCellClick={East.function([Matrix.Types.CellClickEvent], NullType, _$ => null)}
+                    />
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],
 });
 
 export const matrixFill = example({
-    keywords: ["Matrix", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the matrix fills a fixed 200px Box and scrolls within it; two hundred rows over two teams overflow the box so only the visible rows (plus overscan) mount, the reserved-gutter scrollbar showing there is more",
+    keywords: ["Matrix", "maxHeight", "height", "bounded", "scroll", "sizing", "#320", "fill", "Box", "virtual"],
+    description: "Matrix sizing panel (#320) — bounded (a bare-number maxHeight ('140', parsed to 140px) caps the whole component; it scrolls within its box instead of growing to content), fill (height=\"fill\": the matrix fills a fixed 200px Box and scrolls within it; two hundred rows over two teams overflow the box so only the visible rows plus overscan mount, the reserved-gutter scrollbar showing there is more)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box height="200px">
-                <Matrix
-                    data={East.Array.range(0n, 200n).map((_$, i) => ({
-                        name: East.str`Res ${i}`,
-                        role: "Engineer",
-                        team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
-                        booked: East.value(new Map([["mon", 0.45], ["tue", 0.7], ["wed", 0.85]]), DictType(StringType, FloatType)),
-                    }))}
-                    columns={[
-                        Matrix.column({ key: "mon", label: "Mon" }),
-                        Matrix.column({ key: "tue", label: "Tue" }),
-                        Matrix.column({ key: "wed", label: "Wed" }),
-                    ]}
-                    rowKey={r => r.name}
-                    rowHeader="Resource"
-                    rowSublabel={r => r.role}
-                    groupBy={r => r.team}
-                    cell={(r, col) => Matrix.cell({ segments: [
-                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                    ] })}
-                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                    height="fill"
-                />
-            </Box>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BOUNDED</Text>
+                    <Matrix
+                        data={MATRIX_BOUNDED_DATA}
+                        columns={[
+                            Matrix.column({ key: "mon", label: "Mon" }),
+                            Matrix.column({ key: "tue", label: "Tue" }),
+                            Matrix.column({ key: "wed", label: "Wed" }),
+                        ]}
+                        rowKey={r => r.name}
+                        rowHeader="Resource"
+                        rowSublabel={r => r.role}
+                        groupBy={r => r.team}
+                        cell={(r, col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                        ] })}
+                        legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                        maxHeight="140"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
+                    <Box height="200px">
+                        <Matrix
+                            data={MATRIX_FILL_DATA}
+                            columns={[
+                                Matrix.column({ key: "mon", label: "Mon" }),
+                                Matrix.column({ key: "tue", label: "Tue" }),
+                                Matrix.column({ key: "wed", label: "Wed" }),
+                            ]}
+                            rowKey={r => r.name}
+                            rowHeader="Resource"
+                            rowSublabel={r => r.role}
+                            groupBy={r => r.team}
+                            cell={(r, col) => Matrix.cell({ segments: [
+                                Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                            ] })}
+                            legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                            height="fill"
+                        />
+                    </Box>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

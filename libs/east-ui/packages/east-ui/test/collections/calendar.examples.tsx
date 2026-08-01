@@ -7,6 +7,71 @@ import { East, StringType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Calendar, Reactive, Text, VStack } from "@elaraai/east-ui";
 
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+const CALENDAR_MINIMAL_DATA = [
+    { week: "W1", day: "Mon", v: 4.0 },
+    { week: "W1", day: "Wed", v: 9.0 },
+    { week: "W1", day: "Fri", v: 2.0 },
+    { week: "W2", day: "Tue", v: 6.0 },
+    { week: "W2", day: "Sat", v: 12.0 },
+];
+const CALENDAR_VALUES_OFF_DATA = [
+    { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
+    { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
+    { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
+    { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
+    { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
+    { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
+];
+const CALENDAR_TOTALS_DATA = [
+    { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
+    { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
+    { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
+    { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
+    { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
+    { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
+];
+const CALENDAR_DENSITY_DATA = [
+    { week: "W1", day: "Mon", v: 4.0 }, { week: "W1", day: "Tue", v: 7.0 },
+    { week: "W1", day: "Wed", v: 9.0 }, { week: "W1", day: "Thu", v: 5.0 },
+    { week: "W2", day: "Mon", v: 6.0 }, { week: "W2", day: "Tue", v: 11.0 },
+    { week: "W2", day: "Wed", v: 3.0 }, { week: "W2", day: "Thu", v: 8.0 },
+];
+const CALENDAR_SCROLL_DATA = [
+    { week: "W31", day: "Mon", demand: 90.0 },
+    { week: "W31", day: "Wed", demand: 108.0 },
+    { week: "W31", day: "Fri", demand: 126.0 },
+    { week: "W32", day: "Mon", demand: 97.0 },
+    { week: "W32", day: "Wed", demand: 115.0 },
+    { week: "W32", day: "Fri", demand: 133.0 },
+    { week: "W33", day: "Mon", demand: 104.0 },
+    { week: "W33", day: "Wed", demand: 122.0 },
+    { week: "W33", day: "Fri", demand: 140.0 },
+    { week: "W34", day: "Mon", demand: 111.0 },
+    { week: "W34", day: "Wed", demand: 129.0 },
+    { week: "W34", day: "Fri", demand: 147.0 },
+    { week: "W35", day: "Mon", demand: 118.0 },
+    { week: "W35", day: "Wed", demand: 136.0 },
+    { week: "W35", day: "Fri", demand: 154.0 },
+    { week: "W36", day: "Mon", demand: 125.0 },
+    { week: "W36", day: "Wed", demand: 143.0 },
+    { week: "W36", day: "Fri", demand: 161.0 },
+    { week: "W37", day: "Mon", demand: 132.0 },
+    { week: "W37", day: "Wed", demand: 150.0 },
+    { week: "W37", day: "Fri", demand: 168.0 },
+    { week: "W38", day: "Mon", demand: 139.0 },
+    { week: "W38", day: "Wed", demand: 157.0 },
+    { week: "W38", day: "Fri", demand: 175.0 },
+];
+const CALENDAR_FILL_DATA = East.Array.range(10n, 210n).map((_$, w) => ({
+    week: East.str`W${w}`,
+    day: "Wed",
+    demand: w.toFloat().multiply(4.0),
+}));
+
 export const calendarDemand = example({
     keywords: ["Calendar", "heatmap", "intensity", "week", "day", "totals", "mean", "footer", "legend", "compare"],
     description: "The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend",
@@ -50,100 +115,6 @@ export const calendarDemand = example({
     inputs: [],
 });
 
-export const calendarMinimal = example({
-    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched"],
-    description: "Minimal sparse heatmap — no chrome; missing days render the hatched neutral fill",
-    fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W1", day: "Mon", v: 4.0 },
-            { week: "W1", day: "Wed", v: 9.0 },
-            { week: "W1", day: "Fri", v: 2.0 },
-            { week: "W2", day: "Tue", v: 6.0 },
-            { week: "W2", day: "Sat", v: 12.0 },
-        ]);
-        return (
-            <Calendar
-                data={days}
-                cell={d => ({ week: d.week, day: d.day, value: d.v })}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const calendarValuesOff = example({
-    keywords: ["Calendar", "values", "heat", "overview", "scale", "steps"],
-    description: "A pure heat read — `values={false}` drops the in-cell numbers and a 6-step `Calendar.scale` coarsens the ramp",
-    fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
-            { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
-            { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
-            { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
-            { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
-            { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
-        ]);
-        return (
-            <Calendar
-                data={days}
-                cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                values={false}
-                scale={Calendar.scale({ steps: 6n })}
-                density="condensed"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const calendarTotals = example({
-    keywords: ["Calendar", "totals", "aggregate", "sum", "mean", "rail", "bar"],
-    description: "The weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table",
-    fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
-            { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
-            { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
-            { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
-            { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
-            { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
-        ]);
-        return (
-            <Calendar
-                data={days}
-                cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
-                aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const calendarDensity = example({
-    keywords: ["Calendar", "density", "comfortable", "compact", "condensed", "sizes"],
-    description: "The three densities stacked — cell + label sizing comfortable → compact → condensed",
-    fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W1", day: "Mon", v: 4.0 }, { week: "W1", day: "Tue", v: 7.0 },
-            { week: "W1", day: "Wed", v: 9.0 }, { week: "W1", day: "Thu", v: 5.0 },
-            { week: "W2", day: "Mon", v: 6.0 }, { week: "W2", day: "Tue", v: 11.0 },
-            { week: "W2", day: "Wed", v: 3.0 }, { week: "W2", day: "Thu", v: 8.0 },
-        ]);
-        const comfortable = $.const(<Calendar data={days} density="comfortable" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
-        const compact = $.const(<Calendar data={days} density="compact" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
-        const condensed = $.const(<Calendar data={days} density="condensed" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
-        return (
-            <VStack gap="6">
-                {comfortable}
-                {compact}
-                {condensed}
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
 export const calendarInteractive = example({
     keywords: ["Calendar", "Reactive", "State", "onSelect", "interactive", "footer"],
     description: "Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta",
@@ -182,65 +153,80 @@ export const calendarInteractive = example({
     inputs: [],
 });
 
-
-export const calendarScroll = example({
-    keywords: ["Calendar", "maxHeight", "bounded", "scroll", "virtual", "week", "sizing", "#320"],
-    description: "Bounded calendar (#320) — maxHeight=\"200px\" caps the component; eight week rows overflow so it clips mid-row and scrolls within",
+export const calendarVariants = example({
+    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes"],
+    description: "Calendar variant panel — minimal (sparse heatmap with no chrome; missing days render the hatched neutral fill), values off (a pure heat read: values={false} drops the in-cell numbers and a 6-step Calendar.scale coarsens the ramp), totals (the weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table), density (the three densities stacked: cell + label sizing comfortable → compact → condensed)",
     fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W31", day: "Mon", demand: 90.0 },
-            { week: "W31", day: "Wed", demand: 108.0 },
-            { week: "W31", day: "Fri", demand: 126.0 },
-            { week: "W32", day: "Mon", demand: 97.0 },
-            { week: "W32", day: "Wed", demand: 115.0 },
-            { week: "W32", day: "Fri", demand: 133.0 },
-            { week: "W33", day: "Mon", demand: 104.0 },
-            { week: "W33", day: "Wed", demand: 122.0 },
-            { week: "W33", day: "Fri", demand: 140.0 },
-            { week: "W34", day: "Mon", demand: 111.0 },
-            { week: "W34", day: "Wed", demand: 129.0 },
-            { week: "W34", day: "Fri", demand: 147.0 },
-            { week: "W35", day: "Mon", demand: 118.0 },
-            { week: "W35", day: "Wed", demand: 136.0 },
-            { week: "W35", day: "Fri", demand: 154.0 },
-            { week: "W36", day: "Mon", demand: 125.0 },
-            { week: "W36", day: "Wed", demand: 143.0 },
-            { week: "W36", day: "Fri", demand: 161.0 },
-            { week: "W37", day: "Mon", demand: 132.0 },
-            { week: "W37", day: "Wed", demand: 150.0 },
-            { week: "W37", day: "Fri", demand: 168.0 },
-            { week: "W38", day: "Mon", demand: 139.0 },
-            { week: "W38", day: "Wed", demand: 157.0 },
-            { week: "W38", day: "Fri", demand: 175.0 },
-        ]);
+        const comfortable = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="comfortable" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
+        const compact = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="compact" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
+        const condensed = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="condensed" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
         return (
-            <Calendar
-                data={days}
-                cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                maxHeight="200px"
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MINIMAL</Text>
+                    <Calendar
+                        data={CALENDAR_MINIMAL_DATA}
+                        cell={d => ({ week: d.week, day: d.day, value: d.v })}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VALUES OFF</Text>
+                    <Calendar
+                        data={CALENDAR_VALUES_OFF_DATA}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand })}
+                        values={false}
+                        scale={Calendar.scale({ steps: 6n })}
+                        density="condensed"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TOTALS</Text>
+                    <Calendar
+                        data={CALENDAR_TOTALS_DATA}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                        totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
+                        aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITY</Text>
+                    <VStack gap="6">
+                        {comfortable}
+                        {compact}
+                        {condensed}
+                    </VStack>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],
 });
 
 export const calendarFill = example({
-    keywords: ["Calendar", "fill", "height", "Box", "bounded", "scroll", "virtual", "week", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the calendar fills a fixed 200px Box and scrolls within it; two hundred week rows overflow the box so only the visible weeks (plus overscan) mount",
-    fn: East.function([], UIComponentType, ($) => {
-        const days = $.const(East.Array.range(10n, 210n).map((_$, w) => ({
-            week: East.str`W${w}`,
-            day: "Wed",
-            demand: w.toFloat().multiply(4.0),
-        })));
+    keywords: ["Calendar", "maxHeight", "bounded", "scroll", "virtual", "week", "sizing", "#320", "fill", "height", "Box"],
+    description: "Calendar sizing panel (#320) — scroll (maxHeight=\"200px\" caps the component; eight week rows overflow so it clips mid-row and scrolls within), fill (height=\"fill\": the calendar fills a fixed 200px Box and scrolls within it; two hundred week rows overflow the box so only the visible weeks plus overscan mount)",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box height="200px">
-                <Calendar
-                    data={days}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                    height="fill"
-                />
-            </Box>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
+                    <Calendar
+                        data={CALENDAR_SCROLL_DATA}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                        maxHeight="200px"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
+                    <Box height="200px">
+                        <Calendar
+                            data={CALENDAR_FILL_DATA}
+                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                            height="fill"
+                        />
+                    </Box>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

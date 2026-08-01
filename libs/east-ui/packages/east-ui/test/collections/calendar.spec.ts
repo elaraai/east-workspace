@@ -4,20 +4,40 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East } from "@elaraai/east";
+import { East, type ExprType } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./calendar.examples.js";
 
 describeEast("Calendar", (test) => {
     Assert.examples(test, {
-        calendarScroll: ex.calendarScroll,
-        calendarFill: ex.calendarFill,
         calendarDemand: ex.calendarDemand,
-        calendarMinimal: ex.calendarMinimal,
-        calendarValuesOff: ex.calendarValuesOff,
-        calendarTotals: ex.calendarTotals,
-        calendarDensity: ex.calendarDensity,
         calendarInteractive: ex.calendarInteractive,
+        calendarVariants: ex.calendarVariants,
+        calendarFill: ex.calendarFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("calendarVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.calendarVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MINIMAL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VALUES OFF"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TOTALS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITY"));
+    });
+
+    test("calendarFill panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.calendarFill.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCROLL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("resolves cells with default formatting, values on, and no chrome", $ => {

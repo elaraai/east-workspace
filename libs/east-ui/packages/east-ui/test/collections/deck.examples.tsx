@@ -51,49 +51,6 @@ export const deckBasic = example({
     inputs: [],
 });
 
-export const deckGroupBy = example({
-    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "swatch"],
-    description: "Named GROUP BY options — grouping by the status accessor decorates group heads with the registry's swatch and hint; filtering flows through the slice interface, not a bespoke search",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Deck
-            data={LINES}
-            statuses={LINE_STATUSES}
-            card={r => ({
-                key: r.id,
-                title: r.name,
-                sublabel: r.team,
-                status: r.state,
-                fill: { value: r.load.multiply(100.0), max: 100.0 },
-            })}
-            groupBy={[
-                { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
-                { key: "team", label: "Team", value: r => r.team },
-            ]}
-        />
-    )),
-    inputs: [],
-});
-
-export const deckListLayout = example({
-    keywords: ["Deck", "layout", "list", "rows", "metric"],
-    description: "The list layout — full-width card rows instead of the wrapping grid",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Deck
-            data={LINES}
-            statuses={LINE_STATUSES}
-            card={r => ({
-                key: r.id,
-                title: r.name,
-                sublabel: r.team,
-                status: r.state,
-                metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
-            })}
-            layout="list"
-        />
-    )),
-    inputs: [],
-});
-
 export const deckCustomFace = example({
     keywords: ["Deck", "render", "custom", "face", "compose"],
     description: "A fully custom card body via `render` — any UI composition beneath the structured face",
@@ -254,6 +211,49 @@ export const deckClickable = example({
                 </VStack>
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const deckVariants = example({
+    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "swatch", "layout", "list", "rows", "metric"],
+    description: "Deck variant panel — group by (named GROUP BY options: grouping by the status accessor decorates group heads with the registry's swatch and hint; filtering flows through the slice interface, not a bespoke search), list layout (full-width card rows instead of the wrapping grid)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <VStack gap="4" align="stretch">
+            <VStack gap="1" align="stretch">
+                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP BY</Text>
+                <Deck
+                    data={LINES}
+                    statuses={LINE_STATUSES}
+                    card={r => ({
+                        key: r.id,
+                        title: r.name,
+                        sublabel: r.team,
+                        status: r.state,
+                        fill: { value: r.load.multiply(100.0), max: 100.0 },
+                    })}
+                    groupBy={[
+                        { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
+                        { key: "team", label: "Team", value: r => r.team },
+                    ]}
+                />
+            </VStack>
+            <VStack gap="1" align="stretch">
+                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST LAYOUT</Text>
+                <Deck
+                    data={LINES}
+                    statuses={LINE_STATUSES}
+                    card={r => ({
+                        key: r.id,
+                        title: r.name,
+                        sublabel: r.team,
+                        status: r.state,
+                        metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
+                    })}
+                    layout="list"
+                />
+            </VStack>
+        </VStack>
     )),
     inputs: [],
 });

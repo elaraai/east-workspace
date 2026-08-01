@@ -4,20 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, OptionType, StringType, some } from "@elaraai/east";
+import { East, OptionType, StringType, some, type ExprType } from "@elaraai/east";
 import { DataList, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./data-list.examples.js";
 
 describeEast("DataList", (test) => {
     Assert.examples(test, {
         dataListBasic: ex.dataListBasic,
-        dataListHorizontal: ex.dataListHorizontal,
-        dataListBold: ex.dataListBold,
-        dataListSmall: ex.dataListSmall,
-        dataListLarge: ex.dataListLarge,
-        dataListProfile: ex.dataListProfile,
         dataListRichValues: ex.dataListRichValues,
-        dataListColourOverrides: ex.dataListColourOverrides,
+        dataListVariants: ex.dataListVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("dataListVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.dataListVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST HORIZONTAL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST BOLD"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST SMALL"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST LARGE"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST PROFILE"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST COLOUR OVERRIDES"));
     });
 
     // =========================================================================

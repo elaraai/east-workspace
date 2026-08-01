@@ -7,6 +7,109 @@ import { BooleanType, East, IntegerType, NullType, StringType, example, variant 
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Board, Box, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
 
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+// Shared assignment-state values for the hoisted fixtures.
+const COMMITTED = variant("committed", null);
+const ADDED = variant("proposed", variant("added", null));
+
+const BOARD_PUBLISHED_AREAS_DATA = [
+    { id: "icu", name: "ICU" },
+    { id: "surgical", name: "Surgical" },
+];
+const BOARD_PUBLISHED_SHIFTS_DATA = [
+    { id: "am", name: "AM" },
+    { id: "pm", name: "PM" },
+];
+const BOARD_PUBLISHED_PEOPLE_DATA = [
+    { id: "patel", name: "Patel, R." },
+    { id: "cho", name: "Cho, J." },
+];
+const BOARD_PUBLISHED_DATA = [
+    { id: "x1", person: "patel", area: "icu", shift: "am", state: COMMITTED },
+    { id: "x2", person: "cho", area: "icu", shift: "pm", state: COMMITTED },
+    { id: "x3", person: "cho", area: "surgical", shift: "am", state: ADDED },
+];
+const BOARD_COVERAGE_AREAS_DATA = [
+    { id: "emergency", name: "Emergency" },
+    { id: "icu", name: "ICU" },
+];
+const BOARD_COVERAGE_SHIFTS_DATA = [
+    { id: "am", name: "AM", window: "06:00–14:00" },
+    { id: "pm", name: "PM", window: "14:00–22:00" },
+];
+const BOARD_COVERAGE_PEOPLE_DATA = [
+    { id: "patel", name: "Patel, R." },
+    { id: "cho", name: "Cho, J." },
+    { id: "rivera", name: "Rivera, M." },
+    { id: "okafor", name: "Okafor, S." },
+];
+const BOARD_COVERAGE_DATA = [
+    // Emergency AM — exact (2/2).
+    { id: "x1", person: "patel", area: "emergency", shift: "am", state: COMMITTED },
+    { id: "x2", person: "cho", area: "emergency", shift: "am", state: COMMITTED },
+    // Emergency PM — understaffed (1/3, two open slots).
+    { id: "x3", person: "rivera", area: "emergency", shift: "pm", state: COMMITTED },
+    // ICU AM — overstaffed (3/2).
+    { id: "x4", person: "okafor", area: "icu", shift: "am", state: COMMITTED },
+    { id: "x5", person: "rivera", area: "icu", shift: "am", state: COMMITTED },
+    { id: "x6", person: "cho", area: "icu", shift: "am", state: ADDED },
+];
+const BOARD_COVERAGE_REQUIREMENTS_DATA = [
+    { area: "emergency", shift: "am", count: 2n },
+    { area: "emergency", shift: "pm", count: 3n },
+    { area: "icu", shift: "am", count: 2n },
+    { area: "icu", shift: "pm", count: 1n },
+];
+const BOARD_OVERFLOW_DATA = [
+    { id: "x1", person: "patel", area: "maternity", shift: "am", state: COMMITTED },
+    { id: "x2", person: "cho", area: "maternity", shift: "am", state: COMMITTED },
+    { id: "x3", person: "rivera", area: "maternity", shift: "am", state: COMMITTED },
+    { id: "x4", person: "okafor", area: "maternity", shift: "am", state: COMMITTED },
+    { id: "x5", person: "kim", area: "maternity", shift: "am", state: ADDED },
+    { id: "x6", person: "patel", area: "maternity", shift: "pm", state: COMMITTED },
+];
+const BOARD_SCROLL_AREAS_DATA = [
+    { id: "emergency", name: "Emergency" }, { id: "icu", name: "ICU" },
+    { id: "warda", name: "Ward A" }, { id: "wardb", name: "Ward B" },
+    { id: "theatre", name: "Theatre" }, { id: "recovery", name: "Recovery" },
+    { id: "triage", name: "Triage" }, { id: "pharmacy", name: "Pharmacy" },
+];
+const BOARD_SCROLL_SHIFTS_DATA = [
+    { id: "am", name: "AM" }, { id: "pm", name: "PM" },
+];
+const BOARD_SCROLL_PEOPLE_DATA = [
+    { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
+    { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
+];
+const BOARD_SCROLL_DATA = [
+    { id: "a1", person: "patel", area: "emergency", shift: "am", state: COMMITTED },
+    { id: "a2", person: "cho", area: "icu", shift: "am", state: COMMITTED },
+    { id: "a3", person: "rivera", area: "warda", shift: "pm", state: COMMITTED },
+    { id: "a4", person: "okafor", area: "theatre", shift: "am", state: COMMITTED },
+    { id: "a5", person: "patel", area: "triage", shift: "pm", state: COMMITTED },
+];
+const BOARD_FILL_AREAS_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+    id: East.str`area${i}`,
+    name: East.str`Area ${i}`,
+}));
+const BOARD_FILL_SHIFTS_DATA = [
+    { id: "am", name: "AM" }, { id: "pm", name: "PM" },
+];
+const BOARD_FILL_PEOPLE_DATA = [
+    { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
+    { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
+];
+const BOARD_FILL_DATA = [
+    { id: "a1", person: "patel", area: "area0", shift: "am", state: COMMITTED },
+    { id: "a2", person: "cho", area: "area1", shift: "am", state: COMMITTED },
+    { id: "a3", person: "rivera", area: "area2", shift: "pm", state: COMMITTED },
+    { id: "a4", person: "okafor", area: "area15", shift: "am", state: COMMITTED },
+    { id: "a5", person: "patel", area: "area199", shift: "pm", state: COMMITTED },
+];
+
 export const boardEdit = example({
     keywords: ["Board", "assignment", "edit", "areas", "shifts", "ghost", "added", "removed", "summary"],
     description: "Edit-mode day board — committed, added, removed, and model-ghost assignments across areas × shifts",
@@ -58,141 +161,6 @@ export const boardEdit = example({
                 assignments={assignments}
                 assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
                 summary="3 proposed · 1 model-ghost"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const boardPublished = example({
-    keywords: ["Board", "assignment", "published", "committed", "read-only"],
-    description: "Published day board — committed assignments only, no grips, pointer-immutable",
-    fn: East.function([], UIComponentType, ($) => {
-        const areas = $.const([
-            { id: "icu", name: "ICU" },
-            { id: "surgical", name: "Surgical" },
-        ]);
-        const shifts = $.const([
-            { id: "am", name: "AM" },
-            { id: "pm", name: "PM" },
-        ]);
-        const people = $.const([
-            { id: "patel", name: "Patel, R." },
-            { id: "cho", name: "Cho, J." },
-        ]);
-        const committed = variant("committed", null);
-        const assignments = $.const([
-            { id: "x1", person: "patel", area: "icu", shift: "am", state: committed },
-            { id: "x2", person: "cho", area: "icu", shift: "pm", state: committed },
-            { id: "x3", person: "cho", area: "surgical", shift: "am", state: variant("proposed", variant("added", null)) },
-        ]);
-        return (
-            <Board
-                id="board-published"
-                areas={areas}
-                area={a => ({ key: a.id, label: a.name })}
-                shifts={shifts}
-                shift={s => ({ key: s.id, label: s.name })}
-                people={people}
-                person={p => ({ key: p.id, label: p.name })}
-                assignments={assignments}
-                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                summary="published · Tue 2 Jul"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const boardCoverage = example({
-    keywords: ["Board", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed"],
-    description: "Coverage day board — requirements render n/required numerals, open-slot placeholders, and under/over tones",
-    fn: East.function([], UIComponentType, ($) => {
-        const areas = $.const([
-            { id: "emergency", name: "Emergency" },
-            { id: "icu", name: "ICU" },
-        ]);
-        const shifts = $.const([
-            { id: "am", name: "AM", window: "06:00–14:00" },
-            { id: "pm", name: "PM", window: "14:00–22:00" },
-        ]);
-        const people = $.const([
-            { id: "patel", name: "Patel, R." },
-            { id: "cho", name: "Cho, J." },
-            { id: "rivera", name: "Rivera, M." },
-            { id: "okafor", name: "Okafor, S." },
-        ]);
-        const committed = variant("committed", null);
-        const assignments = $.const([
-            // Emergency AM — exact (2/2).
-            { id: "x1", person: "patel", area: "emergency", shift: "am", state: committed },
-            { id: "x2", person: "cho", area: "emergency", shift: "am", state: committed },
-            // Emergency PM — understaffed (1/3, two open slots).
-            { id: "x3", person: "rivera", area: "emergency", shift: "pm", state: committed },
-            // ICU AM — overstaffed (3/2).
-            { id: "x4", person: "okafor", area: "icu", shift: "am", state: committed },
-            { id: "x5", person: "rivera", area: "icu", shift: "am", state: committed },
-            { id: "x6", person: "cho", area: "icu", shift: "am", state: variant("proposed", variant("added", null)) },
-        ]);
-        const requirements = $.const([
-            { area: "emergency", shift: "am", count: 2n },
-            { area: "emergency", shift: "pm", count: 3n },
-            { area: "icu", shift: "am", count: 2n },
-            { area: "icu", shift: "pm", count: 1n },
-        ]);
-        return (
-            <Board
-                id="board-coverage"
-                mode="edit"
-                areas={areas}
-                area={a => ({ key: a.id, label: a.name })}
-                shifts={shifts}
-                shift={s => ({ key: s.id, label: s.name, sublabel: s.window })}
-                people={people}
-                person={p => ({ key: p.id, label: p.name })}
-                assignments={assignments}
-                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                requirements={requirements}
-                requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}
-                summary="3 open · 1 over"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const boardOverflow = example({
-    keywords: ["Board", "maxVisible", "overflow", "popover", "multiple", "people"],
-    description: "Overflow day board — a cell past maxVisible collapses behind a +N chip",
-    fn: East.function([], UIComponentType, ($) => {
-        const committed = variant("committed", null);
-        const assignments = $.const([
-            { id: "x1", person: "patel", area: "maternity", shift: "am", state: committed },
-            { id: "x2", person: "cho", area: "maternity", shift: "am", state: committed },
-            { id: "x3", person: "rivera", area: "maternity", shift: "am", state: committed },
-            { id: "x4", person: "okafor", area: "maternity", shift: "am", state: committed },
-            { id: "x5", person: "kim", area: "maternity", shift: "am", state: variant("proposed", variant("added", null)) },
-            { id: "x6", person: "patel", area: "maternity", shift: "pm", state: committed },
-        ]);
-        return (
-            <Board
-                id="board-overflow"
-                mode="edit"
-                areas={[{ id: "maternity", name: "Maternity" }]}
-                area={a => ({ key: a.id, label: a.name })}
-                shifts={[{ id: "am", name: "AM" }, { id: "pm", name: "PM" }]}
-                shift={s => ({ key: s.id, label: s.name })}
-                people={[
-                    { id: "patel", name: "Patel, R." },
-                    { id: "cho", name: "Cho, J." },
-                    { id: "rivera", name: "Rivera, M." },
-                    { id: "okafor", name: "Okafor, S." },
-                    { id: "kim", name: "Kim, A." },
-                ]}
-                person={p => ({ key: p.id, label: p.name })}
-                assignments={assignments}
-                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                maxVisible={3}
             />
         );
     }),
@@ -347,88 +315,112 @@ export const boardLibraryDnd = example({
     inputs: [],
 });
 
-
-export const boardScroll = example({
-    keywords: ["Board", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320"],
-    description: "Bounded board (#320) — maxHeight=\"180px\" caps the component; eight areas overflow so it clips mid-row and scrolls within",
-    fn: East.function([], UIComponentType, ($) => {
-        const areas = $.const([
-            { id: "emergency", name: "Emergency" }, { id: "icu", name: "ICU" },
-            { id: "warda", name: "Ward A" }, { id: "wardb", name: "Ward B" },
-            { id: "theatre", name: "Theatre" }, { id: "recovery", name: "Recovery" },
-            { id: "triage", name: "Triage" }, { id: "pharmacy", name: "Pharmacy" },
-        ]);
-        const shifts = $.const([
-            { id: "am", name: "AM" }, { id: "pm", name: "PM" },
-        ]);
-        const people = $.const([
-            { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
-            { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
-        ]);
-        const committed = variant("committed", null);
-        const assignments = $.const([
-            { id: "a1", person: "patel", area: "emergency", shift: "am", state: committed },
-            { id: "a2", person: "cho", area: "icu", shift: "am", state: committed },
-            { id: "a3", person: "rivera", area: "warda", shift: "pm", state: committed },
-            { id: "a4", person: "okafor", area: "theatre", shift: "am", state: committed },
-            { id: "a5", person: "patel", area: "triage", shift: "pm", state: committed },
-        ]);
+export const boardModes = example({
+    keywords: ["Board", "assignment", "published", "committed", "read-only", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed", "maxVisible", "overflow", "popover", "multiple", "people"],
+    description: "Board mode panel — published (day board with committed assignments only, no grips, pointer-immutable), coverage (requirements render n/required numerals, open-slot placeholders, and under/over tones), overflow (a cell past maxVisible collapses behind a +N chip)",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Board
-                id="board-scroll"
-                areas={areas}
-                area={a => ({ key: a.id, label: a.name })}
-                shifts={shifts}
-                shift={s => ({ key: s.id, label: s.name })}
-                people={people}
-                person={p => ({ key: p.id, label: p.name })}
-                assignments={assignments}
-                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                maxHeight="180px"
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PUBLISHED</Text>
+                    <Board
+                        id="board-published"
+                        areas={BOARD_PUBLISHED_AREAS_DATA}
+                        area={a => ({ key: a.id, label: a.name })}
+                        shifts={BOARD_PUBLISHED_SHIFTS_DATA}
+                        shift={s => ({ key: s.id, label: s.name })}
+                        people={BOARD_PUBLISHED_PEOPLE_DATA}
+                        person={p => ({ key: p.id, label: p.name })}
+                        assignments={BOARD_PUBLISHED_DATA}
+                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                        summary="published · Tue 2 Jul"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COVERAGE</Text>
+                    <Board
+                        id="board-coverage"
+                        mode="edit"
+                        areas={BOARD_COVERAGE_AREAS_DATA}
+                        area={a => ({ key: a.id, label: a.name })}
+                        shifts={BOARD_COVERAGE_SHIFTS_DATA}
+                        shift={s => ({ key: s.id, label: s.name, sublabel: s.window })}
+                        people={BOARD_COVERAGE_PEOPLE_DATA}
+                        person={p => ({ key: p.id, label: p.name })}
+                        assignments={BOARD_COVERAGE_DATA}
+                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                        requirements={BOARD_COVERAGE_REQUIREMENTS_DATA}
+                        requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}
+                        summary="3 open · 1 over"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OVERFLOW</Text>
+                    <Board
+                        id="board-overflow"
+                        mode="edit"
+                        areas={[{ id: "maternity", name: "Maternity" }]}
+                        area={a => ({ key: a.id, label: a.name })}
+                        shifts={[{ id: "am", name: "AM" }, { id: "pm", name: "PM" }]}
+                        shift={s => ({ key: s.id, label: s.name })}
+                        people={[
+                            { id: "patel", name: "Patel, R." },
+                            { id: "cho", name: "Cho, J." },
+                            { id: "rivera", name: "Rivera, M." },
+                            { id: "okafor", name: "Okafor, S." },
+                            { id: "kim", name: "Kim, A." },
+                        ]}
+                        person={p => ({ key: p.id, label: p.name })}
+                        assignments={BOARD_OVERFLOW_DATA}
+                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                        maxVisible={3}
+                    />
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],
 });
 
 export const boardFill = example({
-    keywords: ["Board", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the board fills a fixed 180px Box and scrolls within it; two hundred areas overflow the box so only the visible area rows (plus overscan) mount",
-    fn: East.function([], UIComponentType, ($) => {
-        const areas = $.const(East.Array.range(0n, 200n).map((_$, i) => ({
-            id: East.str`area${i}`,
-            name: East.str`Area ${i}`,
-        })));
-        const shifts = $.const([
-            { id: "am", name: "AM" }, { id: "pm", name: "PM" },
-        ]);
-        const people = $.const([
-            { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
-            { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
-        ]);
-        const committed = variant("committed", null);
-        const assignments = $.const([
-            { id: "a1", person: "patel", area: "area0", shift: "am", state: committed },
-            { id: "a2", person: "cho", area: "area1", shift: "am", state: committed },
-            { id: "a3", person: "rivera", area: "area2", shift: "pm", state: committed },
-            { id: "a4", person: "okafor", area: "area15", shift: "am", state: committed },
-            { id: "a5", person: "patel", area: "area199", shift: "pm", state: committed },
-        ]);
+    keywords: ["Board", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320", "fill", "height", "Box"],
+    description: "Board sizing panel (#320) — scroll (maxHeight=\"180px\" caps the component; eight areas overflow so it clips mid-row and scrolls within), fill (height=\"fill\": the board fills a fixed 180px Box and scrolls within it; two hundred areas overflow the box so only the visible area rows plus overscan mount)",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box height="180px">
-                <Board
-                    id="board-fill"
-                    areas={areas}
-                    area={a => ({ key: a.id, label: a.name })}
-                    shifts={shifts}
-                    shift={s => ({ key: s.id, label: s.name })}
-                    people={people}
-                    person={p => ({ key: p.id, label: p.name })}
-                    assignments={assignments}
-                    assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                    height="fill"
-                />
-            </Box>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
+                    <Board
+                        id="board-scroll"
+                        areas={BOARD_SCROLL_AREAS_DATA}
+                        area={a => ({ key: a.id, label: a.name })}
+                        shifts={BOARD_SCROLL_SHIFTS_DATA}
+                        shift={s => ({ key: s.id, label: s.name })}
+                        people={BOARD_SCROLL_PEOPLE_DATA}
+                        person={p => ({ key: p.id, label: p.name })}
+                        assignments={BOARD_SCROLL_DATA}
+                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                        maxHeight="180px"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
+                    <Box height="180px">
+                        <Board
+                            id="board-fill"
+                            areas={BOARD_FILL_AREAS_DATA}
+                            area={a => ({ key: a.id, label: a.name })}
+                            shifts={BOARD_FILL_SHIFTS_DATA}
+                            shift={s => ({ key: s.id, label: s.name })}
+                            people={BOARD_FILL_PEOPLE_DATA}
+                            person={p => ({ key: p.id, label: p.name })}
+                            assignments={BOARD_FILL_DATA}
+                            assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                            height="fill"
+                        />
+                    </Box>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

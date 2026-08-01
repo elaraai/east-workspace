@@ -4,21 +4,41 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, IntegerType, NullType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, StringType, StructType, none, some, variant, type ExprType } from "@elaraai/east";
 import { Board, CellRefType, DragEventType } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./board.examples.js";
 
 describeEast("Board", (test) => {
     Assert.examples(test, {
-        boardScroll: ex.boardScroll,
-        boardFill: ex.boardFill,
         boardEdit: ex.boardEdit,
-        boardPublished: ex.boardPublished,
-        boardCoverage: ex.boardCoverage,
-        boardOverflow: ex.boardOverflow,
         boardInteractive: ex.boardInteractive,
         boardReviewFoot: ex.boardReviewFoot,
         boardLibraryDnd: ex.boardLibraryDnd,
+        boardModes: ex.boardModes,
+        boardFill: ex.boardFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("boardModes panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.boardModes.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PUBLISHED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COVERAGE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OVERFLOW"));
+    });
+
+    test("boardFill panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.boardFill.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCROLL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("creates a board with target declaration and bare defaults", $ => {

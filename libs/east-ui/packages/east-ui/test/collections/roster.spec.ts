@@ -4,20 +4,40 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, NullType, OptionType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, OptionType, none, some, variant, type ExprType } from "@elaraai/east";
 import { DragEventType, Roster, Status } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster", (test) => {
     Assert.examples(test, {
-        rosterScroll: ex.rosterScroll,
-        rosterFill: ex.rosterFill,
-        rosterEdit: ex.rosterEdit,
-        rosterPublished: ex.rosterPublished,
+        rosterModes: ex.rosterModes,
         rosterInteractive: ex.rosterInteractive,
         rosterCanDrop: ex.rosterCanDrop,
         rosterReview: ex.rosterReview,
         rosterLibraryDnd: ex.rosterLibraryDnd,
+        rosterFill: ex.rosterFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("rosterModes panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.rosterModes.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "EDIT"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PUBLISHED"));
+    });
+
+    test("rosterFill panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.rosterFill.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCROLL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("creates a roster with target declaration and default week", $ => {
