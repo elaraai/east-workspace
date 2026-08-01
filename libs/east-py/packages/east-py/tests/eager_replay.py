@@ -102,21 +102,58 @@ def quote_value(value: Any, typ: EastVariant):
     if tag in ("Null", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
         return ir_value(typ, None if tag == "Null" else value)
     if tag == "Array":
-        return ir_new_array(typ, [quote_value(v, typ.value) for v in value])
+        return ir_new_array(typ, [quote_value(v, child_type(typ)) for v in value])
     if tag == "Set":
-        return ir_new_set(typ, [quote_value(v, typ.value) for v in value])
+        return ir_new_set(typ, [quote_value(v, child_type(typ)) for v in value])
     if tag == "Dict":
-        kv = typ.value
         return ir_new_dict(
-            typ, [(quote_value(k, kv["key"]), quote_value(v, kv["value"]))
+            typ, [(quote_value(k, dict_child(typ, "key")),
+                   quote_value(v, dict_child(typ, "value")))
                   for k, v in value.items()])
     if tag == "Struct":
-        return ir_struct(typ, [(f["name"], quote_value(value[f["name"]], f["type"]))
-                               for f in typ.value])
+        from east._eastc_bridge import resolve_child_type
+
+        return ir_struct(typ, [
+            (f["name"], quote_value(value[f["name"]],
+                                    resolve_child_type(typ, (("field", f["name"]),))))
+            for f in typ.value])
     if tag == "Variant":
-        case_t = next(c["type"] for c in typ.value if c["name"] == value.type)
-        return ir_variant(typ, value.type, quote_value(value.value, case_t))
+        from east._eastc_bridge import resolve_child_type
+
+        return ir_variant(typ, value.type, quote_value(
+            value.value, resolve_child_type(typ, (("case", value.type),))))
     raise _Unsupported(f"cannot quote a captured {tag} value")
+
+
+
+# ─── child-type extraction (canonical, via the bridge) ──────────────────────
+
+def child_type(t: EastVariant) -> EastVariant:
+    """The element/inner type, self-contained: resolved through the bridge's
+    C round-trip so Recursive markers rebind at arbitrary depth — never a
+    naive ``t.value`` extraction, which leaves escaping markers dangling."""
+    from east._eastc_bridge import resolve_child_type
+
+    return resolve_child_type(t, ("element",))
+
+
+def dict_child(t: EastVariant, part: str) -> EastVariant:
+    from east._eastc_bridge import resolve_child_type
+
+    return resolve_child_type(t, (part,))
+
+
+def _mentions_function(t: EastVariant) -> bool:
+    tag = t.type
+    if tag in ("Function", "AsyncFunction"):
+        return True
+    if tag in ("Array", "Set", "Ref", "Vector", "Matrix"):
+        return _mentions_function(t.value)
+    if tag == "Dict":
+        return _mentions_function(t.value["key"]) or _mentions_function(t.value["value"])
+    if tag in ("Struct", "Variant"):
+        return any(_mentions_function(f["type"]) for f in t.value)
+    return False
 
 
 # ─── control-flow signals ────────────────────────────────────────────────────
@@ -255,6 +292,20 @@ class EagerEvaluator:
         self.mode = mode
         self.report = report if report is not None else Report()
         self.test_depth = 0
+        self._canon_memo: dict[int, Any] = {}
+
+    def canon(self, t: Any) -> Any:
+        """Node types may carry the TS id-dialect Recursive form; the pure-
+        python machinery (ordering, construction, tracing) speaks the depth
+        dialect — normalize through the bridge, memoized per type object."""
+        hit = self._canon_memo.get(id(t))
+        if hit is not None:
+            return hit[0]
+        from east._eastc_bridge import canonicalize_type
+
+        got = canonicalize_type(t)
+        self._canon_memo[id(t)] = (got, t)  # keep t alive for id() stability
+        return got
 
     # ── program entry ──
 
@@ -333,20 +384,27 @@ class EagerEvaluator:
         if kind == "Variant":
             return EastVariant(p["case"], self.eval(p["value"], env))
         if kind == "NewArray":
-            # coerce_to is the type-DRIVEN constructor: it derives child types
-            # itself, so Recursive markers inside the node type stay bound
-            # (naive `.value` extraction breaks their depth binding)
+            # coerce_to is the type-DRIVEN constructor (it derives child types
+            # itself, so Recursive markers stay bound); function-bearing
+            # element types construct directly — coercion rightly refuses to
+            # conjure function values, but Closures serialize via _east_ir
+            t = self.canon(p["type"])
+            vals = [self.eval(v, env) for v in p["values"]]
+            if _mentions_function(t):
+                return EastArray(child_type(t), vals)
             from east.types.coercion import coerce_to
 
-            return coerce_to([self.eval(v, env) for v in p["values"]], p["type"])
+            return coerce_to(vals, t)
         if kind == "NewSet":
+            t = self.canon(p["type"])
+            vals = [self.eval(v, env) for v in p["values"]]
+            if _mentions_function(t):
+                return EastSet(child_type(t), vals)
             from east.types.coercion import coerce_to
 
-            return coerce_to({*()}, p["type"]) if not len(p["values"]) else coerce_to(
-                [self.eval(v, env) for v in p["values"]], p["type"])
+            return coerce_to(vals, t)
         if kind == "NewDict":
-            kv = p["type"].value
-            d = EastDict(kv["key"], kv["value"])
+            d = EastDict(dict_child(self.canon(p["type"]), "key"), dict_child(self.canon(p["type"]), "value"))
             for entry in p["values"]:
                 d[self.eval(entry["key"], env)] = self.eval(entry["value"], env)
             return d
@@ -355,7 +413,7 @@ class EagerEvaluator:
         if kind == "NewVector":
             from east.types.values import EastVector
 
-            return EastVector(p["type"].value, [self.eval(v, env) for v in p["values"]])
+            return EastVector(child_type(self.canon(p["type"])), [self.eval(v, env) for v in p["values"]])
         if kind == "NewMatrix":
             import numpy as np
 
@@ -363,7 +421,7 @@ class EagerEvaluator:
 
             vals = [self.eval(v, env) for v in p["values"]]
             rows, cols = p["rows"], p["cols"]
-            return EastMatrix(p["type"].value,
+            return EastMatrix(child_type(self.canon(p["type"])),
                               np.array(vals).reshape(rows, cols), rows, cols)
         if kind in ("WrapRecursive", "UnwrapRecursive"):
             return self.eval(p["value"], env)
@@ -570,7 +628,7 @@ class EagerEvaluator:
         """Replay the callback body over KernelExpr proxies through the traced
         surface; None (counted) when a node has no traced expression form."""
         p = clo.payload
-        param_types = [v.value["type"] for v in p["parameters"]]
+        param_types = [self.canon(v.value["type"]) for v in p["parameters"]]
         try:
             ir_value_, _out = trace(self._replay_fn(clo), param_types)
         except (KernelTraceError, _Unsupported) as e:
@@ -583,8 +641,8 @@ class EagerEvaluator:
     def _builtin(self, node: EastVariant, env: Env) -> Any:
         p = node.value
         name = p["builtin"]
-        out_t = p["type"]
-        tps = list(p["type_parameters"])
+        out_t = self.canon(p["type"])
+        tps = [self.canon(t) for t in p["type_parameters"]]
         raw_args = list(p["arguments"])
         args = [self.eval(a, env) for a in raw_args]
 
@@ -618,10 +676,12 @@ class EagerEvaluator:
         for a in args:
             if isinstance(a, Closure):
                 pp = a.payload
+                from east._eastc_bridge import resolve_child_type
+
                 conv.append(EastFunction(
                     self.make_callback(a),
-                    [v.value["type"] for v in pp["parameters"]],
-                    pp["type"].value["output"],
+                    [self.canon(v.value["type"]) for v in pp["parameters"]],
+                    resolve_child_type(pp["type"], ("output",)),
                 ))
             else:
                 conv.append(a)
@@ -655,36 +715,47 @@ def _cb(ev: EagerEvaluator, a: Any) -> Any:
 
 
 def _out(node: EastVariant) -> EastVariant:
-    return node.value["type"]
+    # rows receive the evaluator; the canonical form is what the eager
+    # methods' out= guards and constructors expect
+    from east._eastc_bridge import canonicalize_type
+
+    return canonicalize_type(node.value["type"])
+
+
+def _opt_inner(t: EastVariant) -> EastVariant:
+    """The `some` payload of an Option type, self-contained."""
+    from east._eastc_bridge import resolve_child_type
+
+    return resolve_child_type(t, (("case", "some"),))
 
 
 _ROWS: dict[str, Any] = {
     # comparisons — user spelling is the ordering-function surface
-    "Equal": lambda ev, n, a: equal_for(n.value["type_parameters"][0])(a[0], a[1])
+    "Equal": lambda ev, n, a: equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
     else a[0] == a[1],
-    "NotEqual": lambda ev, n, a: not_equal_for(n.value["type_parameters"][0])(a[0], a[1])
+    "NotEqual": lambda ev, n, a: not_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
     else a[0] != a[1],
-    "Less": lambda ev, n, a: less_for(n.value["type_parameters"][0])(a[0], a[1])
+    "Less": lambda ev, n, a: less_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
     else a[0] < a[1],
-    "LessEqual": lambda ev, n, a: less_equal_for(n.value["type_parameters"][0])(a[0], a[1])
+    "LessEqual": lambda ev, n, a: less_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
     else a[0] <= a[1],
-    "Greater": lambda ev, n, a: greater_for(n.value["type_parameters"][0])(a[0], a[1])
+    "Greater": lambda ev, n, a: greater_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
     else a[0] > a[1],
-    "GreaterEqual": lambda ev, n, a: greater_equal_for(n.value["type_parameters"][0])(a[0], a[1])
+    "GreaterEqual": lambda ev, n, a: greater_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
     else a[0] >= a[1],
     # Array
-    "ArrayMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=_out(n).value)
+    "ArrayMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
     "ArrayFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
-    "ArrayFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=_out(n).value)
+    "ArrayFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].filter_map(_cb(ev, a[1])),
-    "ArrayFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_out(n).value[1]["type"])
+    "ArrayFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
     "ArrayFold": lambda ev, n, a: a[0].fold(a[1], _cb(ev, a[2])),
     "ArrayMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]))
@@ -708,9 +779,9 @@ _ROWS: dict[str, Any] = {
     "ArrayGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]))
     if not isinstance(a[0], KernelExpr) else _unsup("traced group_reduce"),
-    "ArrayFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=_out(n).value)
+    "ArrayFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
-    "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=_out(n).value)
+    "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].flatten_to_set(_cb(ev, a[1])),
     "ArrayFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     "ArrayStringJoin": lambda ev, n, a: a[0].string_join(a[1]),
@@ -722,7 +793,7 @@ _ROWS: dict[str, Any] = {
     "ArrayReverseInPlace": lambda ev, n, a: (a[0].reverse(), east_null)[1],
     "ArraySortInPlace": lambda ev, n, a: (a[0].sort(), east_null)[1]
     if len(a) == 1 else (a[0].sort(key=_cb(ev, a[1])), east_null)[1],
-    "ArrayGenerate": lambda ev, n, a: EastArray.generate(a[0], _cb(ev, a[1]), element_type=n.value["type_parameters"][0]),
+    "ArrayGenerate": lambda ev, n, a: EastArray.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
     "ArrayRange": lambda ev, n, a: EastArray.range(a[0], a[1], a[2]),
     "ArrayLinspace": lambda ev, n, a: EastArray.linspace(a[0], a[1], a[2]),
     "ArrayForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
@@ -746,25 +817,25 @@ _ROWS: dict[str, Any] = {
     "SetCopy": lambda ev, n, a: a[0].copy(),
     "SetUnionInPlace": lambda ev, n, a: a[0].union_in_place(a[1]),
     "SetToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
-    "SetToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1]), out=_out(n).value)
+    "SetToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else _unsup("traced SetToSet spelling"),
     "SetToDict": lambda ev, n, a: a[0].to_dict(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
-    "SetMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=_out(n).value["value"])
+    "SetMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
     if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
     "SetFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
-    "SetFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=_out(n).value["value"])
+    "SetFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
     if not isinstance(a[0], KernelExpr) else a[0].filter_map(_cb(ev, a[1])),
-    "SetFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_out(n).value[1]["type"])
+    "SetFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
     "SetMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
     "SetReduce": lambda ev, n, a: a[0].reduce(a[2], _cb(ev, a[1])),
     "SetGroupFold": lambda ev, n, a: a[0].group_fold(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
-    "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=_out(n).value)
+    "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
-    "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=_out(n).value)
+    "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].flatten_to_set(_cb(ev, a[1])),
     "SetFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
-    "SetGenerate": lambda ev, n, a: EastSet.generate(a[0], _cb(ev, a[1]), element_type=n.value["type_parameters"][0]),
+    "SetGenerate": lambda ev, n, a: EastSet.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
     "SetForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
     # Dict — note the builtin invokes callbacks (value, key); the python
     # methods take user (key, value) argument order
@@ -790,12 +861,12 @@ _ROWS: dict[str, Any] = {
     "DictCopy": lambda ev, n, a: a[0].copy(),
     "DictKeys": lambda ev, n, a: a[0].keys_set(),
     "DictGetKeys": lambda ev, n, a: a[0].get_keys(a[1], _kv_user(ev, a[2], 1)),
-    "DictMap": lambda ev, n, a: a[0].map(_kv_user(ev, a[1], 1), out=_out(n).value["value"])
+    "DictMap": lambda ev, n, a: a[0].map(_kv_user(ev, a[1], 1), out=dict_child(_out(n), "value"))
     if not isinstance(a[0], KernelExpr) else a[0].map(_kv_user(ev, a[1], 1)),
     "DictFilter": lambda ev, n, a: a[0].filter(_dict_kv(ev, a[1])),
-    "DictFilterMap": lambda ev, n, a: a[0].filter_map(_dict_kv(ev, a[1]), out=_out(n).value["value"])
+    "DictFilterMap": lambda ev, n, a: a[0].filter_map(_dict_kv(ev, a[1]), out=dict_child(_out(n), "value"))
     if not isinstance(a[0], KernelExpr) else a[0].filter_map(_dict_kv(ev, a[1])),
-    "DictFirstMap": lambda ev, n, a: a[0].first_map(_dict_kv(ev, a[1]), out=_out(n).value[1]["type"])
+    "DictFirstMap": lambda ev, n, a: a[0].first_map(_dict_kv(ev, a[1]), out=_opt_inner(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].first_map(_dict_kv(ev, a[1])),
     "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_dict_kv(ev, a[1]), _cb(ev, a[2])),
     "DictReduce": lambda ev, n, a: a[0].reduce(a[2], _acc_kv(ev, a[1])),
@@ -819,7 +890,7 @@ _ROWS: dict[str, Any] = {
     "DictForEach": lambda ev, n, a: a[0].for_each(_dict_kv(ev, a[1])),
     "DictGenerate": lambda ev, n, a: EastDict.generate(
         a[0], _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]),
-        n.value["type_parameters"][0], n.value["type_parameters"][1]),
+        ev.canon(n.value["type_parameters"][0]), ev.canon(n.value["type_parameters"][1])),
     # Ref — the user surface is the `.value` property; RefUpdate SETS (TS
     # `.update(value)`), RefMerge folds the incoming value into the current
     "RefGet": lambda ev, n, a: a[0].value,
@@ -945,7 +1016,7 @@ def _scalar_row(fn: Any) -> Any:
     n_params = len(inspect.signature(fn).parameters)
 
     def row(ev: EagerEvaluator, n: EastVariant, a: list) -> Any:
-        tps = list(n.value["type_parameters"])
+        tps = [ev.canon(t) for t in n.value["type_parameters"]]
         if n_params == len(tps) + len(a):
             return fn(*tps, *a)
         if tps and n_params == 1 + len(a):

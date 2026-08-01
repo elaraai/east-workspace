@@ -100,6 +100,10 @@ cdef Py_ssize_t _TYPE_CACHE_MAX = 4096
 # Each entry is an EastType* (as uintptr_t) for the recursive placeholder.
 cdef list _type_ctx = []
 
+# ID-dialect recursive placeholders (TS `Recursive(wrapper({id, inner}))`):
+# id → EastType* (uintptr_t), scoped to the wrapper's own conversion.
+cdef dict _rec_id_ctx = {}
+
 
 cdef void _type_cache_clear():
     """Release all cached C types."""
@@ -245,9 +249,31 @@ cdef _eastc.EastType* _py_type_to_c_impl(object py_type) except NULL:
     elif tag == "AsyncFunction":
         return _convert_function_type(py_type.value, is_async=True)
 
-    # Recursive — depth reference into _type_ctx stack
+    # Recursive — two serialized dialects share the tag. east-py's builders
+    # emit the DEPTH-integer form (a de Bruijn index into _type_ctx); TS and
+    # east-c emit the ID form, `ref(id) | wrapper({id, inner})` (east/src/
+    # type_of_type.ts), which decoded TS types carry. Accept both.
     elif tag == "Recursive":
-        depth = py_type.value
+        payload = py_type.value
+        if not isinstance(payload, int):
+            if payload.type == "wrapper":
+                rec_id = payload.value["id"]
+                result = _eastc.east_recursive_type_new()
+                _rec_id_ctx[rec_id] = <uintptr_t>result
+                try:
+                    elem = py_type_to_c(payload.value["inner"])
+                finally:
+                    del _rec_id_ctx[rec_id]
+                _eastc.east_recursive_type_set(result, elem)
+                return result
+            if payload.type == "ref":
+                if payload.value not in _rec_id_ctx:
+                    raise ValueError(f"Recursive ref {payload.value} outside its wrapper scope")
+                result = <_eastc.EastType*><uintptr_t>_rec_id_ctx[payload.value]
+                _eastc.east_type_retain(result)
+                return result
+            raise ValueError(f"Unknown Recursive dialect case: {payload.type}")
+        depth = payload
         if depth <= 0 or depth > len(_type_ctx):
             raise ValueError(f"Invalid recursive type depth {depth}, stack size {len(_type_ctx)}")
         target_idx = len(_type_ctx) - depth
@@ -1739,6 +1765,74 @@ cpdef object c_type_ptr_to_py_type(uintptr_t ptr):
     _c_type_tag_to_py_type) — nothing is memoized across calls.
     """
     return _c_type_tag_to_py_type(<_eastc.EastType*>ptr)
+
+
+def canonicalize_type(object py_type):
+    """Normalize a type value to the depth-integer Recursive dialect.
+
+    Round-trips through the C type system: the forward conversion accepts
+    both serialized Recursive dialects (east-py's depth integers and TS's
+    ``ref(id)``/``wrapper({id, inner})``), and the reverse conversion emits
+    the depth form — which the pure-python type walkers (ordering, printing,
+    construction) speak."""
+    cdef _eastc.EastType* root = py_type_to_c(py_type)
+    try:
+        return _c_type_tag_to_py_type(root)
+    finally:
+        _eastc.east_type_release(root)
+
+
+def resolve_child_type(object py_type, tuple steps):
+    """The child type reached by ``steps``, canonically self-contained.
+
+    Naive extraction (``t.value``) leaves ``Recursive(depth)`` markers
+    pointing above the extracted root. This resolves through the C type
+    system instead: the forward conversion interns the full recursive type,
+    the C walk follows real child pointers, and the reverse conversion
+    rebinds any back-edges relative to the extracted child — the same
+    machinery every decode path already relies on, at arbitrary depth.
+
+    Steps: ``"element"`` (Array/Set/Ref/Vector/Matrix), ``"key"``/``"value"``
+    (Dict), ``("field", name)`` (Struct), ``("case", name)`` (Variant).
+    """
+    cdef _eastc.EastType* root = py_type_to_c(py_type)
+    cdef _eastc.EastType* cur = root
+    cdef size_t i
+    cdef bytes name_b
+    cdef bint found
+    try:
+        for step in steps:
+            while cur.kind == _eastc.EAST_TYPE_RECURSIVE and cur.data.recursive.node != NULL:
+                cur = cur.data.recursive.node
+            if step == "element":
+                cur = cur.data.element
+            elif step == "key":
+                cur = cur.data.dict.key
+            elif step == "value":
+                cur = cur.data.dict.value
+            elif step == "output":
+                cur = cur.data.function.output
+            else:
+                kind_, name = step
+                name_b = name.encode("utf-8")
+                found = False
+                if kind_ == "field":
+                    for i in range(cur.data.struct_.num_fields):
+                        if strcmp(cur.data.struct_.fields[i].name, <const char*>name_b) == 0:
+                            cur = cur.data.struct_.fields[i].type
+                            found = True
+                            break
+                elif kind_ == "case":
+                    for i in range(cur.data.variant.num_cases):
+                        if strcmp(cur.data.variant.cases[i].name, <const char*>name_b) == 0:
+                            cur = cur.data.variant.cases[i].type
+                            found = True
+                            break
+                if not found:
+                    raise KeyError(f"no {kind_} {name!r} on this type")
+        return _c_type_tag_to_py_type(cur)
+    finally:
+        _eastc.east_type_release(root)
 
 
 # ─── Proxy classes ────────────────────────────────────────────────────────

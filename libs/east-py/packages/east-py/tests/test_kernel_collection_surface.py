@@ -33,9 +33,6 @@ from east import (
     StructType,
     array,
     kernel,
-    none,
-    some,
-    where,
 )
 from east.kernel import _TRACED_SURFACE, KernelExpr, KernelTraceError, _var
 
@@ -55,152 +52,27 @@ def _legs():
     return array(Leg, ROW["legs"])
 
 
-# ── traced == eager, per method ──────────────────────────────────────────────
-# Each case: (name, kernel body over ROW, the eager spelling of the same op).
+# ── traced == eager: the py-native signature sugar only ─────────────────────
+# Rows that were 1:1 builtin equivalences are now covered corpus-wide by
+# tests/test_compliance_eager.py (all three modes, exact-pinned) — #474
+# cleanup pass 2. What remains pins the PYTHON-side signature surface the
+# corpus cannot express: kwargs and defaults (sorted(key=, reverse=),
+# to_dict's 2-arg combine), the narrowed get_keys, and the flagship shapes.
 
 CASES = [
-    ("array.concat",
-     lambda r: r["csv"].split(",").concat(r["csv"].split(",")),
-     lambda: _arr().concat(_arr())),
-    ("array.slice",
-     lambda r: r["csv"].split(",").slice(1, 3),
-     lambda: _arr().slice(1, 3)),
-    ("array.reversed",
-     lambda r: r["csv"].split(",").reversed(),
-     lambda: _arr().reversed()),
-    ("array.copy",
-     lambda r: r["csv"].split(",").copy(),
-     lambda: _arr().copy()),
     ("array.get_keys",
      lambda r: r["csv"].split(",").get_keys(array(IntegerType, [2, 0])),
      lambda: _arr().get_keys(array(IntegerType, [2, 0]))),
-    ("array.filter_map",
-     lambda r: r["csv"].split(",").filter_map(
-         lambda p: where(p != "a", some(p + "!"), none)),
-     lambda: _arr().filter_map(lambda p: some(p + "!") if p != "a" else none)),
-    ("array.flatten_to_array",
-     lambda r: r["legs"].flatten_to_array(lambda leg: leg["code"].split("")),
-     lambda: _legs().flatten_to_array(lambda leg: array(
-         StringType, list(leg["code"])))),
-    ("array.flatten_to_set",
-     lambda r: r["legs"].flatten_to_set(
-         lambda leg: leg["code"].split("").unique()),
-     lambda: _legs().flatten_to_set(lambda leg: array(
-         StringType, list(leg["code"])).unique())),
-    ("array.to_dict",
-     lambda r: r["csv"].split(",").to_dict(
-         lambda p: p, value=lambda p: p.length()),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))),
     ("array.to_dict.combine",
      lambda r: r["csv"].split(",").to_dict(
          lambda p: p, value=lambda p: p.length(), combine=lambda a, b: a + b),
      lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p),
                             combine=lambda a, b: a + b)),
-    ("array.to_set",
-     lambda r: r["csv"].split(",").to_set(lambda p: p + "s"),
-     lambda: _arr().to_set(lambda p: p + "s")),
-    ("array.unique",
-     lambda r: r["csv"].split(",").unique(),
-     lambda: _arr().unique()),
-    ("array.group_by",
-     lambda r: r["csv"].split(",").group_by(lambda p: p),
-     lambda: _arr().group_by(lambda p: p)),
-    ("array.sorted",
-     lambda r: r["csv"].split(",").sorted(),
-     lambda: _arr().sorted()),
     ("array.sorted.key.reverse",
      lambda r: r["legs"].sorted(key=lambda leg: leg["qty"], reverse=True)
                         .map(lambda leg: leg["code"]),
      lambda: _legs().sorted(key=lambda leg: leg["qty"], reverse=True)
                     .map(lambda leg: leg["code"])),
-    ("array.is_sorted",
-     lambda r: r["csv"].split(",").is_sorted(),
-     lambda: _arr().is_sorted()),
-    ("array.map_reduce",
-     lambda r: r["legs"].map_reduce(lambda leg: leg["qty"], lambda a, b: a + b),
-     lambda: _legs().map_reduce(lambda leg: leg["qty"], lambda a, b: a + b)),
-    ("set.map",
-     lambda r: r["csv"].split(",").unique().map(lambda x: x.length()),
-     lambda: _arr().unique().map(lambda x: len(x))),
-    ("set.filter",
-     lambda r: r["csv"].split(",").unique().filter(lambda x: x != "b"),
-     lambda: _arr().unique().filter(lambda x: x != "b")),
-    ("set.filter_map",
-     lambda r: r["csv"].split(",").unique().filter_map(
-         lambda x: where(x != "b", some(x + "!"), none)),
-     # the dual-mode where/some/none spelling on the eager side too: the
-     # eager Set.filter_map derives its value type from the tracer, and a
-     # python `if` cannot trace
-     lambda: _arr().unique().filter_map(
-         lambda x: where(x != "b", some(x + "!"), none))),
-    ("set.to_array",
-     lambda r: r["csv"].split(",").unique().to_array(),
-     lambda: _arr().unique().to_array()),
-    ("set.to_dict",
-     lambda r: r["csv"].split(",").unique().to_dict(
-         lambda x: x, lambda x: x.length(), lambda a, b, _k: b),
-     lambda: _arr().unique().to_dict(
-         lambda x: x, lambda x: len(x), lambda a, b, _k: b)),
-    ("set.union",
-     lambda r: r["csv"].split(",").unique().union(r["id"].split("").unique()),
-     lambda: _arr().unique().union(array(StringType, ["r", "1"]).unique())),
-    ("set.intersect",
-     lambda r: r["csv"].split(",").unique().intersect(
-         r["csv"].split(",").slice(0, 2).unique()),
-     lambda: _arr().unique().intersect(_arr().slice(0, 2).unique())),
-    ("set.diff",
-     lambda r: r["csv"].split(",").unique().diff(
-         r["csv"].split(",").slice(0, 1).unique()),
-     lambda: _arr().unique().diff(_arr().slice(0, 1).unique())),
-    ("set.is_subset",
-     lambda r: r["csv"].split(",").slice(0, 1).unique().is_subset(
-         r["csv"].split(",").unique()),
-     lambda: _arr().slice(0, 1).unique().is_subset(_arr().unique())),
-    ("dict.map",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .map(lambda v: v * 2),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .map(lambda v: v * 2)),
-    ("dict.filter",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .filter(lambda k, v: k != "b"),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .filter(lambda k, v: k != "b")),
-    ("dict.filter_map",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .filter_map(lambda k, v: where(k != "b", some(v * 10), none)),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .filter_map(lambda k, v: some(v * 10) if k != "b" else none)),
-    ("dict.to_array",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .to_array(lambda k, v: k),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .to_array(lambda k, v: k)),
-    ("dict.to_set",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .to_set(lambda k, v: v),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .to_set(lambda k, v: v)),
-    ("dict.to_dict",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .to_dict(lambda k, v: k + "x", lambda k, v: v,
-                                lambda a, b, _k: b),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .to_dict(lambda k, v: k + "x", lambda k, v: v,
-                            lambda a, b, _k: b)),
-    ("dict.map_reduce",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .map_reduce(lambda k, v: v, lambda a, b: a + b),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p))
-                   .map_reduce(lambda k, v: v, lambda a, b: a + b)),
-    ("dict.keys_set",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .keys_set(),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p)).keys_set()),
-    ("dict.copy",
-     lambda r: r["csv"].split(",").to_dict(lambda p: p, value=lambda p: p.length())
-                       .copy(),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p)).copy()),
 ]
 
 
