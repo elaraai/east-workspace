@@ -4,18 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Highlight } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./highlight.examples.js";
 
 describeEast("Highlight", (test) => {
     Assert.examples(test, {
-        highlightSingleTerm: ex.highlightSingleTerm,
-        highlightMultipleTerms: ex.highlightMultipleTerms,
-        highlightCustomColor: ex.highlightCustomColor,
-        highlightGreen: ex.highlightGreen,
-        highlightBlue: ex.highlightBlue,
-        highlightSearchResult: ex.highlightSearchResult,
-        highlightNoMatches: ex.highlightNoMatches,
+        highlightBasic: ex.highlightBasic,
+        highlightVariants: ex.highlightVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("highlightVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.highlightVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 7n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MULTIPLE TERMS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM COLOR"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "GREEN"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BLUE"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SEARCH RESULT"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "NO MATCHES"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // =========================================================================

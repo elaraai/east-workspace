@@ -7,6 +7,10 @@ import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Button, Reactive, Text, VStack, HStack } from "@elaraai/east-ui";
 
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
 export const textBasic = example({
     keywords: ["Text", "Root", "basic"],
     description: "Plain text with no styling",
@@ -16,194 +20,141 @@ export const textBasic = example({
     inputs: [],
 });
 
-export const textColored = example({
-    keywords: ["Text", "Root", "color", "blue"],
-    description: "Text with blue color",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text color="blue.500">Blue colored text</Text>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Text — styling options (variant panel)
+// ============================================================================
 
-export const textBold = example({
-    keywords: ["Text", "Root", "fontWeight", "bold"],
-    description: "Text with bold font weight",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text fontWeight="bold">Bold text</Text>;
-    }),
-    inputs: [],
-});
-
-export const textItalic = example({
-    keywords: ["Text", "Root", "fontStyle", "italic"],
-    description: "Text with italic font style",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text fontStyle="italic">Italic text</Text>;
-    }),
-    inputs: [],
-});
-
-export const textFontWeights = example({
-    keywords: ["Text", "Root", "fontWeight", "weights", "light", "normal", "medium", "semibold", "bold"],
-    description: "All available font weights",
+export const textVariants = example({
+    keywords: ["Text", "Root", "color", "blue", "fontWeight", "bold", "fontStyle", "italic", "weights", "light", "normal", "medium", "semibold", "textTransform", "uppercase", "lowercase", "capitalize", "background", "highlight", "border", "borderWidth", "borderStyle", "borderColor", "palette", "red", "orange", "green", "teal", "purple", "combined", "textDecoration", "underline", "line-through", "overline", "letterSpacing", "lineHeight", "spacing", "opacity", "transparency", "padding", "margin", "overflow", "width", "height", "textOverflow", "ellipsis", "Reactive", "State", "interactive", "counter"],
+    description: "Text variant panel — colored (blue color), bold (bold font weight), italic (italic font style), font weights (all available font weights), transforms (text transformation options), background (background highlight), bordered (border styling), colors (various text colors), combined (multiple styles on one text), decoration (underline, line-through, and overline), spacing (fine-tune text spacing), opacity (varying opacity), padding margin (padding and margin), overflow (constrained size and overflow), interactive (reactive text whose content updates from a counter)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="4">
-                <Text fontWeight="light">Light</Text>
-                <Text fontWeight="normal">Normal</Text>
-                <Text fontWeight="medium">Medium</Text>
-                <Text fontWeight="semibold">Semibold</Text>
-                <Text fontWeight="bold">Bold</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textTransforms = example({
-    keywords: ["Text", "Root", "textTransform", "uppercase", "lowercase", "capitalize"],
-    description: "Text transformation options",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Text textTransform="uppercase">uppercase</Text>
-                <Text textTransform="lowercase">LOWERCASE</Text>
-                <Text textTransform="capitalize">capitalize</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textBackground = example({
-    keywords: ["Text", "Root", "background", "highlight"],
-    description: "Text with background highlight",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text background="yellow.200" color="gray.800">Highlighted text</Text>;
-    }),
-    inputs: [],
-});
-
-export const textBordered = example({
-    keywords: ["Text", "Root", "border", "borderWidth", "borderStyle", "borderColor"],
-    description: "Text with border styling",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Text borderWidth="thin" borderStyle="solid" borderColor="gray.400">
-                Bordered text
-            </Text>
-        );
-    }),
-    inputs: [],
-});
-
-export const textColors = example({
-    keywords: ["Text", "Root", "color", "palette", "red", "orange", "green", "teal", "blue", "purple"],
-    description: "Various text colors",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="3">
-                <Text color="red.500">Red</Text>
-                <Text color="orange.500">Orange</Text>
-                <Text color="green.500">Green</Text>
-                <Text color="teal.500">Teal</Text>
-                <Text color="blue.500">Blue</Text>
-                <Text color="purple.500">Purple</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textCombined = example({
-    keywords: ["Text", "Root", "combined", "color", "fontWeight", "fontStyle", "background"],
-    description: "Multiple styles on one text",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
-                Styled Text
-            </Text>
-        );
-    }),
-    inputs: [],
-});
-
-export const textDecoration = example({
-    keywords: ["Text", "Root", "textDecoration", "underline", "line-through", "overline"],
-    description: "Underline, line-through, and overline",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Text textDecoration="underline">Underline</Text>
-                <Text textDecoration="line-through">Line-through</Text>
-                <Text textDecoration="overline">Overline</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textSpacing = example({
-    keywords: ["Text", "Root", "letterSpacing", "lineHeight", "spacing"],
-    description: "Fine-tune text spacing",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Text letterSpacing="tighter">Tight letter spacing</Text>
-                <Text letterSpacing="wider">Wide letter spacing</Text>
-                <Text lineHeight="tall" maxWidth="250px">Tall line height - wraps to show multi-line effect when the text is long enough</Text>
-                <Text lineHeight="short" maxWidth="250px">Short line height - compact multi-line text when the content wraps</Text>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORED</Text>
+                    <Text color="blue.500">Blue colored text</Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BOLD</Text>
+                    <Text fontWeight="bold">Bold text</Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ITALIC</Text>
+                    <Text fontStyle="italic">Italic text</Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FONT WEIGHTS</Text>
+                    <HStack gap="4">
+                        <Text fontWeight="light">Light</Text>
+                        <Text fontWeight="normal">Normal</Text>
+                        <Text fontWeight="medium">Medium</Text>
+                        <Text fontWeight="semibold">Semibold</Text>
+                        <Text fontWeight="bold">Bold</Text>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TRANSFORMS</Text>
+                    <HStack gap="4">
+                        <Text textTransform="uppercase">uppercase</Text>
+                        <Text textTransform="lowercase">LOWERCASE</Text>
+                        <Text textTransform="capitalize">capitalize</Text>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BACKGROUND</Text>
+                    <Text background="yellow.200" color="gray.800">Highlighted text</Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BORDERED</Text>
+                    <Text borderWidth="thin" borderStyle="solid" borderColor="gray.400">
+                        Bordered text
+                    </Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
+                    <HStack gap="3">
+                        <Text color="red.500">Red</Text>
+                        <Text color="orange.500">Orange</Text>
+                        <Text color="green.500">Green</Text>
+                        <Text color="teal.500">Teal</Text>
+                        <Text color="blue.500">Blue</Text>
+                        <Text color="purple.500">Purple</Text>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMBINED</Text>
+                    <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
+                        Styled Text
+                    </Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DECORATION</Text>
+                    <HStack gap="4">
+                        <Text textDecoration="underline">Underline</Text>
+                        <Text textDecoration="line-through">Line-through</Text>
+                        <Text textDecoration="overline">Overline</Text>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SPACING</Text>
+                    <VStack gap="2" align="flex-start">
+                        <Text letterSpacing="tighter">Tight letter spacing</Text>
+                        <Text letterSpacing="wider">Wide letter spacing</Text>
+                        <Text lineHeight="tall" maxWidth="250px">Tall line height - wraps to show multi-line effect when the text is long enough</Text>
+                        <Text lineHeight="short" maxWidth="250px">Short line height - compact multi-line text when the content wraps</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OPACITY</Text>
+                    <HStack gap="4">
+                        <Text color="blue.600" fontWeight="bold">100%</Text>
+                        <Text color="blue.600" fontWeight="bold" opacity={0.75}>75%</Text>
+                        <Text color="blue.600" fontWeight="bold" opacity={0.5}>50%</Text>
+                        <Text color="blue.600" fontWeight="bold" opacity={0.25}>25%</Text>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PADDING MARGIN</Text>
+                    <VStack gap="2" align="flex-start">
+                        <Text padding="4" background="blue.50" borderWidth="thin" borderStyle="solid" borderColor="blue.200">Padding: 4</Text>
+                        <Text padding="2" margin="4" background="green.50" borderWidth="thin" borderStyle="solid" borderColor="green.200">Padding: 2, Margin: 4</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OVERFLOW</Text>
+                    <VStack gap="2" align="flex-start">
+                        <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="orange.50" padding="2">
+                            This text is constrained to 200px width and will clip overflow content.
+                        </Text>
+                        <Text width="150px" height="40px" background="purple.50" padding="2" overflow="hidden">Fixed width and height box</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
+                    <Reactive>{$ => {
+                        const counter = $.let(State.bind([IntegerType], "text_counter", 0n));
+                        const value = $.let(counter.read());
+                        const increment = $.const(East.function([], NullType, $ => {
+                            const cur = $.let(counter.read());
+                            $(counter.write(cur.add(1n)));
+                        }));
+                        return (
+                            <VStack gap="3" align="stretch">
+                                <Text>{East.str`Clicked ${East.print(value)} times`}</Text>
+                                <Button onClick={increment}>Click me</Button>
+                            </VStack>
+                        );
+                    }}</Reactive>
+                </VStack>
             </VStack>
         );
     }),
     inputs: [],
 });
 
-export const textOpacity = example({
-    keywords: ["Text", "Root", "opacity", "transparency"],
-    description: "Text with varying opacity",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Text color="blue.600" fontWeight="bold">100%</Text>
-                <Text color="blue.600" fontWeight="bold" opacity={0.75}>75%</Text>
-                <Text color="blue.600" fontWeight="bold" opacity={0.5}>50%</Text>
-                <Text color="blue.600" fontWeight="bold" opacity={0.25}>25%</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textPaddingMargin = example({
-    keywords: ["Text", "Root", "padding", "margin", "spacing"],
-    description: "Text with padding and margin",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Text padding="4" background="blue.50" borderWidth="thin" borderStyle="solid" borderColor="blue.200">Padding: 4</Text>
-                <Text padding="2" margin="4" background="green.50" borderWidth="thin" borderStyle="solid" borderColor="green.200">Padding: 2, Margin: 4</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textOverflow = example({
-    keywords: ["Text", "Root", "overflow", "width", "height", "textOverflow", "ellipsis"],
-    description: "Text with constrained size and overflow",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="orange.50" padding="2">
-                    This text is constrained to 200px width and will clip overflow content.
-                </Text>
-                <Text width="150px" height="40px" background="purple.50" padding="2" overflow="hidden">Fixed width and height box</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Style scale — the full textStyle token ramp (visual-guard for the type system)
+// ============================================================================
 
 export const textStyleScale = example({
     keywords: ["Text", "Root", "textStyle", "scale", "typography"],
@@ -285,61 +236,43 @@ export const textStyleScale = example({
     inputs: [],
 });
 
-export const textMonoKpi = example({
-    keywords: ["Text", "Root", "textStyle", "mono-kpi", "KPI"],
-    description: "Mono-KPI textStyle — big mono number with tabular-nums",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text textStyle="mono-kpi">$1,842,500</Text>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Numeric styles — the tabular-nums contract (variant panel)
+// ============================================================================
 
-export const textTabularNums = example({
-    keywords: ["Text", "Root", "fontVariantNumeric", "tabular-nums", "align"],
-    description: "Column of right-aligned numbers with tabular-nums keeps digits aligned",
+export const textNumericStyles = example({
+    keywords: ["Text", "Root", "textStyle", "mono-kpi", "KPI", "fontVariantNumeric", "tabular-nums", "align"],
+    description: "Text numeric-styles panel — mono kpi (big mono number with tabular-nums), tabular nums (column of right-aligned numbers with tabular-nums keeps digits aligned)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="1" align="stretch">
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q1</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
-                </HStack>
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q2</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
-                </HStack>
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q3</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
-                </HStack>
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q4</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
-                </HStack>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MONO KPI</Text>
+                    <Text textStyle="mono-kpi">$1,842,500</Text>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TABULAR NUMS</Text>
+                    <VStack gap="1" align="stretch">
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q1</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q2</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q3</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q4</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
+                        </HStack>
+                    </VStack>
+                </VStack>
             </VStack>
         );
     }),
-    inputs: [],
-});
-
-export const textInteractive = example({
-    keywords: ["Text", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive text whose content updates from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "text_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Text>{East.str`Clicked ${East.print(value)} times`}</Text>
-                    <Button onClick={increment}>Click me</Button>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

@@ -5,7 +5,17 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { Format, UIComponentType } from "@elaraai/east-ui";
-import { Numeric, HStack } from "@elaraai/east-ui";
+import { Numeric, HStack, Text, VStack } from "@elaraai/east-ui";
+
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+const NUMERIC_DATE_TIME_DATA = 1716249600000;
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const numericKpi = example({
     keywords: ["Numeric", "Root", "KPI", "currency", "mono-kpi"],
@@ -21,74 +31,54 @@ export const numericKpi = example({
     inputs: [],
 });
 
-export const numericPercent = example({
-    keywords: ["Numeric", "Root", "percent", "sentiment"],
-    description: "Percent values with positive / negative sentiment colouring",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="6" align="baseline">
-                <Numeric value={0.98} format={Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" })} sentiment="positive" showSign />
-                <Numeric value={-0.12} format={Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" })} sentiment="negative" showSign />
-                <Numeric value={0} format={Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" })} sentiment="neutral" showSign />
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Numeric — formats (variant panel)
+// ============================================================================
 
-export const numericCompact = example({
-    keywords: ["Numeric", "Root", "compact", "large-number"],
-    description: "Compact notation — 1.24M / 384K for dashboards",
+export const numericVariants = example({
+    keywords: ["Numeric", "Root", "percent", "sentiment", "compact", "large-number", "unit", "kg", "celsius", "scientific", "engineering", "notation", "date", "time", "datetime", "timestamp"],
+    description: "Numeric variant panel — percent (positive / negative sentiment colouring), compact (1.24M / 384K for dashboards), unit (unit-carrying values with locale-aware suffix), scientific (scientific and engineering notation for large magnitudes), date time (epoch-millisecond timestamps rendered as date / time / datetime)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="6" align="baseline">
-                <Numeric value={1_240_000} format={Format.Compact({ display: "short" })} />
-                <Numeric value={384_000} format={Format.Compact({ display: "short" })} />
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const numericUnit = example({
-    keywords: ["Numeric", "Root", "unit", "kg", "celsius"],
-    description: "Unit-carrying values with locale-aware suffix",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="6" align="baseline">
-                <Numeric value={12} format={Format.Unit({ unit: "kilogram", display: "short" })} />
-                <Numeric value={42.5} format={Format.Unit({ unit: "celsius", display: "short" })} />
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const numericScientific = example({
-    keywords: ["Numeric", "Root", "scientific", "engineering", "notation"],
-    description: "Scientific and engineering notation for large magnitudes",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="6" align="baseline">
-                <Numeric value={60221408} format={Format.Scientific()} />
-                <Numeric value={60221408} format={Format.Engineering()} />
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const numericDateTime = example({
-    keywords: ["Numeric", "Root", "date", "time", "datetime", "timestamp"],
-    description: "Epoch-millisecond timestamps rendered as date / time / datetime",
-    fn: East.function([], UIComponentType, (_$) => {
-        const ts = 1716249600000;
-        return (
-            <HStack gap="6" align="baseline">
-                <Numeric value={ts} format={Format.Date("YYYY-MM-DD")} />
-                <Numeric value={ts} format={Format.Time("HH:mm")} />
-                <Numeric value={ts} format={Format.DateTime("YYYY-MM-DD HH:mm:ss")} />
-            </HStack>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PERCENT</Text>
+                    <HStack gap="6" align="baseline">
+                        <Numeric value={0.98} format={Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" })} sentiment="positive" showSign />
+                        <Numeric value={-0.12} format={Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" })} sentiment="negative" showSign />
+                        <Numeric value={0} format={Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" })} sentiment="neutral" showSign />
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMPACT</Text>
+                    <HStack gap="6" align="baseline">
+                        <Numeric value={1_240_000} format={Format.Compact({ display: "short" })} />
+                        <Numeric value={384_000} format={Format.Compact({ display: "short" })} />
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">UNIT</Text>
+                    <HStack gap="6" align="baseline">
+                        <Numeric value={12} format={Format.Unit({ unit: "kilogram", display: "short" })} />
+                        <Numeric value={42.5} format={Format.Unit({ unit: "celsius", display: "short" })} />
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCIENTIFIC</Text>
+                    <HStack gap="6" align="baseline">
+                        <Numeric value={60221408} format={Format.Scientific()} />
+                        <Numeric value={60221408} format={Format.Engineering()} />
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DATE TIME</Text>
+                    <HStack gap="6" align="baseline">
+                        <Numeric value={NUMERIC_DATE_TIME_DATA} format={Format.Date("YYYY-MM-DD")} />
+                        <Numeric value={NUMERIC_DATE_TIME_DATA} format={Format.Time("HH:mm")} />
+                        <Numeric value={NUMERIC_DATE_TIME_DATA} format={Format.DateTime("YYYY-MM-DD HH:mm:ss")} />
+                    </HStack>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

@@ -4,18 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Code, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./code.examples.js";
 
 describeEast("Code", (test) => {
     Assert.examples(test, {
         codeBasic: ex.codeBasic,
-        codeSubtle: ex.codeSubtle,
-        codeSurface: ex.codeSurface,
-        codeOutline: ex.codeOutline,
-        codeSizes: ex.codeSizes,
-        codeColors: ex.codeColors,
-        codeCombined: ex.codeCombined,
+        codeVariants: ex.codeVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("codeVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.codeVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 7n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SUBTLE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SURFACE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OUTLINE"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORS"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMBINED"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // =========================================================================

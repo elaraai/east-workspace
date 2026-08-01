@@ -4,17 +4,31 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Numeric, Format } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./numeric.examples.js";
 
 describeEast("Numeric", (test) => {
     Assert.examples(test, {
         numericKpi: ex.numericKpi,
-        numericPercent: ex.numericPercent,
-        numericCompact: ex.numericCompact,
-        numericUnit: ex.numericUnit,
-        numericScientific: ex.numericScientific,
-        numericDateTime: ex.numericDateTime,
+        numericVariants: ex.numericVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("numericVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.numericVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PERCENT"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMPACT"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "UNIT"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCIENTIFIC"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DATE TIME"));
     });
 
     // =========================================================================

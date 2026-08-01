@@ -4,19 +4,34 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Heading, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./heading.examples.js";
 
 describeEast("Heading", (test) => {
     Assert.examples(test, {
         headingBasic: ex.headingBasic,
-        headingStandardSizes: ex.headingStandardSizes,
-        headingExtendedSizes: ex.headingExtendedSizes,
-        headingSemanticLevels: ex.headingSemanticLevels,
-        headingColored: ex.headingColored,
-        headingAlignment: ex.headingAlignment,
-        headingCombined: ex.headingCombined,
-        headingBackground: ex.headingBackground,
+        headingVariants: ex.headingVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("headingVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.headingVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 8n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STANDARD SIZES"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "EXTENDED SIZES"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SEMANTIC LEVELS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ALIGNMENT"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMBINED"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BACKGROUND"));
+        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // =========================================================================

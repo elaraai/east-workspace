@@ -5,7 +5,11 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Code, Reactive, VStack, HStack } from "@elaraai/east-ui";
+import { Button, Code, Reactive, Text, VStack, HStack } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const codeBasic = example({
     keywords: ["Code", "Root", "basic", "inline"],
@@ -16,92 +20,69 @@ export const codeBasic = example({
     inputs: [],
 });
 
-export const codeSubtle = example({
-    keywords: ["Code", "Root", "variant", "subtle"],
-    description: "Code with subtle background",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Code variant="subtle">npm install</Code>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Code — variants, sizes, palettes (variant panel)
+// ============================================================================
 
-export const codeSurface = example({
-    keywords: ["Code", "Root", "variant", "surface"],
-    description: "Code with surface styling",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Code variant="surface">npm run build</Code>;
-    }),
-    inputs: [],
-});
-
-export const codeOutline = example({
-    keywords: ["Code", "Root", "variant", "outline"],
-    description: "Code with outline border",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Code variant="outline">npm test</Code>;
-    }),
-    inputs: [],
-});
-
-export const codeSizes = example({
-    keywords: ["Code", "Root", "size", "xs", "sm", "md", "lg"],
-    description: "Different code sizes",
+export const codeVariants = example({
+    keywords: ["Code", "Root", "variant", "subtle", "surface", "outline", "size", "xs", "sm", "md", "lg", "colorPalette", "gray", "blue", "green", "red", "combined", "Reactive", "State", "interactive", "counter"],
+    description: "Code variant panel — subtle (subtle background), surface (surface styling), outline (outline border), sizes (different code sizes), colors (different color schemes), combined (multiple style options), interactive (reactive code snippet whose value updates from a counter)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="4">
-                <Code size="xs">xs</Code>
-                <Code size="sm">sm</Code>
-                <Code size="md">md</Code>
-                <Code size="lg">lg</Code>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const codeColors = example({
-    keywords: ["Code", "Root", "colorPalette", "gray", "blue", "green", "red"],
-    description: "Code with different color schemes",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="3">
-                <Code variant="subtle" colorPalette="gray">gray</Code>
-                <Code variant="subtle" colorPalette="blue">blue</Code>
-                <Code variant="subtle" colorPalette="green">green</Code>
-                <Code variant="subtle" colorPalette="red">red</Code>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const codeCombined = example({
-    keywords: ["Code", "Root", "combined", "variant", "colorPalette", "size"],
-    description: "Code with multiple style options",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Code variant="surface" colorPalette="purple" size="md">console.log('Hello')</Code>;
-    }),
-    inputs: [],
-});
-
-export const codeInteractive = example({
-    keywords: ["Code", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive code snippet whose value updates from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "code_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Code>{East.str`const count = ${East.print(value)};`}</Code>
-                    <Button onClick={increment}>Increment</Button>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SUBTLE</Text>
+                    <Code variant="subtle">npm install</Code>
                 </VStack>
-            );
-        }}</Reactive>
-    )),
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SURFACE</Text>
+                    <Code variant="surface">npm run build</Code>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OUTLINE</Text>
+                    <Code variant="outline">npm test</Code>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SIZES</Text>
+                    <HStack gap="4">
+                        <Code size="xs">xs</Code>
+                        <Code size="sm">sm</Code>
+                        <Code size="md">md</Code>
+                        <Code size="lg">lg</Code>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
+                    <HStack gap="3">
+                        <Code variant="subtle" colorPalette="gray">gray</Code>
+                        <Code variant="subtle" colorPalette="blue">blue</Code>
+                        <Code variant="subtle" colorPalette="green">green</Code>
+                        <Code variant="subtle" colorPalette="red">red</Code>
+                    </HStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMBINED</Text>
+                    <Code variant="surface" colorPalette="purple" size="md">console.log('Hello')</Code>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
+                    <Reactive>{$ => {
+                        const counter = $.let(State.bind([IntegerType], "code_counter", 0n));
+                        const value = $.let(counter.read());
+                        const increment = $.const(East.function([], NullType, $ => {
+                            const cur = $.let(counter.read());
+                            $(counter.write(cur.add(1n)));
+                        }));
+                        return (
+                            <VStack gap="3" align="stretch">
+                                <Code>{East.str`const count = ${East.print(value)};`}</Code>
+                                <Button onClick={increment}>Increment</Button>
+                            </VStack>
+                        );
+                    }}</Reactive>
+                </VStack>
+            </VStack>
+        );
+    }),
     inputs: [],
 });

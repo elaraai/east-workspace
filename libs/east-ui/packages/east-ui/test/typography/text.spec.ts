@@ -4,29 +4,51 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Text, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./text.examples.js";
 
 describeEast("Text", (test) => {
     Assert.examples(test, {
         textBasic: ex.textBasic,
-        textColored: ex.textColored,
-        textBold: ex.textBold,
-        textItalic: ex.textItalic,
-        textFontWeights: ex.textFontWeights,
-        textTransforms: ex.textTransforms,
-        textBackground: ex.textBackground,
-        textBordered: ex.textBordered,
-        textColors: ex.textColors,
-        textCombined: ex.textCombined,
-        textDecoration: ex.textDecoration,
-        textSpacing: ex.textSpacing,
-        textOpacity: ex.textOpacity,
-        textPaddingMargin: ex.textPaddingMargin,
-        textOverflow: ex.textOverflow,
+        textVariants: ex.textVariants,
         textStyleScale: ex.textStyleScale,
-        textMonoKpi: ex.textMonoKpi,
-        textTabularNums: ex.textTabularNums,
+        textNumericStyles: ex.textNumericStyles,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("textVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.textVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 15n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BOLD"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ITALIC"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FONT WEIGHTS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TRANSFORMS"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BACKGROUND"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BORDERED"));
+        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORS"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMBINED"));
+        $(Assert.equal(rows.get(9n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DECORATION"));
+        $(Assert.equal(rows.get(10n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SPACING"));
+        $(Assert.equal(rows.get(11n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OPACITY"));
+        $(Assert.equal(rows.get(12n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PADDING MARGIN"));
+        $(Assert.equal(rows.get(13n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OVERFLOW"));
+        $(Assert.equal(rows.get(14n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
+    });
+
+    test("textNumericStyles panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.textNumericStyles.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MONO KPI"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TABULAR NUMS"));
     });
 
     // =========================================================================
