@@ -204,7 +204,7 @@ export const IconButton = {
      * );
      *
      * // With a click handler (reactive)
-     * // (see IconButton.examples.ts -> iconButtonOnClickReactive)
+     * // (see icon-button.examples.tsx -> iconButtonVariants, BUTTON ON CLICK REACTIVE row)
      * ```
      */
     Root: createIconButton,

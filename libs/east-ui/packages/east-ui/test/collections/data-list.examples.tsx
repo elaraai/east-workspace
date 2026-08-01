@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Badge, DataList, Highlight, HoverCard, Text, VStack } from "@elaraai/east-ui";
+import { Badge, DataList, Highlight, HoverCard, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -90,30 +90,19 @@ export const dataListVariants = example({
     description: "DataList variant panel — list horizontal (horizontal layout), list bold (bold styling), list small (compact data list), list large (larger data list for emphasis), list profile (real-world data list), list colour overrides (explicit background / border / label / value colours for brand alignment)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST HORIZONTAL</Text>
-                    <DataList orientation="horizontal" items={DATA_LIST_HORIZONTAL_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST BOLD</Text>
-                    <DataList variant="bold" items={DATA_LIST_BOLD_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST SMALL</Text>
-                    <DataList size="sm" items={DATA_LIST_SMALL_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST LARGE</Text>
-                    <DataList size="lg" items={DATA_LIST_LARGE_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST PROFILE</Text>
-                    <DataList items={DATA_LIST_PROFILE_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST COLOUR OVERRIDES</Text>
-                    <DataList
+            <VStack gap="3" align="stretch">
+                <Separator label="List Horizontal" align="start" />
+                <DataList orientation="horizontal" items={DATA_LIST_HORIZONTAL_DATA} />
+                <Separator label="List Bold" align="start" />
+                <DataList variant="bold" items={DATA_LIST_BOLD_DATA} />
+                <Separator label="List Small" align="start" />
+                <DataList size="sm" items={DATA_LIST_SMALL_DATA} />
+                <Separator label="List Large" align="start" />
+                <DataList size="lg" items={DATA_LIST_LARGE_DATA} />
+                <Separator label="List Profile" align="start" />
+                <DataList items={DATA_LIST_PROFILE_DATA} />
+                <Separator label="List Colour Overrides" align="start" />
+                <DataList
                         orientation="horizontal"
                         background="blue.50"
                         borderColor="blue.200"
@@ -121,7 +110,6 @@ export const dataListVariants = example({
                         valueColor="blue.900"
                         items={DATA_LIST_COLOUR_OVERRIDES_DATA}
                     />
-                </VStack>
             </VStack>
         );
     }),
