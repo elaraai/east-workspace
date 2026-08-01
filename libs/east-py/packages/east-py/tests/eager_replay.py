@@ -837,7 +837,7 @@ _ROWS: dict[str, Any] = {
     "ArrayIsSorted": lambda ev, n, a: a[0].is_sorted(key=_cb(ev, a[1])),
     "ArrayToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1])),
     "ArrayToDict": lambda ev, n, a: a[0].to_dict(
-        _cb(ev, a[1]), value=_cb(ev, a[2]), combine=_two_arg_combine(ev, a[3])),
+        _cb(ev, a[1]), value=_cb(ev, a[2]), combine=_cb(ev, a[3])),
     "ArrayGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]))
     if not isinstance(a[0], KernelExpr) else _unsup("traced group_reduce"),
@@ -912,7 +912,7 @@ _ROWS: dict[str, Any] = {
     "DictGetOrInsert": lambda ev, n, a: a[0].get_or_insert(
         a[1], _arity_trim(ev, a[2])),
     "DictInsertOrUpdate": lambda ev, n, a: a[0].insert_or_update(
-        a[1], a[2], _conflict3(ev, a[3])),
+        a[1], a[2], _cb(ev, a[3])),
     # east-c DictUpdate SETS the value at an existing key (TS `.update(k, v)`);
     # the user spelling with must-exist semantics is `swap` (old value dropped)
     "DictUpdate": lambda ev, n, a: (a[0].swap(a[1], a[2]), east_null)[1],
@@ -1011,16 +1011,6 @@ def _arity_trim(ev: EagerEvaluator, a: Any) -> Any:
     n = len(a.payload["parameters"])
     cb = ev.make_callback(a)
     return lambda *args: cb(*args[:n])
-
-
-def _conflict3(ev: EagerEvaluator, a: Any) -> Any:
-    """insert_or_update's combine is called (existing, incoming, key); the
-    corpus closure declares its own (possibly shorter) parameter list."""
-    if not isinstance(a, Closure):
-        return a
-    n = len(a.payload["parameters"])
-    cb = ev.make_callback(a)
-    return lambda e, i, k: cb(*([e, i, k][:n]))
 
 
 def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:

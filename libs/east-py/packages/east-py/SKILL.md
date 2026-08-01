@@ -422,8 +422,8 @@ Task → What do you need?
     │
     ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
     │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/where()/greatest()/least() author them explicitly)
-    │   ├─ Array<T>
-    │   │   ├─ Access → get(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] · len() · iterate
+    │   ├─ Array<T>  (element callbacks take fn(el) — or fn(el, idx) when declared, the builtin's index)
+    │   │   ├─ Access → get(i) ❗bounds · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] (pythonic) · len() · iterate
     │   │   ├─ Reorder → sort(key=, reverse=) (in place) · sorted(key=, reverse=) · reverse() · reversed()
     │   │   ├─ Slice & combine → slice(start, end) · concat(other) · copy()
     │   │   ├─ Per-element → map(fn, out=) · filter(pred) · filter_map(fn, out=) · for_each(fn)
@@ -435,7 +435,8 @@ Task → What do you need?
     │   │   │            group_mean(key, fn=) · group_maximum/minimum(key, by=) ❗returns the projected VALUE per
     │   │   │            group, not the row/index (find_maximum finds the index) · group_every/some(key, pred) ·
     │   │   │            group_to_arrays(key, value=) · group_to_sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
-    │   │   ├─ Convert → to_dict(key, value=, combine=) · to_set(key=) · unique() · string_join(sep) · flatten_to_array/set/dict
+    │   │   ├─ Convert → to_dict(key, value=, combine=) ❗dup w/o combine · to_set(key=) · unique() · string_join(sep) ·
+    │   │   │            flatten_to_array/set/dict (flatten_to_dict ❗dup w/o combine)
     │   │   ├─ Columnar → to_columns(fields=) · EastArray.from_columns(T, cols) · map_batches(fn, out=, batch_size=)
     │   │   ├─ Mutate (in place) → append · extend (bulk, one crossing) · insert · pop · remove · clear · arr[i]=v
     │   │   └─ Generate → EastArray.range(n) · .linspace(a, b, n) · .generate(n, fn)
@@ -446,19 +447,19 @@ Task → What do you need?
     │   │   ├─ Reduce → reduce(init, fn) · map_reduce(fn, reduce) ❗empty · sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
     │   │   ├─ Group → group_fold(key, init, fold) · group_size(key) · group_sum(key, fn=) · group_mean(key, fn=) ·
     │   │   │            group_every/some(key, pred) · group_to_arrays/sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
-    │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=)
-    │   │   ├─ Flatten → flatten_to_array(fn, out=) · flatten_to_set(fn, out=) · flatten_to_dict(fn, combine)
+    │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=) ❗dup w/o combine
+    │   │   ├─ Flatten → flatten_to_array(fn, out=) · flatten_to_set(fn, out=) · flatten_to_dict(fn, combine=) ❗dup w/o combine
     │   │   └─ Mutate (in place) → add · insert ❗exists · try_insert(v)→bool · remove · delete ❗missing ·
     │   │                          try_delete(v)→bool · discard · clear · copy()
     │   ├─ Dict<K,V>  (callbacks: map=fn(v)|fn(v,k) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
     │   │   ├─ Access → d[k] · get(k, default=None) · get_or_default(k, d) · try_get(k) · has(k) · keys()/values()/items() · len()
-    │   │   ├─ Combine → merge(other, combine(existing, incoming)=) · get_keys(keys, fill)
+    │   │   ├─ Combine → merge(other, combine=) ❗shared key w/o combine · get_keys(keys, fill)
     │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · map_reduce(map_fn, reduce_fn, out=) ❗empty · sum? (use reduce) · mean(fn=)
     │   │   ├─ Group → group_fold(key_fn, init_fn, fold_fn) · group_size(key_fn) · group_sum(key_fn, fn=) ·
     │   │   │            group_mean(key_fn, fn=) · group_every/some(key_fn, pred) ·
     │   │   │            group_to_arrays/sets(key_fn, value_fn) · group_to_dicts(key_fn, key2_fn, value_fn, combine=)
-    │   │   ├─ Flatten → flatten_to_array(fn) · flatten_to_set(fn) · flatten_to_dict(fn, combine)
+    │   │   ├─ Flatten → flatten_to_array(fn) · flatten_to_set(fn) · flatten_to_dict(fn, combine=) ❗dup w/o combine
     │   │   ├─ Convert → keys_set() · to_array(fn, out=) · to_set(fn, out=) · to_dict(key_fn, value_fn, combine)
     │   │   └─ Mutate (in place) → d[k]=v · insert ❗exists · get_or_insert(k, fn) · insert_or_update(k, v, combine) ·
     │   │                          update(k, fn) ❗missing · swap ❗missing · delete ❗missing/try_delete · pop · clear ·
@@ -690,14 +691,14 @@ input, or a widening map). `.element_type` is the logical element type.
 
 | Group | Methods |
 |-------|----------------------|
-| Access | `get(i)` · `get_or_default(i, default)` · `try_get(i) -> some/none` · `has(i)` · `get_keys(indices: EastArray)` |
+| Access | `get(i)` (errors when out of bounds — `arr[i]` is the pythonic read) · `get_or_default(i, default)` · `try_get(i) -> some/none` · `has(i)` · `get_keys(indices: EastArray)` |
 | Reorder | `sort(*, key=None, reverse=False) -> None` (in place) · `sorted(key=None, *, reverse=False)` · `reverse() -> None` · `reversed()` |
 | Slice & combine | `slice(start, end)` · `concat(other)` · `copy()` |
-| Per-element | `map(fn(el), out=None)` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None)` · `for_each(fn(el)) -> None` |
+| Per-element | `map(fn(el), out=None)` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None)` · `for_each(fn(el)) -> None` — every element callback may also declare `(el, idx)` to receive the builtin's index |
 | Reduce | `fold(initial, fn(acc, el))` · `map_reduce(map_fn(el), reduce_fn(acc, m), out=None)` · `sum(fn=None)` · `mean(fn=None) -> float` (NaN when empty) · `maximum(by=None)` ❗empty · `minimum(by=None)` ❗empty · `every(pred=None) -> bool` · `some(pred=None) -> bool` (native short-circuit) |
-| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` (Dict of the projected VALUE per group — `find_maximum` is the index finder) · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
+| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` (Dict of the projected VALUE per group — `find_maximum` is the index finder) · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` (duplicate key errors without `combine`) · `to_set(key=None) -> Set` · `unique() -> Set` |
 | Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
-| Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` |
+| Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* (C-side fill needs numpy columns — float64/int64/bool, `Option<Float>` as float64+NaN; python lists convert per cell) · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
 | Convert | `string_join(sep) -> str` (String arrays) |
 | Mutate (in place) | `append(item)` · `extend(items)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `clear()` · `count(value) -> int` · `index(value) -> int` |
@@ -712,10 +713,10 @@ Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration
 |-------|---------|
 | Access | `len(s)` · `value in s` · `has(value)` · `for el in s` |
 | Algebra (vs another set) | `union(other)` · `intersect(other)` · `diff(other)` · `sym_diff(other)` · `is_subset(other) -> bool` · `is_disjoint(other) -> bool` |
-| Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` · `for_each(fn(el)) -> None` |
+| Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` (duplicate key errors without `combine`) · `for_each(fn(el)) -> None` |
 | Reduce | `reduce(initial, fn(acc, el))` · `map_reduce(fn(el), reduce(a,b))` (raises on empty) · `sum(fn=None)` · `mean(fn=None) -> float` · `every(pred=None)` · `some(pred=None)` (native short-circuit) |
 | Group | `group_fold(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` |
-| Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine)` — **pin `out`; the no-`out` inference path is broken** |
+| Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine=None)` (duplicate key errors without `combine`) — **pin `out`; the no-`out` inference path is broken** |
 | Mutate (in place) | `add(item)` · `insert(value)` (errors if present) · `try_insert(value) -> bool` (True if newly added) · `remove(item)` · `delete(value)` (errors if absent) · `try_delete(value) -> bool` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
 
 ### EastDict — complete method surface
@@ -728,11 +729,11 @@ take `fn(key, value)`; `reduce` takes `fn(acc, key, value)`; collision `combine`
 | Group | Methods |
 |-------|---------|
 | Access | `d[k]` · `k in d` · `has(k)` · `len(d)`/`size()` · `get(k, default=None)` · `get_or_default(k, default)` · `try_get(k) -> some/none` · `keys()`/`values()`/`items()` |
-| Combine | `merge(other, combine(existing, incoming)=None)` (new dict) · `merge_all(other, merge(existing, incoming, key), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys) · `get_keys(keys: Set, fill(k)) -> Dict` |
+| Combine | `merge(other, combine=None)` (new dict; a shared key errors without `combine`) · `merge_all(other, merge(existing, incoming, key), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys) · `get_keys(keys: Set, fill(k)) -> Dict` |
 | Per-entry | `map(fn(value), out=None)` (a two-arg `fn(value, key)` also accepted) · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
 | Reduce | `reduce(initial, fn(acc, key, value))` · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) · `mean(fn(key, value)=None) -> float` |
 | Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` |
-| Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine(existing, incoming, key))` |
+| Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Convert | `keys_set() -> Set` · `to_array(fn(key, value), out=None)` · `to_set(fn(key, value), out=None)` · `to_dict(key_fn, value_fn, combine(existing, incoming, new_key), key_out=None, value_out=None)` · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` (errors if present) · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` (`update`/`swap`/`delete` error on a missing key) · `pop(k, *default)` · `clear()` |
 | Bulk (in place) | `update_many(keys, values, combine(existing, incoming)=None)` — the whole batch crosses once; a pure/precompiled `combine` resolves collisions C-to-C (dicts as hot-loop accumulators) |
