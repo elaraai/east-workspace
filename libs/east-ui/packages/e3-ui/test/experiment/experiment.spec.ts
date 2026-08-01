@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from '@elaraai/east-node-std';
-import { East, isTypeEqual } from '@elaraai/east';
+import { East, isTypeEqual, type ExprType } from '@elaraai/east';
 import { Reactive, UIComponentType } from '@elaraai/east-ui/internal';
 import { Data, Func } from '@elaraai/e3-ui';
 import { Experiment } from '@elaraai/e3-ui/internal';
@@ -20,9 +20,26 @@ describeEast('Experiment', (test) => {
         experimentValidate: ex.experimentValidate,
         experimentMenu: ex.experimentMenu,
         experimentPrecomputed: ex.experimentPrecomputed,
-        experimentRefusalOverlap: ex.experimentRefusalOverlap,
-        experimentRefusalNotEstimable: ex.experimentRefusalNotEstimable,
-        experimentReadonlyPrecomputed: ex.experimentReadonlyPrecomputed,
+        experimentRefusals: ex.experimentRefusals,
+    });
+
+    // Panels — every merged example stays mounted as a captioned row (#464).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+
+    test('experimentPrecomputed panel mounts one captioned row per merged example', $ => {
+        const panel = $.const(ex.experimentPrecomputed.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap('Stack').children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'PRECOMPUTED'));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'READONLY PRECOMPUTED'));
+    });
+
+    test('experimentRefusals panel mounts one captioned row per merged example', $ => {
+        const panel = $.const(ex.experimentRefusals.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap('Stack').children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'REFUSAL OVERLAP'));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'REFUSAL NOT ESTIMABLE'));
     });
 
     test('Experiment.Component is declared as an optional EastUI component', $ => {

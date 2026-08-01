@@ -4,18 +4,37 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./queue.examples.js";
 
 describeEast("DecisionQueue", (test) => {
     Assert.examples(test, {
         decisionQueueCase: ex.decisionQueueCase,
         decisionQueueJudgement: ex.decisionQueueJudgement,
-        decisionQueueFacets: ex.decisionQueueFacets,
-        decisionQueueValueAxis: ex.decisionQueueValueAxis,
-        decisionQueueOptions: ex.decisionQueueOptions,
-        decisionQueueNarrow: ex.decisionQueueNarrow,
-        decisionQueueScroll: ex.decisionQueueScroll,
+        decisionQueueFacetVariants: ex.decisionQueueFacetVariants,
+        decisionQueueSizing: ex.decisionQueueSizing,
         decisionQueueSlice: ex.decisionQueueSlice,
         decisionQueueGrouped: ex.decisionQueueGrouped,
+    });
+
+    // Panels — every merged example stays mounted as a captioned row (#464).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+
+    test("decisionQueueFacetVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.decisionQueueFacetVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FACETS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VALUE AXIS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OPTIONS"));
+    });
+
+    test("decisionQueueSizing panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.decisionQueueSizing.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "NARROW"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCROLL"));
     });
 }, { platformFns: TestImpl });
