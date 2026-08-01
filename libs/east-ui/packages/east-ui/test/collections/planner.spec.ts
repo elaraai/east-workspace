@@ -3,36 +3,78 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { BooleanType, East, NullType, FloatType, ArrayType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, FloatType, ArrayType, none, some, variant, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { DragEventType, Planner } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {
     Assert.examples(test, {
-        plannerFill: ex.plannerFill,
         plannerPoint: ex.plannerPoint,
-        plannerScroll: ex.plannerScroll,
-        plannerEventStates: ex.plannerEventStates,
-        plannerBuckets: ex.plannerBuckets,
-        plannerMixedBuckets: ex.plannerMixedBuckets,
-        plannerOrdinalAxis: ex.plannerOrdinalAxis,
-        plannerDataDrivenRange: ex.plannerDataDrivenRange,
-        plannerColumns: ex.plannerColumns,
-        plannerMarkers: ex.plannerMarkers,
-        plannerPopover: ex.plannerPopover,
         plannerSpan: ex.plannerSpan,
+        plannerEventStates: ex.plannerEventStates,
+        plannerColumns: ex.plannerColumns,
+        plannerBucketsVariants: ex.plannerBucketsVariants,
+        plannerEventStyleVariants: ex.plannerEventStyleVariants,
+        plannerAxisVariants: ex.plannerAxisVariants,
+        plannerOverlays: ex.plannerOverlays,
         plannerDayResolution: ex.plannerDayResolution,
-        plannerDensity: ex.plannerDensity,
         plannerReview: ex.plannerReview,
         plannerLibraryDnd: ex.plannerLibraryDnd,
-        plannerStretch: ex.plannerStretch,
-        plannerEventTone: ex.plannerEventTone,
-        plannerEventColor: ex.plannerEventColor,
-        plannerHovercard: ex.plannerHovercard,
-        plannerRowHover: ex.plannerRowHover,
-        plannerPerCellBuckets: ex.plannerPerCellBuckets,
-        plannerFillHeight: ex.plannerFillHeight,
+        plannerFill: ex.plannerFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#458).
+    // The mono-uppercase Text captions are the stable per-mini anchors
+    // (probe-collections selects panel rows through them).
+    // =========================================================================
+
+    test("plannerBucketsVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.plannerBucketsVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BUCKETS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MIXED BUCKETS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PER CELL BUCKETS"));
+    });
+
+    test("plannerEventStyleVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.plannerEventStyleVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STRETCH"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "EVENT TONE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "EVENT COLOR"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MARKERS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ROW HOVER"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITY"));
+    });
+
+    test("plannerAxisVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.plannerAxisVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ORDINAL AXIS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DATA DRIVEN RANGE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCROLL"));
+    });
+
+    test("plannerOverlays mounts the popover + hovercard rows", $ => {
+        const panel = $.const(ex.plannerOverlays.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "POPOVER"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "HOVERCARD"));
+    });
+
+    test("plannerFill mounts the #320 fill-height + fill rows", $ => {
+        const panel = $.const(ex.plannerFill.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL HEIGHT"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FILL"));
     });
 
     // =========================================================================

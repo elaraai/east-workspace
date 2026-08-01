@@ -19,31 +19,23 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HARNESS_ROOT = path.resolve(__dirname, "../snapshot");
 
+// Consolidated example targets (#458): the one-prop-per-example names merged
+// into captioned `*Variants` panels; each panel's mono-uppercase Text captions
+// are the stable per-mini selector anchors.
 const TABLE_EXAMPLES = [
-    "tableBasic", "tableCustomHeaders", "tableStriped", "tableInteractive",
-    "tableWithBadge", "tableFullStyled", "tableComplexColumns",
-    "tableColumnRenderWithRow", "tableWrappingTags", "tableInteractiveCallbacks",
-    "tableCustomHeight", "tableFrozenColumns", "tableRowStatus", "tableWithFooter",
-    "tableColumnGroups", "tableReactivePagination", "tableReactiveSelection",
-    "tableExpandedContent", "tableDensityCompact", "tableColourOverrides",
-    "tableExpandedRichDetail", "tableMultiRowFooter", "tableNestedColumnGroups",
-    "tablePaginationServerSide", "tableMultiSelection", "tableRangeSelection",
-    "tableDensityComfortable",
+    "tableBasic", "tableColumnsVariants", "tableStyleVariants", "tableSelection",
+    "tableReactivePagination", "tableExpandedRichDetail", "tableInteractiveCallbacks",
 ];
 
 const TARGETS: ReadonlyArray<{ file: string; example: string }> = [
     ...TABLE_EXAMPLES.map(example => ({ file: "collections/table", example })),
-    { file: "collections/gantt",   example: "ganttWithProgress" },
-    { file: "collections/gantt",   example: "ganttWithMilestones" },
-    { file: "collections/gantt",   example: "ganttColorful" },
-    { file: "collections/gantt",   example: "ganttAxisWindow" },
-    { file: "collections/gantt",   example: "ganttAxisQuarterTier" },
-    { file: "collections/gantt",   example: "ganttAxisWeekTier" },
+    { file: "collections/gantt",   example: "ganttAxisVariants" },
+    { file: "collections/gantt",   example: "ganttTaskVariants" },
     { file: "collections/planner", example: "plannerPoint" },
-    { file: "collections/planner", example: "plannerBuckets" },
     { file: "collections/planner", example: "plannerEventStates" },
     { file: "collections/planner", example: "plannerColumns" },
-    { file: "collections/planner", example: "plannerMarkers" },
+    { file: "collections/planner", example: "plannerBucketsVariants" },
+    { file: "collections/planner", example: "plannerEventStyleVariants" },
 ];
 
 async function main() {

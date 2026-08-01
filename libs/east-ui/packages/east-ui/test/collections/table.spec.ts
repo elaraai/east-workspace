@@ -5,32 +5,51 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, BooleanType, IntegerType, NullType, OptionType, ArrayType, none, some, variant } from "@elaraai/east";
+import { East, IntegerType, NullType, OptionType, ArrayType, some, variant, type ExprType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 
 describeEast("Table", (test) => {
     Assert.examples(test, {
-        tableFill: ex.tableFill,
-        tablePnlGrouped: ex.tablePnlGrouped,
         tableBasic: ex.tableBasic,
-        tableCustomHeaders: ex.tableCustomHeaders,
-        tableStriped: ex.tableStriped,
-        tableWithBadge: ex.tableWithBadge,
-        tableComplexColumns: ex.tableComplexColumns,
-        tableWrappingTags: ex.tableWrappingTags,
+        tableColumnsVariants: ex.tableColumnsVariants,
+        tableStyleVariants: ex.tableStyleVariants,
+        tableSelection: ex.tableSelection,
         tableInteractiveCallbacks: ex.tableInteractiveCallbacks,
-        tableFrozenColumns: ex.tableFrozenColumns,
-        tableRowStatus: ex.tableRowStatus,
+        tableReactivePagination: ex.tableReactivePagination,
         tableReview: ex.tableReview,
         tableReviewPaginated: ex.tableReviewPaginated,
-        tableReactivePagination: ex.tableReactivePagination,
-        tableDensityCompact: ex.tableDensityCompact,
-        tableRowHeight: ex.tableRowHeight,
         tableExpandedRichDetail: ex.tableExpandedRichDetail,
-        tableMultiRowFooter: ex.tableMultiRowFooter,
-        tableNestedColumnGroups: ex.tableNestedColumnGroups,
-        tableMultiSelection: ex.tableMultiSelection,
-        tableRangeSelection: ex.tableRangeSelection,
+        tableFill: ex.tableFill,
+        tablePnlGrouped: ex.tablePnlGrouped,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#458).
+    // The mono-uppercase Text captions are the stable per-mini anchors
+    // (probe-collections selects panel rows through them).
+    // =========================================================================
+
+    test("tableColumnsVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tableColumnsVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM HEADERS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMPLEX COLUMNS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WRAPPING TAGS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FROZEN COLUMNS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "NESTED COLUMN GROUPS"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MULTI ROW FOOTER"));
+    });
+
+    test("tableStyleVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tableStyleVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STRIPED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH BADGE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITY COMPACT"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ROW HEIGHT"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ROW STATUS"));
     });
 
     // =========================================================================

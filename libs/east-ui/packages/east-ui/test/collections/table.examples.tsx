@@ -5,7 +5,86 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, HStack, Reactive, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, HStack, Reactive, SegmentGroup, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+const TABLE_CUSTOM_HEADERS_DATA = [
+    { firstName: "Alice", lastName: "Smith", dept: "Engineering" },
+    { firstName: "Bob", lastName: "Jones", dept: "Marketing" },
+];
+const TABLE_COMPLEX_COLUMNS_DATA = [
+    { name: "Alice", skills: ["TypeScript", "React", "Node"], metadata: { level: "Senior", years: 5n } },
+    { name: "Bob", skills: ["Python", "Django"], metadata: { level: "Mid", years: 3n } },
+    { name: "Charlie", skills: ["Go", "Rust", "C++", "Java"], metadata: { level: "Senior", years: 8n } },
+];
+const TABLE_WRAPPING_TAGS_DATA = [
+    {
+        name: "Server A",
+        metrics: new Map<string, number>([["cpu", 45.2], ["mem", 78.5], ["disk", 62.1], ["net", 23.4], ["io", 15.8], ["load", 2.3]]),
+    },
+    {
+        name: "Server B",
+        metrics: new Map<string, number>([["cpu", 82.1], ["mem", 91.2], ["disk", 45.0]]),
+    },
+    {
+        name: "Server C",
+        metrics: new Map<string, number>([["cpu", 12.5], ["mem", 34.2], ["disk", 88.9], ["net", 56.7], ["io", 78.3], ["load", 1.1], ["temp", 42.0], ["power", 320.5]]),
+    },
+];
+const TABLE_FROZEN_COLUMNS_DATA = East.Array.range(0n, 20n).map((_$, i) => ({
+    id: East.str`#${i}`,
+    name: East.str`User ${i}`,
+    email: East.str`user${i}@example.com`,
+    dept: "Engineering",
+    role: "Developer",
+    location: "Remote",
+    status: "Active",
+    score: i.multiply(7n),
+}));
+const TABLE_NESTED_COLUMN_GROUPS_DATA = [
+    { dept: "Sales", region: "EMEA", q1: "$120k", q2: "$135k", q3: "$148k", q4: "$162k" },
+    { dept: "Sales", region: "APAC", q1: "$95k", q2: "$102k", q3: "$118k", q4: "$130k" },
+    { dept: "Marketing", region: "AMER", q1: "$48k", q2: "$52k", q3: "$54k", q4: "$59k" },
+];
+const TABLE_MULTI_ROW_FOOTER_DATA = [
+    { item: "Sandwich", category: "Food", price: 12.50 },
+    { item: "Salad", category: "Food", price: 9.00 },
+    { item: "Soda", category: "Drink", price: 3.50 },
+    { item: "Coffee", category: "Drink", price: 4.50 },
+];
+const TABLE_STRIPED_DATA = [
+    { product: "Widget A", price: "$29.99", stock: 150n },
+    { product: "Widget B", price: "$49.99", stock: 75n },
+    { product: "Widget C", price: "$19.99", stock: 200n },
+    { product: "Widget D", price: "$39.99", stock: 50n },
+];
+const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({
+    name: East.str`User ${i}`,
+    email: East.str`user${i}@example.com`,
+    status: "Active",
+}));
+const TABLE_DENSITY_COMPACT_DATA = East.Array.range(0n, 6n).map((_$, i) => ({
+    name: East.str`Row ${i}`,
+    status: "Active",
+}));
+const TABLE_ROW_HEIGHT_DATA = East.Array.range(0n, 6n).map((_$, i) => ({
+    name: East.str`Row ${i}`,
+    status: "Active",
+}));
+const TABLE_ROW_STATUS_DATA = East.Array.range(0n, 9n).map((_$, i) => ({
+    name: East.str`Row ${i}`,
+    score: i.multiply(11n),
+}));
+const TABLE_SELECTION_DATA = [
+    { name: "Alice", role: "Admin" },
+    { name: "Bob", role: "User" },
+    { name: "Charlie", role: "User" },
+    { name: "Diana", role: "Manager" },
+    { name: "Eve", role: "User" },
+];
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
@@ -25,168 +104,302 @@ export const tableBasic = example({
     inputs: [],
 });
 
-export const tableCustomHeaders = example({
-    keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth"],
-    description: "Object config with custom column headers and widths",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                data={[
-                    { firstName: "Alice", lastName: "Smith", dept: "Engineering" },
-                    { firstName: "Bob", lastName: "Jones", dept: "Marketing" },
-                ]}
-                columns={{
-                    firstName: { header: "First Name", width: "300px", minWidth: "80px" },
-                    lastName: { header: "Last Name", width: "150px" },
-                    dept: { header: "Department", minWidth: "100px", maxWidth: "200px" },
-                }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableStriped = example({
-    keywords: ["Table", "Root", "striped", "alternating"],
-    description: "Alternating row colors for readability",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                striped={true}
-                data={[
-                    { product: "Widget A", price: "$29.99", stock: 150n },
-                    { product: "Widget B", price: "$49.99", stock: 75n },
-                    { product: "Widget C", price: "$19.99", stock: 200n },
-                    { product: "Widget D", price: "$39.99", stock: 50n },
-                ]}
-                columns={{
-                    product: { header: "Product" },
-                    price: { header: "Price" },
-                    stock: { header: "In Stock" },
-                }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableWithBadge = example({
-    keywords: ["Table", "Root", "render", "Badge", "CellRenderContext"],
-    description: "Using Badge for status column",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                variant="line"
-                height="400px"
-                data={East.Array.range(0n, 1000n).map((_$, i) => ({
-                    name: East.str`User ${i}`,
-                    email: East.str`user${i}@example.com`,
-                    status: "Active",
-                }))}
-                columns={{
-                    name: { header: "Name" },
-                    email: { header: "Email" },
-                    status: {
-                        header: "Status",
-                        render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                            <Badge variant="solid" colorPalette="blue">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
-                        )),
-                    },
-                }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableComplexColumns = example({
-    keywords: ["Table", "Root", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext"],
-    description: "Array and struct fields with value functions for sorting; render reaches the FULL row by capturing the data array and indexing ctx.rowIndex",
+/**
+ * Column-system variant panel — custom headers, complex columns (full-row
+ * closure access), dict-as-tags, frozen columns, nested column groups, and
+ * the multi-row footer.
+ */
+export const tableColumnsVariants = example({
+    keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap", "frozen", "pin", "scroll", "columnGroups", "nested", "category", "header row", "footerRows", "subtotal", "grand total", "multi-row"],
+    description: "Column-system variant panel — custom headers (object config with widths), complex columns (value functions for sorting; render reaches the FULL row by capturing the data array and indexing ctx.rowIndex), wrapping tags (dict column rendered as tags wrapping in a fixed width), frozen columns (pinned left during horizontal scroll in a 600px container), nested column groups (Identity / Q1-Q2 / Q3-Q4 header groupings), multi row footer (footerRows with subtotal + bold grand-total rows and colSpan-spanned labels)",
     fn: East.function([], UIComponentType, ($) => {
-        const complexData = $.let([
-            { name: "Alice", skills: ["TypeScript", "React", "Node"], metadata: { level: "Senior", years: 5n } },
-            { name: "Bob", skills: ["Python", "Django"], metadata: { level: "Mid", years: 3n } },
-            { name: "Charlie", skills: ["Go", "Rust", "C++", "Java"], metadata: { level: "Senior", years: 8n } },
-        ]);
+        const complexData = $.let(TABLE_COMPLEX_COLUMNS_DATA);
+        const metricsData = $.let(TABLE_WRAPPING_TAGS_DATA);
         return (
-            <Table
-                variant="line"
-                striped={true}
-                data={complexData}
-                columns={{
-                    name: { header: "Name" },
-                    skills: {
-                        header: "Skills",
-                        value: (skills) => skills.size(),
-                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                            // The render context carries only {rowIndex, columnKey, cellValue} —
-                            // CAPTURE the data array and index ctx.rowIndex for full-row access.
-                            // Captures must be data or bind-handles, never a UIComponentType value.
-                            const row = $.let(complexData.get(ctx.rowIndex));
-                            return (
-                                <HStack gap="1" wrap="wrap">
-                                    {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="blue">{s}</Badge>)}
-                                </HStack>
-                            );
-                        }),
-                    },
-                    metadata: {
-                        header: "Experience",
-                        value: (meta) => meta.years,
-                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                            const row = $.let(complexData.get(ctx.rowIndex));
-                            return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;
-                        }),
-                    },
-                }}
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM HEADERS</Text>
+                    <Table
+                        data={TABLE_CUSTOM_HEADERS_DATA}
+                        columns={{
+                            firstName: { header: "First Name", width: "300px", minWidth: "80px" },
+                            lastName: { header: "Last Name", width: "150px" },
+                            dept: { header: "Department", minWidth: "100px", maxWidth: "200px" },
+                        }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMPLEX COLUMNS</Text>
+                    <Table
+                        variant="line"
+                        striped={true}
+                        data={complexData}
+                        columns={{
+                            name: { header: "Name" },
+                            skills: {
+                                header: "Skills",
+                                value: (skills) => skills.size(),
+                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                    // The render context carries only {rowIndex, columnKey, cellValue} —
+                                    // CAPTURE the data array and index ctx.rowIndex for full-row access.
+                                    // Captures must be data or bind-handles, never a UIComponentType value.
+                                    const row = $.let(complexData.get(ctx.rowIndex));
+                                    return (
+                                        <HStack gap="1" wrap="wrap">
+                                            {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="blue">{s}</Badge>)}
+                                        </HStack>
+                                    );
+                                }),
+                            },
+                            metadata: {
+                                header: "Experience",
+                                value: (meta) => meta.years,
+                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                    const row = $.let(complexData.get(ctx.rowIndex));
+                                    return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;
+                                }),
+                            },
+                        }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WRAPPING TAGS</Text>
+                    <Table
+                        variant="line"
+                        data={metricsData}
+                        columns={{
+                            name: { header: "Server", width: "120px" },
+                            metrics: {
+                                header: "Metrics",
+                                width: "400px",
+                                maxWidth: "400px",
+                                value: (val) => val.map((_$, value) => value).mean(),
+                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                    const row = $.let(metricsData.get(ctx.rowIndex));
+                                    return (
+                                        <HStack wrap="wrap" gap="1">
+                                            {row.metrics.map((_$, value, key) => <Tag>{East.str`${key}: ${value}`}</Tag>).toArray()}
+                                        </HStack>
+                                    );
+                                }),
+                            },
+                        }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FROZEN COLUMNS</Text>
+                    <Box width="600px" overflow="hidden">
+                        <Table
+                            frozen={["id", "name"]}
+                            variant="line"
+                            striped={true}
+                            height="400px"
+                            data={TABLE_FROZEN_COLUMNS_DATA}
+                            columns={{
+                                id: { header: "ID", width: "80px" },
+                                name: { header: "Name", width: "150px" },
+                                email: { header: "Email", width: "250px" },
+                                dept: { header: "Department", width: "150px" },
+                                role: { header: "Role", width: "150px" },
+                                location: { header: "Location", width: "150px" },
+                                status: { header: "Status", width: "120px" },
+                                score: { header: "Score", width: "100px" },
+                            }}
+                        />
+                    </Box>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NESTED COLUMN GROUPS</Text>
+                    <Table
+                        variant="outline"
+                        showColumnBorder={true}
+                        columnGroups={[
+                            { label: "Identity", columnKeys: ["dept", "region"] },
+                            { label: "First half", columnKeys: ["q1", "q2"] },
+                            { label: "Second half", columnKeys: ["q3", "q4"] },
+                        ]}
+                        data={TABLE_NESTED_COLUMN_GROUPS_DATA}
+                        columns={{
+                            dept: { header: "Department" },
+                            region: { header: "Region" },
+                            q1: { header: "Q1" },
+                            q2: { header: "Q2" },
+                            q3: { header: "Q3" },
+                            q4: { header: "Q4" },
+                        }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MULTI ROW FOOTER</Text>
+                    <Table
+                        variant="line"
+                        footerBackground="gray.50"
+                        footerRows={[
+                            {
+                                item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
+                                price: { content: <Text>$21.50</Text> },
+                            },
+                            {
+                                item: { content: <Text fontWeight="medium">Drink subtotal</Text>, colSpan: 2n },
+                                price: { content: <Text>$8.00</Text> },
+                            },
+                            {
+                                item: { content: <Text fontWeight="bold">Grand total</Text>, colSpan: 2n },
+                                price: { content: <Text fontWeight="bold">$29.50</Text> },
+                            },
+                        ]}
+                        data={TABLE_MULTI_ROW_FOOTER_DATA}
+                        columns={{
+                            item: { header: "Item" },
+                            category: { header: "Category" },
+                            price: { header: "Price ($)" },
+                        }}
+                    />
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],
 });
 
-export const tableWrappingTags = example({
-    keywords: ["Table", "Root", "Dict", "Tag", "wrap"],
-    description: "Dict column rendered as tags that wrap within a fixed width",
+/**
+ * Style variant panel — striped rows, Badge cell renders over a virtualized
+ * list, compact density, pixel rowHeight, and the rowStatus tint.
+ */
+export const tableStyleVariants = example({
+    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
+    description: "Style variant panel — striped (alternating row colors), with badge (Badge render for a status column over a 1000-row virtualized list), density compact (the density token tightens row height), row height (explicit 48px rows fed to the virtualizer), row status (rowStatus paints each row with a semantic success / warning / danger tint)",
     fn: East.function([], UIComponentType, ($) => {
-        const metricsData = $.let([
-            {
-                name: "Server A",
-                metrics: new Map<string, number>([["cpu", 45.2], ["mem", 78.5], ["disk", 62.1], ["net", 23.4], ["io", 15.8], ["load", 2.3]]),
-            },
-            {
-                name: "Server B",
-                metrics: new Map<string, number>([["cpu", 82.1], ["mem", 91.2], ["disk", 45.0]]),
-            },
-            {
-                name: "Server C",
-                metrics: new Map<string, number>([["cpu", 12.5], ["mem", 34.2], ["disk", 88.9], ["net", 56.7], ["io", 78.3], ["load", 1.1], ["temp", 42.0], ["power", 320.5]]),
-            },
-        ]);
+        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
+            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
+            return bucket.equals(0n).ifElse(
+                $ => Style.StatusToken("success"),
+                $ => bucket.equals(1n).ifElse(
+                    $ => Style.StatusToken("warning"),
+                    $ => Style.StatusToken("danger"),
+                ),
+            );
+        }));
         return (
-            <Table
-                variant="line"
-                data={metricsData}
-                columns={{
-                    name: { header: "Server", width: "120px" },
-                    metrics: {
-                        header: "Metrics",
-                        width: "400px",
-                        maxWidth: "400px",
-                        value: (val) => val.map((_$, value) => value).mean(),
-                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                            const row = $.let(metricsData.get(ctx.rowIndex));
-                            return (
-                                <HStack wrap="wrap" gap="1">
-                                    {row.metrics.map((_$, value, key) => <Tag>{East.str`${key}: ${value}`}</Tag>).toArray()}
-                                </HStack>
-                            );
-                        }),
-                    },
-                }}
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRIPED</Text>
+                    <Table
+                        striped={true}
+                        data={TABLE_STRIPED_DATA}
+                        columns={{
+                            product: { header: "Product" },
+                            price: { header: "Price" },
+                            stock: { header: "In Stock" },
+                        }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH BADGE</Text>
+                    <Table
+                        variant="line"
+                        height="400px"
+                        data={TABLE_WITH_BADGE_DATA}
+                        columns={{
+                            name: { header: "Name" },
+                            email: { header: "Email" },
+                            status: {
+                                header: "Status",
+                                render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+                                    <Badge variant="solid" colorPalette="blue">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
+                                )),
+                            },
+                        }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITY COMPACT</Text>
+                    <Table
+                        variant="line"
+                        density="compact"
+                        data={TABLE_DENSITY_COMPACT_DATA}
+                        columns={{ name: { header: "Name" }, status: { header: "Status" } }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW HEIGHT</Text>
+                    <Table
+                        variant="line"
+                        rowHeight={48n}
+                        data={TABLE_ROW_HEIGHT_DATA}
+                        columns={{ name: { header: "Name" }, status: { header: "Status" } }}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW STATUS</Text>
+                    <Table
+                        rowStatus={rowStatus}
+                        variant="line"
+                        data={TABLE_ROW_STATUS_DATA}
+                        columns={{ name: { header: "Name" }, score: { header: "Score" } }}
+                    />
+                </VStack>
+            </VStack>
         );
     }),
+    inputs: [],
+});
+
+/**
+ * Selection configurator — one table whose `selection.mode` flips between
+ * multiple and range from a SegmentGroup; each mode's selection mirrors its
+ * own State array so switching modes preserves each mode's selection.
+ */
+export const tableSelection = example({
+    keywords: ["Table", "Root", "selection", "multiple", "checkbox", "Reactive", "State", "range", "shift-click"],
+    description: "Selection configurator — a SegmentGroup flips selection.mode: multiple — toggles rows independently; range — shift-click extends from the last anchor, plain click resets. Each mode's selection mirrors its own State array (table_multi_selected / table_range_selected), so switching modes preserves each mode's selection; both count readouts render below the table",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const modeBind = $.let(State.bind([StringType], "table_selection_mode", "multiple"));
+            const mode = $.let(modeBind.read());
+            const multiBind = $.let(State.bind([ArrayType(IntegerType)], "table_multi_selected", []));
+            const multiSelected = $.let(multiBind.read(), ArrayType(IntegerType));
+            const rangeBind = $.let(State.bind([ArrayType(IntegerType)], "table_range_selected", []));
+            const rangeSelected = $.let(rangeBind.read(), ArrayType(IntegerType));
+            const onModeChange = $.const(East.function([StringType], NullType, ($, next) => {
+                $(modeBind.write(next));
+            }));
+            // The active mode routes reads + writes to its own bind.
+            const selected = $.let(mode.equal("range").ifElse(_$ => rangeSelected, _$ => multiSelected), ArrayType(IntegerType));
+            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
+                const m = $.let(modeBind.read());
+                $(m.equal("range").ifElse(_$ => rangeBind.write(next), _$ => multiBind.write(next)));
+            }));
+            const selectionMode = $.const(mode.equal("range").ifElse(
+                _$ => variant("range", null),
+                _$ => variant("multiple", null),
+            ), Table.Types.SelectionMode);
+            return (
+                <VStack gap="3" align="stretch">
+                    <SegmentGroup
+                        value={mode}
+                        onChange={onModeChange}
+                        items={[
+                            SegmentGroup.Item("multiple", "Multiple"),
+                            SegmentGroup.Item("range", "Range"),
+                        ]}
+                        size="sm"
+                    />
+                    <Table
+                        variant="line"
+                        striped={true}
+                        selection={{ mode: selectionMode, selected, onChange }}
+                        selectedBackground={mode.equal("range").ifElse(_$ => "purple.50", _$ => "blue.50")}
+                        selectedBorderColor={mode.equal("range").ifElse(_$ => "purple.300", _$ => "blue.300")}
+                        data={TABLE_SELECTION_DATA}
+                        columns={{ name: { header: "Name" }, role: { header: "Role" } }}
+                    />
+                    <Badge variant="solid" colorPalette="blue">{East.str`${multiSelected.size()} selected`}</Badge>
+                    <Badge variant="outline" colorPalette="purple">{East.str`Range size: ${rangeSelected.size()}`}</Badge>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -251,73 +464,6 @@ export const tableInteractiveCallbacks = example({
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-export const tableFrozenColumns = example({
-    keywords: ["Table", "Root", "frozen", "pin", "scroll"],
-    description: "Pin columns left so they stay visible during horizontal scroll. Container is 600px wide to force horizontal scroll.",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Box width="600px" overflow="hidden">
-                <Table
-                    frozen={["id", "name"]}
-                    variant="line"
-                    striped={true}
-                    height="400px"
-                    data={East.Array.range(0n, 20n).map((_$, i) => ({
-                        id: East.str`#${i}`,
-                        name: East.str`User ${i}`,
-                        email: East.str`user${i}@example.com`,
-                        dept: "Engineering",
-                        role: "Developer",
-                        location: "Remote",
-                        status: "Active",
-                        score: i.multiply(7n),
-                    }))}
-                    columns={{
-                        id: { header: "ID", width: "80px" },
-                        name: { header: "Name", width: "150px" },
-                        email: { header: "Email", width: "250px" },
-                        dept: { header: "Department", width: "150px" },
-                        role: { header: "Role", width: "150px" },
-                        location: { header: "Location", width: "150px" },
-                        status: { header: "Status", width: "120px" },
-                        score: { header: "Score", width: "100px" },
-                    }}
-                />
-            </Box>
-        );
-    }),
-    inputs: [],
-});
-
-export const tableRowStatus = example({
-    keywords: ["Table", "Root", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
-    description: "Row-status tint — `rowStatus: (rowIndex) => StatusToken` paints each row with a semantic background tint",
-    fn: East.function([], UIComponentType, ($) => {
-        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
-            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
-            return bucket.equals(0n).ifElse(
-                $ => Style.StatusToken("success"),
-                $ => bucket.equals(1n).ifElse(
-                    $ => Style.StatusToken("warning"),
-                    $ => Style.StatusToken("danger"),
-                ),
-            );
-        }));
-        return (
-            <Table
-                rowStatus={rowStatus}
-                variant="line"
-                data={East.Array.range(0n, 9n).map((_$, i) => ({
-                    name: East.str`Row ${i}`,
-                    score: i.multiply(11n),
-                }))}
-                columns={{ name: { header: "Name" }, score: { header: "Score" } }}
-            />
-        );
-    }),
     inputs: [],
 });
 
@@ -443,44 +589,6 @@ export const tableReviewPaginated = example({
     inputs: [],
 });
 
-export const tableDensityCompact = example({
-    keywords: ["Table", "Root", "density", "compact", "minimal"],
-    description: "Compact density — the `density: 'compact'` token tightens row height for dense enterprise tables",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                variant="line"
-                density="compact"
-                data={East.Array.range(0n, 6n).map((_$, i) => ({
-                    name: East.str`Row ${i}`,
-                    status: "Active",
-                }))}
-                columns={{ name: { header: "Name" }, status: { header: "Status" } }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableRowHeight = example({
-    keywords: ["Table", "Root", "rowHeight", "pixel", "override", "density", "virtualization"],
-    description: "Explicit pixel rowHeight overrides the density preset — fixed 48px rows fed to the virtualizer",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                variant="line"
-                rowHeight={48n}
-                data={East.Array.range(0n, 6n).map((_$, i) => ({
-                    name: East.str`Row ${i}`,
-                    status: "Active",
-                }))}
-                columns={{ name: { header: "Name" }, status: { header: "Status" } }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
 export const tableExpandedRichDetail = example({
     keywords: ["Table", "Root", "expandedContent", "rich detail", "Stack", "Stat"],
     description: "Expandable rows with rich detail content — Stack of Stat + Text components nested in the detail panel",
@@ -522,145 +630,6 @@ export const tableExpandedRichDetail = example({
     }),
     inputs: [],
 });
-
-export const tableMultiRowFooter = example({
-    keywords: ["Table", "Root", "footerRows", "subtotal", "grand total", "multi-row"],
-    description: "Multi-row footer — `footerRows` with a subtotal row and a bold grand-total row, demonstrating colSpan-spanned label cells",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                variant="line"
-                footerBackground="gray.50"
-                footerRows={[
-                    {
-                        item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
-                        price: { content: <Text>$21.50</Text> },
-                    },
-                    {
-                        item: { content: <Text fontWeight="medium">Drink subtotal</Text>, colSpan: 2n },
-                        price: { content: <Text>$8.00</Text> },
-                    },
-                    {
-                        item: { content: <Text fontWeight="bold">Grand total</Text>, colSpan: 2n },
-                        price: { content: <Text fontWeight="bold">$29.50</Text> },
-                    },
-                ]}
-                data={[
-                    { item: "Sandwich", category: "Food", price: 12.50 },
-                    { item: "Salad", category: "Food", price: 9.00 },
-                    { item: "Soda", category: "Drink", price: 3.50 },
-                    { item: "Coffee", category: "Drink", price: 4.50 },
-                ]}
-                columns={{
-                    item: { header: "Item" },
-                    category: { header: "Category" },
-                    price: { header: "Price ($)" },
-                }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableNestedColumnGroups = example({
-    keywords: ["Table", "Root", "columnGroups", "nested", "category", "header row"],
-    description: "Three column groups across six columns — financial-report-style header with Identity / Q1-Q2 / Q3-Q4 groupings",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Table
-                variant="outline"
-                showColumnBorder={true}
-                columnGroups={[
-                    { label: "Identity", columnKeys: ["dept", "region"] },
-                    { label: "First half", columnKeys: ["q1", "q2"] },
-                    { label: "Second half", columnKeys: ["q3", "q4"] },
-                ]}
-                data={[
-                    { dept: "Sales", region: "EMEA", q1: "$120k", q2: "$135k", q3: "$148k", q4: "$162k" },
-                    { dept: "Sales", region: "APAC", q1: "$95k", q2: "$102k", q3: "$118k", q4: "$130k" },
-                    { dept: "Marketing", region: "AMER", q1: "$48k", q2: "$52k", q3: "$54k", q4: "$59k" },
-                ]}
-                columns={{
-                    dept: { header: "Department" },
-                    region: { header: "Region" },
-                    q1: { header: "Q1" },
-                    q2: { header: "Q2" },
-                    q3: { header: "Q3" },
-                    q4: { header: "Q4" },
-                }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableMultiSelection = example({
-    keywords: ["Table", "Root", "selection", "multiple", "checkbox", "Reactive", "State"],
-    description: "Multiple-row selection — `mode: 'multiple'` toggles rows independently; selection mirrors a State array",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], "table_multi_selected", []));
-            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));
-            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
-                $(selectedBind.write(next));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Badge variant="solid" colorPalette="blue">{East.str`${selected.size()} selected`}</Badge>
-                    <Table
-                        variant="line"
-                        striped={true}
-                        selection={{ mode: "multiple", selected, onChange }}
-                        selectedBackground="blue.50"
-                        selectedBorderColor="blue.300"
-                        data={[
-                            { name: "Alice", role: "Admin" },
-                            { name: "Bob", role: "User" },
-                            { name: "Charlie", role: "User" },
-                            { name: "Diana", role: "Manager" },
-                            { name: "Eve", role: "User" },
-                        ]}
-                        columns={{ name: { header: "Name" }, role: { header: "Role" } }}
-                    />
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const tableRangeSelection = example({
-    keywords: ["Table", "Root", "selection", "range", "shift-click", "Reactive", "State"],
-    description: "Range-mode selection — shift-click extends from the last anchor; plain click resets to a single row",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], "table_range_selected", []));
-            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));
-            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
-                $(selectedBind.write(next));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Badge variant="outline" colorPalette="purple">{East.str`Range size: ${selected.size()}`}</Badge>
-                    <Table
-                        variant="line"
-                        striped={true}
-                        selection={{ mode: "range", selected, onChange }}
-                        selectedBackground="purple.50"
-                        selectedBorderColor="purple.300"
-                        data={East.Array.range(0n, 8n).map((_$, i) => ({
-                            id: East.str`#${i.add(1n)}`,
-                            task: East.str`Task ${i.add(1n)}`,
-                        }))}
-                        columns={{ id: { header: "ID" }, task: { header: "Task" } }}
-                    />
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 
 export const tableFill = example({
     keywords: ["Table", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],

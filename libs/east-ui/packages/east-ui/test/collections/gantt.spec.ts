@@ -3,34 +3,68 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { BooleanType, East, NullType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, none, some, variant, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { DragEventType, Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {
     Assert.examples(test, {
-        ganttFill: ex.ganttFill,
         ganttBasic: ex.ganttBasic,
-        ganttRowHeight: ex.ganttRowHeight,
-        ganttCustomHeaders: ex.ganttCustomHeaders,
-        ganttWithMilestones: ex.ganttWithMilestones,
-        ganttWithProgress: ex.ganttWithProgress,
-        ganttAxisWindow: ex.ganttAxisWindow,
-        ganttAxisQuarterTier: ex.ganttAxisQuarterTier,
-        ganttAxisWeekTier: ex.ganttAxisWeekTier,
+        ganttAxisVariants: ex.ganttAxisVariants,
+        ganttTaskVariants: ex.ganttTaskVariants,
+        ganttStyleVariants: ex.ganttStyleVariants,
         ganttStateAndStatus: ex.ganttStateAndStatus,
         ganttLifecycleArms: ex.ganttLifecycleArms,
-        ganttReview: ex.ganttReview,
-        ganttLibraryDnd: ex.ganttLibraryDnd,
-        ganttStyled: ex.ganttStyled,
-        ganttComplexColumns: ex.ganttComplexColumns,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
         ganttReactiveDrag: ex.ganttReactiveDrag,
-        ganttFrozenColumns: ex.ganttFrozenColumns,
-        ganttRowStatus: ex.ganttRowStatus,
-        ganttTaskPopover: ex.ganttTaskPopover,
-        ganttRichLabel: ex.ganttRichLabel,
+        ganttReview: ex.ganttReview,
+        ganttLibraryDnd: ex.ganttLibraryDnd,
+        ganttFill: ex.ganttFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#458).
+    // The mono-uppercase Text captions are the stable per-mini anchors
+    // (probe-collections selects panel rows through them).
+    // =========================================================================
+
+    test("ganttAxisVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.ganttAxisVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AXIS WINDOW"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AXIS QUARTER TIER"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AXIS WEEK TIER"));
+    });
+
+    test("ganttTaskVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.ganttTaskVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH MILESTONES"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH PROGRESS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RICH LABEL"));
+    });
+
+    test("ganttStyleVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.ganttStyleVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STYLED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ROW HEIGHT"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM HEADERS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMPLEX COLUMNS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FROZEN COLUMNS"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ROW STATUS"));
+    });
+
+    test("ganttInteractiveCallbacks mounts the callbacks + task-popover rows", $ => {
+        const panel = $.const(ex.ganttInteractiveCallbacks.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE CALLBACKS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TASK POPOVER"));
     });
 
     // =========================================================================
