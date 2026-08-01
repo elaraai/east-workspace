@@ -317,6 +317,19 @@ class EagerEvaluator:
 
         return _lift(value, hint=hint)
 
+    @staticmethod
+    def _in_trace() -> bool:
+        """Whether a kernel trace is active. A MUTABLE-container construction
+        inside a trace must emit constructor IR even with no traced children:
+        an eager value would lift as a hoisted CONSTANT shared across calls —
+        an init callback returning `[]` would hand every group one aliased
+        accumulator. (`east.kernel` the attribute is the kernel() function,
+        shadowing the submodule — go through sys.modules.)"""
+        import sys as _sys
+
+        mod = _sys.modules.get("east.kernel")
+        return mod is not None and mod._const_registry is not None
+
     # ── program entry ──
 
     def run_program(self, ir: EastVariant) -> Report:
@@ -391,7 +404,7 @@ class EagerEvaluator:
             return self.eval(p["struct"], env)[p["field"]]
         if kind == "Struct":
             fields = [(f["name"], self.eval(f["value"], env)) for f in p["fields"]]
-            if any(isinstance(v, KernelExpr) for _n, v in fields):
+            if any(isinstance(v, KernelExpr) for _n, v in fields) or self._in_trace():
                 # construction from traced parts IS a traced expression —
                 # an eager value holding proxies would hoist as a "constant"
                 # referencing kernel parameters (unbound outside the fn).
@@ -406,7 +419,9 @@ class EagerEvaluator:
             return EastStruct(dict(fields))
         if kind == "Variant":
             val = self.eval(p["value"], env)
-            if isinstance(val, KernelExpr):
+            if isinstance(val, KernelExpr) or self._in_trace():
+                # in-trace: the node's DECLARED type keeps every case — an
+                # eager variant would be sampled to a single-case type (#450)
                 t = self.canon(p["type"])
                 ctypes = {c["name"]: c["type"] for c in t.value}
                 return KernelExpr(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
@@ -418,7 +433,7 @@ class EagerEvaluator:
             # conjure function values, but Closures serialize via _east_ir
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
-            if any(isinstance(v, KernelExpr) for v in vals):
+            if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
                 from east.kernel import _k_new_array
 
                 et = child_type(t)
@@ -431,7 +446,7 @@ class EagerEvaluator:
         if kind == "NewSet":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
-            if any(isinstance(v, KernelExpr) for v in vals):
+            if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
                 from east.kernel import _k_new_set
 
                 et = child_type(t)
@@ -445,7 +460,7 @@ class EagerEvaluator:
             t = self.canon(p["type"])
             kt, vt = dict_child(t, "key"), dict_child(t, "value")
             entries = [(self.eval(e["key"], env), self.eval(e["value"], env)) for e in p["values"]]
-            if any(isinstance(x, KernelExpr) for kv in entries for x in kv):
+            if any(isinstance(x, KernelExpr) for kv in entries for x in kv) or self._in_trace():
                 from east.kernel import _k_new_dict
 
                 return KernelExpr(_k_new_dict(

@@ -60,163 +60,163 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
         'serialized Recursive-type dialect divergence (#475)',
         frozenset({'map() with function returning Expr<RecursiveType> preserves type'})),
     ('trampoline', 'Array'): (
-        'harness-mode artifacts: mutating group folds through the forced trampoline alias accumulators (eager product path verified correct); Recursive dialect (#475)',
-        frozenset({'Collect elements into arrays grouped by a key', 'Collect elements into sets grouped by a key (deduplicates)', 'Find all occurrences of a value within each group', 'Find first occurrence of a value within each group', 'Group into nested dicts (outer key + inner key)', 'groupFindAll', 'groupFindFirst', 'groupToArrays', 'groupToDicts - with conflict handler', 'groupToDicts - without conflict handler', 'groupToSets', 'map() with function returning Expr<RecursiveType> preserves type'})),
+        'serialized Recursive-type dialect divergence (#475)',
+        frozenset({'map() with function returning Expr<RecursiveType> preserves type'})),
     ('traced', 'Array'): (
-        'harness-mode artifacts: mutating group folds through the forced trampoline alias accumulators (eager product path verified correct); Recursive dialect (#475)',
-        frozenset({'Collect elements into arrays grouped by a key', 'Collect elements into sets grouped by a key (deduplicates)', 'Find all occurrences of a value within each group', 'Group into nested dicts (outer key + inner key)', 'groupFindAll', 'groupToArrays', 'groupToDicts - with conflict handler', 'groupToDicts - without conflict handler', 'groupToSets', 'map() with function returning Expr<RecursiveType> preserves type'})),
+        'serialized Recursive-type dialect divergence (#475)',
+        frozenset({'map() with function returning Expr<RecursiveType> preserves type'})),
     ('kernel', 'Blob'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge',
+        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
         frozenset({'UTF-16 decoding/encoding'})),
     ('trampoline', 'Blob'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge',
+        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
         frozenset({'UTF-16 decoding/encoding'})),
     ('traced', 'Blob'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge',
+        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
         frozenset({'UTF-16 decoding/encoding'})),
     ('kernel', 'Blob__Beast_v1_'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge',
+        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
         frozenset({'Beast v1 - String type', 'Beast v1 - Variant type'})),
     ('trampoline', 'Blob__Beast_v1_'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge',
+        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
         frozenset({'Beast v1 - String type', 'Beast v1 - Variant type'})),
     ('traced', 'Blob__Beast_v1_'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge',
+        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
         frozenset({'Beast v1 - String type', 'Beast v1 - Variant type'})),
     ('kernel', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary',
+        'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
     ('trampoline', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary',
+        'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
     ('traced', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary',
+        'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
     ('kernel', 'Blob__Beast_v2_parity_'): (
-        'beast-codec function/recursive value shapes at the py boundary',
+        'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 parity - a recursive type referenced from several positions'})),
     ('trampoline', 'Blob__Beast_v2_parity_'): (
-        'beast-codec function/recursive value shapes at the py boundary',
+        'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 parity - a recursive type referenced from several positions'})),
     ('traced', 'Blob__Beast_v2_parity_'): (
-        'beast-codec function/recursive value shapes at the py boundary',
+        'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 parity - a recursive type referenced from several positions'})),
     ('kernel', 'DateTime'): (
-        'datetime format-token surface differences',
+        'datetime format-token surface differences — #479',
         frozenset({'Format a datetime as a string with a format pattern', 'Formatted parsing', 'Formatted parsing errors', 'Formatted printing', 'Parse a formatted string into a datetime'})),
     ('trampoline', 'DateTime'): (
-        'datetime format-token surface differences',
+        'datetime format-token surface differences — #479',
         frozenset({'Format a datetime as a string with a format pattern', 'Formatted parsing', 'Formatted parsing errors', 'Formatted printing', 'Parse a formatted string into a datetime'})),
     ('traced', 'DateTime'): (
-        'datetime format-token surface differences',
+        'datetime format-token surface differences — #479',
         frozenset({'Format a datetime as a string with a format pattern', 'Formatted parsing', 'Formatted parsing errors', 'Formatted printing', 'Parse a formatted string into a datetime'})),
     ('kernel', 'East'): (
-        'value aliasing and recursive-type print parity',
+        'value aliasing and recursive-type print parity — #478',
         frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
     ('trampoline', 'East'): (
-        'value aliasing and recursive-type print parity',
+        'value aliasing and recursive-type print parity — #478',
         frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
     ('traced', 'East'): (
-        'value aliasing and recursive-type print parity',
+        'value aliasing and recursive-type print parity — #478',
         frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
     ('kernel', 'Function'): (
-        'function values crossing the py boundary (identity, serialization)',
+        'function values crossing the py boundary (identity, serialization) — #476',
         frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
     ('trampoline', 'Function'): (
-        'function values crossing the py boundary (identity, serialization)',
+        'function values crossing the py boundary (identity, serialization) — #476',
         frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a function with a loop to BEAST2', 'Serialize a function with control flow (if/return) to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'free function with control flow serialized and called', 'free function with loop serialized and called', 'function in recursive type (linked list) serialized and called', 'function returning recursive type serialized and called', 'outer closure with shared mutable capture preserves sharing (with serialization)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
     ('traced', 'Function'): (
-        'function values crossing the py boundary (identity, serialization)',
+        'function values crossing the py boundary (identity, serialization) — #476',
         frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
     ('kernel', 'Patch_Fuzz___062a1c65d952'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___062a1c65d952'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'invert round trip'})),
     ('traced', 'Patch_Fuzz___062a1c65d952'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'invert round trip'})),
     ('kernel', 'Patch_Fuzz___19b76faa3c47'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___19b76faa3c47'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('traced', 'Patch_Fuzz___19b76faa3c47'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('kernel', 'Patch_Fuzz___1e1c1b5a63b7'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___1e1c1b5a63b7'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('traced', 'Patch_Fuzz___1e1c1b5a63b7'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('kernel', 'Patch_Fuzz___8ee509b21a13'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___8ee509b21a13'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('traced', 'Patch_Fuzz___8ee509b21a13'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('kernel', 'Patch_Fuzz___98e128b1904b'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___98e128b1904b'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('traced', 'Patch_Fuzz___98e128b1904b'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('kernel', 'Patch_Fuzz___c07dba9d2a08'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___c07dba9d2a08'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('traced', 'Patch_Fuzz___c07dba9d2a08'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
     ('kernel', 'Patch_Fuzz___c7637b618ea1'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'invert round trip'})),
     ('trampoline', 'Patch_Fuzz___c7637b618ea1'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'invert round trip'})),
     ('traced', 'Patch_Fuzz___c7637b618ea1'): (
-        'fuzz cases with function-valued/recursive containers',
+        'fuzz cases with function-valued/recursive containers — #476/#478',
         frozenset({'compose round trip', 'invert round trip'})),
     ('kernel', 'Patch___E2E_All_Types'): (
-        'recursive/function containers beyond quote and coercion',
+        'recursive/function containers beyond quote and coercion — #476/#478',
         frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
     ('trampoline', 'Patch___E2E_All_Types'): (
-        'recursive/function containers beyond quote and coercion',
+        'recursive/function containers beyond quote and coercion — #476/#478',
         frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
     ('traced', 'Patch___E2E_All_Types'): (
-        'recursive/function containers beyond quote and coercion',
+        'recursive/function containers beyond quote and coercion — #476/#478',
         frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
     ('kernel', 'Recursive'): (
-        'recursive value print/parse and comparison parity',
+        'recursive value print/parse and comparison parity — #478',
         frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
     ('trampoline', 'Recursive'): (
-        'recursive value print/parse and comparison parity',
+        'recursive value print/parse and comparison parity — #478',
         frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
     ('traced', 'Recursive'): (
-        'recursive value print/parse and comparison parity',
+        'recursive value print/parse and comparison parity — #478',
         frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
     ('kernel', 'String'): (
-        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge',
+        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge — #477',
         frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values', 'Regex indexOf', 'Regex replace', 'Replace all regex matches in a string', 'String contains', 'String indexOf', 'String length', 'String replace', 'String split', 'String starts/ends with', 'String substring', 'String trim'})),
     ('trampoline', 'String'): (
-        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge',
+        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge — #477',
         frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values', 'Regex indexOf', 'Regex replace', 'Replace all regex matches in a string', 'String contains', 'String indexOf', 'String length', 'String replace', 'String split', 'String starts/ends with', 'String substring', 'String trim'})),
     ('traced', 'String'): (
-        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge',
+        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge — #477',
         frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values', 'Regex indexOf', 'Regex replace', 'Replace all regex matches in a string', 'String contains', 'String indexOf', 'String length', 'String replace', 'String split', 'String starts/ends with', 'String substring', 'String trim'})),
 }
 
