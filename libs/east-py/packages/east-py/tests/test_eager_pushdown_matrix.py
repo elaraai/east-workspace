@@ -82,18 +82,13 @@ def _callbacks(mode):
     return {name: fn for name, (_types, fn) in specs.items()}
 
 
+# The plain builtin-backed method rows that used to live here (map/filter/
+# filter_map/first_map/map_reduce/fold/sorted/to_*/flatten_*) are now covered
+# corpus-wide by tests/test_compliance_eager.py — kernel + trampoline replay
+# with per-builtin path accounting (#474 cleanup pass 1). This file keeps the
+# east-py-NATIVE surface the corpus cannot express: the sugar compositions
+# (sum/mean/min/max/every/some/group_*) and the pushdown mechanics pins.
 ARRAY_CASES = {
-    "map":             lambda a, c: a.map(c["v"], out=FloatType),
-    "filter":          lambda a, c: a.filter(c["pred"]),
-    "filter_map":      lambda a, c: a.filter_map(c["opt"], out=StringType),
-    "first_map":       lambda a, c: a.first_map(c["opt"], out=StringType),
-    "map_reduce":      lambda a, c: a.map_reduce(c["v"], c["comb"], out=FloatType),
-    "fold":            lambda a, c: a.fold(0.0, c["folder"]),
-    "sorted":          lambda a, c: a.sorted(key=c["v"]),
-    "is_sorted":       lambda a, c: a.is_sorted(key=c["v"]),
-    "to_set":          lambda a, c: a.to_set(c["g"]),
-    "to_dict":         lambda a, c: a.to_dict(c["k"], value=c["v"]),
-    "flatten_to_array": lambda a, c: a.flatten_to_array(c["flat"], out=StringType),
     "sum":             lambda a, c: a.sum(c["v"]),
     "mean":            lambda a, c: a.mean(c["v"]),
     "maximum":         lambda a, c: a.maximum(by=c["v"]),
@@ -115,26 +110,11 @@ ARRAY_CASES = {
 }
 
 SET_CASES = {
-    "map":        lambda s, c: s.map(c["su"], out=StringType),
-    "filter":     lambda s, c: s.filter(c["spred"]),
-    "to_array":   lambda s, c: s.to_array(c["su"]),
-    "to_set":     lambda s, c: s.to_set(c["su"], out=StringType),
-    "to_dict":    lambda s, c: s.to_dict(c["su"], c["su"], lambda a, b, _k: b),
-    "first_map":  lambda s, c: s.first_map(
-        lambda x: where(x.contains("1"), some(x), none), out=StringType),
     "every":      lambda s, c: s.every(c["spred"]),
     "some":       lambda s, c: s.some(c["spred"]),
 }
 
 DICT_CASES = {
-    "map":             lambda d, c: d.map(c["mv"], out=FloatType),
-    "filter":          lambda d, c: d.filter(c["dpred"]),
-    "filter_map":      lambda d, c: d.filter_map(c["dopt"], out=StringType),
-    "first_map":       lambda d, c: d.first_map(c["dopt"], out=StringType),
-    "map_reduce":      lambda d, c: d.map_reduce(c["dv"], c["comb"], out=FloatType),
-    "to_array":        lambda d, c: d.to_array(c["dg"]),
-    "to_set":          lambda d, c: d.to_set(c["dg"]),
-    "to_dict":         lambda d, c: d.to_dict(c["dg"], c["dv"], lambda a, b, _k: b),
     "merge":           lambda d, c: d.merge(d, c["comb"]),
     "mean":            lambda d, c: d.mean(c["dv"]),
     "group_fold":      lambda d, c: d.group_fold(

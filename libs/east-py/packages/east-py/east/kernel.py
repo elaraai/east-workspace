@@ -183,9 +183,11 @@ _COMPARE = {
 
 def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
     """Lift a python literal into a constant expression (bool before int!)."""
+    from east.types.values import is_east_null
+
     if isinstance(value, KernelExpr):
         return value
-    if value is None:
+    if value is None or is_east_null(value):
         return KernelExpr(_literal(None, NullType), NullType)
     if isinstance(value, bool):
         return KernelExpr(_literal(value, BooleanType), BooleanType)
@@ -2532,6 +2534,12 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return True
     if isinstance(value, EastType):  # East variants/types are immutable constants
+        return True
+    # the Null sentinel is an immutable constant — side-effect callbacks like
+    # `lambda el: east_null` must stay traceable
+    from east.types.values import is_east_null
+
+    if is_east_null(value):
         return True
     if value is where or value is bool or value is isinstance or value is abs:
         return True

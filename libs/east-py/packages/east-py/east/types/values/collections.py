@@ -1042,10 +1042,10 @@ class EastArray(MutableSequence, Generic[T]):
             return EastDict(self.element_type, self.element_type)
         k2 = _kernel_out_type(key, [self.element_type]) or _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0]))  # declared type first (#450)
         a_t = _kernel_out_type(init, [k2]) or _ev.type_of(init(key(self[0])))
-        key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
+        key_cb = EastFunction(_mark_kernel(lambda el, _i: key(el), key), [self.element_type, IntegerType], k2)
         init_cb = EastFunction(init, [k2], a_t)
         fold_cb = EastFunction(
-            lambda acc, el, _i: fold(acc, el), [a_t, self.element_type, IntegerType], a_t
+            _mark_kernel(lambda acc, el, _i: fold(acc, el), fold), [a_t, self.element_type, IntegerType], a_t
         )
         return _call_builtin(
             "ArrayGroupFold",
@@ -1748,7 +1748,7 @@ class EastSet(Generic[T]):
             r = predicate(el)
             return r if isinstance(r, KernelExpr) else bool(r)
 
-        callback = EastFunction(_pred, [self.element_type], BooleanType)
+        callback = EastFunction(_mark_kernel(_pred, predicate), [self.element_type], BooleanType)
         return _call_builtin("SetFilter", [self.element_type], [self, callback], SetType(self.element_type))
 
     def filter_map(self, fn: Any, out: EastType | None = None) -> EastDict:
@@ -1826,10 +1826,10 @@ class EastSet(Generic[T]):
         """
         if len(self) == 0:
             raise ValueError("map_reduce on an empty set has no result (no identity element)")
-        sample = next(iter(self))
-        t2 = _ev.type_of(fn(sample))
+        # Declared type first (#450)
+        t2 = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
         map_cb = EastFunction(fn, [self.element_type], t2)
-        reduce_cb = EastFunction(lambda a, b: reduce(a, b), [t2, t2], t2)
+        reduce_cb = EastFunction(_mark_kernel(lambda a, b: reduce(a, b), reduce), [t2, t2], t2)
         return _call_builtin("SetMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
 
     def reduce(self, initial: Any, fn: Any) -> Any:
@@ -1845,7 +1845,7 @@ class EastSet(Generic[T]):
             The final accumulator.
         """
         t2 = _ev.type_of(initial)
-        callback = EastFunction(lambda acc, el: fn(acc, el), [t2, self.element_type], t2)
+        callback = EastFunction(_mark_kernel(lambda acc, el: fn(acc, el), fn), [t2, self.element_type], t2)
         return _call_builtin("SetReduce", [self.element_type, t2], [self, callback, initial], t2)
 
     def flatten_to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
@@ -1909,9 +1909,17 @@ class EastSet(Generic[T]):
 
         if len(self) == 0:
             return EastDict(self.element_type, self.element_type)
-        sampled = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
-        k2 = sampled.key_type
-        t2 = sampled.value_type
+        # Declared type first (#450); NB a declared Dict TYPE carries its key/
+        # value under .value — .key_type exists only on a sampled dict VALUE
+        # (reading it off the type crashed every kernel/traceable callback here).
+        _ko = _kernel_out_type(fn, [self.element_type])
+        if _ko is not None:
+            k2 = _ko.value["key"]
+            t2 = _ko.value["value"]
+        else:
+            sample = fn(next(iter(self)))
+            k2 = sample.key_type
+            t2 = sample.value_type
         callback = EastFunction(fn, [self.element_type], DictType(k2, t2))
         combine_cb = EastFunction(
             (lambda v1, v2, k: v2) if combine is None else (lambda v1, v2, k: combine(v1, v2, k)),
@@ -2061,7 +2069,7 @@ class EastSet(Generic[T]):
         t2 = _ev.type_of(initial(key(sample)))
         key_cb = EastFunction(key, [self.element_type], k2)
         init_cb = EastFunction(initial, [k2], t2)
-        fold_cb = EastFunction(lambda acc, el: fold(acc, el), [t2, self.element_type], t2)
+        fold_cb = EastFunction(_mark_kernel(lambda acc, el: fold(acc, el), fold), [t2, self.element_type], t2)
         return _call_builtin(
             "SetGroupFold", [self.element_type, k2, t2], [self, key_cb, init_cb, fold_cb], DictType(k2, t2)
         )
@@ -2564,12 +2572,12 @@ class EastDict(Generic[K, V]):
 
         self._check_not_iterating()
         merge_cb = EastFunction(
-            lambda existing, incoming, key: merge(existing, incoming, key),
+            _mark_kernel(lambda existing, incoming, key: merge(existing, incoming, key), merge),
             [self.value_type, self.value_type, self.key_type],
             self.value_type,
         )
         default_cb = EastFunction(
-            lambda key: default(key),
+            _mark_kernel(lambda key: default(key), default),
             [self.key_type],
             self.value_type,
         )
@@ -2675,6 +2683,9 @@ class EastDict(Generic[K, V]):
             r = predicate(k, v)
             return r if isinstance(r, KernelExpr) else bool(r)
 
+        # No _mark_kernel: the wrapper SWAPS (k, v) — a marked kernel would be
+        # invoked with the builtin's (value, key) order. Argument-swapped
+        # kernels ride via the tracer instead (dual-mode kernels re-trace).
         callback = EastFunction(_pred, [self.value_type, self.key_type], BooleanType)
         return _call_builtin("DictFilter", [self.key_type, self.value_type], [self, callback], DictType(self.key_type, self.value_type))
 
@@ -2924,9 +2935,14 @@ class EastDict(Generic[K, V]):
 
         if len(self) == 0:
             return EastDict(self.key_type, self.value_type)
-        first_key = next(iter(self))
-        sample = fn(first_key, self[first_key])
-        k2, v2 = sample.key_type, sample.value_type
+        # Declared type first (#450): sample only untraceable callbacks.
+        _ko = _kernel_out_type(fn, [self.key_type, self.value_type])
+        if _ko is not None:
+            k2, v2 = _ko.value["key"], _ko.value["value"]
+        else:
+            first_key = next(iter(self))
+            sample = fn(first_key, self[first_key])
+            k2, v2 = sample.key_type, sample.value_type
         map_cb = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], DictType(k2, v2))
         combine_cb = EastFunction(combine, [v2, v2, k2], v2)
         return _call_builtin("DictFlattenToDict", [self.key_type, self.value_type, k2, v2], [self, map_cb, combine_cb], DictType(k2, v2))
