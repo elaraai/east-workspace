@@ -6,46 +6,95 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, StringType, StructType, ArrayType, FloatType, BooleanType } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./chart.examples.js";
 
 describeEast("Chart", (test) => {
     Assert.examples(test, {
-        chartTimeTickValues: ex.chartTimeTickValues,
         lineBasic: ex.lineBasic,
+        lineVariants: ex.lineVariants,
+        axisVariants: ex.axisVariants,
+        columnVariants: ex.columnVariants,
+        barVariants: ex.barVariants,
+        areaScatterVariants: ex.areaScatterVariants,
+        composedVariants: ex.composedVariants,
         tooltipOverStickyTable: ex.tooltipOverStickyTable,
-        columnStackedDiverging: ex.columnStackedDiverging,
-        lineMultiColumns: ex.lineMultiColumns,
-        lineBreakdown: ex.lineBreakdown,
-        lineCurveNatural: ex.lineCurveNatural,
-        lineStepNoDots: ex.lineStepNoDots,
-        lineStepAfterSetpoint: ex.lineStepAfterSetpoint,
-        lineDashedTargetOverlay: ex.lineDashedTargetOverlay,
-        lineTemporal: ex.lineTemporal,
-        lineNumericX: ex.lineNumericX,
-        lineIntegerDayTicks: ex.lineIntegerDayTicks,
-        lineRuntimeDomain: ex.lineRuntimeDomain,
-        lineRuntimeTimeDomain: ex.lineRuntimeTimeDomain,
-        axisTextStyled: ex.axisTextStyled,
-        lineSampleFan: ex.lineSampleFan,
-        columnBasic: ex.columnBasic,
-        columnPerCategory: ex.columnPerCategory,
-        columnGrouped: ex.columnGrouped,
-        columnStacked: ex.columnStacked,
-        columnPercentStacked: ex.columnPercentStacked,
-        columnCustomColors: ex.columnCustomColors,
-        barRanked: ex.barRanked,
-        barGrouped: ex.barGrouped,
-        barStacked: ex.barStacked,
-        barPercentStacked: ex.barPercentStacked,
-        areaStacked: ex.areaStacked,
-        areaConfidenceBand: ex.areaConfidenceBand,
-        scatterQuadrants: ex.scatterQuadrants,
-        scatterBubble: ex.scatterBubble,
-        composedColumnLine: ex.composedColumnLine,
-        composedDualAxisForecast: ex.composedDualAxisForecast,
-        referenceAnnotations: ex.referenceAnnotations,
-        axisFormatting: ex.axisFormatting,
         interactiveValue: ex.interactiveValue,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#457).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("lineVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.lineVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 7n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MULTI COLUMNS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BREAKDOWN"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CURVE NATURAL"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STEP NO DOTS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STEP AFTER SETPOINT"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DASHED TARGET OVERLAY"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SAMPLE FAN"));
+    });
+
+    test("axisVariants panel mounts one captioned row per merged example incl. the #318 pin", $ => {
+        const panel = $.const(ex.axisVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 8n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TEMPORAL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "NUMERIC X"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTEGER DAY TICKS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RUNTIME DOMAIN"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RUNTIME TIME DOMAIN"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AXIS TEXT STYLED"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AXIS FORMATTING"));
+        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CHART TIME TICK VALUES — #318 MONDAY TICK INSTANTS"));
+    });
+
+    test("columnVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.columnVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 7n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN BASIC"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN PER CATEGORY"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN GROUPED"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN STACKED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN PERCENT STACKED"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN CUSTOM COLORS"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLUMN STACKED DIVERGING"));
+    });
+
+    test("barVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.barVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BAR RANKED — ALIGNEDSTACK LABEL GUTTER"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BAR GROUPED"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BAR STACKED"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BAR PERCENT STACKED"));
+    });
+
+    test("areaScatterVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.areaScatterVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AREA STACKED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AREA CONFIDENCE BAND"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCATTER QUADRANTS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCATTER BUBBLE"));
+    });
+
+    test("composedVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.composedVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMPOSED COLUMN LINE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMPOSED DUAL AXIS FORECAST"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "REFERENCE ANNOTATIONS"));
     });
 
     // =========================================================================

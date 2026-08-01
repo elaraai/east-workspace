@@ -5,18 +5,32 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Sparkline } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./sparkline.examples.js";
 
 describeEast("Sparkline", (test) => {
     Assert.examples(test, {
-        sparklineLine: ex.sparklineLine,
-        sparklineArea: ex.sparklineArea,
-        sparklineColors: ex.sparklineColors,
-        sparklineSizes: ex.sparklineSizes,
-        sparklineStock: ex.sparklineStock,
-        sparklineMetric: ex.sparklineMetric,
-        sparklineTableCell: ex.sparklineTableCell,
-        sparklineDowntrend: ex.sparklineDowntrend,
+        sparklineBasic: ex.sparklineBasic,
+        sparklineVariants: ex.sparklineVariants,
+        sparklineInteractive: ex.sparklineInteractive,
+    });
+
+    // =========================================================================
+    // Panel — every merged example stays mounted as a captioned row (#457).
+    // =========================================================================
+
+    test("sparklineVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.sparklineVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 7n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "AREA"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STOCK"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "METRIC"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TABLE CELL"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DOWNTREND"));
     });
 
     // =========================================================================
