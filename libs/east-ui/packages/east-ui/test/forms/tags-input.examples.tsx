@@ -7,6 +7,10 @@ import { East, ArrayType, NullType, OptionType, StringType, example, none } from
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { TagsInput, Text, VStack, Reactive } from "@elaraai/east-ui";
 
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
 export const tagsInputBasic = example({
     keywords: ["TagsInput", "Root", "label", "placeholder", "max"],
     description: "Multi-tag entry control",
@@ -15,6 +19,10 @@ export const tagsInputBasic = example({
     }),
     inputs: [],
 });
+
+// ============================================================================
+// Suggestions — the autocomplete contract
+// ============================================================================
 
 export const tagsInputSuggestions = example({
     keywords: ["TagsInput", "Root", "suggestions", "autocomplete", "hints", "datalist"],
@@ -25,65 +33,66 @@ export const tagsInputSuggestions = example({
     inputs: [],
 });
 
-export const tagsInputInteractive = example({
-    keywords: ["TagsInput", "Root", "Reactive", "State", "onChange", "interactive"],
-    description: "Add/remove tags to see onChange callback",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const tagsBind = $.let(State.bind([ArrayType(StringType)], "form_tags", ["initial"]));
-            const tags = $.let(tagsBind.read());
-            const onChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
-                $(tagsBind.write(newValue));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <TagsInput value={tags} placeholder="Add tag..." onChange={onChange} />
-                    {<Text.MonoLabel>{East.str`${tags.size()} TAGS`}</Text.MonoLabel>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
+// ============================================================================
+// TagsInput — onChange + onInputChange + onHighlightChange logs (events panel)
+// ============================================================================
 
-export const tagsInputOnInputChange = example({
-    keywords: ["TagsInput", "Root", "Reactive", "State", "onInputChange", "interactive"],
-    description: "TagsInput whose onInputChange records every keystroke before commit",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const inputBind = $.let(State.bind([StringType], "tags_inputvalue", ""));
-            const last = $.let(inputBind.read());
-            const onInputChange = $.const(East.function([StringType], NullType, ($, val) => {
-                $(inputBind.write(val));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <TagsInput value={[]} placeholder="Type, then press Enter…" onInputChange={onInputChange} />
-                    <Text>{East.str`Last typed: ${last}`}</Text>
+export const tagsInputEvents = example({
+    keywords: ["TagsInput", "Root", "Reactive", "State", "onChange", "interactive", "onInputChange", "onHighlightChange"],
+    description: "TagsInput events panel — input interactive (add/remove tags to see onChange callback), input on input change (TagsInput whose onInputChange records every keystroke before commit), input on highlight change (TagsInput whose onHighlightChange records the current highlighted tag)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INPUT INTERACTIVE</Text>
+                    <Reactive>{$ => {
+                        const tagsBind = $.let(State.bind([ArrayType(StringType)], "form_tags", ["initial"]));
+                        const tags = $.let(tagsBind.read());
+                        const onChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
+                            $(tagsBind.write(newValue));
+                        }));
+                        return (
+                            <VStack gap="3" align="stretch">
+                                <TagsInput value={tags} placeholder="Add tag..." onChange={onChange} />
+                                {<Text.MonoLabel>{East.str`${tags.size()} TAGS`}</Text.MonoLabel>}
+                            </VStack>
+                        );
+                    }}</Reactive>
                 </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const tagsInputOnHighlightChange = example({
-    keywords: ["TagsInput", "Root", "Reactive", "State", "onHighlightChange", "interactive"],
-    description: "TagsInput whose onHighlightChange records the current highlighted tag",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const hiBind = $.let(State.bind([OptionType(StringType)], "tags_highlight", none));
-            const hi = $.let(hiBind.read());
-            const onHighlightChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
-                $(hiBind.write(val));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <TagsInput value={["alpha", "beta", "gamma"]} placeholder="Use arrow keys to highlight…" onHighlightChange={onHighlightChange} />
-                    <Text>{East.str`Highlighted: ${hi.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INPUT ON INPUT CHANGE</Text>
+                    <Reactive>{$ => {
+                        const inputBind = $.let(State.bind([StringType], "tags_inputvalue", ""));
+                        const last = $.let(inputBind.read());
+                        const onInputChange = $.const(East.function([StringType], NullType, ($, val) => {
+                            $(inputBind.write(val));
+                        }));
+                        return (
+                            <VStack gap="3" align="stretch">
+                                <TagsInput value={[]} placeholder="Type, then press Enter…" onInputChange={onInputChange} />
+                                <Text>{East.str`Last typed: ${last}`}</Text>
+                            </VStack>
+                        );
+                    }}</Reactive>
                 </VStack>
-            );
-        }}</Reactive>
-    )),
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INPUT ON HIGHLIGHT CHANGE</Text>
+                    <Reactive>{$ => {
+                        const hiBind = $.let(State.bind([OptionType(StringType)], "tags_highlight", none));
+                        const hi = $.let(hiBind.read());
+                        const onHighlightChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
+                            $(hiBind.write(val));
+                        }));
+                        return (
+                            <VStack gap="3" align="stretch">
+                                <TagsInput value={["alpha", "beta", "gamma"]} placeholder="Use arrow keys to highlight…" onHighlightChange={onHighlightChange} />
+                                <Text>{East.str`Highlighted: ${hi.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
+                            </VStack>
+                        );
+                    }}</Reactive>
+                </VStack>
+            </VStack>
+        );
+    }),
     inputs: [],
 });

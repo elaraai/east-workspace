@@ -4,19 +4,34 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Badge, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./badge.examples.js";
 
 describeEast("Badge", (test) => {
     Assert.examples(test, {
         badgeBasic: ex.badgeBasic,
-        badgeVariants: ex.badgeVariants,
-        badgeColors: ex.badgeColors,
-        badgeCustom: ex.badgeCustom,
-        badgeFixedWidth: ex.badgeFixedWidth,
-        badgeBorder: ex.badgeBorder,
-        badgeBoxModel: ex.badgeBoxModel,
-        badgeDensities: ex.badgeDensities,
+        badgeStyles: ex.badgeStyles,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("badgeStyles panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.badgeStyles.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 9n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VARIANTS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COUNT CALLOUT"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FIXED WIDTH"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BORDER"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BOX MODEL"));
+        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITIES"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // =========================================================================

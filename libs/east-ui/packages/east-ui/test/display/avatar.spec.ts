@@ -4,15 +4,29 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Avatar, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Avatar, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./avatar.examples.js";
 
 describeEast("Avatar", (test) => {
     Assert.examples(test, {
         avatarBasic: ex.avatarBasic,
-        avatarSizes: ex.avatarSizes,
-        avatarColors: ex.avatarColors,
-        avatarDensities: ex.avatarDensities,
+        avatarVariants: ex.avatarVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("avatarVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.avatarVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITIES"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // =========================================================================

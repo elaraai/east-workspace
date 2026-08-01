@@ -4,18 +4,30 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TimeRangeInput } from "@elaraai/east-ui/internal";
-import { East, IntegerType, NullType } from "@elaraai/east";
+import { TimeRangeInput, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, IntegerType, NullType, type ExprType } from "@elaraai/east";
 import * as ex from "./time-range-input.examples.js";
 
 describeEast("TimeRangeInput", (test) => {
     Assert.examples(test, {
         timeRangeInputBasic: ex.timeRangeInputBasic,
         timeRangeInputReactive: ex.timeRangeInputReactive,
-        timeRangeInputPresets: ex.timeRangeInputPresets,
-        timeRangeInputColours: ex.timeRangeInputColours,
-        timeRangeInputSizes: ex.timeRangeInputSizes,
-        timeRangeInputDisabled: ex.timeRangeInputDisabled,
+        timeRangeInputVariants: ex.timeRangeInputVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("timeRangeInputVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.timeRangeInputVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT PRESETS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT COLOURS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT SIZES"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT DISABLED"));
     });
 
     test("creates range with start + end minutes", $ => {

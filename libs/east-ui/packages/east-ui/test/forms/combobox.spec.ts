@@ -4,21 +4,48 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Combobox, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Combobox, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./combobox.examples.js";
 
 describeEast("Combobox", (test) => {
     Assert.examples(test, {
         comboboxBasic: ex.comboboxBasic,
-        comboboxWithValue: ex.comboboxWithValue,
-        comboboxSizes: ex.comboboxSizes,
-        comboboxDisabled: ex.comboboxDisabled,
-        comboboxCustomValue: ex.comboboxCustomValue,
-        comboboxMultiple: ex.comboboxMultiple,
+        comboboxVariants: ex.comboboxVariants,
         comboboxInteractive: ex.comboboxInteractive,
-        comboboxInteractiveMulti: ex.comboboxInteractiveMulti,
-        comboboxOnInputValueChange: ex.comboboxOnInputValueChange,
-        comboboxOnOpenChange: ex.comboboxOnOpenChange,
+        comboboxEvents: ex.comboboxEvents,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("comboboxVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.comboboxVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH VALUE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DISABLED"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM VALUE"));
+    });
+
+    test("comboboxInteractive panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.comboboxInteractive.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MULTIPLE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE MULTI"));
+    });
+
+    test("comboboxEvents panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.comboboxEvents.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ON INPUT VALUE CHANGE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ON OPEN CHANGE"));
     });
 
     // =========================================================================

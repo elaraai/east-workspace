@@ -4,19 +4,40 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Tag, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Tag, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./tag.examples.js";
 
 describeEast("Tag", (test) => {
     Assert.examples(test, {
         tagBasic: ex.tagBasic,
+        tagStyles: ex.tagStyles,
         tagClosable: ex.tagClosable,
-        tagVariants: ex.tagVariants,
-        tagCustom: ex.tagCustom,
-        tagDynamic: ex.tagDynamic,
-        tagBorder: ex.tagBorder,
-        tagBoxModel: ex.tagBoxModel,
-        tagDensities: ex.tagDensities,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("tagStyles panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tagStyles.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VARIANTS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BORDER"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BOX MODEL"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITIES"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DYNAMIC"));
+    });
+
+    test("tagClosable panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tagClosable.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CLOSABLE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ON CLOSE INTERACTIVE"));
     });
 
     // =========================================================================

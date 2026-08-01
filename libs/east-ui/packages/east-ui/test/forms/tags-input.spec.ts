@@ -4,16 +4,29 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TagsInput, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { TagsInput, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./tags-input.examples.js";
 
 describeEast("TagsInput", (test) => {
     Assert.examples(test, {
         tagsInputBasic: ex.tagsInputBasic,
         tagsInputSuggestions: ex.tagsInputSuggestions,
-        tagsInputInteractive: ex.tagsInputInteractive,
-        tagsInputOnInputChange: ex.tagsInputOnInputChange,
-        tagsInputOnHighlightChange: ex.tagsInputOnHighlightChange,
+        tagsInputEvents: ex.tagsInputEvents,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("tagsInputEvents panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tagsInputEvents.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INPUT INTERACTIVE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INPUT ON INPUT CHANGE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INPUT ON HIGHLIGHT CHANGE"));
     });
 
     // =========================================================================

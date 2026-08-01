@@ -4,19 +4,31 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { DateRangeInput } from "@elaraai/east-ui/internal";
-import { East, DateTimeType, NullType } from "@elaraai/east";
+import { DateRangeInput, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, DateTimeType, NullType, type ExprType } from "@elaraai/east";
 import * as ex from "./date-range-input.examples.js";
 
 describeEast("DateRangeInput", (test) => {
     Assert.examples(test, {
         dateRangeInputBasic: ex.dateRangeInputBasic,
-        dateRangeInputDateTime: ex.dateRangeInputDateTime,
         dateRangeInputReactive: ex.dateRangeInputReactive,
-        dateRangeInputPresets: ex.dateRangeInputPresets,
-        dateRangeInputColours: ex.dateRangeInputColours,
-        dateRangeInputSizes: ex.dateRangeInputSizes,
-        dateRangeInputDisabled: ex.dateRangeInputDisabled,
+        dateRangeInputVariants: ex.dateRangeInputVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("dateRangeInputVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.dateRangeInputVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT DATE TIME"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT PRESETS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT COLOURS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT SIZES"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT DISABLED"));
     });
 
     test("creates range with start + end DateTime", $ => {

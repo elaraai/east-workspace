@@ -7,6 +7,30 @@ import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { RadioGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
 
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+const RADIO_GROUP_HORIZONTAL_DATA = [
+    { value: "small", label: "Small" },
+    { value: "medium", label: "Medium" },
+    { value: "large", label: "Large" },
+];
+const RADIO_GROUP_DISABLED_ITEM_DATA = [
+    { value: "active", label: "Active" },
+    { value: "pending", label: "Pending" },
+    { value: "archived", label: "Archived", disabled: true },
+];
+const RADIO_GROUP_COLOUR_OVERRIDES_DATA = [
+    { value: "low", label: "Low priority" },
+    { value: "med", label: "Medium priority" },
+    { value: "high", label: "High priority" },
+];
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
 export const radioGroupBasic = example({
     keywords: ["RadioGroup", "Root", "radio", "select", "single-select"],
     description: "Basic radio group with three options",
@@ -25,42 +49,9 @@ export const radioGroupBasic = example({
     inputs: [],
 });
 
-export const radioGroupHorizontal = example({
-    keywords: ["RadioGroup", "orientation", "horizontal"],
-    description: "Horizontal radio group layout",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioGroup
-                value="small"
-                items={[
-                    { value: "small", label: "Small" },
-                    { value: "medium", label: "Medium" },
-                    { value: "large", label: "Large" },
-                ]}
-                orientation="horizontal"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const radioGroupDisabledItem = example({
-    keywords: ["RadioGroup", "disabled", "item"],
-    description: "Radio group with one disabled item",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioGroup
-                value="active"
-                items={[
-                    { value: "active", label: "Active" },
-                    { value: "pending", label: "Pending" },
-                    { value: "archived", label: "Archived", disabled: true },
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Reactive — picking an option writes to State and re-renders
+// ============================================================================
 
 export const radioGroupReactive = example({
     keywords: ["RadioGroup", "Reactive", "State", "onChange", "interactive"],
@@ -91,22 +82,42 @@ export const radioGroupReactive = example({
     inputs: [],
 });
 
-export const radioGroupColourOverrides = example({
-    keywords: ["RadioGroup", "fillColor", "borderColor", "color", "override"],
-    description: "Radio group with explicit colour escape hatches for fill / border / label text",
+// ============================================================================
+// RadioGroup — orientation, disabled item, colour overrides (variant panel)
+// ============================================================================
+
+export const radioGroupVariants = example({
+    keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override"],
+    description: "RadioGroup variant panel — group horizontal (horizontal radio group layout), group disabled item (radio group with one disabled item), group colour overrides (radio group with explicit colour escape hatches for fill / border / label text)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <RadioGroup
-                value="low"
-                items={[
-                    { value: "low", label: "Low priority" },
-                    { value: "med", label: "Medium priority" },
-                    { value: "high", label: "High priority" },
-                ]}
-                fillColor="blue.600"
-                borderColor="blue.300"
-                color="gray.700"
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP HORIZONTAL</Text>
+                    <RadioGroup
+                        value="small"
+                        items={RADIO_GROUP_HORIZONTAL_DATA}
+                        orientation="horizontal"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP DISABLED ITEM</Text>
+                    <RadioGroup
+                        value="active"
+                        items={RADIO_GROUP_DISABLED_ITEM_DATA}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP COLOUR OVERRIDES</Text>
+                    <RadioGroup
+                        value="low"
+                        items={RADIO_GROUP_COLOUR_OVERRIDES_DATA}
+                        fillColor="blue.600"
+                        borderColor="blue.300"
+                        color="gray.700"
+                    />
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

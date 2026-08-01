@@ -4,22 +4,50 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Input, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Input, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import { tokenizeDateTimeFormat } from "@elaraai/east/internal";
 import * as ex from "./input.examples.js";
 
 describeEast("Input", (test) => {
     Assert.examples(test, {
-        inputString: ex.inputString,
-        inputInteger: ex.inputInteger,
-        inputFloat: ex.inputFloat,
-        inputDateTime: ex.inputDateTime,
-        inputSizes: ex.inputSizes,
-        inputVariants: ex.inputVariants,
-        inputStringInteractive: ex.inputStringInteractive,
-        inputIntegerInteractive: ex.inputIntegerInteractive,
-        inputFloatInteractive: ex.inputFloatInteractive,
-        inputDateTimeInteractive: ex.inputDateTimeInteractive,
+        inputBasics: ex.inputBasics,
+        inputStyles: ex.inputStyles,
+        inputReactive: ex.inputReactive,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("inputBasics panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.inputBasics.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STRING"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTEGER"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FLOAT"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DATE TIME"));
+    });
+
+    test("inputStyles panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.inputStyles.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VARIANTS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FOCUSED"));
+    });
+
+    test("inputReactive panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.inputReactive.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STRING INTERACTIVE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTEGER INTERACTIVE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FLOAT INTERACTIVE"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DATE TIME INTERACTIVE"));
     });
 
     // =========================================================================

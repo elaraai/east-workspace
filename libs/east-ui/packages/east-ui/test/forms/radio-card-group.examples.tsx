@@ -7,6 +7,29 @@ import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { RadioCardGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
 
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+const RADIO_CARD_GROUP_HORIZONTAL_DATA = [
+    { value: "monthly", label: "Monthly", description: "$49 / mo" },
+    { value: "yearly", label: "Yearly", description: "$490 / yr (save 16%)" },
+];
+const RADIO_CARD_GROUP_DISABLED_ITEM_DATA = [
+    { value: "active", label: "Active", description: "Available now" },
+    { value: "queued", label: "Queued", description: "Pending review" },
+    { value: "archived", label: "Archived", description: "Read-only", disabled: true },
+];
+const RADIO_CARD_GROUP_COLOUR_OVERRIDES_DATA = [
+    { value: "low", label: "Low priority", description: "Resolved within 7 days" },
+    { value: "med", label: "Medium priority", description: "Resolved within 2 days" },
+    { value: "high", label: "High priority", description: "Resolved same day" },
+];
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
 export const radioCardGroupBasic = example({
     keywords: ["RadioCardGroup", "Root", "card", "radio", "select"],
     description: "Pricing-tier card group with description per option",
@@ -25,23 +48,9 @@ export const radioCardGroupBasic = example({
     inputs: [],
 });
 
-export const radioCardGroupHorizontal = example({
-    keywords: ["RadioCardGroup", "horizontal", "orientation"],
-    description: "Horizontal radio cards laid out as a row",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioCardGroup
-                value="monthly"
-                items={[
-                    { value: "monthly", label: "Monthly", description: "$49 / mo" },
-                    { value: "yearly", label: "Yearly", description: "$490 / yr (save 16%)" },
-                ]}
-                orientation="horizontal"
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Reactive — picking a card writes to State and re-renders
+// ============================================================================
 
 export const radioCardGroupReactive = example({
     keywords: ["RadioCardGroup", "Reactive", "State", "onChange", "interactive"],
@@ -72,40 +81,42 @@ export const radioCardGroupReactive = example({
     inputs: [],
 });
 
-export const radioCardGroupDisabledItem = example({
-    keywords: ["RadioCardGroup", "disabled", "item"],
-    description: "Card group with one disabled card",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioCardGroup
-                value="active"
-                items={[
-                    { value: "active", label: "Active", description: "Available now" },
-                    { value: "queued", label: "Queued", description: "Pending review" },
-                    { value: "archived", label: "Archived", description: "Read-only", disabled: true },
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// RadioCardGroup — orientation, disabled card, colour overrides (variant panel)
+// ============================================================================
 
-export const radioCardGroupColourOverrides = example({
-    keywords: ["RadioCardGroup", "selectedBorderColor", "selectedCardBackground", "override"],
-    description: "Card group with explicit colour escape hatches for selected card border / background and description text",
+export const radioCardGroupVariants = example({
+    keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override"],
+    description: "RadioCardGroup variant panel — card group horizontal (horizontal radio cards laid out as a row), card group disabled item (card group with one disabled card), card group colour overrides (card group with explicit colour escape hatches for selected card border / background and description text)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <RadioCardGroup
-                value="med"
-                items={[
-                    { value: "low", label: "Low priority", description: "Resolved within 7 days" },
-                    { value: "med", label: "Medium priority", description: "Resolved within 2 days" },
-                    { value: "high", label: "High priority", description: "Resolved same day" },
-                ]}
-                selectedCardBackground="blue.50"
-                selectedBorderColor="blue.500"
-                descriptionColor="gray.600"
-            />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD GROUP HORIZONTAL</Text>
+                    <RadioCardGroup
+                        value="monthly"
+                        items={RADIO_CARD_GROUP_HORIZONTAL_DATA}
+                        orientation="horizontal"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD GROUP DISABLED ITEM</Text>
+                    <RadioCardGroup
+                        value="active"
+                        items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA}
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD GROUP COLOUR OVERRIDES</Text>
+                    <RadioCardGroup
+                        value="med"
+                        items={RADIO_CARD_GROUP_COLOUR_OVERRIDES_DATA}
+                        selectedCardBackground="blue.50"
+                        selectedBorderColor="blue.500"
+                        descriptionColor="gray.600"
+                    />
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

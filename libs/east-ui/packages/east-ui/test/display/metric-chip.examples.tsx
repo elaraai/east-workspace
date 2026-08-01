@@ -5,10 +5,14 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { MetricChip, Stack, Text } from "@elaraai/east-ui";
+import { MetricChip, Stack, Text, VStack } from "@elaraai/east-ui";
 
-export const metricChipPositive = example({
-    keywords: ["MetricChip", "Root", "tone", "positive", "delta"],
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
+export const metricChipBasic = example({
+    keywords: ["MetricChip", "Root", "tone", "positive", "delta", "basic"],
     description: "Positive metric chip with subtle emphasis",
     fn: East.function([], UIComponentType, ($) => {
         return <MetricChip tone="positive" emphasis="subtle"><Text>+12.5%</Text></MetricChip>;
@@ -16,50 +20,42 @@ export const metricChipPositive = example({
     inputs: [],
 });
 
-export const metricChipNegativeSolid = example({
-    keywords: ["MetricChip", "Root", "tone", "negative", "solid"],
-    description: "Negative metric chip rendered with solid emphasis",
-    fn: East.function([], UIComponentType, ($) => {
-        return <MetricChip tone="negative" emphasis="solid"><Text>-8.2%</Text></MetricChip>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// MetricChip — tones, emphases, densities, colour slots (variant panel)
+// ============================================================================
 
-export const metricChipNeutralOutline = example({
-    keywords: ["MetricChip", "Root", "tone", "neutral", "outline"],
-    description: "Neutral metric chip with outline emphasis and unit",
-    fn: East.function([], UIComponentType, ($) => {
-        return <MetricChip tone="neutral" emphasis="outline" unit="ms"><Text>42</Text></MetricChip>;
-    }),
-    inputs: [],
-});
-
-export const metricChipDensities = example({
-    keywords: ["MetricChip", "density", "condensed", "compact", "comfortable", "sizes"],
-    description: "The three densities stacked — chip height + font scale condensed → compact → comfortable (matching ChipRail)",
+export const metricChipVariants = example({
+    keywords: ["MetricChip", "Root", "tone", "negative", "solid", "neutral", "outline", "density", "condensed", "compact", "comfortable", "sizes", "info"],
+    description: "MetricChip variant panel — chip negative solid (negative metric chip rendered with solid emphasis), chip neutral outline (neutral metric chip with outline emphasis and unit), chip densities (the three densities stacked — chip height + font scale condensed → compact → comfortable, matching ChipRail), chip info (informational metric chip with custom colour slots)",
     fn: East.function([], UIComponentType, ($) => {
         const condensed = $.const(<MetricChip tone="positive" density="condensed"><Text>+12.5%</Text></MetricChip>);
         const compact = $.const(<MetricChip tone="positive" density="compact"><Text>+12.5%</Text></MetricChip>);
         const comfortable = $.const(<MetricChip tone="positive" density="comfortable"><Text>+12.5%</Text></MetricChip>);
         return (
-            <Stack direction="column" gap="6">
-                {condensed}
-                {compact}
-                {comfortable}
-            </Stack>
-        );
-    }),
-    inputs: [],
-});
-
-export const metricChipInfo = example({
-    keywords: ["MetricChip", "Root", "tone", "info"],
-    description: "Informational metric chip with custom colour slots",
-    fn: East.function([], UIComponentType, ($) => {
-        return (
-            <MetricChip tone="info" background="blue.100" color="blue.800" borderColor="blue.300">
-                <Text>Forecast</Text>
-            </MetricChip>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP NEGATIVE SOLID</Text>
+                    <MetricChip tone="negative" emphasis="solid"><Text>-8.2%</Text></MetricChip>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP NEUTRAL OUTLINE</Text>
+                    <MetricChip tone="neutral" emphasis="outline" unit="ms"><Text>42</Text></MetricChip>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP DENSITIES</Text>
+                    <Stack direction="column" gap="6">
+                        {condensed}
+                        {compact}
+                        {comfortable}
+                    </Stack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP INFO</Text>
+                    <MetricChip tone="info" background="blue.100" color="blue.800" borderColor="blue.300">
+                        <Text>Forecast</Text>
+                    </MetricChip>
+                </VStack>
+            </VStack>
         );
     }),
     inputs: [],

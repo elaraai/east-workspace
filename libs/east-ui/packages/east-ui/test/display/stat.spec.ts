@@ -4,16 +4,30 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Stat, Format } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Stat, Format, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./stat.examples.js";
 
 describeEast("Stat", (test) => {
     Assert.examples(test, {
         statBasic: ex.statBasic,
-        statHelpText: ex.statHelpText,
-        statIndicators: ex.statIndicators,
-        statFormatted: ex.statFormatted,
-        statDensities: ex.statDensities,
+        statVariants: ex.statVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("statVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.statVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "HELP TEXT"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INDICATORS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FORMATTED"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITIES"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // =========================================================================

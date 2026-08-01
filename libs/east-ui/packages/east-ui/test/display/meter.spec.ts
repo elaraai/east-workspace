@@ -4,16 +4,29 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Meter, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Meter, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./meter.examples.js";
 
 describeEast("Meter", (test) => {
     Assert.examples(test, {
         meterBasic: ex.meterBasic,
-        meterSuccess: ex.meterSuccess,
-        meterWarning: ex.meterWarning,
-        meterDensities: ex.meterDensities,
-        meterCustomMax: ex.meterCustomMax,
+        meterVariants: ex.meterVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("meterVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.meterVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SUCCESS"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WARNING"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSITIES"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CUSTOM MAX"));
     });
 
     test("creates a basic meter", $ => {

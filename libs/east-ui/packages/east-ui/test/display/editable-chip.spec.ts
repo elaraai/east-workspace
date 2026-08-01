@@ -4,18 +4,37 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, NullType } from "@elaraai/east";
-import { EditableChip, Text } from "@elaraai/east-ui/internal";
+import { East, NullType, type ExprType } from "@elaraai/east";
+import { EditableChip, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./editable-chip.examples.js";
 
 describeEast("EditableChip", (test) => {
     Assert.examples(test, {
         editableChipBasic: ex.editableChipBasic,
-        editableChipWithCallback: ex.editableChipWithCallback,
-        editableChipDisabled: ex.editableChipDisabled,
-        editableChipStyled: ex.editableChipStyled,
-        editableChipDensities: ex.editableChipDensities,
+        editableChipVariants: ex.editableChipVariants,
         editableChipReactive: ex.editableChipReactive,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("editableChipVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.editableChipVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CHIP DISABLED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CHIP STYLED"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CHIP DENSITIES"));
+    });
+
+    test("editableChipReactive panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.editableChipReactive.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CHIP WITH CALLBACK"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CHIP REACTIVE"));
     });
 
     test("creates an EditableChip with a label", $ => {

@@ -5,7 +5,11 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Meter, Stack, Text } from "@elaraai/east-ui";
+import { Meter, Stack, Text, VStack } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const meterBasic = example({
     keywords: ["Meter", "Root", "value"],
@@ -16,47 +20,41 @@ export const meterBasic = example({
     inputs: [],
 });
 
-export const meterSuccess = example({
-    keywords: ["Meter", "Root", "tone", "success"],
-    description: "Meter with success tone and label",
-    fn: East.function([], UIComponentType, ($) => {
-        return <Meter value={85.0} tone="success" label={<Text>Uptime</Text>} />;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Meter — tones, densities, custom max (variant panel)
+// ============================================================================
 
-export const meterWarning = example({
-    keywords: ["Meter", "Root", "tone", "warning", "thickness"],
-    description: "Meter with warning tone and large thickness",
-    fn: East.function([], UIComponentType, ($) => {
-        return <Meter value={42.0} tone="warning" thickness="lg" />;
-    }),
-    inputs: [],
-});
-
-export const meterDensities = example({
-    keywords: ["Meter", "density", "condensed", "compact", "comfortable", "sizes"],
-    description: "The three densities stacked — track height + value text scale condensed → compact → comfortable (matching ChipRail)",
+export const meterVariants = example({
+    keywords: ["Meter", "Root", "tone", "success", "warning", "thickness", "density", "condensed", "compact", "comfortable", "sizes", "max", "custom"],
+    description: "Meter variant panel — success (meter with success tone and label), warning (meter with warning tone and large thickness), densities (the three densities stacked — track height + value text scale condensed → compact → comfortable, matching ChipRail), custom max (meter with custom max and explicit colour slots)",
     fn: East.function([], UIComponentType, ($) => {
         const condensed = $.const(<Meter value={72.0} tone="success" density="condensed" />);
         const compact = $.const(<Meter value={72.0} tone="success" density="compact" />);
         const comfortable = $.const(<Meter value={72.0} tone="success" density="comfortable" />);
         return (
-            <Stack direction="column" gap="6">
-                {condensed}
-                {compact}
-                {comfortable}
-            </Stack>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SUCCESS</Text>
+                    <Meter value={85.0} tone="success" label={<Text>Uptime</Text>} />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WARNING</Text>
+                    <Meter value={42.0} tone="warning" thickness="lg" />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITIES</Text>
+                    <Stack direction="column" gap="6">
+                        {condensed}
+                        {compact}
+                        {comfortable}
+                    </Stack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM MAX</Text>
+                    <Meter value={350.0} max={500.0} fillColor="purple.500" trackColor="purple.100" />
+                </VStack>
+            </VStack>
         );
-    }),
-    inputs: [],
-});
-
-export const meterCustomMax = example({
-    keywords: ["Meter", "Root", "max", "custom"],
-    description: "Meter with custom max and explicit colour slots",
-    fn: East.function([], UIComponentType, ($) => {
-        return <Meter value={350.0} max={500.0} fillColor="purple.500" trackColor="purple.100" />;
     }),
     inputs: [],
 });
