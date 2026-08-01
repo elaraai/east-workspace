@@ -735,8 +735,9 @@ class EagerEvaluator:
                 self.report.unsupported[str(e)[:80]] += 1
                 row = None  # fall through to the funnel, counted
             else:
-                native_cbs = any(args[i].native for i in cbs)
-                self._account(name, before, had_callbacks=native_cbs)
+                capable = sum(1 for i in cbs if args[i].native)
+                self._account(name, before, capable=capable,
+                              excused=len(cbs) - capable)
                 self.report.routes[(name, "surface")] += 1
                 return result
         if row is not None and traced_ctx:
@@ -765,16 +766,28 @@ class EagerEvaluator:
         self.report.routes[(name, "funnel")] += 1
         return _call_builtin(name, tps, conv, out_t)
 
-    def _account(self, name: str, before: dict, *, had_callbacks: bool) -> None:
-        if not had_callbacks or self.mode == "traced":
+    def _account(self, name: str, before: dict, *, capable: int, excused: int) -> None:
+        """The native-path guarantee, from the compiler's REAL counters.
+
+        ``capable`` counts callbacks that must ride natively in kernel mode;
+        ``excused`` counts adapter-wrapped ones (the dict (k,v) reorders)
+        whose per-element python is legitimate when their retrace cannot
+        fire. Kernel mode flags (1) any trampoline activity on a call with
+        no excused callbacks, and (2) a mixed call where NO callback rode
+        natively — a capable one regressing to python cannot hide behind an
+        excused sibling, because the native counter would read zero."""
+        if capable == 0 or self.mode == "traced":
             return
         after = eager_stats()
         tramp = after["trampoline_calls"] - before["trampoline_calls"]
         native = (after["kernel_direct"] - before["kernel_direct"]) + (
             after["pushdown_traced"] - before["pushdown_traced"])
-        if self.mode == "kernel" and tramp:
+        if self.mode == "kernel" and tramp and not excused:
             self.report.path_violations.append(
                 (name, f"kernel mode trampolined {tramp}×"))
+        if self.mode == "kernel" and tramp and excused and not native:
+            self.report.path_violations.append(
+                (name, f"kernel mode: no capable callback rode native ({tramp}× python)"))
         if self.mode == "trampoline" and native:
             self.report.path_violations.append(
                 (name, f"trampoline mode went native {native}×"))

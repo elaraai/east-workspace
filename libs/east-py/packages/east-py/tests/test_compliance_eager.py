@@ -266,4 +266,9 @@ def test_register_gap_is_pinned():
     surface = sum(v for (b, r), v in _TOTAL.routes.items() if r == "surface")
     funnel = sum(v for (b, r), v in _TOTAL.routes.items() if r == "funnel")
     assert surface / (surface + funnel) >= 0.90, (surface, funnel)
-    assert len(_TOTAL.path_violations) <= 20, _TOTAL.path_violations[:5]
+    # The native-path guarantee: in kernel mode, across the WHOLE corpus, no
+    # builtin call with native-capable callbacks ever fell back to the
+    # per-element trampoline (measured from the compiler's real counters —
+    # eager_stats() deltas around every call). Exact zero, not a ceiling: a
+    # single silent fallback fails the build.
+    assert not _TOTAL.path_violations, _TOTAL.path_violations[:5]
