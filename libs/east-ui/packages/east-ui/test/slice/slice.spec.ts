@@ -4,6 +4,8 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
 // Use-case documents for the slice composition model. Each returns
@@ -14,12 +16,30 @@ describeEast("Slice", (test) => {
         sliceChartChrome:          ex.sliceChartChrome,
         sliceRail:                 ex.sliceRail,
         sliceNarrow:               ex.sliceNarrow,
-        slicePresetsRail:          ex.slicePresetsRail,
-        slicePresetsBar:           ex.slicePresetsBar,
-        sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
-        sliceExpressiveFilters:    ex.sliceExpressiveFilters,
         sliceGanttChrome:          ex.sliceGanttChrome,
-        sliceBrushDatetime:        ex.sliceBrushDatetime,
-        sliceBrushCurrency:        ex.sliceBrushCurrency,
+        sliceExpressiveFilters:    ex.sliceExpressiveFilters,
+        sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
+        slicePresets:              ex.slicePresets,
+        sliceBrush:                ex.sliceBrush,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("slicePresets panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.slicePresets.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PRESETS RAIL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PRESETS BAR"));
+    });
+
+    test("sliceBrush panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.sliceBrush.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BRUSH DATETIME"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BRUSH CURRENCY"));
     });
 }, { platformFns: TestImpl });

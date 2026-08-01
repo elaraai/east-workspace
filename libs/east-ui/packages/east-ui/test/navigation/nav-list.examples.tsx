@@ -26,83 +26,6 @@ export const navListBasic = example({
     inputs: [],
 });
 
-export const navListGrouped = example({
-    keywords: ["NavList", "section", "label", "grouped"],
-    description: "Grouped sections — Account / Workspace / Help",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <NavList sections={[
-                {
-                    label: "Account",
-                    items: [
-                        { key: "profile", label: "Profile", active: true },
-                        { key: "security", label: "Security" },
-                        { key: "billing", label: "Billing" },
-                    ],
-                },
-                {
-                    label: "Workspace",
-                    items: [
-                        { key: "members", label: "Members", badge: "3" },
-                        { key: "integrations", label: "Integrations" },
-                    ],
-                },
-                {
-                    label: "Help",
-                    items: [
-                        { key: "docs", label: "Documentation" },
-                        { key: "contact", label: "Contact support" },
-                    ],
-                },
-            ]} />
-        );
-    }),
-    inputs: [],
-});
-
-export const navListWithIcons = example({
-    keywords: ["NavList", "icon", "FontAwesome"],
-    description: "Items with leading icons",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <NavList sections={[
-                {
-                    items: [
-                        { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
-                        { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
-                        { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
-                    ],
-                },
-            ]} />
-        );
-    }),
-    inputs: [],
-});
-
-export const navListShellSurface = example({
-    keywords: ["NavList", "surface", "shell", "background", "app-shell", "sidebar"],
-    description: "App-shell sidebar — chrome-less shell surface with a host rail background",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <NavList
-                surface="shell"
-                background="bg.subtle"
-                sections={[
-                    {
-                        label: "Operations",
-                        items: [
-                            { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
-                            { key: "runs", label: "Runs", icon: { prefix: "fas", name: "flask" } },
-                            { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
-                        ],
-                    },
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
-
 export const navListReactive = example({
     keywords: ["NavList", "Reactive", "State", "onSelect", "interactive"],
     description: "Reactive nav list — clicking an item updates State and re-renders the active highlight + selected-key display",
@@ -133,5 +56,77 @@ export const navListReactive = example({
             );
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+// ============================================================================
+// Variants — static enumeration panel (consolidation epic #455).
+// ============================================================================
+
+export const navListVariants = example({
+    keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar"],
+    description: "NavList variant panel — list grouped (Account / Workspace / Help sections), list with icons (items with leading icons), list shell surface (chrome-less app-shell sidebar with a host rail background)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST GROUPED</Text>
+                    <NavList sections={[
+                        {
+                            label: "Account",
+                            items: [
+                                { key: "profile", label: "Profile", active: true },
+                                { key: "security", label: "Security" },
+                                { key: "billing", label: "Billing" },
+                            ],
+                        },
+                        {
+                            label: "Workspace",
+                            items: [
+                                { key: "members", label: "Members", badge: "3" },
+                                { key: "integrations", label: "Integrations" },
+                            ],
+                        },
+                        {
+                            label: "Help",
+                            items: [
+                                { key: "docs", label: "Documentation" },
+                                { key: "contact", label: "Contact support" },
+                            ],
+                        },
+                    ]} />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST WITH ICONS</Text>
+                    <NavList sections={[
+                        {
+                            items: [
+                                { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
+                                { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
+                                { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
+                            ],
+                        },
+                    ]} />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST SHELL SURFACE</Text>
+                    <NavList
+                        surface="shell"
+                        background="bg.subtle"
+                        sections={[
+                            {
+                                label: "Operations",
+                                items: [
+                                    { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
+                                    { key: "runs", label: "Runs", icon: { prefix: "fas", name: "flask" } },
+                                    { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
+                                ],
+                            },
+                        ]}
+                    />
+                </VStack>
+            </VStack>
+        );
+    }),
     inputs: [],
 });

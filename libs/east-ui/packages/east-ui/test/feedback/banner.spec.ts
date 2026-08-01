@@ -5,14 +5,30 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Banner, Text, Button } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./banner.examples.js";
 
 describeEast("Banner", (test) => {
     Assert.examples(test, {
-        bannerStaleData: ex.bannerStaleData,
-        bannerFrozenScenario: ex.bannerFrozenScenario,
-        bannerRunWarnings: ex.bannerRunWarnings,
+        bannerStatusVariants: ex.bannerStatusVariants,
         bannerDismissible: ex.bannerDismissible,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("bannerStatusVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.bannerStatusVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STALE DATA"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FROZEN SCENARIO"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RUN WARNINGS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SCENARIO SAVED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMMIT LANDED"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SYNC PROGRESS"));
     });
 
     test("creates banner with string title + status (coerced)", $ => {

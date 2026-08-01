@@ -5,19 +5,39 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Tabs, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./tabs.examples.js";
 
 describeEast("Tabs", (test) => {
     Assert.examples(test, {
         tabsBasic: ex.tabsBasic,
-        tabsLine: ex.tabsLine,
-        tabsFitted: ex.tabsFitted,
-        tabsSizes: ex.tabsSizes,
-        tabsWithDisabled: ex.tabsWithDisabled,
-        tabsInteractive: ex.tabsInteractive,
-        tabsWithCountBadges: ex.tabsWithCountBadges,
-        tabsTwoLine: ex.tabsTwoLine,
+        tabsVariants: ex.tabsVariants,
         tabsReactive: ex.tabsReactive,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("tabsVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tabsVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LINE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FITTED"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH DISABLED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH COUNT BADGES"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TWO LINE"));
+    });
+
+    test("tabsReactive panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.tabsReactive.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "REACTIVE"));
     });
 
     // =========================================================================

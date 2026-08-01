@@ -20,7 +20,9 @@ import {
     StructType,
     ArrayType,
 } from "@elaraai/east";
+import { type ExprType } from "@elaraai/east";
 import { Slice, SliceApplyImpl, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
 // ---------------------------------------------------------------------------
@@ -36,16 +38,34 @@ import * as ex from "./slice.examples.js";
 
 describeEast("Slice", (test) => {
     Assert.examples(test, {
-        sliceBindDefault:          ex.sliceBindDefault,
-        sliceAddIntegerPredicate:  ex.sliceAddIntegerPredicate,
-        sliceAddStringInPredicate: ex.sliceAddStringInPredicate,
-        sliceSetRangePreset:       ex.sliceSetRangePreset,
-        sliceSetRangeCustomDateTime: ex.sliceSetRangeCustomDateTime,
-        sliceSetRangeInteger:      ex.sliceSetRangeInteger,
-        sliceDefineCohort:         ex.sliceDefineCohort,
-        sliceSetBreakdown:         ex.sliceSetBreakdown,
-        sliceSetSearch:            ex.sliceSetSearch,
-        sliceSetVisible:           ex.sliceSetVisible,
+        sliceBindDefault: ex.sliceBindDefault,
+        slicePredicates:  ex.slicePredicates,
+        sliceRanges:      ex.sliceRanges,
+    });
+
+    // -----------------------------------------------------------------------
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // -----------------------------------------------------------------------
+
+    test("slicePredicates panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.slicePredicates.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ADD INTEGER PREDICATE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ADD STRING IN PREDICATE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DEFINE COHORT"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SET BREAKDOWN"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SET SEARCH"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SET VISIBLE"));
+    });
+
+    test("sliceRanges panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.sliceRanges.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SET RANGE PRESET"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SET RANGE CUSTOM DATE TIME"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SET RANGE INTEGER"));
     });
 
     // -----------------------------------------------------------------------

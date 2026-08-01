@@ -5,16 +5,28 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { NavList } from "@elaraai/east-ui/internal";
-import { East, NullType, StringType } from "@elaraai/east";
+import { East, NullType, StringType, type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./nav-list.examples.js";
 
 describeEast("NavList", (test) => {
     Assert.examples(test, {
         navListBasic: ex.navListBasic,
-        navListGrouped: ex.navListGrouped,
-        navListWithIcons: ex.navListWithIcons,
-        navListShellSurface: ex.navListShellSurface,
         navListReactive: ex.navListReactive,
+        navListVariants: ex.navListVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("navListVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.navListVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST GROUPED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST WITH ICONS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LIST SHELL SURFACE"));
     });
 
     test("sections array round-trips", $ => {

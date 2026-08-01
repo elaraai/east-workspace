@@ -5,17 +5,29 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CommandPalette } from "@elaraai/east-ui/internal";
-import { East, BooleanType, NullType } from "@elaraai/east";
+import { East, BooleanType, NullType, type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./command-palette.examples.js";
 
 describeEast("CommandPalette", (test) => {
     Assert.examples(test, {
         commandPaletteBasic: ex.commandPaletteBasic,
-        commandPaletteGrouped: ex.commandPaletteGrouped,
-        commandPaletteWithKeywords: ex.commandPaletteWithKeywords,
-        commandPaletteCustomTrigger: ex.commandPaletteCustomTrigger,
-        commandPaletteColours: ex.commandPaletteColours,
         commandPaletteWithHotkey: ex.commandPaletteWithHotkey,
+        commandPaletteVariants: ex.commandPaletteVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("commandPaletteVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.commandPaletteVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PALETTE GROUPED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PALETTE WITH KEYWORDS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PALETTE CUSTOM TRIGGER"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PALETTE COLOURS"));
     });
 
     const noop = East.function([], NullType, (_$) => { /* noop */ });

@@ -5,17 +5,37 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Accordion, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./accordion.examples.js";
 
 describeEast("Accordion", (test) => {
     Assert.examples(test, {
         accordionBasic: ex.accordionBasic,
-        accordionMultiple: ex.accordionMultiple,
-        accordionCollapsible: ex.accordionCollapsible,
-        accordionFaq: ex.accordionFaq,
-        accordionInteractive: ex.accordionInteractive,
-        accordionGridTrigger: ex.accordionGridTrigger,
-        accordionReactiveMulti: ex.accordionReactiveMulti,
+        accordionVariants: ex.accordionVariants,
+        accordionReactive: ex.accordionReactive,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("accordionVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.accordionVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MULTIPLE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLLAPSIBLE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FAQ"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "GRID TRIGGER"));
+    });
+
+    test("accordionReactive panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.accordionReactive.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "REACTIVE MULTI"));
     });
 
     // =========================================================================

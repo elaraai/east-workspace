@@ -5,18 +5,31 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Progress } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./progress.examples.js";
 
 describeEast("Progress", (test) => {
     Assert.examples(test, {
         progressBasic: ex.progressBasic,
-        progressLabeled: ex.progressLabeled,
-        progressTones: ex.progressTones,
-        progressSizes: ex.progressSizes,
-        progressStriped: ex.progressStriped,
-        progressRange: ex.progressRange,
-        progressIndeterminate: ex.progressIndeterminate,
-        progressWithETA: ex.progressWithETA,
+        progressVariants: ex.progressVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("progressVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.progressVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 7n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LABELED"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TONES"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "STRIPED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INDETERMINATE"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH E T A"));
     });
 
     // =========================================================================

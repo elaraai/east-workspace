@@ -5,20 +5,34 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Button, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./button.examples.js";
 
 describeEast("Button", (test) => {
     Assert.examples(test, {
         buttonBasic: ex.buttonBasic,
-        buttonSolidVariant: ex.buttonSolidVariant,
-        buttonDangerOutline: ex.buttonDangerOutline,
         buttonReactiveCounter: ex.buttonReactiveCounter,
-        buttonWithIcons: ex.buttonWithIcons,
-        buttonLoading: ex.buttonLoading,
-        buttonRichLabel: ex.buttonRichLabel,
-        buttonGhost: ex.buttonGhost,
-        buttonPlain: ex.buttonPlain,
-        buttonBrandedColours: ex.buttonBrandedColours,
+        buttonVariants: ex.buttonVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("buttonVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.buttonVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 8n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SOLID VARIANT"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DANGER OUTLINE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "GHOST"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PLAIN"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BRANDED COLOURS"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "WITH ICONS"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "LOADING"));
+        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RICH LABEL"));
     });
 
     // =========================================================================

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { IconButton, Reactive, VStack, Stat } from "@elaraai/east-ui";
+import { IconButton, Reactive, Text, VStack, Stat } from "@elaraai/east-ui";
 
 export const iconButtonBasic = example({
     keywords: ["IconButton", "Root", "label", "aria-label", "close"],
@@ -16,80 +16,70 @@ export const iconButtonBasic = example({
     inputs: [],
 });
 
-export const iconButtonLoading = example({
-    keywords: ["IconButton", "Root", "loading", "loadingIcon", "spinner"],
-    description: "Loading IconButton with a custom spinner icon swap",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <IconButton
-                prefix="fas"
-                name="rotate"
-                label="Refresh"
-                loading
-                loadingIcon={{ prefix: "fas", name: "spinner" }}
-                variant="subtle"
-                colorPalette="blue"
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Variants — static enumeration panel (consolidation epic #455).
+// ============================================================================
 
-export const iconButtonColoured = example({
-    keywords: ["IconButton", "Root", "style", "color", "background", "borderColor", "branded"],
-    description: "Branded IconButton with hex colour escape hatches",
+export const iconButtonVariants = example({
+    keywords: ["IconButton", "Root", "loading", "loadingIcon", "spinner", "style", "color", "background", "borderColor", "branded", "badge", "count", "notification", "attention", "pulse", "ring", "dot", "onClick", "Reactive", "State", "counter", "interactive"],
+    description: "IconButton variant panel — button loading (custom spinner icon swap), button coloured (branded hex colour escape hatches), button badge and attention (count, 99+ cap, dot-only badges plus pulse/ring attention animations), button on click reactive (reactive counter increments on click)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <IconButton
-                prefix="fas"
-                name="rocket"
-                label="Deploy"
-                color="#ffffff"
-                background="#1a2234"
-                borderColor="#3d5cff"
-                hoverBackground="#25345a"
-                size="md"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const iconButtonBadgeAndAttention = example({
-    keywords: ["IconButton", "badge", "count", "notification", "attention", "pulse", "ring", "dot"],
-    description: "Notification badge (count, 99+ cap, dot-only) plus attention animations — pulse the badge, ring the button",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4">
-                <IconButton prefix="fas" name="bell" label="Alerts" variant="ghost" badge="3" />
-                <IconButton prefix="fas" name="bell" label="Many alerts" variant="ghost" badge="99+" badgeColorPalette="orange" />
-                <IconButton prefix="fas" name="inbox" label="Unread" variant="ghost" badge="" />
-                <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="red" badge="5" attention="pulse" />
-                <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="blue" attention="ring" />
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON LOADING</Text>
+                    <IconButton
+                        prefix="fas"
+                        name="rotate"
+                        label="Refresh"
+                        loading
+                        loadingIcon={{ prefix: "fas", name: "spinner" }}
+                        variant="subtle"
+                        colorPalette="blue"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON COLOURED</Text>
+                    <IconButton
+                        prefix="fas"
+                        name="rocket"
+                        label="Deploy"
+                        color="#ffffff"
+                        background="#1a2234"
+                        borderColor="#3d5cff"
+                        hoverBackground="#25345a"
+                        size="md"
+                    />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON BADGE AND ATTENTION</Text>
+                    <VStack gap="4">
+                        <IconButton prefix="fas" name="bell" label="Alerts" variant="ghost" badge="3" />
+                        <IconButton prefix="fas" name="bell" label="Many alerts" variant="ghost" badge="99+" badgeColorPalette="orange" />
+                        <IconButton prefix="fas" name="inbox" label="Unread" variant="ghost" badge="" />
+                        <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="red" badge="5" attention="pulse" />
+                        <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="blue" attention="ring" />
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON ON CLICK REACTIVE</Text>
+                    <Reactive>{$ => {
+                        const counter = $.let(State.bind([IntegerType], "icon_button_counter", 0n));
+                        const count = $.let(counter.read());
+                        const increment = $.const(East.function([], NullType, $ => {
+                            const current = $.let(counter.read());
+                            $(counter.write(current.add(1n)));
+                        }));
+                        return (
+                            <VStack gap="3" align="flex-start">
+                                <Stat label="Clicks" value={East.print(count)} />
+                                <IconButton prefix="fas" name="plus" label="Increment" onClick={increment} variant="solid" colorPalette="blue" />
+                            </VStack>
+                        );
+                    }}</Reactive>
+                </VStack>
             </VStack>
         );
     }),
-    inputs: [],
-});
-
-export const iconButtonOnClickReactive = example({
-    keywords: ["IconButton", "Root", "onClick", "Reactive", "State", "counter", "interactive"],
-    description: "Reactive IconButton that increments a counter on click",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "icon_button_counter", 0n));
-            const count = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const current = $.let(counter.read());
-                $(counter.write(current.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <Stat label="Clicks" value={East.print(count)} />
-                    <IconButton prefix="fas" name="plus" label="Increment" onClick={increment} variant="solid" colorPalette="blue" />
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });
