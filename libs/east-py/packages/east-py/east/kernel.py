@@ -1197,7 +1197,7 @@ class KernelExpr:
         """Traced map, shaped like the eager methods: Array → Array of
         ``fn(element)`` (``fn(element, index)`` also accepted), Set → Dict of
         element to ``fn(element)`` (SetMap), Dict → Dict with mapped values and
-        the keys kept (DictMap, ``fn(value)``)."""
+        the keys kept (DictMap, ``fn(value)`` or ``fn(value, key)``)."""
         from east.types.types import ArrayType as _ArrayType
         from east.types.types import DictType as _DictType
 
@@ -1218,9 +1218,7 @@ class KernelExpr:
             )
         if tag == "Dict":
             kv = self.east_type.value
-            node, out_t = _trace_inner_fn(
-                lambda v, _k: fn(v), [kv["value"], kv["key"]], declared=2
-            )
+            node, out_t = _trace_inner_fn(fn, [kv["value"], kv["key"]])
             out = _DictType(kv["key"], out_t)
             return KernelExpr(
                 _builtin("DictMap", out, [kv["key"], kv["value"], out_t], [self.ir, node]),
@@ -1943,13 +1941,80 @@ class KernelExpr:
         raise _trace_bail("in")
 
 
+def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
+    """Collect Variable nodes under ``node`` not bound within it, by name.
+
+    A nested Function IR node must LIST outer variables it uses in its
+    ``captures`` — east-c resolves captures from the enclosing scope when the
+    function value is created, and an unlisted one compiles to "Undefined
+    variable". The traced tree may still hold lazy python lists (#411).
+    """
+    from east.types.values import is_east_struct, is_east_variant
+
+    if isinstance(node, list):
+        for x in node:
+            _free_vars(x, bound, out)
+        return
+    if is_east_struct(node):
+        for _f, v in node.items():
+            _free_vars(v, bound, out)
+        return
+    if not is_east_variant(node):
+        return
+    kind = node.type
+    p = node.value
+    if kind == "Variable":
+        name = p["name"]
+        if name not in bound and name not in out:
+            out[name] = node
+        return
+    if kind == "Function":
+        for c in p["captures"]:
+            cname = c.value["name"]
+            if cname not in bound and cname not in out:
+                out[cname] = c
+        inner = bound | {v.value["name"] for v in p["parameters"]} \
+                      | {c.value["name"] for c in p["captures"]}
+        _free_vars(p["body"], inner, out)
+        return
+    if kind == "Block":
+        scope = set(bound)
+        for stmt in p["statements"]:
+            if is_east_variant(stmt) and stmt.type == "Let":
+                _free_vars(stmt.value["value"], frozenset(scope), out)
+                scope.add(stmt.value["variable"].value["name"])
+            else:
+                _free_vars(stmt, frozenset(scope), out)
+        return
+    if kind == "Match":
+        _free_vars(p["variant"], bound, out)
+        for case in p["cases"]:
+            _free_vars(case["body"], bound | {case["variable"].value["name"]}, out)
+        return
+    if kind == "Value":
+        return  # literals only
+    if not is_east_struct(p):
+        return  # scalar/None payload (type atoms, raw values)
+    for fname, v in p.items():
+        if fname in ("type", "loc_id", "type_parameters"):
+            continue
+        _free_vars(v, bound, out)
+
+
+def _capturing_fn(fn_t: EastType, params: list, body_ir: Any):
+    """A Function IR node whose ``captures`` are computed from the body."""
+    free: dict[str, Any] = {}
+    _free_vars(body_ir, frozenset(p.value["name"] for p in params), free)
+    return _k_function(fn_t, list(free.values()), params, body_ir)
+
+
 def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
     """A Function IR node ignoring its parameters and returning `body`."""
     from east.types.types import FunctionType as _FnType
 
     params = [_var(f"__d{i}", t) for i, t in enumerate(param_types)]
     fn_t = _FnType(list(param_types), out_t)
-    return _k_function(fn_t, [], params, body.ir)
+    return _capturing_fn(fn_t, params, body.ir)
 
 
 # ─── Nested lambdas + the eager-builtin funnel (#393) ───────────────────────
@@ -1974,7 +2039,10 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     arity = declared
     if arity is None:
         code = getattr(fn, "__code__", None)
-        arity = code.co_argcount if code is not None else len(param_types)
+        if code is None or code.co_flags & 0x04:  # CO_VARARGS: *args takes all
+            arity = len(param_types)
+        else:
+            arity = code.co_argcount
     if not (1 <= arity <= len(param_types)):
         raise KernelTraceError(
             f"inner lambda takes {arity} parameters; the callback signature has "
@@ -1991,7 +2059,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     body = _lift(result)
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     fn_t = FunctionType(list(param_types), body.east_type)
-    node = _k_function(fn_t, [], params, body.ir)
+    node = _capturing_fn(fn_t, params, body.ir)
     return node, body.east_type
 
 

@@ -107,6 +107,38 @@ def _kernel_out_type(fn, param_types=None):
         return None
 
 
+def _callback_arity(fn, default):
+    """How many positional arguments ``fn`` accepts.
+
+    Decides whether a callback gets the extra context some builtins carry
+    (DictMap's key). Precompiled kernels answer from their declared
+    signature; plain callables from ``inspect.signature`` (``*args`` accepts
+    everything); ``default`` covers callables python cannot introspect.
+    """
+    handle = getattr(fn, "_eastc_handle", None)
+    if handle is None:
+        inner = getattr(fn, "_east_kernel", None)
+        handle = getattr(inner, "_eastc_handle", None) if inner is not None else None
+    if handle is not None:
+        try:
+            return len(handle.get_input_types())
+        except Exception:
+            return default
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return default
+    n = 0
+    for p in params:
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+            n += 1
+        elif p.kind is p.VAR_POSITIONAL:
+            return 1 << 30  # *args — accepts everything the builtin offers
+    return n
+
+
 def _mark_kernel(wrapper, fn):
     """Tag an eager-callback wrapper with its underlying precompiled kernel.
 
@@ -1541,12 +1573,22 @@ class EastSet(Generic[T]):
         return value in self
 
     def insert(self, value: Any) -> None:
-        """Add ``value`` in place (east-c SetInsert)."""
-        self.add(value)
+        """Add ``value`` in place; it must not already be present (east-c SetInsert).
+
+        Use :meth:`add` / :meth:`try_insert` for the non-erroring spellings.
+        """
+        from east.types.types import NullType
+
+        _call_builtin("SetInsert", [self.element_type], [self, value], NullType)
 
     def delete(self, value: Any) -> None:
-        """Remove ``value`` in place if present (east-c SetDelete)."""
-        self.discard(value)
+        """Remove ``value`` in place; it must be present (east-c SetDelete).
+
+        Use :meth:`discard` / :meth:`try_delete` for the non-erroring spellings.
+        """
+        from east.types.types import NullType
+
+        _call_builtin("SetDelete", [self.element_type], [self, value], NullType)
 
     def union(self, other: EastSet) -> EastSet:
         """Set union as a new set (east-c SetUnion)."""
@@ -2240,13 +2282,18 @@ class EastDict(Generic[K, V]):
         return EastVariant("some", self[key]) if key in self else EastVariant("none", east_null)
 
     def insert(self, key: Any, value: Any) -> None:
-        """Set ``key`` to ``value`` in place (east-c DictInsert).
+        """Insert ``key`` → ``value`` in place; the key must not exist (east-c DictInsert).
+
+        Use ``d[key] = value`` / :meth:`insert_or_update` for the
+        replace-on-existing spellings.
 
         Args:
             key: The key to write, ordered under East's total ordering.
-            value: The value to store, replacing any existing value.
+            value: The value to store.
         """
-        self[key] = value
+        from east.types.types import NullType
+
+        _call_builtin("DictInsert", [self.key_type, self.value_type], [self, key, value], NullType)
 
     def get_or_insert(self, key: Any, fn: Any) -> Any:
         """Fetch the value at ``key``, computing and inserting one if absent (east-c DictGetOrInsert).
@@ -2281,7 +2328,10 @@ class EastDict(Generic[K, V]):
             key: The key whose value is transformed; must already be present.
             fn: Called as ``fn(current) -> new value``.
         """
-        self[key] = fn(self[key])
+        # The must-exist read goes through the builtin so a missing key
+        # raises East's own error, not a pythonic KeyError.
+        current = _call_builtin("DictGet", [self.key_type, self.value_type], [self, key], self.value_type)
+        self[key] = fn(current)
 
     def swap(self, key: Any, value: Any) -> Any:
         """Set ``key`` to ``value`` and return the previous value, in place (east-c DictSwap).
@@ -2293,9 +2343,7 @@ class EastDict(Generic[K, V]):
         Returns:
             The value previously stored at ``key``.
         """
-        old = self[key]
-        self[key] = value
-        return old
+        return _call_builtin("DictSwap", [self.key_type, self.value_type], [self, key, value], self.value_type)
 
     def delete(self, key: Any) -> None:
         """Remove ``key`` in place (east-c DictDelete).
@@ -2303,7 +2351,9 @@ class EastDict(Generic[K, V]):
         Args:
             key: The key to remove; must be present.
         """
-        del self[key]
+        from east.types.types import NullType
+
+        _call_builtin("DictDelete", [self.key_type, self.value_type], [self, key], NullType)
 
     def try_delete(self, key: Any) -> bool:
         """Remove ``key`` if present, in place (east-c DictTryDelete).
@@ -2314,10 +2364,9 @@ class EastDict(Generic[K, V]):
         Returns:
             True if ``key`` was present and removed, else False.
         """
-        if key in self:
-            del self[key]
-            return True
-        return False
+        from east.types.types import BooleanType
+
+        return _call_builtin("DictTryDelete", [self.key_type, self.value_type], [self, key], BooleanType)
 
     def mean(self, fn: Any = None) -> float:
         """Float mean over entries: of values, or of ``fn(key, value)``
@@ -2643,8 +2692,9 @@ class EastDict(Generic[K, V]):
         """Transform each value, keeping keys, returning a new dict (east-c DictMap).
 
         Args:
-            fn: Called as ``fn(value) -> new value`` for each entry; the key
-                is not passed.
+            fn: Called as ``fn(value) -> new value`` for each entry — or
+                ``fn(value, key)`` when it accepts two arguments, matching
+                the builtin's callback signature.
             out: Optional East type pinning the result value type. When
                 omitted it is inferred by sampling ``fn`` on the first value.
 
@@ -2655,6 +2705,7 @@ class EastDict(Generic[K, V]):
         from east.types.types import DictType
 
         _check_kernel_out(fn, out)
+        wants_key = _callback_arity(fn, 1) >= 2
         if len(self) == 0:
             return EastDict(self.key_type, out if out is not None else self.value_type)
         first_key = next(iter(self))
@@ -2662,8 +2713,11 @@ class EastDict(Generic[K, V]):
         # a value function written against the traced surface dies with an
         # AttributeError before it ever runs, and a variant result gets typed
         # from whichever single case the sample carried.
-        v2 = out or _kernel_out_type(fn, [self.value_type]) or _ev.type_of(fn(self[first_key]))
-        callback = EastFunction(lambda v, k: fn(v), [self.value_type, self.key_type], v2)
+        in_types = [self.value_type, self.key_type] if wants_key else [self.value_type]
+        v2 = out or _kernel_out_type(fn, in_types) or _ev.type_of(
+            fn(self[first_key], first_key) if wants_key else fn(self[first_key]))
+        wrapper = (lambda v, k: fn(v, k)) if wants_key else (lambda v, k: fn(v))
+        callback = EastFunction(_mark_kernel(wrapper, fn), [self.value_type, self.key_type], v2)
         return _call_builtin("DictMap", [self.key_type, self.value_type, v2], [self, callback], DictType(self.key_type, v2))
 
     def filter(self, predicate: Any) -> EastDict:

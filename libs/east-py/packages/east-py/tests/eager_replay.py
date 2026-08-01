@@ -307,6 +307,16 @@ class EagerEvaluator:
         self._canon_memo[id(t)] = (got, t)  # keep t alive for id() stability
         return got
 
+    @staticmethod
+    def _klift(value: Any, hint: Any) -> Any:
+        """A KernelExpr for a constructor child: proxies pass through, plain
+        values lift as typed constants."""
+        if isinstance(value, KernelExpr):
+            return value
+        from east.kernel import _lift
+
+        return _lift(value, hint=hint)
+
     # ── program entry ──
 
     def run_program(self, ir: EastVariant) -> Report:
@@ -380,9 +390,27 @@ class EagerEvaluator:
         if kind == "GetField":
             return self.eval(p["struct"], env)[p["field"]]
         if kind == "Struct":
-            return EastStruct({f["name"]: self.eval(f["value"], env) for f in p["fields"]})
+            fields = [(f["name"], self.eval(f["value"], env)) for f in p["fields"]]
+            if any(isinstance(v, KernelExpr) for _n, v in fields):
+                # construction from traced parts IS a traced expression —
+                # an eager value holding proxies would hoist as a "constant"
+                # referencing kernel parameters (unbound outside the fn).
+                # Use the kernel's LAZY constructors: the eager builders'
+                # EastArray children convert nodes mid-trace (#411)
+                from east.kernel import _k_struct
+
+                t = self.canon(p["type"])
+                ftypes = {f["name"]: f["type"] for f in t.value}
+                node2 = _k_struct(t, [(n, self._klift(v, ftypes[n]).ir) for n, v in fields])
+                return KernelExpr(node2, t)
+            return EastStruct(dict(fields))
         if kind == "Variant":
-            return EastVariant(p["case"], self.eval(p["value"], env))
+            val = self.eval(p["value"], env)
+            if isinstance(val, KernelExpr):
+                t = self.canon(p["type"])
+                ctypes = {c["name"]: c["type"] for c in t.value}
+                return KernelExpr(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
+            return EastVariant(p["case"], val)
         if kind == "NewArray":
             # coerce_to is the type-DRIVEN constructor (it derives child types
             # itself, so Recursive markers stay bound); function-bearing
@@ -390,6 +418,11 @@ class EagerEvaluator:
             # conjure function values, but Closures serialize via _east_ir
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
+            if any(isinstance(v, KernelExpr) for v in vals):
+                from east.kernel import _k_new_array
+
+                et = child_type(t)
+                return KernelExpr(_k_new_array(t, [self._klift(v, et).ir for v in vals]), t)
             if _mentions_function(t):
                 return EastArray(child_type(t), vals)
             from east.types.coercion import coerce_to
@@ -398,15 +431,28 @@ class EagerEvaluator:
         if kind == "NewSet":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
+            if any(isinstance(v, KernelExpr) for v in vals):
+                from east.kernel import _k_new_set
+
+                et = child_type(t)
+                return KernelExpr(_k_new_set(t, [self._klift(v, et).ir for v in vals]), t)
             if _mentions_function(t):
                 return EastSet(child_type(t), vals)
             from east.types.coercion import coerce_to
 
             return coerce_to(vals, t)
         if kind == "NewDict":
-            d = EastDict(dict_child(self.canon(p["type"]), "key"), dict_child(self.canon(p["type"]), "value"))
-            for entry in p["values"]:
-                d[self.eval(entry["key"], env)] = self.eval(entry["value"], env)
+            t = self.canon(p["type"])
+            kt, vt = dict_child(t, "key"), dict_child(t, "value")
+            entries = [(self.eval(e["key"], env), self.eval(e["value"], env)) for e in p["values"]]
+            if any(isinstance(x, KernelExpr) for kv in entries for x in kv):
+                from east.kernel import _k_new_dict
+
+                return KernelExpr(_k_new_dict(
+                    t, [(self._klift(k, kt).ir, self._klift(v, vt).ir) for k, v in entries]), t)
+            d = EastDict(kt, vt)
+            for k, v in entries:
+                d[k] = v
             return d
         if kind == "NewRef":
             return EastRef(self.eval(p["value"], env))
@@ -461,7 +507,11 @@ class EagerEvaluator:
         if kind == "Continue":
             raise _Continue(p["label"]["name"])
         if kind == "Error":
-            raise EastError(self.eval(p["message"], env), [])
+            msg = self.eval(p["message"], env)
+            if isinstance(msg, KernelExpr):
+                # data-dependent raise inside a trace replay — untraceable
+                raise _Unsupported("Error node over a traced message")
+            raise EastError(msg, [])
         if kind == "TryCatch":
             try:
                 result = self.eval(p["try_body"], Env(env))
@@ -471,9 +521,13 @@ class EagerEvaluator:
                 # the eager surface raises pythonic errors (ValueError,
                 # KeyError, …) where East raises runtime errors — TryCatch
                 # parity treats any of them as the caught error; message
-                # differences surface in the corpus's own assertions
+                # differences surface in the corpus's own assertions.
+                # KeyError/IndexError repr-quote their str(); the message is
+                # args[0]
+                caught = e.args[0] if isinstance(e, LookupError) and e.args \
+                    and isinstance(e.args[0], str) else str(e)
                 scope = Env(env)
-                scope.define(p["message"].value["name"], str(e))
+                scope.define(p["message"].value["name"], caught)
                 from east.types.type_of_type import LocationType
 
                 scope.define(p["stack"].value["name"], EastArray(LocationType, []))
@@ -552,6 +606,14 @@ class EagerEvaluator:
         mutations (an accumulating forEach would silently count on the copy) —
         they run as interpreter closures instead, counted as such."""
         p = clo.payload
+        if any(isinstance(clo.env.get(v.value["name"]), KernelExpr)
+               for v in p["captures"]):
+            # materialized INSIDE a trace replay: a capture is the outer
+            # trace's proxy, so a standalone compile would leave it free —
+            # hand back the replay and let the enclosing trace absorb the
+            # body into its own IR (how nested lambdas compose)
+            self.report.routes[("<nested-trace>", "traced")] += 1
+            return self._replay_fn(clo)
         if not self._bake_safe(p["captures"]):
             self.report.routes[("<captures-by-ref>", "interpreted")] += 1
             clo.native = False
@@ -861,8 +923,8 @@ _ROWS: dict[str, Any] = {
     "DictCopy": lambda ev, n, a: a[0].copy(),
     "DictKeys": lambda ev, n, a: a[0].keys_set(),
     "DictGetKeys": lambda ev, n, a: a[0].get_keys(a[1], _kv_user(ev, a[2], 1)),
-    "DictMap": lambda ev, n, a: a[0].map(_kv_user(ev, a[1], 1), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_kv_user(ev, a[1], 1)),
+    "DictMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
+    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
     "DictFilter": lambda ev, n, a: a[0].filter(_dict_kv(ev, a[1])),
     "DictFilterMap": lambda ev, n, a: a[0].filter_map(_dict_kv(ev, a[1]), out=dict_child(_out(n), "value"))
     if not isinstance(a[0], KernelExpr) else a[0].filter_map(_dict_kv(ev, a[1])),

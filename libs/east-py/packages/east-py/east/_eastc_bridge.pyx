@@ -1620,7 +1620,17 @@ cpdef object _proxy_array_get(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t
     cdef _eastc.EastValue *elem = arr.data.array.items[index]
     return c_value_to_py(elem, <_eastc.EastType*>elem_type_ptr)
 
+cdef _guard_mutation(uintptr_t ptr, str container):
+    """Parity with east-c's ITER_GUARD_*: the pythonic mutators respect the
+    same ``iter_lock`` the native builtins check, so mutating a collection
+    while any iterator (python or builtin) is live fails identically."""
+    if (<_eastc.EastValue*>ptr).iter_lock > 0:
+        from east.runtime.errors import EastError
+        raise EastError(f"Cannot modify {container} during iteration", [])
+
+
 cpdef void _proxy_array_set(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index, object value):
+    _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
     if index < 0:
@@ -1632,12 +1642,14 @@ cpdef void _proxy_array_set(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t i
     arr.data.array.items[index] = new_val
 
 cpdef void _proxy_array_push(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
     _eastc.east_array_push(arr, c_val)
     _eastc.east_value_release(c_val)
 
 cpdef void _proxy_array_clear(uintptr_t ptr):
+    _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef size_t i
     for i in range(arr.data.array.len):
@@ -1645,6 +1657,7 @@ cpdef void _proxy_array_clear(uintptr_t ptr):
     arr.data.array.len = 0
 
 cpdef void _proxy_array_reverse(uintptr_t ptr):
+    _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef size_t n = arr.data.array.len
     cdef size_t i
@@ -1655,6 +1668,7 @@ cpdef void _proxy_array_reverse(uintptr_t ptr):
         arr.data.array.items[n - 1 - i] = tmp
 
 cpdef object _proxy_array_pop(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index):
+    _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
     if n == 0:
@@ -1677,6 +1691,7 @@ cpdef Py_ssize_t _proxy_set_len(uintptr_t ptr):
     return <Py_ssize_t>(<_eastc.EastValue*>ptr).data.set.len
 
 cpdef void _proxy_set_add(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    _guard_mutation(ptr, "Set")
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
     _eastc.east_set_insert(<_eastc.EastValue*>ptr, c_val)
     _eastc.east_value_release(c_val)
@@ -1688,10 +1703,12 @@ cpdef bint _proxy_set_contains(uintptr_t ptr, uintptr_t elem_type_ptr, object va
     return result
 
 cpdef void _proxy_set_remove(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    _guard_mutation(ptr, "Set")
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
     if not _eastc.east_set_delete(<_eastc.EastValue*>ptr, c_val):
+        err = _missing_key_error("Set", c_val, <_eastc.EastType*>elem_type_ptr)
         _eastc.east_value_release(c_val)
-        raise KeyError(value)
+        raise err
     _eastc.east_value_release(c_val)
 
 cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
@@ -1705,15 +1722,28 @@ cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
 cpdef Py_ssize_t _proxy_dict_len(uintptr_t ptr):
     return <Py_ssize_t>(<_eastc.EastValue*>ptr).data.dict.len
 
+cdef object _missing_key_error(str container, _eastc.EastValue *c_key, _eastc.EastType *key_type):
+    """A KeyError carrying east-c's message, with the key East-printed."""
+    cdef char *printed = _eastc.east_print_value(c_key, key_type)
+    if printed == NULL:
+        msg = "?"
+    else:
+        msg = (<bytes>printed).decode("utf-8", "replace")
+        free(printed)
+    return KeyError(f"{container} does not contain key {msg}")
+
 cpdef object _proxy_dict_get(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr, object key):
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
     cdef _eastc.EastValue *c_val = _eastc.east_dict_get(<_eastc.EastValue*>ptr, c_key)
-    _eastc.east_value_release(c_key)
     if c_val == NULL:
-        raise KeyError(key)
+        err = _missing_key_error("Dict", c_key, <_eastc.EastType*>key_type_ptr)
+        _eastc.east_value_release(c_key)
+        raise err
+    _eastc.east_value_release(c_key)
     return c_value_to_py(c_val, <_eastc.EastType*>val_type_ptr)
 
 cpdef void _proxy_dict_set(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr, object key, object value):
+    _guard_mutation(ptr, "Dict")
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>val_type_ptr)
     _eastc.east_dict_set(<_eastc.EastValue*>ptr, c_key, c_val)
@@ -1892,9 +1922,14 @@ class EastArrayProxy(EastArray):
         _proxy_array_pop(self._c_ptr, self._c_elem_type_ptr, index)
 
     def __iter__(self):
-        n = len(self)
-        for i in range(n):
-            yield _proxy_array_get(self._c_ptr, self._c_elem_type_ptr, i)
+        # Hold east-c's iter_lock for the life of the iterator: mutation
+        # during a python for-loop fails exactly like East's for-loop.
+        (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock += 1
+        try:
+            for i in range(len(self)):
+                yield _proxy_array_get(self._c_ptr, self._c_elem_type_ptr, i)
+        finally:
+            (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock -= 1
 
     def __contains__(self, item):
         for elem in self:
@@ -1941,27 +1976,14 @@ class EastArrayProxy(EastArray):
         _proxy_array_reverse(self._c_ptr)
 
     def sort(self, *, key=None, reverse=False):
-        # Sort by East's total order (not Python's default), in place.
-        if key is None:
-            # Keyless: sort in east-c via ArraySortDefault.
-            from east.runtime._compiler_eastc import call_builtin
-            from east.types.types import ArrayType
-            result = call_builtin("ArraySortDefault", [self.element_type], [self], ArrayType(self.element_type))
-            items = list(result)
-            if reverse:
-                items.reverse()
-        else:
-            # Keyed: project in Python, order keys with East semantics.
-            from east.utils.ordering import make_east_key
-            from east.types.values import type_of
-            items = list(self)
-            sample = key(items[0]) if items else None
-            key_type = type_of(sample) if sample is not None else self.element_type
-            east_key = make_east_key(key_type)
-            items.sort(key=lambda item: east_key(key(item)), reverse=reverse)
+        # Sort by East's total order (not Python's default), in place:
+        # delegate to the NATIVE sorted() (ArraySort/ArraySortDefault — keyed
+        # callbacks ride as kernels/traced lambdas like everywhere else), then
+        # replace the contents C-to-C. The previous keyed path decoded the
+        # whole array, sorted in python, and sampled the key type (#450).
+        result = self.sorted(key=key, reverse=reverse)
         _proxy_array_clear(self._c_ptr)
-        for item in items:
-            _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
+        _array_extend_bulk(self._c_ptr, self._c_elem_type_ptr, result, True)
 
     def __repr__(self):
         if len(self) == 0:
@@ -2038,13 +2060,23 @@ class EastSetProxy(EastSet):
             pass
 
     def clear(self):
+        _guard_mutation(self._c_ptr, "Set")
         _eastc.east_set_clear(<_eastc.EastValue*><uintptr_t>self._c_ptr)
 
     def __contains__(self, item):
         return _proxy_set_contains(self._c_ptr, self._c_elem_type_ptr, item)
 
     def __iter__(self):
-        return iter(_proxy_set_iter(self._c_ptr, self._c_elem_type_ptr))
+        # Hold east-c's iter_lock for the life of the iterator: mutation
+        # during a python for-loop fails exactly like East's for-loop.
+        (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock += 1
+        try:
+            for i in range(_proxy_set_len(self._c_ptr)):
+                yield c_value_to_py(
+                    _eastc.east_set_at(<_eastc.EastValue*><uintptr_t>self._c_ptr, i),
+                    <_eastc.EastType*><uintptr_t>self._c_elem_type_ptr)
+        finally:
+            (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock -= 1
 
     def __repr__(self):
         if len(self) == 0:
@@ -2119,10 +2151,12 @@ class EastDictProxy(EastDict):
         _proxy_dict_set(self._c_ptr, self._c_key_type_ptr, self._c_val_type_ptr, key, value)
 
     def __delitem__(self, key):
+        _guard_mutation(self._c_ptr, "Dict")
         cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
         if not _eastc.east_dict_delete(<_eastc.EastValue*><uintptr_t>self._c_ptr, c_key):
+            err = _missing_key_error("Dict", c_key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
             _eastc.east_value_release(c_key)
-            raise KeyError(key)
+            raise err
         _eastc.east_value_release(c_key)
 
     def __contains__(self, key):
@@ -2132,7 +2166,21 @@ class EastDictProxy(EastDict):
         return iter(self.keys())
 
     def items(self):
-        return _proxy_dict_items(self._c_ptr, self._c_key_type_ptr, self._c_val_type_ptr)
+        # Hold east-c's iter_lock for the life of the iterator: mutation
+        # during a python for-loop fails exactly like East's for-loop.
+        (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock += 1
+        try:
+            for i in range(_proxy_dict_len(self._c_ptr)):
+                yield (
+                    c_value_to_py(
+                        _eastc.east_dict_key_at(<_eastc.EastValue*><uintptr_t>self._c_ptr, i),
+                        <_eastc.EastType*><uintptr_t>self._c_key_type_ptr),
+                    c_value_to_py(
+                        _eastc.east_dict_val_at(<_eastc.EastValue*><uintptr_t>self._c_ptr, i),
+                        <_eastc.EastType*><uintptr_t>self._c_val_type_ptr),
+                )
+        finally:
+            (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock -= 1
 
     def keys(self):
         return [k for k, v in self.items()]
@@ -2157,18 +2205,23 @@ class EastDictProxy(EastDict):
         return NotImplemented
 
     def pop(self, key, *args):
+        _guard_mutation(self._c_ptr, "Dict")
         cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
         cdef _eastc.EastValue *c_val = _eastc.east_dict_pop(<_eastc.EastValue*><uintptr_t>self._c_ptr, c_key)
-        _eastc.east_value_release(c_key)
         if c_val == NULL:
             if args:
+                _eastc.east_value_release(c_key)
                 return args[0]
-            raise KeyError(key)
+            err = _missing_key_error("Dict", c_key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
+            _eastc.east_value_release(c_key)
+            raise err
+        _eastc.east_value_release(c_key)
         result = c_value_to_py(c_val, <_eastc.EastType*><uintptr_t>self._c_val_type_ptr)
         _eastc.east_value_release(c_val)  # east_dict_pop handed us a ref to release
         return result
 
     def clear(self):
+        _guard_mutation(self._c_ptr, "Dict")
         _eastc.east_dict_clear(<_eastc.EastValue*><uintptr_t>self._c_ptr)
 
 
@@ -2459,6 +2512,7 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
     float64/int64/bool numpy arrays convert through raw buffers. Anything
     else marshals per item inside this single call.
     """
+    _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef _eastc.EastType *elem_t = <_eastc.EastType*>elem_type_ptr
     cdef _eastc.EastValue *src
