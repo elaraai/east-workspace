@@ -224,3 +224,33 @@ def test_mean_family_values_are_correct(mode):
     ints = array(StructType([("n", IntegerType)]),
                  [{"n": i} for i in range(1, 5)])
     assert ints.mean(lambda r: r["n"]) == pytest.approx(2.5)
+
+
+def test_no_bulk_decode_probing():
+    """The historical failure mode: an eager method that DECODES the whole
+    collection to python (then probes/sorts/rebuilds) moves neither the
+    trampoline counter nor the corpus assertions — correct results, silently
+    O(n) python. Pin the top-level C→py decode counter instead: with kernel
+    callbacks, each of these once-guilty operations may sample at most a
+    handful of values (type fallbacks read ONE element), never the
+    collection. The bound is deliberately generous per call but ~N/10 below
+    a per-element decode."""
+    rows, cbs = _rows(), _callbacks("kernel")
+    before = eager_stats()
+    before_d = before["c_to_py_decodes"]
+    before_t = before["trampoline_calls"]
+
+    rows.sorted(key=cbs["v"])
+    rows.sort(key=cbs["v"])                 # in-place: native sorted + C-to-C rebind
+    rows.to_dict(cbs["k"], value=cbs["v"])
+    rows.group_sum(cbs["g"], cbs["v"])
+    rows.group_mean(cbs["g"], cbs["v"])
+    rows.map(cbs["v"], out=FloatType)
+    rows.filter(cbs["pred"])
+
+    after = eager_stats()
+    decoded = after["c_to_py_decodes"] - before_d
+    assert decoded < N // 10, (
+        f"{decoded} C→py decodes across {N}-row native operations — "
+        "an eager method is decoding the collection python-side")
+    assert after["trampoline_calls"] == before_t

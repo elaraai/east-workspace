@@ -532,12 +532,26 @@ cdef _eastc.EastType* _convert_function_type(object value, bint is_async) except
 
 # ─── c_value_to_py ────────────────────────────────────────────────────────
 
+# Top-level C→py decode counter. Per-element decode paths (the historical
+# decode-the-whole-collection-then-probe implementations) enter here once per
+# element, so a test can pin an operation's decode count at O(1); children of
+# one legitimate decode recurse through _c_value_to_py_impl and do not count.
+cdef long _decode_entries = 0
+
+
+def decode_stats():
+    """Total top-level C→python value decodes (see counter comment above)."""
+    return _decode_entries
+
+
 cdef object c_value_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     """Convert a C EastValue to a Python object.
 
     Does NOT consume the C value — caller still owns it.
     Uses a pointer→object dict to preserve backreference aliasing.
     """
+    global _decode_entries
+    _decode_entries += 1
     cdef dict alias_map = {}
     return _c_value_to_py_impl(val, c_type, alias_map)
 
