@@ -4,20 +4,41 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Splitter, Style, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./splitter.examples.js";
 
 describeEast("Splitter", (test) => {
     Assert.examples(test, {
-        splitterHorizontal: ex.splitterHorizontal,
-        splitterVertical: ex.splitterVertical,
-        splitterThreePanel: ex.splitterThreePanel,
-        splitterConstrained: ex.splitterConstrained,
-        splitterAsymmetric: ex.splitterAsymmetric,
-        splitterEditor: ex.splitterEditor,
-        splitterInteractive: ex.splitterInteractive,
-        splitterOnResizeStartEnd: ex.splitterOnResizeStartEnd,
+        splitterBasic: ex.splitterBasic,
+        splitterVariants: ex.splitterVariants,
+        splitterResizeEvents: ex.splitterResizeEvents,
         splitterCollapseBelow: ex.splitterCollapseBelow,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("splitterVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.splitterVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "VERTICAL"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "THREE PANEL"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CONSTRAINED"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ASYMMETRIC"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "EDITOR"));
+    });
+
+    test("splitterResizeEvents panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.splitterResizeEvents.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ON RESIZE START END"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // Helper to create a simple text component (already returns UIComponentType)

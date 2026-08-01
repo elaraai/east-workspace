@@ -4,20 +4,35 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Grid, Style, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./grid.examples.js";
 
 describeEast("Grid", (test) => {
     Assert.examples(test, {
-        gridBasic3Col: ex.gridBasic3Col,
-        gridColSpan: ex.gridColSpan,
-        gridGaps: ex.gridGaps,
-        gridFixedWidths: ex.gridFixedWidths,
-        gridCentered: ex.gridCentered,
-        gridResponsive: ex.gridResponsive,
-        gridDense: ex.gridDense,
-        gridFullWidth: ex.gridFullWidth,
-        gridNamedAreas: ex.gridNamedAreas,
+        gridBasic: ex.gridBasic,
+        gridVariants: ex.gridVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("gridVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.gridVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 9n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COL SPAN"));
+        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "GAPS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FIXED WIDTHS"));
+        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CENTERED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RESPONSIVE"));
+        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DENSE"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FULL WIDTH"));
+        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "NAMED AREAS"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     // Helper to create a simple text component (already returns UIComponentType)

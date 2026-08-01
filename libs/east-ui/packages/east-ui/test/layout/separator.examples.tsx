@@ -7,8 +7,12 @@ import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Button, Separator, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
-export const separatorHorizontal = example({
-    keywords: ["Separator", "Root", "orientation", "horizontal"],
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
+export const separatorBasic = example({
+    keywords: ["Separator", "Root", "orientation", "horizontal", "basic"],
     description: "Default horizontal divider",
     fn: East.function([], UIComponentType, (_$) => {
         return (
@@ -22,159 +26,109 @@ export const separatorHorizontal = example({
     inputs: [],
 });
 
-export const separatorVertical = example({
-    keywords: ["Separator", "Root", "orientation", "vertical"],
-    description: "Vertical divider between content",
+// ============================================================================
+// Separator — orientation, hairline variants, labels (variant panel)
+// ============================================================================
+
+export const separatorVariants = example({
+    keywords: ["Separator", "Root", "orientation", "vertical", "variant", "subtle", "strong", "dashed", "brand", "label", "form", "align", "eyebrow", "chain-divider", "start", "Reactive", "State", "interactive"],
+    description: "Separator variant panel — vertical (vertical divider between content), subtle (default subtle hairline), strong (strong hairline), dashed (dashed hairline), brand (brand hairline), labeled (centered label), form divider (labeled divider for form sections), with eyebrow (uppercase muted caption label centred between hairlines), aligned start (label biased toward the leading edge), interactive (label updates from a reactive counter)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="4" align="center">
-                <Text>Left</Text>
-                <Box height="40px">
-                    <Separator orientation="vertical" />
-                </Box>
-                <Text>Right</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorSubtle = example({
-    keywords: ["Separator", "Root", "variant", "subtle"],
-    description: "Default subtle hairline (rule)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" width="100%">
-                <Text>Above</Text>
-                <Separator variant="subtle" />
-                <Text>Below</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorStrong = example({
-    keywords: ["Separator", "Root", "variant", "strong"],
-    description: "Strong hairline (rule-strong)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" width="100%">
-                <Text>Above</Text>
-                <Separator variant="strong" />
-                <Text>Below</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorDashed = example({
-    keywords: ["Separator", "Root", "variant", "dashed"],
-    description: "Dashed hairline (rule-strong)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" width="100%">
-                <Text>Above</Text>
-                <Separator variant="dashed" />
-                <Text>Below</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorBrand = example({
-    keywords: ["Separator", "Root", "variant", "brand"],
-    description: "Brand hairline",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" width="100%">
-                <Text>Above</Text>
-                <Separator variant="brand" />
-                <Text>Below</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorLabeled = example({
-    keywords: ["Separator", "Root", "label"],
-    description: "Separator with centered label",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" width="100%">
-                <Text>Sign in with email</Text>
-                <Separator label="OR" />
-                <Text>Continue with social</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorFormDivider = example({
-    keywords: ["Separator", "Root", "label", "form"],
-    description: "Labeled divider for form sections",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" width="100%">
-                <Text>Personal Information</Text>
-                <Separator label="Contact Details" />
-                <Text>Email and Phone fields...</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const separatorInteractive = example({
-    keywords: ["Separator", "Reactive", "State", "interactive", "label"],
-    description: "Separator whose label updates from a reactive counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "separator_counter", 0n));
-            const value = $.let(counter.read());
-            const inc = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Text>Above</Text>
-                    {/* dynamic-string labels need an explicit Text wrap so the
-                        string→UIComp coercion is unambiguous; plain string labels auto-coerce */}
-                    <Separator label={<Text>{East.str`STEP ${East.print(value)}`}</Text>} />
-                    <Text>Below</Text>
-                    <Button onClick={inc}>Next step</Button>
+            <VStack gap="4" align="stretch">
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VERTICAL</Text>
+                    <HStack gap="4" align="center">
+                        <Text>Left</Text>
+                        <Box height="40px">
+                            <Separator orientation="vertical" />
+                        </Box>
+                        <Text>Right</Text>
+                    </HStack>
                 </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const separatorWithEyebrow = example({
-    keywords: ["Separator", "Root", "label", "align", "eyebrow", "chain-divider"],
-    description: "Horizontal separator with an uppercase muted caption label centred between hairlines",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" align="stretch">
-                <Text>Phase 1 — Triage</Text>
-                <Separator label="Cross-phase decisions" align="center" variant="subtle" />
-                <Text>Phase 2 — Deliver</Text>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SUBTLE</Text>
+                    <VStack gap="3" width="100%">
+                        <Text>Above</Text>
+                        <Separator variant="subtle" />
+                        <Text>Below</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRONG</Text>
+                    <VStack gap="3" width="100%">
+                        <Text>Above</Text>
+                        <Separator variant="strong" />
+                        <Text>Below</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DASHED</Text>
+                    <VStack gap="3" width="100%">
+                        <Text>Above</Text>
+                        <Separator variant="dashed" />
+                        <Text>Below</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BRAND</Text>
+                    <VStack gap="3" width="100%">
+                        <Text>Above</Text>
+                        <Separator variant="brand" />
+                        <Text>Below</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LABELED</Text>
+                    <VStack gap="3" width="100%">
+                        <Text>Sign in with email</Text>
+                        <Separator label="OR" />
+                        <Text>Continue with social</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FORM DIVIDER</Text>
+                    <VStack gap="3" width="100%">
+                        <Text>Personal Information</Text>
+                        <Separator label="Contact Details" />
+                        <Text>Email and Phone fields...</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH EYEBROW</Text>
+                    <VStack gap="3" align="stretch">
+                        <Text>Phase 1 — Triage</Text>
+                        <Separator label="Cross-phase decisions" align="center" variant="subtle" />
+                        <Text>Phase 2 — Deliver</Text>
+                    </VStack>
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ALIGNED START</Text>
+                    <Separator label="Notes" align="start" />
+                </VStack>
+                <VStack gap="1" align="stretch">
+                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
+                    <Reactive>{$ => {
+                        const counter = $.let(State.bind([IntegerType], "separator_counter", 0n));
+                        const value = $.let(counter.read());
+                        const inc = $.const(East.function([], NullType, $ => {
+                            const cur = $.let(counter.read());
+                            $(counter.write(cur.add(1n)));
+                        }));
+                        return (
+                            <VStack gap="3" align="stretch">
+                                <Text>Above</Text>
+                                {/* dynamic-string labels need an explicit Text wrap so the
+                                    string→UIComp coercion is unambiguous; plain string labels auto-coerce */}
+                                <Separator label={<Text>{East.str`STEP ${East.print(value)}`}</Text>} />
+                                <Text>Below</Text>
+                                <Button onClick={inc}>Next step</Button>
+                            </VStack>
+                        );
+                    }}</Reactive>
+                </VStack>
             </VStack>
         );
-    }),
-    inputs: [],
-});
-
-export const separatorAlignedStart = example({
-    keywords: ["Separator", "Root", "label", "align", "start"],
-    description: "Separator with the label biased toward the leading edge",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Separator label="Notes" align="start" />;
     }),
     inputs: [],
 });
