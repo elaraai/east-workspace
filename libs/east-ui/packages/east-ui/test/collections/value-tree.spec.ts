@@ -56,19 +56,19 @@ describeEast("ValueTree", (test) => {
     test("valueTreeKitchenSink panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.valueTreeKitchenSink.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 2n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TREE DICT OF STRUCTS"));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TREE KITCHEN SINK"));
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE DICT OF STRUCTS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE KITCHEN SINK"));
     });
 
     test("valueTreeEditingContracts panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.valueTreeEditingContracts.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TREE SCOPED"));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TREE COLLECTIONS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TREE RAW PATHS"));
-        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TREE KITCHEN SINK EDITABLE"));
+        $(Assert.equal(rows.size(), 8n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE SCOPED"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE COLLECTIONS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE RAW PATHS"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE KITCHEN SINK EDITABLE"));
     });
 
     // ------------------------------------------------------------------

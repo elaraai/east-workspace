@@ -36,97 +36,77 @@ export const separatorVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VERTICAL</Text>
-                    <HStack gap="4" align="center">
-                        <Text>Left</Text>
-                        <Box height="40px">
-                            <Separator orientation="vertical" />
-                        </Box>
-                        <Text>Right</Text>
-                    </HStack>
+                <Separator label="VERTICAL" align="start" />
+                <HStack gap="4" align="center">
+                    <Text>Left</Text>
+                    <Box height="40px">
+                        <Separator orientation="vertical" />
+                    </Box>
+                    <Text>Right</Text>
+                </HStack>
+                <Separator label="SUBTLE" align="start" />
+                <VStack gap="3" width="100%">
+                    <Text>Above</Text>
+                    <Separator variant="subtle" />
+                    <Text>Below</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SUBTLE</Text>
-                    <VStack gap="3" width="100%">
-                        <Text>Above</Text>
-                        <Separator variant="subtle" />
-                        <Text>Below</Text>
-                    </VStack>
+                <Separator label="STRONG" align="start" />
+                <VStack gap="3" width="100%">
+                    <Text>Above</Text>
+                    <Separator variant="strong" />
+                    <Text>Below</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRONG</Text>
-                    <VStack gap="3" width="100%">
-                        <Text>Above</Text>
-                        <Separator variant="strong" />
-                        <Text>Below</Text>
-                    </VStack>
+                <Separator label="DASHED" align="start" />
+                <VStack gap="3" width="100%">
+                    <Text>Above</Text>
+                    <Separator variant="dashed" />
+                    <Text>Below</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DASHED</Text>
-                    <VStack gap="3" width="100%">
-                        <Text>Above</Text>
-                        <Separator variant="dashed" />
-                        <Text>Below</Text>
-                    </VStack>
+                <Separator label="BRAND" align="start" />
+                <VStack gap="3" width="100%">
+                    <Text>Above</Text>
+                    <Separator variant="brand" />
+                    <Text>Below</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BRAND</Text>
-                    <VStack gap="3" width="100%">
-                        <Text>Above</Text>
-                        <Separator variant="brand" />
-                        <Text>Below</Text>
-                    </VStack>
+                <Separator label="LABELED" align="start" />
+                <VStack gap="3" width="100%">
+                    <Text>Sign in with email</Text>
+                    <Separator label="OR" />
+                    <Text>Continue with social</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LABELED</Text>
-                    <VStack gap="3" width="100%">
-                        <Text>Sign in with email</Text>
-                        <Separator label="OR" />
-                        <Text>Continue with social</Text>
-                    </VStack>
+                <Separator label="FORM DIVIDER" align="start" />
+                <VStack gap="3" width="100%">
+                    <Text>Personal Information</Text>
+                    <Separator label="Contact Details" />
+                    <Text>Email and Phone fields...</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FORM DIVIDER</Text>
-                    <VStack gap="3" width="100%">
-                        <Text>Personal Information</Text>
-                        <Separator label="Contact Details" />
-                        <Text>Email and Phone fields...</Text>
-                    </VStack>
+                <Separator label="WITH EYEBROW" align="start" />
+                <VStack gap="3" align="stretch">
+                    <Text>Phase 1 — Triage</Text>
+                    <Separator label="Cross-phase decisions" align="center" variant="subtle" />
+                    <Text>Phase 2 — Deliver</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH EYEBROW</Text>
-                    <VStack gap="3" align="stretch">
-                        <Text>Phase 1 — Triage</Text>
-                        <Separator label="Cross-phase decisions" align="center" variant="subtle" />
-                        <Text>Phase 2 — Deliver</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ALIGNED START</Text>
-                    <Separator label="Notes" align="start" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "separator_counter", 0n));
-                        const value = $.let(counter.read());
-                        const inc = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Text>Above</Text>
-                                {/* dynamic-string labels need an explicit Text wrap so the
-                                    string→UIComp coercion is unambiguous; plain string labels auto-coerce */}
-                                <Separator label={<Text>{East.str`STEP ${East.print(value)}`}</Text>} />
-                                <Text>Below</Text>
-                                <Button onClick={inc}>Next step</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="ALIGNED START" align="start" />
+                <Separator label="Notes" align="start" />
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "separator_counter", 0n));
+                    const value = $.let(counter.read());
+                    const inc = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Text>Above</Text>
+                            {/* dynamic-string labels need an explicit Text wrap so the
+                                string→UIComp coercion is unambiguous; plain string labels auto-coerce */}
+                            <Separator label={<Text>{East.str`STEP ${East.print(value)}`}</Text>} />
+                            <Text>Below</Text>
+                            <Button onClick={inc}>Next step</Button>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

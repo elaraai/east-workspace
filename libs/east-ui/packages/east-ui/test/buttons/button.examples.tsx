@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Text, VStack, HStack, Stat, Reactive } from "@elaraai/east-ui";
+import { Button, Separator, Text, VStack, HStack, Stat, Reactive } from "@elaraai/east-ui";
 
 export const buttonBasic = example({
     keywords: ["Button", "Root", "label", "basic", "create"],
@@ -58,70 +58,54 @@ export const buttonVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SOLID VARIANT</Text>
-                    <Button variant="solid" colorPalette="blue" size="md">Save Changes</Button>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DANGER OUTLINE</Text>
-                    <HStack gap="2">
-                        <Button variant="solid" colorPalette="red">Delete</Button>
-                        <Button variant="outline" colorPalette="gray">Cancel</Button>
-                        <Button variant="ghost" size="sm">More</Button>
+                <Separator label="SOLID VARIANT" align="start" />
+                <Button variant="solid" colorPalette="blue" size="md">Save Changes</Button>
+                <Separator label="DANGER OUTLINE" align="start" />
+                <HStack gap="2">
+                    <Button variant="solid" colorPalette="red">Delete</Button>
+                    <Button variant="outline" colorPalette="gray">Cancel</Button>
+                    <Button variant="ghost" size="sm">More</Button>
+                </HStack>
+                <Separator label="GHOST" align="start" />
+                <Button variant="ghost" color="#3d5cff" hoverBackground="#eef2ff">View details</Button>
+                <Separator label="PLAIN" align="start" />
+                <Button variant="plain" colorPalette="blue">Learn more</Button>
+                <Separator label="BRANDED COLOURS" align="start" />
+                <Button
+                    startIcon={{ prefix: "fas", name: "rocket" }}
+                    color="#ffffff"
+                    background="#1a2234"
+                    borderColor="#3d5cff"
+                    hoverBackground="#25345a"
+                >
+                    Deploy
+                </Button>
+                <Separator label="WITH ICONS" align="start" />
+                <Button
+                    startIcon={{ prefix: "fas", name: "save" }}
+                    endIcon={{ prefix: "fas", name: "arrow-right" }}
+                    variant="solid"
+                    colorPalette="blue"
+                >
+                    Save
+                </Button>
+                <Separator label="LOADING" align="start" />
+                <Button
+                    loading
+                    loadingText="Submitting…"
+                    loadingIcon={{ prefix: "fas", name: "spinner" }}
+                    variant="solid"
+                    colorPalette="blue"
+                >
+                    Submit
+                </Button>
+                <Separator label="RICH LABEL" align="start" />
+                <Button variant="solid" colorPalette="green">
+                    <HStack gap="1" align="center">
+                        <Text>Accept</Text>
+                        <Text color="whiteAlpha.700">→ log to MES</Text>
                     </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GHOST</Text>
-                    <Button variant="ghost" color="#3d5cff" hoverBackground="#eef2ff">View details</Button>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PLAIN</Text>
-                    <Button variant="plain" colorPalette="blue">Learn more</Button>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BRANDED COLOURS</Text>
-                    <Button
-                        startIcon={{ prefix: "fas", name: "rocket" }}
-                        color="#ffffff"
-                        background="#1a2234"
-                        borderColor="#3d5cff"
-                        hoverBackground="#25345a"
-                    >
-                        Deploy
-                    </Button>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH ICONS</Text>
-                    <Button
-                        startIcon={{ prefix: "fas", name: "save" }}
-                        endIcon={{ prefix: "fas", name: "arrow-right" }}
-                        variant="solid"
-                        colorPalette="blue"
-                    >
-                        Save
-                    </Button>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LOADING</Text>
-                    <Button
-                        loading
-                        loadingText="Submitting…"
-                        loadingIcon={{ prefix: "fas", name: "spinner" }}
-                        variant="solid"
-                        colorPalette="blue"
-                    >
-                        Submit
-                    </Button>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RICH LABEL</Text>
-                    <Button variant="solid" colorPalette="green">
-                        <HStack gap="1" align="center">
-                            <Text>Accept</Text>
-                            <Text color="whiteAlpha.700">→ log to MES</Text>
-                        </HStack>
-                    </Button>
-                </VStack>
+                </Button>
             </VStack>
         );
     }),

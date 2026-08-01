@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Library, Reactive, SegmentGroup, Slice, Text, VStack } from "@elaraai/east-ui";
+import { Box, Library, Reactive, SegmentGroup, Separator, Slice, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -119,37 +119,33 @@ export const libraryVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ASSETS</Text>
-                    <Library
-                        id="vehicles"
-                        data={LIBRARY_ASSETS_DATA}
-                        item={t => ({
-                            key: t.id,
-                            label: t.id,
-                            sublabel: t.cls,
-                            icon: "truck",
-                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
-                            draggable: t.inService.not(),
-                        })}
-                        dimensions={[
-                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
-                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
-                        ]}
-                        groupBy={[
-                            { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
-                            { key: "depot", label: "Depot", value: t => t.depot },
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FLAT</Text>
-                    <Library
-                        id="rooms"
-                        data={LIBRARY_FLAT_DATA}
-                        item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
-                    />
-                </VStack>
+                <Separator label="ASSETS" align="start" />
+                <Library
+                    id="vehicles"
+                    data={LIBRARY_ASSETS_DATA}
+                    item={t => ({
+                        key: t.id,
+                        label: t.id,
+                        sublabel: t.cls,
+                        icon: "truck",
+                        status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
+                        draggable: t.inService.not(),
+                    })}
+                    dimensions={[
+                        { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
+                        { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
+                    ]}
+                    groupBy={[
+                        { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
+                        { key: "depot", label: "Depot", value: t => t.depot },
+                    ]}
+                />
+                <Separator label="FLAT" align="start" />
+                <Library
+                    id="rooms"
+                    data={LIBRARY_FLAT_DATA}
+                    item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
+                />
             </VStack>
         );
     }),
@@ -255,30 +251,26 @@ export const libraryFill = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
+                <Separator label="SCROLL" align="start" />
+                <Library
+                    id="library-scroll"
+                    data={LIBRARY_SCROLL_DATA}
+                    item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
+                    dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
+                    groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
+                    style={{ maxHeight: "200px" }}
+                />
+                <Separator label="FILL" align="start" />
+                <Box height="200px">
                     <Library
-                        id="library-scroll"
-                        data={LIBRARY_SCROLL_DATA}
+                        id="library-fill"
+                        data={LIBRARY_FILL_DATA}
                         item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
                         dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
                         groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                        style={{ maxHeight: "200px" }}
+                        style={{ height: "fill" }}
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
-                    <Box height="200px">
-                        <Library
-                            id="library-fill"
-                            data={LIBRARY_FILL_DATA}
-                            item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
-                            dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
-                            groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                            style={{ height: "fill" }}
-                        />
-                    </Box>
-                </VStack>
+                </Box>
             </VStack>
         );
     }),

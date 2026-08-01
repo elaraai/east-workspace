@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Meter, Stack, Text, VStack } from "@elaraai/east-ui";
+import { Meter, Separator, Stack, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -33,26 +33,18 @@ export const meterVariants = example({
         const comfortable = $.const(<Meter value={72.0} tone="success" density="comfortable" />);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SUCCESS</Text>
-                    <Meter value={85.0} tone="success" label={<Text>Uptime</Text>} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WARNING</Text>
-                    <Meter value={42.0} tone="warning" thickness="lg" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITIES</Text>
-                    <Stack direction="column" gap="6">
-                        {condensed}
-                        {compact}
-                        {comfortable}
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM MAX</Text>
-                    <Meter value={350.0} max={500.0} fillColor="purple.500" trackColor="purple.100" />
-                </VStack>
+                <Separator label="SUCCESS" align="start" />
+                <Meter value={85.0} tone="success" label={<Text>Uptime</Text>} />
+                <Separator label="WARNING" align="start" />
+                <Meter value={42.0} tone="warning" thickness="lg" />
+                <Separator label="DENSITIES" align="start" />
+                <Stack direction="column" gap="6">
+                    {condensed}
+                    {compact}
+                    {comfortable}
+                </Stack>
+                <Separator label="CUSTOM MAX" align="start" />
+                <Meter value={350.0} max={500.0} fillColor="purple.500" trackColor="purple.100" />
             </VStack>
         );
     }),

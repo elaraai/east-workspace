@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from "@elaraai/east";
 import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Library, Planner, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Box, Library, Planner, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -227,44 +227,38 @@ export const plannerBucketsVariants = example({
         ], ArrayType(Planner.Types.Event));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUCKETS</Text>
-                    <Planner.Point
-                        data={PLANNER_BUCKETS_DATA}
-                        axis={Planner.axis.number({
-                            buckets: [
-                                { key: "morning", label: "AM" },
-                                { key: "afternoon", label: "PM" },
-                                { key: "evening", label: "EV" },
-                            ],
-                            range: { min: 1, max: 3 },
-                        })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), bucket: "morning", label: "A", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(1), bucket: "evening", label: "B", state: "added" }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MIXED BUCKETS</Text>
-                    <Planner.Point
-                        data={PLANNER_MIXED_BUCKETS_DATA}
-                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } })}
-                        groupBy={r => r.group}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={r => r.isAlice.ifElse(() => aliceEvents, () => r.isBob.ifElse(() => bobEvents, () => dailyEvents))}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PER CELL BUCKETS</Text>
-                    <Planner.Point
-                        data={PLANNER_PER_CELL_BUCKETS_DATA}
-                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={r => r.bucketed.ifElse(() => pressA, () => pressB)}
-                    />
-                </VStack>
+                <Separator label="BUCKETS" align="start" />
+                <Planner.Point
+                    data={PLANNER_BUCKETS_DATA}
+                    axis={Planner.axis.number({
+                        buckets: [
+                            { key: "morning", label: "AM" },
+                            { key: "afternoon", label: "PM" },
+                            { key: "evening", label: "EV" },
+                        ],
+                        range: { min: 1, max: 3 },
+                    })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), bucket: "morning", label: "A", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(1), bucket: "evening", label: "B", state: "added" }),
+                    ]}
+                />
+                <Separator label="MIXED BUCKETS" align="start" />
+                <Planner.Point
+                    data={PLANNER_MIXED_BUCKETS_DATA}
+                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } })}
+                    groupBy={r => r.group}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={r => r.isAlice.ifElse(() => aliceEvents, () => r.isBob.ifElse(() => bobEvents, () => dailyEvents))}
+                />
+                <Separator label="PER CELL BUCKETS" align="start" />
+                <Planner.Point
+                    data={PLANNER_PER_CELL_BUCKETS_DATA}
+                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={r => r.bucketed.ifElse(() => pressA, () => pressB)}
+                />
             </VStack>
         );
     }),
@@ -281,85 +275,73 @@ export const plannerEventStyleVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRETCH</Text>
-                    <Planner.Point
-                        data={PLANNER_STRETCH_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                        density="comfortable"
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), label: "Full", state: "committed", stretch: "both", content: { horizontal: "center", vertical: "center" } }),
-                            Planner.event({ slot: Planner.at.number(2), label: "Wide", state: "added", stretch: "horizontal" }),
-                            Planner.event({ slot: Planner.at.number(3), label: "Top-left", state: "committed" }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">EVENT TONE</Text>
-                    <Planner.Point
-                        data={PLANNER_EVENT_TONE_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), label: "OK", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(2), label: "Watch", state: "committed", tone: "warning" }),
-                            Planner.event({ slot: Planner.at.number(3), label: "Breach", state: "committed", tone: "danger", animation: "pulse" }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">EVENT COLOR</Text>
-                    <Planner.Point
-                        data={PLANNER_EVENT_COLOR_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), label: "Series A", state: "committed", color: "teal.solid" }),
-                            Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "purple" }),
-                            Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "black" }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MARKERS</Text>
-                    <Planner.Point
-                        data={PLANNER_MARKERS_DATA}
-                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 4 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
-                        ]}
-                        markers={_r => [
-                            Planner.marker({ slot: Planner.at.number(1), status: "success", message: "On track" }),
-                            Planner.marker({ slot: Planner.at.number(2), status: "warning", message: "Tight turnaround" }),
-                            Planner.marker({ slot: Planner.at.number(3), status: "danger", message: "Double-booked in this slot" }),
-                            Planner.marker({ slot: Planner.at.number(4), status: "info", message: "Pending review" }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW HOVER</Text>
-                    <Planner.Point
-                        data={PLANNER_ROW_HOVER_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                        rowHover={true}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITY</Text>
-                    <Planner.Point
-                        data={PLANNER_DENSITY_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                        density="compact"
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
-                    />
-                </VStack>
+                <Separator label="STRETCH" align="start" />
+                <Planner.Point
+                    data={PLANNER_STRETCH_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                    density="comfortable"
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), label: "Full", state: "committed", stretch: "both", content: { horizontal: "center", vertical: "center" } }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Wide", state: "added", stretch: "horizontal" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Top-left", state: "committed" }),
+                    ]}
+                />
+                <Separator label="EVENT TONE" align="start" />
+                <Planner.Point
+                    data={PLANNER_EVENT_TONE_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), label: "OK", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Watch", state: "committed", tone: "warning" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Breach", state: "committed", tone: "danger", animation: "pulse" }),
+                    ]}
+                />
+                <Separator label="EVENT COLOR" align="start" />
+                <Planner.Point
+                    data={PLANNER_EVENT_COLOR_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), label: "Series A", state: "committed", color: "teal.solid" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "purple" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "black" }),
+                    ]}
+                />
+                <Separator label="MARKERS" align="start" />
+                <Planner.Point
+                    data={PLANNER_MARKERS_DATA}
+                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 4 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
+                    ]}
+                    markers={_r => [
+                        Planner.marker({ slot: Planner.at.number(1), status: "success", message: "On track" }),
+                        Planner.marker({ slot: Planner.at.number(2), status: "warning", message: "Tight turnaround" }),
+                        Planner.marker({ slot: Planner.at.number(3), status: "danger", message: "Double-booked in this slot" }),
+                        Planner.marker({ slot: Planner.at.number(4), status: "info", message: "Pending review" }),
+                    ]}
+                />
+                <Separator label="ROW HOVER" align="start" />
+                <Planner.Point
+                    data={PLANNER_ROW_HOVER_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                    rowHover={true}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
+                />
+                <Separator label="DENSITY" align="start" />
+                <Planner.Point
+                    data={PLANNER_DENSITY_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                    density="compact"
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
+                />
             </VStack>
         );
     }),
@@ -380,49 +362,43 @@ export const plannerAxisVariants = example({
         const horizon = $.const(lastEventDay.add(4.0), FloatType);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ORDINAL AXIS</Text>
-                    <Planner.Point
-                        data={PLANNER_ORDINAL_AXIS_DATA}
-                        axis={Planner.axis.ordinal({ range: ["backlog", "active", "review", "done"] })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.ordinal("active"), label: "Start", state: "committed" }),
-                            Planner.event({ slot: Planner.at.ordinal("done"), label: "Wrap up", state: "model" }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DATA DRIVEN RANGE</Text>
-                    <Planner.Point
-                        data={PLANNER_DATA_DRIVEN_RANGE_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: horizon } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(3), label: "plan", state: "added" }),
-                        ]}
-                        now={Planner.at.number(7)}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
-                    <Planner.Point
-                        data={PLANNER_SCROLL_DATA}
-                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
-                            Planner.event({ slot: Planner.at.number(5), bucket: "am", label: "plan", state: "model" }),
-                        ]}
-                        now={Planner.at.number(4)}
-                        maxHeight="320px"
-                    />
-                </VStack>
+                <Separator label="ORDINAL AXIS" align="start" />
+                <Planner.Point
+                    data={PLANNER_ORDINAL_AXIS_DATA}
+                    axis={Planner.axis.ordinal({ range: ["backlog", "active", "review", "done"] })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.ordinal("active"), label: "Start", state: "committed" }),
+                        Planner.event({ slot: Planner.at.ordinal("done"), label: "Wrap up", state: "model" }),
+                    ]}
+                />
+                <Separator label="DATA DRIVEN RANGE" align="start" />
+                <Planner.Point
+                    data={PLANNER_DATA_DRIVEN_RANGE_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: horizon } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "plan", state: "added" }),
+                    ]}
+                    now={Planner.at.number(7)}
+                />
+                <Separator label="SCROLL" align="start" />
+                <Planner.Point
+                    data={PLANNER_SCROLL_DATA}
+                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
+                        Planner.event({ slot: Planner.at.number(5), bucket: "am", label: "plan", state: "model" }),
+                    ]}
+                    now={Planner.at.number(4)}
+                    maxHeight="320px"
+                />
             </VStack>
         );
     }),
@@ -439,50 +415,46 @@ export const plannerOverlays = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">POPOVER</Text>
-                    <Planner.Point
-                        data={PLANNER_POPOVER_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({
-                                slot: Planner.at.number(2), label: "Review", state: "committed",
-                                popover: (
-                                    <VStack gap="1">
-                                        <Text fontWeight="semibold">Review</Text>
-                                        <Text color="fg.muted">Owner: Alice</Text>
-                                    </VStack>
-                                ),
-                            }),
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">HOVERCARD</Text>
-                    <Planner.Point
-                        data={PLANNER_HOVERCARD_DATA}
-                        axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={_r => [
-                            Planner.event({
-                                slot: Planner.at.number(2), label: "Review", state: "committed",
-                                hovercard: (
-                                    <VStack gap="1">
-                                        <Text fontWeight="semibold">Review</Text>
-                                        <Text color="fg.muted">Hover preview · click to pin</Text>
-                                    </VStack>
-                                ),
-                                popover: (
-                                    <VStack gap="1">
-                                        <Text fontWeight="semibold">Review details</Text>
-                                        <Text color="fg.muted">Owner: Alice</Text>
-                                    </VStack>
-                                ),
-                            }),
-                        ]}
-                    />
-                </VStack>
+                <Separator label="POPOVER" align="start" />
+                <Planner.Point
+                    data={PLANNER_POPOVER_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({
+                            slot: Planner.at.number(2), label: "Review", state: "committed",
+                            popover: (
+                                <VStack gap="1">
+                                    <Text fontWeight="semibold">Review</Text>
+                                    <Text color="fg.muted">Owner: Alice</Text>
+                                </VStack>
+                            ),
+                        }),
+                    ]}
+                />
+                <Separator label="HOVERCARD" align="start" />
+                <Planner.Point
+                    data={PLANNER_HOVERCARD_DATA}
+                    axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({
+                            slot: Planner.at.number(2), label: "Review", state: "committed",
+                            hovercard: (
+                                <VStack gap="1">
+                                    <Text fontWeight="semibold">Review</Text>
+                                    <Text color="fg.muted">Hover preview · click to pin</Text>
+                                </VStack>
+                            ),
+                            popover: (
+                                <VStack gap="1">
+                                    <Text fontWeight="semibold">Review details</Text>
+                                    <Text color="fg.muted">Owner: Alice</Text>
+                                </VStack>
+                            ),
+                        }),
+                    ]}
+                />
             </VStack>
         );
     }),
@@ -741,36 +713,32 @@ export const plannerFill = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL HEIGHT</Text>
+                <Separator label="FILL HEIGHT" align="start" />
+                <Planner.Point
+                    data={PLANNER_FILL_HEIGHT_DATA}
+                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
+                    ]}
+                    now={Planner.at.number(4)}
+                    height="220px"
+                />
+                <Separator label="FILL" align="start" />
+                <Box height="200px">
                     <Planner.Point
-                        data={PLANNER_FILL_HEIGHT_DATA}
+                        data={PLANNER_FILL_DATA}
                         axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
                         columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
                         events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "on", state: "committed" }),
                             Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
                         ]}
-                        now={Planner.at.number(4)}
-                        height="220px"
+                        height="fill"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
-                    <Box height="200px">
-                        <Planner.Point
-                            data={PLANNER_FILL_DATA}
-                            axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
-                            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "on", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
-                            ]}
-                            height="fill"
-                        />
-                    </Box>
-                </VStack>
+                </Box>
             </VStack>
         );
     }),

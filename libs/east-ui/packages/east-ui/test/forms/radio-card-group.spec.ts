@@ -23,10 +23,10 @@ describeEast("RadioCardGroup", (test) => {
     test("radioCardGroupVariants panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.radioCardGroupVariants.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 3n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CARD GROUP HORIZONTAL"));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CARD GROUP DISABLED ITEM"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "CARD GROUP COLOUR OVERRIDES"));
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD GROUP HORIZONTAL"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD GROUP DISABLED ITEM"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD GROUP COLOUR OVERRIDES"));
     });
 
     test("creates card group with selected value", $ => {

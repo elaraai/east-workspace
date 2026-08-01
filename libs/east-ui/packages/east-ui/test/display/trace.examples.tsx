@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Trace, ChipRail, Tag, Text, VStack, Stack } from "@elaraai/east-ui";
+import { Trace, ChipRail, Separator, Tag, VStack, Stack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -103,40 +103,32 @@ export const traceVariants = example({
         const categorical = $.const(<Trace tracks={TRACE_SCALES_DATA} now={4n} density="compact" scale="categorical" />);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITIES</Text>
-                    <Stack direction="column" gap="6">
-                        {condensed}
-                        {compact}
-                        {comfortable}
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCALES</Text>
-                    <Stack direction="column" gap="6">
-                        {brand}
-                        {diverge}
-                        {categorical}
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RAGGED</Text>
-                    <Trace
-                        tracks={TRACE_RAGGED_DATA}
-                        now={4n}
-                        future="ghost"
-                        density="compact"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LABEL WIDTH</Text>
-                    <Trace
-                        tracks={TRACE_LABEL_WIDTH_DATA}
-                        now={4n}
-                        density="compact"
-                        labelWidth="120px"
-                    />
-                </VStack>
+                <Separator label="DENSITIES" align="start" />
+                <Stack direction="column" gap="6">
+                    {condensed}
+                    {compact}
+                    {comfortable}
+                </Stack>
+                <Separator label="SCALES" align="start" />
+                <Stack direction="column" gap="6">
+                    {brand}
+                    {diverge}
+                    {categorical}
+                </Stack>
+                <Separator label="RAGGED" align="start" />
+                <Trace
+                    tracks={TRACE_RAGGED_DATA}
+                    now={4n}
+                    future="ghost"
+                    density="compact"
+                />
+                <Separator label="LABEL WIDTH" align="start" />
+                <Trace
+                    tracks={TRACE_LABEL_WIDTH_DATA}
+                    now={4n}
+                    density="compact"
+                    labelWidth="120px"
+                />
             </VStack>
         );
     }),

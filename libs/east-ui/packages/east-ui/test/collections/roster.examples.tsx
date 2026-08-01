@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, Status, UIComponentType } from "@elaraai/east-ui";
-import { Box, Library, Reactive, Roster, Text, VStack } from "@elaraai/east-ui";
+import { Box, Library, Reactive, Roster, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -88,31 +88,27 @@ export const rosterModes = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">EDIT</Text>
-                    <Roster
-                        id="roster-se"
-                        sources={["people"]}
-                        mode="edit"
-                        people={ROSTER_EDIT_PEOPLE_DATA}
-                        person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                        shifts={ROSTER_EDIT_DATA}
-                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                        summary="3 dirty · 1 new · 2 model-ghost"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PUBLISHED</Text>
-                    <Roster
-                        id="roster-published"
-                        people={ROSTER_PUBLISHED_PEOPLE_DATA}
-                        person={p => ({ key: p.id, label: p.name })}
-                        shifts={ROSTER_PUBLISHED_DATA}
-                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                        days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                        summary="published · wk of Sep 16"
-                    />
-                </VStack>
+                <Separator label="EDIT" align="start" />
+                <Roster
+                    id="roster-se"
+                    sources={["people"]}
+                    mode="edit"
+                    people={ROSTER_EDIT_PEOPLE_DATA}
+                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                    shifts={ROSTER_EDIT_DATA}
+                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                    summary="3 dirty · 1 new · 2 model-ghost"
+                />
+                <Separator label="PUBLISHED" align="start" />
+                <Roster
+                    id="roster-published"
+                    people={ROSTER_PUBLISHED_PEOPLE_DATA}
+                    person={p => ({ key: p.id, label: p.name })}
+                    shifts={ROSTER_PUBLISHED_DATA}
+                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                    days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                    summary="published · wk of Sep 16"
+                />
             </VStack>
         );
     }),
@@ -337,30 +333,26 @@ export const rosterFill = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
+                <Separator label="SCROLL" align="start" />
+                <Roster
+                    id="roster-scroll"
+                    people={ROSTER_SCROLL_PEOPLE_DATA}
+                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                    shifts={ROSTER_SCROLL_DATA}
+                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                    maxHeight="180px"
+                />
+                <Separator label="FILL" align="start" />
+                <Box height="180px">
                     <Roster
-                        id="roster-scroll"
-                        people={ROSTER_SCROLL_PEOPLE_DATA}
+                        id="roster-fill"
+                        people={ROSTER_FILL_PEOPLE_DATA}
                         person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                        shifts={ROSTER_SCROLL_DATA}
+                        shifts={ROSTER_FILL_DATA}
                         shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                        maxHeight="180px"
+                        height="fill"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
-                    <Box height="180px">
-                        <Roster
-                            id="roster-fill"
-                            people={ROSTER_FILL_PEOPLE_DATA}
-                            person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                            shifts={ROSTER_FILL_DATA}
-                            shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                            height="fill"
-                        />
-                    </Box>
-                </VStack>
+                </Box>
             </VStack>
         );
     }),

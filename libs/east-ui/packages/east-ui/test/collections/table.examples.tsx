@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, HStack, Reactive, SegmentGroup, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, HStack, Reactive, SegmentGroup, Separator, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -117,145 +117,133 @@ export const tableColumnsVariants = example({
         const metricsData = $.let(TABLE_WRAPPING_TAGS_DATA);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM HEADERS</Text>
+                <Separator label="CUSTOM HEADERS" align="start" />
+                <Table
+                    data={TABLE_CUSTOM_HEADERS_DATA}
+                    columns={{
+                        firstName: { header: "First Name", width: "300px", minWidth: "80px" },
+                        lastName: { header: "Last Name", width: "150px" },
+                        dept: { header: "Department", minWidth: "100px", maxWidth: "200px" },
+                    }}
+                />
+                <Separator label="COMPLEX COLUMNS" align="start" />
+                <Table
+                    variant="line"
+                    striped={true}
+                    data={complexData}
+                    columns={{
+                        name: { header: "Name" },
+                        skills: {
+                            header: "Skills",
+                            value: (skills) => skills.size(),
+                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                // The render context carries only {rowIndex, columnKey, cellValue} —
+                                // CAPTURE the data array and index ctx.rowIndex for full-row access.
+                                // Captures must be data or bind-handles, never a UIComponentType value.
+                                const row = $.let(complexData.get(ctx.rowIndex));
+                                return (
+                                    <HStack gap="1" wrap="wrap">
+                                        {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="blue">{s}</Badge>)}
+                                    </HStack>
+                                );
+                            }),
+                        },
+                        metadata: {
+                            header: "Experience",
+                            value: (meta) => meta.years,
+                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                const row = $.let(complexData.get(ctx.rowIndex));
+                                return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;
+                            }),
+                        },
+                    }}
+                />
+                <Separator label="WRAPPING TAGS" align="start" />
+                <Table
+                    variant="line"
+                    data={metricsData}
+                    columns={{
+                        name: { header: "Server", width: "120px" },
+                        metrics: {
+                            header: "Metrics",
+                            width: "400px",
+                            maxWidth: "400px",
+                            value: (val) => val.map((_$, value) => value).mean(),
+                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                const row = $.let(metricsData.get(ctx.rowIndex));
+                                return (
+                                    <HStack wrap="wrap" gap="1">
+                                        {row.metrics.map((_$, value, key) => <Tag>{East.str`${key}: ${value}`}</Tag>).toArray()}
+                                    </HStack>
+                                );
+                            }),
+                        },
+                    }}
+                />
+                <Separator label="FROZEN COLUMNS" align="start" />
+                <Box width="600px" overflow="hidden">
                     <Table
-                        data={TABLE_CUSTOM_HEADERS_DATA}
-                        columns={{
-                            firstName: { header: "First Name", width: "300px", minWidth: "80px" },
-                            lastName: { header: "Last Name", width: "150px" },
-                            dept: { header: "Department", minWidth: "100px", maxWidth: "200px" },
-                        }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMPLEX COLUMNS</Text>
-                    <Table
+                        frozen={["id", "name"]}
                         variant="line"
                         striped={true}
-                        data={complexData}
+                        height="400px"
+                        data={TABLE_FROZEN_COLUMNS_DATA}
                         columns={{
-                            name: { header: "Name" },
-                            skills: {
-                                header: "Skills",
-                                value: (skills) => skills.size(),
-                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                    // The render context carries only {rowIndex, columnKey, cellValue} —
-                                    // CAPTURE the data array and index ctx.rowIndex for full-row access.
-                                    // Captures must be data or bind-handles, never a UIComponentType value.
-                                    const row = $.let(complexData.get(ctx.rowIndex));
-                                    return (
-                                        <HStack gap="1" wrap="wrap">
-                                            {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="blue">{s}</Badge>)}
-                                        </HStack>
-                                    );
-                                }),
-                            },
-                            metadata: {
-                                header: "Experience",
-                                value: (meta) => meta.years,
-                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                    const row = $.let(complexData.get(ctx.rowIndex));
-                                    return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;
-                                }),
-                            },
+                            id: { header: "ID", width: "80px" },
+                            name: { header: "Name", width: "150px" },
+                            email: { header: "Email", width: "250px" },
+                            dept: { header: "Department", width: "150px" },
+                            role: { header: "Role", width: "150px" },
+                            location: { header: "Location", width: "150px" },
+                            status: { header: "Status", width: "120px" },
+                            score: { header: "Score", width: "100px" },
                         }}
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WRAPPING TAGS</Text>
-                    <Table
-                        variant="line"
-                        data={metricsData}
-                        columns={{
-                            name: { header: "Server", width: "120px" },
-                            metrics: {
-                                header: "Metrics",
-                                width: "400px",
-                                maxWidth: "400px",
-                                value: (val) => val.map((_$, value) => value).mean(),
-                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                    const row = $.let(metricsData.get(ctx.rowIndex));
-                                    return (
-                                        <HStack wrap="wrap" gap="1">
-                                            {row.metrics.map((_$, value, key) => <Tag>{East.str`${key}: ${value}`}</Tag>).toArray()}
-                                        </HStack>
-                                    );
-                                }),
-                            },
-                        }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FROZEN COLUMNS</Text>
-                    <Box width="600px" overflow="hidden">
-                        <Table
-                            frozen={["id", "name"]}
-                            variant="line"
-                            striped={true}
-                            height="400px"
-                            data={TABLE_FROZEN_COLUMNS_DATA}
-                            columns={{
-                                id: { header: "ID", width: "80px" },
-                                name: { header: "Name", width: "150px" },
-                                email: { header: "Email", width: "250px" },
-                                dept: { header: "Department", width: "150px" },
-                                role: { header: "Role", width: "150px" },
-                                location: { header: "Location", width: "150px" },
-                                status: { header: "Status", width: "120px" },
-                                score: { header: "Score", width: "100px" },
-                            }}
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NESTED COLUMN GROUPS</Text>
-                    <Table
-                        variant="outline"
-                        showColumnBorder={true}
-                        columnGroups={[
-                            { label: "Identity", columnKeys: ["dept", "region"] },
-                            { label: "First half", columnKeys: ["q1", "q2"] },
-                            { label: "Second half", columnKeys: ["q3", "q4"] },
-                        ]}
-                        data={TABLE_NESTED_COLUMN_GROUPS_DATA}
-                        columns={{
-                            dept: { header: "Department" },
-                            region: { header: "Region" },
-                            q1: { header: "Q1" },
-                            q2: { header: "Q2" },
-                            q3: { header: "Q3" },
-                            q4: { header: "Q4" },
-                        }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MULTI ROW FOOTER</Text>
-                    <Table
-                        variant="line"
-                        footerBackground="gray.50"
-                        footerRows={[
-                            {
-                                item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
-                                price: { content: <Text>$21.50</Text> },
-                            },
-                            {
-                                item: { content: <Text fontWeight="medium">Drink subtotal</Text>, colSpan: 2n },
-                                price: { content: <Text>$8.00</Text> },
-                            },
-                            {
-                                item: { content: <Text fontWeight="bold">Grand total</Text>, colSpan: 2n },
-                                price: { content: <Text fontWeight="bold">$29.50</Text> },
-                            },
-                        ]}
-                        data={TABLE_MULTI_ROW_FOOTER_DATA}
-                        columns={{
-                            item: { header: "Item" },
-                            category: { header: "Category" },
-                            price: { header: "Price ($)" },
-                        }}
-                    />
-                </VStack>
+                </Box>
+                <Separator label="NESTED COLUMN GROUPS" align="start" />
+                <Table
+                    variant="outline"
+                    showColumnBorder={true}
+                    columnGroups={[
+                        { label: "Identity", columnKeys: ["dept", "region"] },
+                        { label: "First half", columnKeys: ["q1", "q2"] },
+                        { label: "Second half", columnKeys: ["q3", "q4"] },
+                    ]}
+                    data={TABLE_NESTED_COLUMN_GROUPS_DATA}
+                    columns={{
+                        dept: { header: "Department" },
+                        region: { header: "Region" },
+                        q1: { header: "Q1" },
+                        q2: { header: "Q2" },
+                        q3: { header: "Q3" },
+                        q4: { header: "Q4" },
+                    }}
+                />
+                <Separator label="MULTI ROW FOOTER" align="start" />
+                <Table
+                    variant="line"
+                    footerBackground="gray.50"
+                    footerRows={[
+                        {
+                            item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
+                            price: { content: <Text>$21.50</Text> },
+                        },
+                        {
+                            item: { content: <Text fontWeight="medium">Drink subtotal</Text>, colSpan: 2n },
+                            price: { content: <Text>$8.00</Text> },
+                        },
+                        {
+                            item: { content: <Text fontWeight="bold">Grand total</Text>, colSpan: 2n },
+                            price: { content: <Text fontWeight="bold">$29.50</Text> },
+                        },
+                    ]}
+                    data={TABLE_MULTI_ROW_FOOTER_DATA}
+                    columns={{
+                        item: { header: "Item" },
+                        category: { header: "Category" },
+                        price: { header: "Price ($)" },
+                    }}
+                />
             </VStack>
         );
     }),
@@ -282,63 +270,53 @@ export const tableStyleVariants = example({
         }));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRIPED</Text>
-                    <Table
-                        striped={true}
-                        data={TABLE_STRIPED_DATA}
-                        columns={{
-                            product: { header: "Product" },
-                            price: { header: "Price" },
-                            stock: { header: "In Stock" },
-                        }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH BADGE</Text>
-                    <Table
-                        variant="line"
-                        height="400px"
-                        data={TABLE_WITH_BADGE_DATA}
-                        columns={{
-                            name: { header: "Name" },
-                            email: { header: "Email" },
-                            status: {
-                                header: "Status",
-                                render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                                    <Badge variant="solid" colorPalette="blue">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
-                                )),
-                            },
-                        }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITY COMPACT</Text>
-                    <Table
-                        variant="line"
-                        density="compact"
-                        data={TABLE_DENSITY_COMPACT_DATA}
-                        columns={{ name: { header: "Name" }, status: { header: "Status" } }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW HEIGHT</Text>
-                    <Table
-                        variant="line"
-                        rowHeight={48n}
-                        data={TABLE_ROW_HEIGHT_DATA}
-                        columns={{ name: { header: "Name" }, status: { header: "Status" } }}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW STATUS</Text>
-                    <Table
-                        rowStatus={rowStatus}
-                        variant="line"
-                        data={TABLE_ROW_STATUS_DATA}
-                        columns={{ name: { header: "Name" }, score: { header: "Score" } }}
-                    />
-                </VStack>
+                <Separator label="STRIPED" align="start" />
+                <Table
+                    striped={true}
+                    data={TABLE_STRIPED_DATA}
+                    columns={{
+                        product: { header: "Product" },
+                        price: { header: "Price" },
+                        stock: { header: "In Stock" },
+                    }}
+                />
+                <Separator label="WITH BADGE" align="start" />
+                <Table
+                    variant="line"
+                    height="400px"
+                    data={TABLE_WITH_BADGE_DATA}
+                    columns={{
+                        name: { header: "Name" },
+                        email: { header: "Email" },
+                        status: {
+                            header: "Status",
+                            render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+                                <Badge variant="solid" colorPalette="blue">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
+                            )),
+                        },
+                    }}
+                />
+                <Separator label="DENSITY COMPACT" align="start" />
+                <Table
+                    variant="line"
+                    density="compact"
+                    data={TABLE_DENSITY_COMPACT_DATA}
+                    columns={{ name: { header: "Name" }, status: { header: "Status" } }}
+                />
+                <Separator label="ROW HEIGHT" align="start" />
+                <Table
+                    variant="line"
+                    rowHeight={48n}
+                    data={TABLE_ROW_HEIGHT_DATA}
+                    columns={{ name: { header: "Name" }, status: { header: "Status" } }}
+                />
+                <Separator label="ROW STATUS" align="start" />
+                <Table
+                    rowStatus={rowStatus}
+                    variant="line"
+                    data={TABLE_ROW_STATUS_DATA}
+                    columns={{ name: { header: "Name" }, score: { header: "Score" } }}
+                />
             </VStack>
         );
     }),

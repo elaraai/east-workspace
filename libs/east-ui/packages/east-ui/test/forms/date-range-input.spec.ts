@@ -23,12 +23,12 @@ describeEast("DateRangeInput", (test) => {
     test("dateRangeInputVariants panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.dateRangeInputVariants.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 5n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT DATE TIME"));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT PRESETS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT COLOURS"));
-        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT SIZES"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "RANGE INPUT DISABLED"));
+        $(Assert.equal(rows.size(), 10n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT DATE TIME"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT PRESETS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT COLOURS"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT SIZES"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT DISABLED"));
     });
 
     test("creates range with start + end DateTime", $ => {

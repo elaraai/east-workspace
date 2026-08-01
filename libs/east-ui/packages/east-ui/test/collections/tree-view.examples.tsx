@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Reactive, Text, TreeView, VStack } from "@elaraai/east-ui";
+import { Badge, Reactive, Separator, Text, TreeView, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -145,41 +145,29 @@ export const treeViewVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW ICONS</Text>
-                    <TreeView nodes={TREE_VIEW_ICONS_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW ORG</Text>
-                    <TreeView nodes={TREE_VIEW_ORG_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW SMALL</Text>
-                    <TreeView size="sm" nodes={TREE_VIEW_SMALL_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW SOLID</Text>
-                    <TreeView variant="solid" nodes={TREE_VIEW_SOLID_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW EXPANDED</Text>
-                    <TreeView defaultExpandedValue={["settings", "settings-general"]} nodes={TREE_VIEW_EXPANDED_DATA} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW COLOUR OVERRIDES</Text>
-                    <TreeView
-                        variant="subtle"
-                        size="sm"
-                        itemColor="gray.800"
-                        itemHoverBackground="blue.50"
-                        selectedBackground="blue.100"
-                        selectedColor="blue.900"
-                        caretColor="blue.500"
-                        connectorColor="gray.300"
-                        defaultExpandedValue={["src"]}
-                        nodes={TREE_VIEW_COLOUR_OVERRIDES_DATA}
-                    />
-                </VStack>
+                <Separator label="VIEW ICONS" align="start" />
+                <TreeView nodes={TREE_VIEW_ICONS_DATA} />
+                <Separator label="VIEW ORG" align="start" />
+                <TreeView nodes={TREE_VIEW_ORG_DATA} />
+                <Separator label="VIEW SMALL" align="start" />
+                <TreeView size="sm" nodes={TREE_VIEW_SMALL_DATA} />
+                <Separator label="VIEW SOLID" align="start" />
+                <TreeView variant="solid" nodes={TREE_VIEW_SOLID_DATA} />
+                <Separator label="VIEW EXPANDED" align="start" />
+                <TreeView defaultExpandedValue={["settings", "settings-general"]} nodes={TREE_VIEW_EXPANDED_DATA} />
+                <Separator label="VIEW COLOUR OVERRIDES" align="start" />
+                <TreeView
+                    variant="subtle"
+                    size="sm"
+                    itemColor="gray.800"
+                    itemHoverBackground="blue.50"
+                    selectedBackground="blue.100"
+                    selectedColor="blue.900"
+                    caretColor="blue.500"
+                    connectorColor="gray.300"
+                    defaultExpandedValue={["src"]}
+                    nodes={TREE_VIEW_COLOUR_OVERRIDES_DATA}
+                />
             </VStack>
         );
     }),
@@ -192,61 +180,55 @@ export const treeViewEvents = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW INTERACTIVE SELECTION</Text>
-                    <Reactive>{$ => {
-                        const selectedBind = $.let(State.bind([ArrayType(StringType)], "tree_selected", []));
-                        const selected = $.let(selectedBind.read());
-                        const onSelectionChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newSelection) => {
-                            $(selectedBind.write(newSelection));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <TreeView
-                                    selectionMode="multiple"
-                                    defaultExpandedValue={["fruits", "vegetables"]}
-                                    onSelectionChange={onSelectionChange}
-                                    nodes={TREE_VIEW_INTERACTIVE_SELECTION_DATA}
-                                />
-                                <Badge colorPalette="blue" variant="solid">{East.str`Selected: ${selected.size()}`}</Badge>
-                                <Text>{East.str`Items selected: ${selected.size()}`}</Text>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW INTERACTIVE EXPAND</Text>
-                    <Reactive>{$ => {
-                        const expandedBind = $.let(State.bind([ArrayType(StringType)], "tree_expanded", []));
-                        const expanded = $.let(expandedBind.read());
-                        const onExpandedChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newExpanded) => {
-                            $(expandedBind.write(newExpanded));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <TreeView onExpandedChange={onExpandedChange} nodes={TREE_VIEW_INTERACTIVE_EXPAND_DATA} />
-                                <Badge colorPalette="green" variant="solid">{East.str`Expanded: ${expanded.size()}`}</Badge>
-                                <Text>{East.str`Nodes expanded: ${expanded.size()}`}</Text>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VIEW ON FOCUS CHANGE</Text>
-                    <Reactive>{$ => {
-                        const focusBind = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
-                        const focused = $.let(focusBind.read());
-                        const onFocusChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
-                            $(focusBind.write(val));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <TreeView onFocusChange={onFocusChange} nodes={TREE_VIEW_ON_FOCUS_CHANGE_DATA} />
-                                <Text>{East.str`Focused: ${focused.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="VIEW INTERACTIVE SELECTION" align="start" />
+                <Reactive>{$ => {
+                    const selectedBind = $.let(State.bind([ArrayType(StringType)], "tree_selected", []));
+                    const selected = $.let(selectedBind.read());
+                    const onSelectionChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newSelection) => {
+                        $(selectedBind.write(newSelection));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <TreeView
+                                selectionMode="multiple"
+                                defaultExpandedValue={["fruits", "vegetables"]}
+                                onSelectionChange={onSelectionChange}
+                                nodes={TREE_VIEW_INTERACTIVE_SELECTION_DATA}
+                            />
+                            <Badge colorPalette="blue" variant="solid">{East.str`Selected: ${selected.size()}`}</Badge>
+                            <Text>{East.str`Items selected: ${selected.size()}`}</Text>
+                        </VStack>
+                    );
+                }}</Reactive>
+                <Separator label="VIEW INTERACTIVE EXPAND" align="start" />
+                <Reactive>{$ => {
+                    const expandedBind = $.let(State.bind([ArrayType(StringType)], "tree_expanded", []));
+                    const expanded = $.let(expandedBind.read());
+                    const onExpandedChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newExpanded) => {
+                        $(expandedBind.write(newExpanded));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <TreeView onExpandedChange={onExpandedChange} nodes={TREE_VIEW_INTERACTIVE_EXPAND_DATA} />
+                            <Badge colorPalette="green" variant="solid">{East.str`Expanded: ${expanded.size()}`}</Badge>
+                            <Text>{East.str`Nodes expanded: ${expanded.size()}`}</Text>
+                        </VStack>
+                    );
+                }}</Reactive>
+                <Separator label="VIEW ON FOCUS CHANGE" align="start" />
+                <Reactive>{$ => {
+                    const focusBind = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
+                    const focused = $.let(focusBind.read());
+                    const onFocusChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
+                        $(focusBind.write(val));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <TreeView onFocusChange={onFocusChange} nodes={TREE_VIEW_ON_FOCUS_CHANGE_DATA} />
+                            <Text>{East.str`Focused: ${focused.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

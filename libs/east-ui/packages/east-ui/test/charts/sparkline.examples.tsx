@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Sparkline, VStack, HStack, Text } from "@elaraai/east-ui";
+import { Button, Reactive, Separator, Sparkline, VStack, HStack, Text } from "@elaraai/east-ui";
 
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 const SPARKLINE_AREA_DATA = [10.0, 20.0, 15.0, 25.0, 18.0, 30.0, 22.0];
@@ -31,61 +31,47 @@ export const sparklineVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AREA</Text>
-                    <Sparkline data={SPARKLINE_AREA_DATA} type="area" color="green.500" width="150px" height="40px" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
-                    <VStack gap="2">
-                        <HStack gap="2" align="center">
-                            <Sparkline data={SPARKLINE_COLORS_DATA} type="line" color="red.400" width="100px" height="32px" />
-                            <Text>Red</Text>
-                        </HStack>
-                        <HStack gap="2" align="center">
-                            <Sparkline data={SPARKLINE_COLORS_DATA} type="line" color="teal.400" width="100px" height="32px" />
-                            <Text>Teal</Text>
-                        </HStack>
-                        <HStack gap="2" align="center">
-                            <Sparkline data={SPARKLINE_COLORS_DATA} type="line" color="purple.400" width="100px" height="32px" />
-                            <Text>Purple</Text>
-                        </HStack>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SIZES</Text>
-                    <VStack gap="3" align="stretch">
-                        <Sparkline data={SPARKLINE_SIZES_DATA} type="line" color="blue.500" width="80px" height="24px" />
-                        <Sparkline data={SPARKLINE_SIZES_DATA} type="line" color="blue.500" width="120px" height="32px" />
-                        <Sparkline data={SPARKLINE_SIZES_DATA} type="line" color="blue.500" width="200px" height="48px" />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STOCK</Text>
-                    <Sparkline data={SPARKLINE_STOCK_DATA} type="area" color="green.500" width="150px" height="48px" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">METRIC</Text>
-                    <HStack gap="4" align="center">
-                        <VStack gap="1">
-                            <Text>Revenue</Text>
-                            <Text fontWeight="bold">$45,231</Text>
-                        </VStack>
-                        <Sparkline data={SPARKLINE_METRIC_DATA} type="area" color="teal.400" width="100px" height="40px" />
+                <Separator label="AREA" align="start" />
+                <Sparkline data={SPARKLINE_AREA_DATA} type="area" color="green.500" width="150px" height="40px" />
+                <Separator label="COLORS" align="start" />
+                <VStack gap="2">
+                    <HStack gap="2" align="center">
+                        <Sparkline data={SPARKLINE_COLORS_DATA} type="line" color="red.400" width="100px" height="32px" />
+                        <Text>Red</Text>
+                    </HStack>
+                    <HStack gap="2" align="center">
+                        <Sparkline data={SPARKLINE_COLORS_DATA} type="line" color="teal.400" width="100px" height="32px" />
+                        <Text>Teal</Text>
+                    </HStack>
+                    <HStack gap="2" align="center">
+                        <Sparkline data={SPARKLINE_COLORS_DATA} type="line" color="purple.400" width="100px" height="32px" />
+                        <Text>Purple</Text>
                     </HStack>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TABLE CELL</Text>
-                    <HStack gap="4" align="center">
-                        <Text>Product A</Text>
-                        <Sparkline data={SPARKLINE_TABLE_CELL_DATA} type="line" color="gray.400" width="80px" height="24px" />
-                        <Text color="green.500">+14%</Text>
-                    </HStack>
+                <Separator label="SIZES" align="start" />
+                <VStack gap="3" align="stretch">
+                    <Sparkline data={SPARKLINE_SIZES_DATA} type="line" color="blue.500" width="80px" height="24px" />
+                    <Sparkline data={SPARKLINE_SIZES_DATA} type="line" color="blue.500" width="120px" height="32px" />
+                    <Sparkline data={SPARKLINE_SIZES_DATA} type="line" color="blue.500" width="200px" height="48px" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DOWNTREND</Text>
-                    <Sparkline data={SPARKLINE_DOWNTREND_DATA} type="area" color="red.400" width="150px" height="48px" />
-                </VStack>
+                <Separator label="STOCK" align="start" />
+                <Sparkline data={SPARKLINE_STOCK_DATA} type="area" color="green.500" width="150px" height="48px" />
+                <Separator label="METRIC" align="start" />
+                <HStack gap="4" align="center">
+                    <VStack gap="1">
+                        <Text>Revenue</Text>
+                        <Text fontWeight="bold">$45,231</Text>
+                    </VStack>
+                    <Sparkline data={SPARKLINE_METRIC_DATA} type="area" color="teal.400" width="100px" height="40px" />
+                </HStack>
+                <Separator label="TABLE CELL" align="start" />
+                <HStack gap="4" align="center">
+                    <Text>Product A</Text>
+                    <Sparkline data={SPARKLINE_TABLE_CELL_DATA} type="line" color="gray.400" width="80px" height="24px" />
+                    <Text color="green.500">+14%</Text>
+                </HStack>
+                <Separator label="DOWNTREND" align="start" />
+                <Sparkline data={SPARKLINE_DOWNTREND_DATA} type="area" color="red.400" width="150px" height="48px" />
             </VStack>
         );
     }),

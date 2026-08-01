@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, DateTimeType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { DateRangeInput, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { DateRangeInput, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -68,54 +68,44 @@ export const dateRangeInputVariants = example({
         const disabledEnd = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT DATE TIME</Text>
-                    <DateRangeInput startValue={dateTimeStart} endValue={dateTimeEnd} precision="datetime" />
+                <Separator label="RANGE INPUT DATE TIME" align="start" />
+                <DateRangeInput startValue={dateTimeStart} endValue={dateTimeEnd} precision="datetime" />
+                <Separator label="RANGE INPUT PRESETS" align="start" />
+                <Reactive>{$ => {
+                    const startBind = $.let(State.bind([DateTimeType], "drin.preset.start", new Date("2026-04-21T00:00:00Z")));
+                    const endBind = $.let(State.bind([DateTimeType], "drin.preset.end", new Date("2026-04-28T00:00:00Z")));
+                    const start = $.let(startBind.read(), DateTimeType);
+                    const end = $.let(endBind.read(), DateTimeType);
+                    const onChange = $.const(East.function([DateTimeType, DateTimeType], NullType, ($, s, e) => {
+                        $(startBind.write(s));
+                        $(endBind.write(e));
+                    }));
+                    return (
+                        <DateRangeInput
+                            startValue={start}
+                            endValue={end}
+                            precision="date"
+                            onChange={onChange}
+                            presets={[
+                                { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                                { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                                { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                                { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                                { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
+                            ]}
+                        />
+                    );
+                }}</Reactive>
+                <Separator label="RANGE INPUT COLOURS" align="start" />
+                <DateRangeInput startValue={coloursStart} endValue={coloursEnd} precision="date" color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />
+                <Separator label="RANGE INPUT SIZES" align="start" />
+                <VStack gap="3" align="flex-start">
+                    <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="sm" />
+                    <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="md" />
+                    <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="lg" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT PRESETS</Text>
-                    <Reactive>{$ => {
-                        const startBind = $.let(State.bind([DateTimeType], "drin.preset.start", new Date("2026-04-21T00:00:00Z")));
-                        const endBind = $.let(State.bind([DateTimeType], "drin.preset.end", new Date("2026-04-28T00:00:00Z")));
-                        const start = $.let(startBind.read(), DateTimeType);
-                        const end = $.let(endBind.read(), DateTimeType);
-                        const onChange = $.const(East.function([DateTimeType, DateTimeType], NullType, ($, s, e) => {
-                            $(startBind.write(s));
-                            $(endBind.write(e));
-                        }));
-                        return (
-                            <DateRangeInput
-                                startValue={start}
-                                endValue={end}
-                                precision="date"
-                                onChange={onChange}
-                                presets={[
-                                    { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                    { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                    { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                    { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                    { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
-                                ]}
-                            />
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT COLOURS</Text>
-                    <DateRangeInput startValue={coloursStart} endValue={coloursEnd} precision="date" color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT SIZES</Text>
-                    <VStack gap="3" align="flex-start">
-                        <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="sm" />
-                        <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="md" />
-                        <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="lg" />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT DISABLED</Text>
-                    <DateRangeInput startValue={disabledStart} endValue={disabledEnd} precision="date" disabled={true} />
-                </VStack>
+                <Separator label="RANGE INPUT DISABLED" align="start" />
+                <DateRangeInput startValue={disabledStart} endValue={disabledEnd} precision="date" disabled={true} />
             </VStack>
         );
     }),

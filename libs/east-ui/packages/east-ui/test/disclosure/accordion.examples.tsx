@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Accordion, Box, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Accordion, Box, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const accordionBasic = example({
     keywords: ["Accordion", "Root", "Item", "basic", "collapsible"],
@@ -36,57 +36,49 @@ export const accordionVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MULTIPLE</Text>
-                    <Box width="100%">
-                        <Accordion
-                            items={[
-                                Accordion.Item("section-1", "Section 1", [<Box padding="4"><Text>Content for the first section. This panel can stay open while others are opened.</Text></Box>]),
-                                Accordion.Item("section-2", "Section 2", [<Box padding="4"><Text>Content for the second section. Multiple panels can be expanded simultaneously.</Text></Box>]),
-                                Accordion.Item("section-3", "Section 3", [<Box padding="4"><Text>Content for the third section.</Text></Box>]),
-                            ]}
-                            multiple={true}
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLLAPSIBLE</Text>
-                    <Box width="100%">
-                        <Accordion
-                            items={[
-                                Accordion.Item("a", "Panel A", [<Box padding="4"><Text>This accordion allows all panels to be collapsed.</Text></Box>]),
-                                Accordion.Item("b", "Panel B", [<Box padding="4"><Text>Click an open panel’s trigger to collapse it.</Text></Box>]),
-                            ]}
-                            collapsible={true}
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FAQ</Text>
-                    <Box width="100%">
-                        <Accordion
-                            items={[
-                                Accordion.Item("profile", "Profile Settings", [<Box padding="4"><Text>Manage your profile information and preferences.</Text></Box>]),
-                                Accordion.Item("security", "Security", [<Box padding="4"><Text>Configure password, two-factor authentication, and security options.</Text></Box>]),
-                                Accordion.Item("notifications", "Notifications", [<Box padding="4"><Text>Control email and push notification preferences.</Text></Box>]),
-                            ]}
-                            collapsible={true}
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GRID TRIGGER</Text>
-                    <Box width="100%">
-                        <Accordion
-                            items={[
-                                Accordion.Item("block-a", "Block A", [<Box padding="4"><Text>Detail panel — per-block schedule, assumptions, guardrails.</Text></Box>], { meta: "3,200 kg · 17–23 Mar" }),
-                                Accordion.Item("block-b", "Block B", [<Box padding="4"><Text>Block B detail panel.</Text></Box>], { meta: "1,800 kg · 17–23 Mar" }),
-                            ]}
-                            multiple={true}
-                            collapsible={true}
-                        />
-                    </Box>
-                </VStack>
+                <Separator label="MULTIPLE" align="start" />
+                <Box width="100%">
+                    <Accordion
+                        items={[
+                            Accordion.Item("section-1", "Section 1", [<Box padding="4"><Text>Content for the first section. This panel can stay open while others are opened.</Text></Box>]),
+                            Accordion.Item("section-2", "Section 2", [<Box padding="4"><Text>Content for the second section. Multiple panels can be expanded simultaneously.</Text></Box>]),
+                            Accordion.Item("section-3", "Section 3", [<Box padding="4"><Text>Content for the third section.</Text></Box>]),
+                        ]}
+                        multiple={true}
+                    />
+                </Box>
+                <Separator label="COLLAPSIBLE" align="start" />
+                <Box width="100%">
+                    <Accordion
+                        items={[
+                            Accordion.Item("a", "Panel A", [<Box padding="4"><Text>This accordion allows all panels to be collapsed.</Text></Box>]),
+                            Accordion.Item("b", "Panel B", [<Box padding="4"><Text>Click an open panel’s trigger to collapse it.</Text></Box>]),
+                        ]}
+                        collapsible={true}
+                    />
+                </Box>
+                <Separator label="FAQ" align="start" />
+                <Box width="100%">
+                    <Accordion
+                        items={[
+                            Accordion.Item("profile", "Profile Settings", [<Box padding="4"><Text>Manage your profile information and preferences.</Text></Box>]),
+                            Accordion.Item("security", "Security", [<Box padding="4"><Text>Configure password, two-factor authentication, and security options.</Text></Box>]),
+                            Accordion.Item("notifications", "Notifications", [<Box padding="4"><Text>Control email and push notification preferences.</Text></Box>]),
+                        ]}
+                        collapsible={true}
+                    />
+                </Box>
+                <Separator label="GRID TRIGGER" align="start" />
+                <Box width="100%">
+                    <Accordion
+                        items={[
+                            Accordion.Item("block-a", "Block A", [<Box padding="4"><Text>Detail panel — per-block schedule, assumptions, guardrails.</Text></Box>], { meta: "3,200 kg · 17–23 Mar" }),
+                            Accordion.Item("block-b", "Block B", [<Box padding="4"><Text>Block B detail panel.</Text></Box>], { meta: "1,800 kg · 17–23 Mar" }),
+                        ]}
+                        multiple={true}
+                        collapsible={true}
+                    />
+                </Box>
             </VStack>
         );
     }),
@@ -103,56 +95,52 @@ export const accordionReactive = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const expandedBind = $.let(State.bind([ArrayType(StringType)], "accordion_expanded", []));
-                        const expanded = $.let(expandedBind.read(), ArrayType(StringType));
-                        const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
-                            $(expandedBind.write(newValue));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Box width="100%">
-                                    <Accordion
-                                        items={[
-                                            Accordion.Item("intro", "Introduction", [<Box padding="4"><Text>Welcome! This is the introduction section.</Text></Box>]),
-                                            Accordion.Item("features", "Features", [<Box padding="4"><Text>Explore the amazing features available.</Text></Box>]),
-                                            Accordion.Item("help", "Help & Support", [<Box padding="4"><Text>Get help and support for any issues.</Text></Box>]),
-                                        ]}
-                                        multiple={true}
-                                        collapsible={true}
-                                        onValueChange={onValueChange}
-                                    />
-                                </Box>
-                                {<Text.Eyebrow>{East.str`EXPANDED · ${expanded.size()}`}</Text.Eyebrow>}
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">REACTIVE MULTI</Text>
-                    <Reactive>{$ => {
-                        const bind = $.let(State.bind([ArrayType(StringType)], "accordion_reactive_multi", []));
-                        const expanded = $.let(bind.read(), ArrayType(StringType));
-                        const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => {
-                            $(bind.write(next));
-                        }));
-                        return (
-                            <Accordion
-                                items={[
-                                    Accordion.Item("recipe", "Recipe", [<Box padding="4"><Text>Recipe detail</Text></Box>], { meta: "12 inputs" }),
-                                    Accordion.Item("schedule", "Schedule", [<Box padding="4"><Text>Schedule detail</Text></Box>], { meta: "3 conflicts" }),
-                                    Accordion.Item("cost", "Cost", [<Box padding="4"><Text>Cost detail</Text></Box>], { meta: East.str`${East.print(expanded.size())} open` }),
-                                ]}
-                                multiple={true}
-                                collapsible={true}
-                                value={expanded}
-                                onValueChange={onValueChange}
-                            />
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const expandedBind = $.let(State.bind([ArrayType(StringType)], "accordion_expanded", []));
+                    const expanded = $.let(expandedBind.read(), ArrayType(StringType));
+                    const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
+                        $(expandedBind.write(newValue));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Box width="100%">
+                                <Accordion
+                                    items={[
+                                        Accordion.Item("intro", "Introduction", [<Box padding="4"><Text>Welcome! This is the introduction section.</Text></Box>]),
+                                        Accordion.Item("features", "Features", [<Box padding="4"><Text>Explore the amazing features available.</Text></Box>]),
+                                        Accordion.Item("help", "Help & Support", [<Box padding="4"><Text>Get help and support for any issues.</Text></Box>]),
+                                    ]}
+                                    multiple={true}
+                                    collapsible={true}
+                                    onValueChange={onValueChange}
+                                />
+                            </Box>
+                            {<Text.Eyebrow>{East.str`EXPANDED · ${expanded.size()}`}</Text.Eyebrow>}
+                        </VStack>
+                    );
+                }}</Reactive>
+                <Separator label="REACTIVE MULTI" align="start" />
+                <Reactive>{$ => {
+                    const bind = $.let(State.bind([ArrayType(StringType)], "accordion_reactive_multi", []));
+                    const expanded = $.let(bind.read(), ArrayType(StringType));
+                    const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => {
+                        $(bind.write(next));
+                    }));
+                    return (
+                        <Accordion
+                            items={[
+                                Accordion.Item("recipe", "Recipe", [<Box padding="4"><Text>Recipe detail</Text></Box>], { meta: "12 inputs" }),
+                                Accordion.Item("schedule", "Schedule", [<Box padding="4"><Text>Schedule detail</Text></Box>], { meta: "3 conflicts" }),
+                                Accordion.Item("cost", "Cost", [<Box padding="4"><Text>Cost detail</Text></Box>], { meta: East.str`${East.print(expanded.size())} open` }),
+                            ]}
+                            multiple={true}
+                            collapsible={true}
+                            value={expanded}
+                            onValueChange={onValueChange}
+                        />
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Meter, Stack, Tag, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Box, Button, Meter, Separator, Stack, Tag, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door (V and H side by side)
@@ -17,22 +17,18 @@ export const stackBasic = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BASIC V STACK</Text>
-                    <VStack gap="3">
-                        <Text>First item</Text>
-                        <Text>Second item</Text>
-                        <Text>Third item</Text>
-                    </VStack>
+                <Separator label="BASIC V STACK" align="start" />
+                <VStack gap="3">
+                    <Text>First item</Text>
+                    <Text>Second item</Text>
+                    <Text>Third item</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BASIC H STACK</Text>
-                    <HStack gap="4">
-                        <Text>Left</Text>
-                        <Text>Center</Text>
-                        <Text>Right</Text>
-                    </HStack>
-                </VStack>
+                <Separator label="BASIC H STACK" align="start" />
+                <HStack gap="4">
+                    <Text>Left</Text>
+                    <Text>Center</Text>
+                    <Text>Right</Text>
+                </HStack>
             </VStack>
         );
     }),
@@ -49,81 +45,66 @@ export const stackVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">JUSTIFIED H STACK</Text>
-                    <HStack gap="4" justify="space-between" padding="4" background="gray.100" width="100%">
-                        <Text>Start</Text>
-                        <Text>End</Text>
+                <Separator label="JUSTIFIED H STACK" align="start" />
+                <HStack gap="4" justify="space-between" padding="4" background="gray.100" width="100%">
+                    <Text>Start</Text>
+                    <Text>End</Text>
+                </HStack>
+                <Separator label="CENTERED" align="start" />
+                <VStack gap="2" align="center" justify="center" padding="6" background="blue.50" height="120px">
+                    <Text>Centered content</Text>
+                    <Text>Also centered</Text>
+                </VStack>
+                <Separator label="WRAPPING" align="start" />
+                <HStack gap="2" wrap="wrap" padding="3" background="orange.50" width="200px">
+                    <Text>Tag 1</Text>
+                    <Text>Tag 2</Text>
+                    <Text>Tag 3</Text>
+                    <Text>Tag 4</Text>
+                    <Text>Tag 5</Text>
+                </HStack>
+                <Separator label="STRETCHED" align="start" />
+                <VStack gap="3" align="stretch" padding="4" background="green.50">
+                    <Text>Full width item 1</Text>
+                    <Text>Full width item 2</Text>
+                </VStack>
+                <Separator label="NESTED" align="start" />
+                <VStack gap="4" padding="4" background="gray.100">
+                    <HStack gap="2">
+                        <Text>Inner 1</Text>
+                        <Text>Inner 2</Text>
                     </HStack>
+                    <Text>Outer Item</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CENTERED</Text>
-                    <VStack gap="2" align="center" justify="center" padding="6" background="blue.50" height="120px">
-                        <Text>Centered content</Text>
-                        <Text>Also centered</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WRAPPING</Text>
-                    <HStack gap="2" wrap="wrap" padding="3" background="orange.50" width="200px">
-                        <Text>Tag 1</Text>
-                        <Text>Tag 2</Text>
-                        <Text>Tag 3</Text>
-                        <Text>Tag 4</Text>
-                        <Text>Tag 5</Text>
+                <Separator label="NAVBAR" align="start" />
+                <HStack gap="4" justify="space-between" align="center" padding="4" background="white" width="100%">
+                    <Text>Logo</Text>
+                    <HStack gap="4">
+                        <Text>Home</Text>
+                        <Text>About</Text>
+                        <Text>Contact</Text>
                     </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRETCHED</Text>
-                    <VStack gap="3" align="stretch" padding="4" background="green.50">
-                        <Text>Full width item 1</Text>
-                        <Text>Full width item 2</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NESTED</Text>
-                    <VStack gap="4" padding="4" background="gray.100">
-                        <HStack gap="2">
-                            <Text>Inner 1</Text>
-                            <Text>Inner 2</Text>
-                        </HStack>
-                        <Text>Outer Item</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NAVBAR</Text>
-                    <HStack gap="4" justify="space-between" align="center" padding="4" background="white" width="100%">
-                        <Text>Logo</Text>
-                        <HStack gap="4">
-                            <Text>Home</Text>
-                            <Text>About</Text>
-                            <Text>Contact</Text>
-                        </HStack>
+                </HStack>
+                <Separator label="DENSITY CASCADE" align="start" />
+                <Stack direction="column" gap="6">
+                    <HStack density="condensed" gap="2">
+                        <Tag>Line A</Tag>
+                        <Badge>WK 12</Badge>
+                        <Box width="160px"><Meter value={72.0} tone="success" /></Box>
                     </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITY CASCADE</Text>
-                    <Stack direction="column" gap="6">
-                        <HStack density="condensed" gap="2">
-                            <Tag>Line A</Tag>
-                            <Badge>WK 12</Badge>
-                            <Box width="160px"><Meter value={72.0} tone="success" /></Box>
-                        </HStack>
-                        <HStack density="compact" gap="2">
-                            <Tag>Line A</Tag>
-                            <Badge>WK 12</Badge>
-                            <Box width="160px"><Meter value={72.0} tone="success" /></Box>
-                        </HStack>
-                        <HStack density="comfortable" gap="2">
-                            <Tag>Line A</Tag>
-                            <Badge>WK 12</Badge>
-                            <Box width="160px"><Meter value={72.0} tone="success" /></Box>
-                        </HStack>
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
+                    <HStack density="compact" gap="2">
+                        <Tag>Line A</Tag>
+                        <Badge>WK 12</Badge>
+                        <Box width="160px"><Meter value={72.0} tone="success" /></Box>
+                    </HStack>
+                    <HStack density="comfortable" gap="2">
+                        <Tag>Line A</Tag>
+                        <Badge>WK 12</Badge>
+                        <Box width="160px"><Meter value={72.0} tone="success" /></Box>
+                    </HStack>
+                </Stack>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
                         const counter = $.let(State.bind([IntegerType], "stack_counter", 0n));
                         const value = $.let(counter.read());
                         const isTight = $.let(value.remainder(2n).equal(0n));
@@ -143,7 +124,6 @@ export const stackVariants = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

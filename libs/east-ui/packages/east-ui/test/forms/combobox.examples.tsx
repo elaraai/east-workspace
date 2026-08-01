@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Combobox, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Combobox, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -75,43 +75,35 @@ export const comboboxVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH VALUE</Text>
-                    <Combobox
-                        value="ca"
-                        items={COMBOBOX_WITH_VALUE_DATA}
-                        placeholder="Search countries..."
-                    />
+                <Separator label="WITH VALUE" align="start" />
+                <Combobox
+                    value="ca"
+                    items={COMBOBOX_WITH_VALUE_DATA}
+                    placeholder="Search countries..."
+                />
+                <Separator label="SIZES" align="start" />
+                <VStack gap="2" align="stretch" width="100%">
+                    <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Extra Small" size="xs" />
+                    <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Small" size="sm" />
+                    <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Medium (default)" size="md" />
+                    <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Large" size="lg" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SIZES</Text>
-                    <VStack gap="2" align="stretch" width="100%">
-                        <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Extra Small" size="xs" />
-                        <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Small" size="sm" />
-                        <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Medium (default)" size="md" />
-                        <Combobox value="" items={COMBOBOX_SIZES_DATA} placeholder="Large" size="lg" />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DISABLED</Text>
-                    <VStack gap="4" align="stretch" width="100%">
-                        <Combobox value="" items={COMBOBOX_DISABLED_DATA} placeholder="Disabled combobox" disabled={true} />
-                        <Combobox
-                            value=""
-                            items={COMBOBOX_DISABLED_PLANS_DATA}
-                            placeholder="Item disabled"
-                        />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM VALUE</Text>
+                <Separator label="DISABLED" align="start" />
+                <VStack gap="4" align="stretch" width="100%">
+                    <Combobox value="" items={COMBOBOX_DISABLED_DATA} placeholder="Disabled combobox" disabled={true} />
                     <Combobox
                         value=""
-                        items={COMBOBOX_CUSTOM_VALUE_DATA}
-                        placeholder="Type or pick a framework..."
-                        allowCustomValue={true}
+                        items={COMBOBOX_DISABLED_PLANS_DATA}
+                        placeholder="Item disabled"
                     />
                 </VStack>
+                <Separator label="CUSTOM VALUE" align="start" />
+                <Combobox
+                    value=""
+                    items={COMBOBOX_CUSTOM_VALUE_DATA}
+                    placeholder="Type or pick a framework..."
+                    allowCustomValue={true}
+                />
             </VStack>
         );
     }),
@@ -128,73 +120,67 @@ export const comboboxInteractive = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MULTIPLE</Text>
-                    <Combobox
-                        value=""
-                        items={COMBOBOX_MULTIPLE_DATA}
-                        placeholder="Search colors..."
-                        multiple={true}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const selectBind = $.let(State.bind([StringType], "form_combobox", ""));
-                        const selected = $.let(selectBind.read());
-                        const onChange = $.const(East.function([StringType], NullType, ($, newValue) => {
-                            $(selectBind.write(newValue));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Combobox
-                                    value={selected}
-                                    items={[
-                                        Combobox.Item("apple", "Apple"),
-                                        Combobox.Item("banana", "Banana"),
-                                        Combobox.Item("cherry", "Cherry"),
-                                        Combobox.Item("date", "Date"),
-                                        Combobox.Item("elderberry", "Elderberry"),
-                                        Combobox.Item("fig", "Fig"),
-                                        Combobox.Item("guava", "Guava"),
-                                    ]}
-                                    placeholder="Search fruits..."
-                                    onChange={onChange}
-                                />
-                                {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(NONE)")}`}</Text.MonoLabel>}
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE MULTI</Text>
-                    <Reactive>{$ => {
-                        const selectBind = $.let(State.bind([ArrayType(StringType)], "form_combobox_multi", []));
-                        const selected = $.let(selectBind.read());
-                        const onChangeMultiple = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
-                            $(selectBind.write(newValue));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Combobox
-                                    value=""
-                                    items={[
-                                        Combobox.Item("react", "React"),
-                                        Combobox.Item("vue", "Vue"),
-                                        Combobox.Item("angular", "Angular"),
-                                        Combobox.Item("svelte", "Svelte"),
-                                        Combobox.Item("solid", "Solid"),
-                                        Combobox.Item("ember", "Ember"),
-                                    ]}
-                                    placeholder="Search frameworks..."
-                                    multiple={true}
-                                    onChangeMultiple={onChangeMultiple}
-                                />
-                                {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected.stringJoin(", "), _$ => "(NONE)")}`}</Text.MonoLabel>}
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="MULTIPLE" align="start" />
+                <Combobox
+                    value=""
+                    items={COMBOBOX_MULTIPLE_DATA}
+                    placeholder="Search colors..."
+                    multiple={true}
+                />
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const selectBind = $.let(State.bind([StringType], "form_combobox", ""));
+                    const selected = $.let(selectBind.read());
+                    const onChange = $.const(East.function([StringType], NullType, ($, newValue) => {
+                        $(selectBind.write(newValue));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Combobox
+                                value={selected}
+                                items={[
+                                    Combobox.Item("apple", "Apple"),
+                                    Combobox.Item("banana", "Banana"),
+                                    Combobox.Item("cherry", "Cherry"),
+                                    Combobox.Item("date", "Date"),
+                                    Combobox.Item("elderberry", "Elderberry"),
+                                    Combobox.Item("fig", "Fig"),
+                                    Combobox.Item("guava", "Guava"),
+                                ]}
+                                placeholder="Search fruits..."
+                                onChange={onChange}
+                            />
+                            {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(NONE)")}`}</Text.MonoLabel>}
+                        </VStack>
+                    );
+                }}</Reactive>
+                <Separator label="INTERACTIVE MULTI" align="start" />
+                <Reactive>{$ => {
+                    const selectBind = $.let(State.bind([ArrayType(StringType)], "form_combobox_multi", []));
+                    const selected = $.let(selectBind.read());
+                    const onChangeMultiple = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
+                        $(selectBind.write(newValue));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Combobox
+                                value=""
+                                items={[
+                                    Combobox.Item("react", "React"),
+                                    Combobox.Item("vue", "Vue"),
+                                    Combobox.Item("angular", "Angular"),
+                                    Combobox.Item("svelte", "Svelte"),
+                                    Combobox.Item("solid", "Solid"),
+                                    Combobox.Item("ember", "Ember"),
+                                ]}
+                                placeholder="Search frameworks..."
+                                multiple={true}
+                                onChangeMultiple={onChangeMultiple}
+                            />
+                            {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected.stringJoin(", "), _$ => "(NONE)")}`}</Text.MonoLabel>}
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
@@ -211,53 +197,49 @@ export const comboboxEvents = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ON INPUT VALUE CHANGE</Text>
-                    <Reactive>{$ => {
-                        const inputBind = $.let(State.bind([StringType], "form_combobox_inputvalue", ""));
-                        const last = $.let(inputBind.read());
-                        const onInputValueChange = $.const(East.function([StringType], NullType, ($, next) => {
-                            $(inputBind.write(next));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Combobox
-                                    value=""
-                                    items={[
-                                        Combobox.Item("a", "Apple"),
-                                        Combobox.Item("b", "Banana"),
-                                        Combobox.Item("c", "Cherry"),
-                                    ]}
-                                    placeholder="Type anything…"
-                                    onInputValueChange={onInputValueChange}
-                                />
-                                {<Text.MonoLabel>{East.str`LAST TYPED · ${last}`}</Text.MonoLabel>}
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ON OPEN CHANGE</Text>
-                    <Reactive>{$ => {
-                        const bind = $.let(State.bind([IntegerType], "form_combobox_toggles", 0n));
-                        const value = $.let(bind.read());
-                        const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
-                            const cur = $.let(bind.read());
-                            $(bind.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Combobox
-                                    value=""
-                                    items={[Combobox.Item("a", "Apple"), Combobox.Item("b", "Banana")]}
-                                    placeholder="Open me…"
-                                    onOpenChange={onOpenChange}
-                                />
-                                {<Text.MonoLabel>{East.str`TOGGLED · ${value}`}</Text.MonoLabel>}
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="ON INPUT VALUE CHANGE" align="start" />
+                <Reactive>{$ => {
+                    const inputBind = $.let(State.bind([StringType], "form_combobox_inputvalue", ""));
+                    const last = $.let(inputBind.read());
+                    const onInputValueChange = $.const(East.function([StringType], NullType, ($, next) => {
+                        $(inputBind.write(next));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Combobox
+                                value=""
+                                items={[
+                                    Combobox.Item("a", "Apple"),
+                                    Combobox.Item("b", "Banana"),
+                                    Combobox.Item("c", "Cherry"),
+                                ]}
+                                placeholder="Type anything…"
+                                onInputValueChange={onInputValueChange}
+                            />
+                            {<Text.MonoLabel>{East.str`LAST TYPED · ${last}`}</Text.MonoLabel>}
+                        </VStack>
+                    );
+                }}</Reactive>
+                <Separator label="ON OPEN CHANGE" align="start" />
+                <Reactive>{$ => {
+                    const bind = $.let(State.bind([IntegerType], "form_combobox_toggles", 0n));
+                    const value = $.let(bind.read());
+                    const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
+                        const cur = $.let(bind.read());
+                        $(bind.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Combobox
+                                value=""
+                                items={[Combobox.Item("a", "Apple"), Combobox.Item("b", "Banana")]}
+                                placeholder="Open me…"
+                                onOpenChange={onOpenChange}
+                            />
+                            {<Text.MonoLabel>{East.str`TOGGLED · ${value}`}</Text.MonoLabel>}
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

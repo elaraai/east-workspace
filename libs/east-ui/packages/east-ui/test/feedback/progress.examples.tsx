@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Progress, Text, VStack } from "@elaraai/east-ui";
+import { Progress, Separator, VStack } from "@elaraai/east-ui";
 
 export const progressBasic = example({
     keywords: ["Progress", "Root", "basic"],
@@ -26,51 +26,37 @@ export const progressVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LABELED</Text>
-                    <Progress value={75.0} label="Upload progress" valueText="75%" />
+                <Separator label="LABELED" align="start" />
+                <Progress value={75.0} label="Upload progress" valueText="75%" />
+                <Separator label="TONES" align="start" />
+                <VStack gap="4" align="stretch" width="100%">
+                    <Progress value={80.0} label="Brand" tone="brand" />
+                    <Progress value={60.0} label="Pos" tone="pos" />
+                    <Progress value={20.0} label="Neg" tone="neg" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TONES</Text>
-                    <VStack gap="4" align="stretch" width="100%">
-                        <Progress value={80.0} label="Brand" tone="brand" />
-                        <Progress value={60.0} label="Pos" tone="pos" />
-                        <Progress value={20.0} label="Neg" tone="neg" />
-                    </VStack>
+                <Separator label="SIZES" align="start" />
+                <VStack gap="4" align="stretch" width="100%">
+                    <Progress value={50.0} size="xs" />
+                    <Progress value={50.0} size="sm" />
+                    <Progress value={50.0} size="md" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SIZES</Text>
-                    <VStack gap="4" align="stretch" width="100%">
-                        <Progress value={50.0} size="xs" />
-                        <Progress value={50.0} size="sm" />
-                        <Progress value={50.0} size="md" />
-                    </VStack>
+                <Separator label="STRIPED" align="start" />
+                <VStack gap="4" align="stretch" width="100%">
+                    <Progress value={65.0} striped />
+                    <Progress value={45.0} striped animated tone="pos" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STRIPED</Text>
-                    <VStack gap="4" align="stretch" width="100%">
-                        <Progress value={65.0} striped />
-                        <Progress value={45.0} striped animated tone="pos" />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE</Text>
-                    <Progress value={7.5} min={0} max={10} label="Rating 7.5 / 10" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INDETERMINATE</Text>
-                    <Progress value={0.0} indeterminate label="Solver running…" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH E T A</Text>
-                    <Progress
-                        value={42.0}
-                        label="Solver running 42%"
-                        estimatedDuration={120n}
-                        startedAt={new Date("2026-01-01T09:00:00Z")}
-                        showValue
-                    />
-                </VStack>
+                <Separator label="RANGE" align="start" />
+                <Progress value={7.5} min={0} max={10} label="Rating 7.5 / 10" />
+                <Separator label="INDETERMINATE" align="start" />
+                <Progress value={0.0} indeterminate label="Solver running…" />
+                <Separator label="WITH E T A" align="start" />
+                <Progress
+                    value={42.0}
+                    label="Solver running 42%"
+                    estimatedDuration={120n}
+                    startedAt={new Date("2026-01-01T09:00:00Z")}
+                    showValue
+                />
             </VStack>
         );
     }),

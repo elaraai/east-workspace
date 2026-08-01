@@ -49,7 +49,7 @@ import {
     example,
 } from "@elaraai/east";
 import {
-    Card, HStack, VStack, Slider, Input, Switch, Select, Text, Button,
+    Card, HStack, VStack, Slider, Input, Switch, Select, Separator, Text, Button,
     Reactive, Table, UIComponentType,
 } from "@elaraai/east-ui";
 import { Data, Diff } from "@elaraai/e3-ui";
@@ -195,277 +195,263 @@ export const diffEditorVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SERVICE CONFIG FORM</Text>
-                    <Reactive>{$ => {
-                        const svcName     = $.let(Data.bind(serviceNameInput, { mode: "staged" }));
-                        const replicas    = $.let(Data.bind(replicasInput, { mode: "staged" }));
-                        const autoScale   = $.let(Data.bind(autoScaleInput, { mode: "staged" }));
-                        const region      = $.let(Data.bind(regionInput, { mode: "staged" }));
-                        const deployAfter = $.let(Data.bind(deployAfterInput, { mode: "staged" }));
-                        return (
-                            <Card>
-                                <VStack gap="4" align="stretch">
-                                    <Text textStyle="heading-md">Service configuration</Text>
-                                    <Text>Stage edits across heterogeneous types; on apply you’ll see a confirmation toast.</Text>
+                <Separator label="SERVICE CONFIG FORM" align="start" />
+                <Reactive>{$ => {
+                    const svcName     = $.let(Data.bind(serviceNameInput, { mode: "staged" }));
+                    const replicas    = $.let(Data.bind(replicasInput, { mode: "staged" }));
+                    const autoScale   = $.let(Data.bind(autoScaleInput, { mode: "staged" }));
+                    const region      = $.let(Data.bind(regionInput, { mode: "staged" }));
+                    const deployAfter = $.let(Data.bind(deployAfterInput, { mode: "staged" }));
+                    return (
+                        <Card>
+                            <VStack gap="4" align="stretch">
+                                <Text textStyle="heading-md">Service configuration</Text>
+                                <Text>Stage edits across heterogeneous types; on apply you’ll see a confirmation toast.</Text>
 
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Service name</Text>
-                                        <Input.String value={svcName.read()} placeholder="service-name"
-                                            onChange={($, v) => $(svcName.write(v))} />
-                                    </VStack>
-
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Replicas</Text>
-                                        <Input.Integer value={replicas.read()} min={1n} max={50n}
-                                            onChange={($, v) => $(replicas.write(v))} />
-                                    </VStack>
-
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Auto-scale</Text>
-                                        <Switch checked={autoScale.read()} onChange={($, v) => $(autoScale.write(v))} />
-                                    </VStack>
-
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Region</Text>
-                                        <Select value={region.read()} items={[
-                                            Select.Item("ap-southeast-2", "ap-southeast-2 (Sydney)"),
-                                            Select.Item("us-east-1",      "us-east-1 (N. Virginia)"),
-                                            Select.Item("eu-west-1",      "eu-west-1 (Ireland)"),
-                                        ]} onChange={($, v) => $(region.write(v))} />
-                                    </VStack>
-
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Deploy after</Text>
-                                        <Input.DateTime value={deployAfter.read()} precision="datetime"
-                                            onChange={($, v) => $(deployAfter.write(v))} />
-                                    </VStack>
-
-                                    <Diff bindings={[svcName.binding, replicas.binding, autoScale.binding, region.binding, deployAfter.binding]} />
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Service name</Text>
+                                    <Input.String value={svcName.read()} placeholder="service-name"
+                                        onChange={($, v) => $(svcName.write(v))} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PRICING RULES</Text>
-                    <Reactive>{$ => {
-                        const listPrice    = $.let(Data.bind(listPriceInput, { mode: "staged" }));
-                        const discountPct  = $.let(Data.bind(discountPctInput, { mode: "staged" }));
-                        const minOrderQty  = $.let(Data.bind(minOrderQtyInput, { mode: "staged" }));
-                        const currency     = $.let(Data.bind(currencyCodeInput, { mode: "staged" }));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Pricing rules</Text>
-                                    <Text>Stage pricing changes — review side-by-side before applying to the catalog.</Text>
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">List price</Text>
-                                        <Slider value={listPrice.read()} min={0.0} max={999.95} step={0.05}
-                                            onChangeEnd={($, v) => $(listPrice.write(v))} />
-                                    </VStack>
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Discount (%)</Text>
-                                        <Slider value={discountPct.read()} min={0.0} max={75.0} step={0.5}
-                                            onChangeEnd={($, v) => $(discountPct.write(v))} />
-                                    </VStack>
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Minimum order quantity</Text>
-                                        <Input.Integer value={minOrderQty.read()} min={1n} max={1000n}
-                                            onChange={($, v) => $(minOrderQty.write(v))} />
-                                    </VStack>
-                                    <VStack gap="1">
-                                        <Text textStyle="label-sm">Currency code</Text>
-                                        <Input.String value={currency.read()} placeholder="AUD"
-                                            onChange={($, v) => $(currency.write(v))} />
-                                    </VStack>
-                                    <Diff bindings={[listPrice.binding, discountPct.binding, minOrderQty.binding, currency.binding]}
-                                        hideUnchanged={some(true)} />
+
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Replicas</Text>
+                                    <Input.Integer value={replicas.read()} min={1n} max={50n}
+                                        onChange={($, v) => $(replicas.write(v))} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FEATURE FLAGS</Text>
-                    <Reactive>{$ => {
-                        const flags = $.let(Data.bind(featureFlagsInput, { mode: "staged" }));
-                        const flagsRead = $.let(flags.read(), SetType(StringType));
-                        // ONE East closure factory: `toggle(flag)` returns the per-switch
-                        // handler as a real East function value (captures `flag` in East).
-                        const toggle = $.const(East.function([StringType], FunctionType([BooleanType], NullType), (_$, flag) =>
-                            East.function([BooleanType], NullType, ($, isOn) => {
-                                const next = $.let(flags.read(), SetType(StringType));
-                                $.if(isOn, $ => { $(next.insert(flag)); }).else($ => { $(next.delete(flag)); });
-                                $(flags.write(next));
-                            })));
-                        const onDarkMode = $.const(toggle("dark_mode"));
-                        const onExperiments = $.const(toggle("experiments"));
-                        const onNotifications = $.const(toggle("notifications"));
-                        const onAnalytics = $.const(toggle("analytics"));
-                        const onAiAssist = $.const(toggle("ai_assist"));
-                        return (
-                            <Card>
-                                <VStack gap="4" align="stretch">
-                                    <Text textStyle="heading-md">Feature flags</Text>
-                                    <Text>Toggle flags to stage changes; Diff card below shows the set delta.</Text>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">dark_mode</Text>
-                                        <Switch checked={flagsRead.has("dark_mode")} onChange={onDarkMode} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">experiments</Text>
-                                        <Switch checked={flagsRead.has("experiments")} onChange={onExperiments} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">notifications</Text>
-                                        <Switch checked={flagsRead.has("notifications")} onChange={onNotifications} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">analytics</Text>
-                                        <Switch checked={flagsRead.has("analytics")} onChange={onAnalytics} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">ai_assist</Text>
-                                        <Switch checked={flagsRead.has("ai_assist")} onChange={onAiAssist} />
-                                    </VStack>
-                                    <Diff bindings={[flags.binding]} hideUnchanged={some(true)} />
+
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Auto-scale</Text>
+                                    <Switch checked={autoScale.read()} onChange={($, v) => $(autoScale.write(v))} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">REGIONAL PRICING</Text>
-                    <Reactive>{$ => {
-                        const prices = $.let(Data.bind(regionalPricesInput, { mode: "staged" }));
-                        const pricesRead = $.let(prices.read(), DictType(StringType, FloatType));
-                        // ONE East closure factory: `setPrice(region)` returns the
-                        // per-region handler as a real East function value.
-                        const setPrice = $.const(East.function([StringType], FunctionType([FloatType], NullType), (_$, region) =>
-                            East.function([FloatType], NullType, ($, newPrice) => {
-                                const next = $.let(prices.read(), DictType(StringType, FloatType));
-                                $(next.insertOrUpdate(region, newPrice));
-                                $(prices.write(next));
-                            })));
-                        const onAu = $.const(setPrice("AU"));
-                        const onUs = $.const(setPrice("US"));
-                        const onEu = $.const(setPrice("EU"));
-                        const onJp = $.const(setPrice("JP"));
-                        return (
-                            <Card>
-                                <VStack gap="4" align="stretch">
-                                    <Text textStyle="heading-md">Regional pricing</Text>
-                                    <Text>Edit per-region prices; Diff card below tracks pending updates.</Text>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">AU</Text>
-                                        <Input.Float value={pricesRead.get("AU", East.function([StringType], FloatType, _$ => 0.0))}
-                                            min={0.0} max={99999.0} step={0.05}
-                                            onChange={onAu} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">US</Text>
-                                        <Input.Float value={pricesRead.get("US", East.function([StringType], FloatType, _$ => 0.0))}
-                                            min={0.0} max={99999.0} step={0.05}
-                                            onChange={onUs} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">EU</Text>
-                                        <Input.Float value={pricesRead.get("EU", East.function([StringType], FloatType, _$ => 0.0))}
-                                            min={0.0} max={99999.0} step={0.05}
-                                            onChange={onEu} />
-                                    </VStack>
-                                    <VStack gap="3" justify="space-between">
-                                        <Text textStyle="label-sm">JP</Text>
-                                        <Input.Float value={pricesRead.get("JP", East.function([StringType], FloatType, _$ => 0.0))}
-                                            min={0.0} max={99999.0} step={0.05}
-                                            onChange={onJp} />
-                                    </VStack>
-                                    <Diff bindings={[prices.binding]} hideUnchanged={some(true)} />
+
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Region</Text>
+                                    <Select value={region.read()} items={[
+                                        Select.Item("ap-southeast-2", "ap-southeast-2 (Sydney)"),
+                                        Select.Item("us-east-1",      "us-east-1 (N. Virginia)"),
+                                        Select.Item("eu-west-1",      "eu-west-1 (Ireland)"),
+                                    ]} onChange={($, v) => $(region.write(v))} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DEPLOYMENT STATUS</Text>
-                    <Reactive>{$ => {
-                        const status = $.let(Data.bind(deploymentStatusInput, { mode: "staged" }));
-                        const statusRead = $.let(status.read(), DeploymentStatusType);
-                        const setPending = $.const(East.function([], NullType, $ => $(status.write(variant("pending", null)))));
-                        const setInProgress = $.const(East.function([], NullType, $ => $(status.write(variant("in_progress", null)))));
-                        const setComplete = $.const(East.function([], NullType, $ => $(status.write(variant("complete", null)))));
-                        const setFailed = $.const(East.function([], NullType, $ => $(status.write(variant("failed", null)))));
-                        return (
-                            <Card>
-                                <VStack gap="4" align="stretch">
-                                    <Text textStyle="heading-md">Deployment status</Text>
-                                    <Text>Current:</Text>
-                                    <Text textStyle="label-md">{statusRead.getTag()}</Text>
-                                    <HStack gap="2">
-                                        <Button onClick={setPending}>Pending</Button>
-                                        <Button onClick={setInProgress}>In progress</Button>
-                                        <Button onClick={setComplete}>Complete</Button>
-                                        <Button onClick={setFailed}>Failed</Button>
-                                    </HStack>
-                                    <Diff bindings={[status.binding]} hideUnchanged={some(true)} />
+
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Deploy after</Text>
+                                    <Input.DateTime value={deployAfter.read()} precision="datetime"
+                                        onChange={($, v) => $(deployAfter.write(v))} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PRICING RULES COMPACT</Text>
-                    <Reactive>{$ => {
-                        const listPrice    = $.let(Data.bind(listPriceInput, { mode: "staged" }));
-                        const discountPct  = $.let(Data.bind(discountPctInput, { mode: "staged" }));
-                        const minOrderQty  = $.let(Data.bind(minOrderQtyInput, { mode: "staged" }));
-                        const currency     = $.let(Data.bind(currencyCodeInput, { mode: "staged" }));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Pricing rules — compact</Text>
+
+                                <Diff bindings={[svcName.binding, replicas.binding, autoScale.binding, region.binding, deployAfter.binding]} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="PRICING RULES" align="start" />
+                <Reactive>{$ => {
+                    const listPrice    = $.let(Data.bind(listPriceInput, { mode: "staged" }));
+                    const discountPct  = $.let(Data.bind(discountPctInput, { mode: "staged" }));
+                    const minOrderQty  = $.let(Data.bind(minOrderQtyInput, { mode: "staged" }));
+                    const currency     = $.let(Data.bind(currencyCodeInput, { mode: "staged" }));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Pricing rules</Text>
+                                <Text>Stage pricing changes — review side-by-side before applying to the catalog.</Text>
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">List price</Text>
                                     <Slider value={listPrice.read()} min={0.0} max={999.95} step={0.05}
                                         onChangeEnd={($, v) => $(listPrice.write(v))} />
+                                </VStack>
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Discount (%)</Text>
                                     <Slider value={discountPct.read()} min={0.0} max={75.0} step={0.5}
                                         onChangeEnd={($, v) => $(discountPct.write(v))} />
+                                </VStack>
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Minimum order quantity</Text>
                                     <Input.Integer value={minOrderQty.read()} min={1n} max={1000n}
                                         onChange={($, v) => $(minOrderQty.write(v))} />
+                                </VStack>
+                                <VStack gap="1">
+                                    <Text textStyle="label-sm">Currency code</Text>
                                     <Input.String value={currency.read()} placeholder="AUD"
                                         onChange={($, v) => $(currency.write(v))} />
-                                    <Diff bindings={[listPrice.binding, discountPct.binding, minOrderQty.binding, currency.binding]}
-                                        density="compact" hideUnchanged={some(true)} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PRICING RULES CONDENSED</Text>
-                    <Reactive>{$ => {
-                        const listPrice    = $.let(Data.bind(listPriceInput, { mode: "staged" }));
-                        const discountPct  = $.let(Data.bind(discountPctInput, { mode: "staged" }));
-                        const minOrderQty  = $.let(Data.bind(minOrderQtyInput, { mode: "staged" }));
-                        const currency     = $.let(Data.bind(currencyCodeInput, { mode: "staged" }));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Pricing rules — condensed</Text>
-                                    <Slider value={listPrice.read()} min={0.0} max={999.95} step={0.05}
-                                        onChangeEnd={($, v) => $(listPrice.write(v))} />
-                                    <Slider value={discountPct.read()} min={0.0} max={75.0} step={0.5}
-                                        onChangeEnd={($, v) => $(discountPct.write(v))} />
-                                    <Input.Integer value={minOrderQty.read()} min={1n} max={1000n}
-                                        onChange={($, v) => $(minOrderQty.write(v))} />
-                                    <Input.String value={currency.read()} placeholder="AUD"
-                                        onChange={($, v) => $(currency.write(v))} />
-                                    <Diff bindings={[listPrice.binding, discountPct.binding, minOrderQty.binding, currency.binding]}
-                                        density="condensed" hideUnchanged={some(true)} />
+                                <Diff bindings={[listPrice.binding, discountPct.binding, minOrderQty.binding, currency.binding]}
+                                    hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="FEATURE FLAGS" align="start" />
+                <Reactive>{$ => {
+                    const flags = $.let(Data.bind(featureFlagsInput, { mode: "staged" }));
+                    const flagsRead = $.let(flags.read(), SetType(StringType));
+                    // ONE East closure factory: `toggle(flag)` returns the per-switch
+                    // handler as a real East function value (captures `flag` in East).
+                    const toggle = $.const(East.function([StringType], FunctionType([BooleanType], NullType), (_$, flag) =>
+                        East.function([BooleanType], NullType, ($, isOn) => {
+                            const next = $.let(flags.read(), SetType(StringType));
+                            $.if(isOn, $ => { $(next.insert(flag)); }).else($ => { $(next.delete(flag)); });
+                            $(flags.write(next));
+                        })));
+                    const onDarkMode = $.const(toggle("dark_mode"));
+                    const onExperiments = $.const(toggle("experiments"));
+                    const onNotifications = $.const(toggle("notifications"));
+                    const onAnalytics = $.const(toggle("analytics"));
+                    const onAiAssist = $.const(toggle("ai_assist"));
+                    return (
+                        <Card>
+                            <VStack gap="4" align="stretch">
+                                <Text textStyle="heading-md">Feature flags</Text>
+                                <Text>Toggle flags to stage changes; Diff card below shows the set delta.</Text>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">dark_mode</Text>
+                                    <Switch checked={flagsRead.has("dark_mode")} onChange={onDarkMode} />
                                 </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">experiments</Text>
+                                    <Switch checked={flagsRead.has("experiments")} onChange={onExperiments} />
+                                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">notifications</Text>
+                                    <Switch checked={flagsRead.has("notifications")} onChange={onNotifications} />
+                                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">analytics</Text>
+                                    <Switch checked={flagsRead.has("analytics")} onChange={onAnalytics} />
+                                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">ai_assist</Text>
+                                    <Switch checked={flagsRead.has("ai_assist")} onChange={onAiAssist} />
+                                </VStack>
+                                <Diff bindings={[flags.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="REGIONAL PRICING" align="start" />
+                <Reactive>{$ => {
+                    const prices = $.let(Data.bind(regionalPricesInput, { mode: "staged" }));
+                    const pricesRead = $.let(prices.read(), DictType(StringType, FloatType));
+                    // ONE East closure factory: `setPrice(region)` returns the
+                    // per-region handler as a real East function value.
+                    const setPrice = $.const(East.function([StringType], FunctionType([FloatType], NullType), (_$, region) =>
+                        East.function([FloatType], NullType, ($, newPrice) => {
+                            const next = $.let(prices.read(), DictType(StringType, FloatType));
+                            $(next.insertOrUpdate(region, newPrice));
+                            $(prices.write(next));
+                        })));
+                    const onAu = $.const(setPrice("AU"));
+                    const onUs = $.const(setPrice("US"));
+                    const onEu = $.const(setPrice("EU"));
+                    const onJp = $.const(setPrice("JP"));
+                    return (
+                        <Card>
+                            <VStack gap="4" align="stretch">
+                                <Text textStyle="heading-md">Regional pricing</Text>
+                                <Text>Edit per-region prices; Diff card below tracks pending updates.</Text>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">AU</Text>
+                                    <Input.Float value={pricesRead.get("AU", East.function([StringType], FloatType, _$ => 0.0))}
+                                        min={0.0} max={99999.0} step={0.05}
+                                        onChange={onAu} />
+                                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">US</Text>
+                                    <Input.Float value={pricesRead.get("US", East.function([StringType], FloatType, _$ => 0.0))}
+                                        min={0.0} max={99999.0} step={0.05}
+                                        onChange={onUs} />
+                                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">EU</Text>
+                                    <Input.Float value={pricesRead.get("EU", East.function([StringType], FloatType, _$ => 0.0))}
+                                        min={0.0} max={99999.0} step={0.05}
+                                        onChange={onEu} />
+                                </VStack>
+                                <VStack gap="3" justify="space-between">
+                                    <Text textStyle="label-sm">JP</Text>
+                                    <Input.Float value={pricesRead.get("JP", East.function([StringType], FloatType, _$ => 0.0))}
+                                        min={0.0} max={99999.0} step={0.05}
+                                        onChange={onJp} />
+                                </VStack>
+                                <Diff bindings={[prices.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="DEPLOYMENT STATUS" align="start" />
+                <Reactive>{$ => {
+                    const status = $.let(Data.bind(deploymentStatusInput, { mode: "staged" }));
+                    const statusRead = $.let(status.read(), DeploymentStatusType);
+                    const setPending = $.const(East.function([], NullType, $ => $(status.write(variant("pending", null)))));
+                    const setInProgress = $.const(East.function([], NullType, $ => $(status.write(variant("in_progress", null)))));
+                    const setComplete = $.const(East.function([], NullType, $ => $(status.write(variant("complete", null)))));
+                    const setFailed = $.const(East.function([], NullType, $ => $(status.write(variant("failed", null)))));
+                    return (
+                        <Card>
+                            <VStack gap="4" align="stretch">
+                                <Text textStyle="heading-md">Deployment status</Text>
+                                <Text>Current:</Text>
+                                <Text textStyle="label-md">{statusRead.getTag()}</Text>
+                                <HStack gap="2">
+                                    <Button onClick={setPending}>Pending</Button>
+                                    <Button onClick={setInProgress}>In progress</Button>
+                                    <Button onClick={setComplete}>Complete</Button>
+                                    <Button onClick={setFailed}>Failed</Button>
+                                </HStack>
+                                <Diff bindings={[status.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="PRICING RULES COMPACT" align="start" />
+                <Reactive>{$ => {
+                    const listPrice    = $.let(Data.bind(listPriceInput, { mode: "staged" }));
+                    const discountPct  = $.let(Data.bind(discountPctInput, { mode: "staged" }));
+                    const minOrderQty  = $.let(Data.bind(minOrderQtyInput, { mode: "staged" }));
+                    const currency     = $.let(Data.bind(currencyCodeInput, { mode: "staged" }));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Pricing rules — compact</Text>
+                                <Slider value={listPrice.read()} min={0.0} max={999.95} step={0.05}
+                                    onChangeEnd={($, v) => $(listPrice.write(v))} />
+                                <Slider value={discountPct.read()} min={0.0} max={75.0} step={0.5}
+                                    onChangeEnd={($, v) => $(discountPct.write(v))} />
+                                <Input.Integer value={minOrderQty.read()} min={1n} max={1000n}
+                                    onChange={($, v) => $(minOrderQty.write(v))} />
+                                <Input.String value={currency.read()} placeholder="AUD"
+                                    onChange={($, v) => $(currency.write(v))} />
+                                <Diff bindings={[listPrice.binding, discountPct.binding, minOrderQty.binding, currency.binding]}
+                                    density="compact" hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="PRICING RULES CONDENSED" align="start" />
+                <Reactive>{$ => {
+                    const listPrice    = $.let(Data.bind(listPriceInput, { mode: "staged" }));
+                    const discountPct  = $.let(Data.bind(discountPctInput, { mode: "staged" }));
+                    const minOrderQty  = $.let(Data.bind(minOrderQtyInput, { mode: "staged" }));
+                    const currency     = $.let(Data.bind(currencyCodeInput, { mode: "staged" }));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Pricing rules — condensed</Text>
+                                <Slider value={listPrice.read()} min={0.0} max={999.95} step={0.05}
+                                    onChangeEnd={($, v) => $(listPrice.write(v))} />
+                                <Slider value={discountPct.read()} min={0.0} max={75.0} step={0.5}
+                                    onChangeEnd={($, v) => $(discountPct.write(v))} />
+                                <Input.Integer value={minOrderQty.read()} min={1n} max={1000n}
+                                    onChange={($, v) => $(minOrderQty.write(v))} />
+                                <Input.String value={currency.read()} placeholder="AUD"
+                                    onChange={($, v) => $(currency.write(v))} />
+                                <Diff bindings={[listPrice.binding, discountPct.binding, minOrderQty.binding, currency.binding]}
+                                    density="condensed" hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
@@ -725,134 +711,126 @@ export const diffOverlayVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">POLICY OVERLAY</Text>
-                    <Reactive>{$ => {
-                        const view = $.let(Data.bind(maxWeeklyHoursInput,
-                            { mode: "direct", patch: maxWeeklyHoursPatchInput },
-                        ));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Max weekly hours (overlay)</Text>
-                                    <Slider value={view.read()} min={30.0} max={60.0} step={1.0}
-                                        onChangeEnd={($, v) => $(view.write(v))} />
-                                    <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                                </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">REGIONAL PRICING OVERLAY DRIFT</Text>
-                    <Reactive>{$ => {
-                        const view = $.let(Data.bind(regionalPricesInput,
-                            { mode: "direct", patch: regionalPricesDriftPatchInput },
-                        ));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Regional pricing — overlay with stale patch</Text>
-                                    <Text>{
-                                        "The patch input was authored against an older source. The Diff card below "
-                                        + "shows: a stale delete (MX missing from source), a stale insert (AU already "
-                                        + "exists), a stale replace (US before=30 doesn't match current 39.95), and "
-                                        + "one clean replace (EU 44.95 → 39.95). Apply would throw ConflictError on "
-                                        + "the stale ops; this example exists to show what the Diff renderer surfaces "
-                                        + "when a server-stored patch has drifted from its source."
-                                    }</Text>
-                                    <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                                </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROSTER OVERLAY DRIFT</Text>
-                    <Reactive>{$ => {
-                        const view = $.let(Data.bind(rosterInput,
-                            { mode: "direct", patch: rosterDriftPatchInput },
-                        ));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Roster — overlay patch (nested)</Text>
-                                    <Text>{
-                                        "The patch changes the hourly rate of the first two roster entries. The "
-                                        + "Diff card groups each change under its array index, demonstrating the "
-                                        + "binding → [index] → field nesting."
-                                    }</Text>
-                                    <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                                </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROSTER TABLE OVERLAY</Text>
-                    <Reactive>{$ => {
-                        const view = $.let(Data.bind(rosterInput,
-                            { mode: "direct", patch: rosterPatchInput },
-                        ));
-                        const rosterArray = $.let(view.read(), RosterArrayType);
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Worker roster (overlay-mode)</Text>
-                                    <Text>Patches stored in a sibling dataset — survive reload, visible to other sessions.</Text>
-                                    <Table data={rosterArray} columns={{
-                                        name: { header: "Name" },
-                                        rate: {
-                                            header: "Hourly rate ($)",
-                                            render: East.function(
-                                                [Table.Types.CellRenderContext],
-                                                UIComponentType,
-                                                ($, ctx) => {
-                                                    const idx = $.let(ctx.rowIndex, IntegerType);
-                                                    const row = $.let(rosterArray.get(idx), RosterEntryType);
-                                                    const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        const next = $.let(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), _$ => r),
-                                                        ), RosterArrayType);
-                                                        $(view.write(next));
-                                                    }));
-                                                    return (
-                                                        <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
-                                                            onChange={onRateChange} />
-                                                    );
-                                                },
-                                            ),
-                                        },
-                                        shiftLength: {
-                                            header: "Shift length (h)",
-                                            render: East.function(
-                                                [Table.Types.CellRenderContext],
-                                                UIComponentType,
-                                                ($, ctx) => {
-                                                    const idx = $.let(ctx.rowIndex, IntegerType);
-                                                    const row = $.let(rosterArray.get(idx), RosterEntryType);
-                                                    const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        const next = $.let(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), _$ => r),
-                                                        ), RosterArrayType);
-                                                        $(view.write(next));
-                                                    }));
-                                                    return (
-                                                        <Input.Integer value={row.shiftLength} min={4n} max={12n}
-                                                            onChange={onShiftChange} />
-                                                    );
-                                                },
-                                            ),
-                                        },
-                                    }} variant="line" striped />
-                                    <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                                </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="POLICY OVERLAY" align="start" />
+                <Reactive>{$ => {
+                    const view = $.let(Data.bind(maxWeeklyHoursInput,
+                        { mode: "direct", patch: maxWeeklyHoursPatchInput },
+                    ));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Max weekly hours (overlay)</Text>
+                                <Slider value={view.read()} min={30.0} max={60.0} step={1.0}
+                                    onChangeEnd={($, v) => $(view.write(v))} />
+                                <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="REGIONAL PRICING OVERLAY DRIFT" align="start" />
+                <Reactive>{$ => {
+                    const view = $.let(Data.bind(regionalPricesInput,
+                        { mode: "direct", patch: regionalPricesDriftPatchInput },
+                    ));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Regional pricing — overlay with stale patch</Text>
+                                <Text>{
+                                    "The patch input was authored against an older source. The Diff card below "
+                                    + "shows: a stale delete (MX missing from source), a stale insert (AU already "
+                                    + "exists), a stale replace (US before=30 doesn't match current 39.95), and "
+                                    + "one clean replace (EU 44.95 → 39.95). Apply would throw ConflictError on "
+                                    + "the stale ops; this example exists to show what the Diff renderer surfaces "
+                                    + "when a server-stored patch has drifted from its source."
+                                }</Text>
+                                <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="ROSTER OVERLAY DRIFT" align="start" />
+                <Reactive>{$ => {
+                    const view = $.let(Data.bind(rosterInput,
+                        { mode: "direct", patch: rosterDriftPatchInput },
+                    ));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Roster — overlay patch (nested)</Text>
+                                <Text>{
+                                    "The patch changes the hourly rate of the first two roster entries. The "
+                                    + "Diff card groups each change under its array index, demonstrating the "
+                                    + "binding → [index] → field nesting."
+                                }</Text>
+                                <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="ROSTER TABLE OVERLAY" align="start" />
+                <Reactive>{$ => {
+                    const view = $.let(Data.bind(rosterInput,
+                        { mode: "direct", patch: rosterPatchInput },
+                    ));
+                    const rosterArray = $.let(view.read(), RosterArrayType);
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Worker roster (overlay-mode)</Text>
+                                <Text>Patches stored in a sibling dataset — survive reload, visible to other sessions.</Text>
+                                <Table data={rosterArray} columns={{
+                                    name: { header: "Name" },
+                                    rate: {
+                                        header: "Hourly rate ($)",
+                                        render: East.function(
+                                            [Table.Types.CellRenderContext],
+                                            UIComponentType,
+                                            ($, ctx) => {
+                                                const idx = $.let(ctx.rowIndex, IntegerType);
+                                                const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                                const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
+                                                    const fresh = $.let(view.read(), RosterArrayType);
+                                                    const next = $.let(fresh.map(($, r, i) =>
+                                                        i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), _$ => r),
+                                                    ), RosterArrayType);
+                                                    $(view.write(next));
+                                                }));
+                                                return (
+                                                    <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
+                                                        onChange={onRateChange} />
+                                                );
+                                            },
+                                        ),
+                                    },
+                                    shiftLength: {
+                                        header: "Shift length (h)",
+                                        render: East.function(
+                                            [Table.Types.CellRenderContext],
+                                            UIComponentType,
+                                            ($, ctx) => {
+                                                const idx = $.let(ctx.rowIndex, IntegerType);
+                                                const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                                const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
+                                                    const fresh = $.let(view.read(), RosterArrayType);
+                                                    const next = $.let(fresh.map(($, r, i) =>
+                                                        i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), _$ => r),
+                                                    ), RosterArrayType);
+                                                    $(view.write(next));
+                                                }));
+                                                return (
+                                                    <Input.Integer value={row.shiftLength} min={4n} max={12n}
+                                                        onChange={onShiftChange} />
+                                                );
+                                            },
+                                        ),
+                                    },
+                                }} variant="line" striped />
+                                <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
@@ -883,88 +861,84 @@ export const diffStagedPatchVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">POLICY STAGED PATCH</Text>
-                    <Reactive>{$ => {
-                        const view = $.let(Data.bind(maxWeeklyHoursInput,
-                            { mode: "staged", patch: maxWeeklyHoursPatchInput },
-                        ));
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Max weekly hours (staged + patch)</Text>
-                                    <Text>Drag to buffer locally; Apply publishes the draft as a patch to the patch dataset (source untouched).</Text>
-                                    <Slider value={view.read()} min={30.0} max={60.0} step={1.0}
-                                        onChange={($, v) => $(view.write(v))} />
-                                    <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                                </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROSTER STAGED PATCH</Text>
-                    <Reactive>{$ => {
-                        const view = $.let(Data.bind(rosterInput,
-                            { mode: "staged", patch: rosterPatchInput },
-                        ));
-                        const rosterArray = $.let(view.read(), RosterArrayType);
-                        return (
-                            <Card>
-                                <VStack gap="5" align="stretch">
-                                    <Text textStyle="heading-md">Worker roster (staged + patch)</Text>
-                                    <Text>Edits buffer locally until Apply, which publishes a draft patch to the patch dataset for review.</Text>
-                                    <Table data={rosterArray} columns={{
-                                        name: { header: "Name" },
-                                        rate: {
-                                            header: "Hourly rate ($)",
-                                            render: East.function(
-                                                [Table.Types.CellRenderContext],
-                                                UIComponentType,
-                                                ($, ctx) => {
-                                                    const idx = $.let(ctx.rowIndex, IntegerType);
-                                                    const row = $.let(rosterArray.get(idx), RosterEntryType);
-                                                    const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        $(view.write(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),
-                                                        )));
-                                                    }));
-                                                    return (
-                                                        <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
-                                                            onChange={onRateChange} />
-                                                    );
-                                                },
-                                            ),
-                                        },
-                                        shiftLength: {
-                                            header: "Shift length (h)",
-                                            render: East.function(
-                                                [Table.Types.CellRenderContext],
-                                                UIComponentType,
-                                                ($, ctx) => {
-                                                    const idx = $.let(ctx.rowIndex, IntegerType);
-                                                    const row = $.let(rosterArray.get(idx), RosterEntryType);
-                                                    const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        $(view.write(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),
-                                                        )));
-                                                    }));
-                                                    return (
-                                                        <Input.Integer value={row.shiftLength} min={4n} max={12n}
-                                                            onChange={onShiftChange} />
-                                                    );
-                                                },
-                                            ),
-                                        },
-                                    }} variant="line" striped />
-                                    <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                                </VStack>
-                            </Card>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="POLICY STAGED PATCH" align="start" />
+                <Reactive>{$ => {
+                    const view = $.let(Data.bind(maxWeeklyHoursInput,
+                        { mode: "staged", patch: maxWeeklyHoursPatchInput },
+                    ));
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Max weekly hours (staged + patch)</Text>
+                                <Text>Drag to buffer locally; Apply publishes the draft as a patch to the patch dataset (source untouched).</Text>
+                                <Slider value={view.read()} min={30.0} max={60.0} step={1.0}
+                                    onChange={($, v) => $(view.write(v))} />
+                                <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
+                <Separator label="ROSTER STAGED PATCH" align="start" />
+                <Reactive>{$ => {
+                    const view = $.let(Data.bind(rosterInput,
+                        { mode: "staged", patch: rosterPatchInput },
+                    ));
+                    const rosterArray = $.let(view.read(), RosterArrayType);
+                    return (
+                        <Card>
+                            <VStack gap="5" align="stretch">
+                                <Text textStyle="heading-md">Worker roster (staged + patch)</Text>
+                                <Text>Edits buffer locally until Apply, which publishes a draft patch to the patch dataset for review.</Text>
+                                <Table data={rosterArray} columns={{
+                                    name: { header: "Name" },
+                                    rate: {
+                                        header: "Hourly rate ($)",
+                                        render: East.function(
+                                            [Table.Types.CellRenderContext],
+                                            UIComponentType,
+                                            ($, ctx) => {
+                                                const idx = $.let(ctx.rowIndex, IntegerType);
+                                                const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                                const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
+                                                    const fresh = $.let(view.read(), RosterArrayType);
+                                                    $(view.write(fresh.map(($, r, i) =>
+                                                        i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),
+                                                    )));
+                                                }));
+                                                return (
+                                                    <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
+                                                        onChange={onRateChange} />
+                                                );
+                                            },
+                                        ),
+                                    },
+                                    shiftLength: {
+                                        header: "Shift length (h)",
+                                        render: East.function(
+                                            [Table.Types.CellRenderContext],
+                                            UIComponentType,
+                                            ($, ctx) => {
+                                                const idx = $.let(ctx.rowIndex, IntegerType);
+                                                const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                                const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
+                                                    const fresh = $.let(view.read(), RosterArrayType);
+                                                    $(view.write(fresh.map(($, r, i) =>
+                                                        i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),
+                                                    )));
+                                                }));
+                                                return (
+                                                    <Input.Integer value={row.shiftLength} min={4n} max={12n}
+                                                        onChange={onShiftChange} />
+                                                );
+                                            },
+                                        ),
+                                    },
+                                }} variant="line" striped />
+                                <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                            </VStack>
+                        </Card>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

@@ -21,7 +21,7 @@ import {
     East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,
     NullType, IntegerType, some, none, variant, example,
 } from '@elaraai/east';
-import { Box, Chart, Field, Reactive, Slice, Text, UIComponentType, VStack } from '@elaraai/east-ui';
+import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';
 import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
@@ -317,59 +317,53 @@ export const decisionQueueFacetVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FACETS</Text>
-                    <Reactive>{$ => {
-                        const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                        const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                        const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                        const urgent = $.let(decisions.read().firstMap(($, d) =>
-                            d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
-                        return (
-                            <DecisionQueue
-                                handle={handle}
-                                heading="Decisions waiting"
-                                defaultExpanded={urgent}
-                                facets={["evidence", "judgement"]}
-                            />
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VALUE AXIS</Text>
-                    <Reactive>{$ => {
-                        const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                        const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                        const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                        const eta = $.let(decisions.read().firstMap(($, d) =>
-                            East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));
-                        return (
-                            <DecisionQueue
-                                handle={handle}
-                                heading="Decisions waiting"
-                                defaultExpanded={eta}
-                            />
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OPTIONS</Text>
-                    <Reactive>{$ => {
-                        const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                        const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                        const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                        const urgent = $.let(decisions.read().firstMap(($, d) =>
-                            d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
-                        return (
-                            <DecisionQueue
-                                handle={handle}
-                                heading="Decisions waiting"
-                                defaultExpanded={urgent}
-                                defaultFacet="options"
-                            />
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="FACETS" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const urgent = $.let(decisions.read().firstMap(($, d) =>
+                        d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                    return (
+                        <DecisionQueue
+                            handle={handle}
+                            heading="Decisions waiting"
+                            defaultExpanded={urgent}
+                            facets={["evidence", "judgement"]}
+                        />
+                    );
+                }}</Reactive>
+                <Separator label="VALUE AXIS" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const eta = $.let(decisions.read().firstMap(($, d) =>
+                        East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));
+                    return (
+                        <DecisionQueue
+                            handle={handle}
+                            heading="Decisions waiting"
+                            defaultExpanded={eta}
+                        />
+                    );
+                }}</Reactive>
+                <Separator label="OPTIONS" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const urgent = $.let(decisions.read().firstMap(($, d) =>
+                        d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                    return (
+                        <DecisionQueue
+                            handle={handle}
+                            heading="Decisions waiting"
+                            defaultExpanded={urgent}
+                            defaultFacet="options"
+                        />
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
@@ -389,35 +383,31 @@ export const decisionQueueSizing = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NARROW</Text>
-                    <Reactive>{$ => {
-                        const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                        const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                        const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                        const urgent = $.let(decisions.read().firstMap(($, d) =>
-                            d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
-                        return (
-                            <Box width="360px">
-                                <DecisionQueue
-                                    handle={handle}
-                                    heading="Decisions waiting"
-                                    defaultExpanded={urgent}
-                                    defaultFacet="options"
-                                />
-                            </Box>
-                        );
-                    }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
-                    <Reactive>{$ => {
-                        const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                        const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                        const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                        return <DecisionQueue handle={handle} heading="Decisions waiting" maxHeight="220px" />;
-                    }}</Reactive>
-                </VStack>
+                <Separator label="NARROW" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const urgent = $.let(decisions.read().firstMap(($, d) =>
+                        d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                    return (
+                        <Box width="360px">
+                            <DecisionQueue
+                                handle={handle}
+                                heading="Decisions waiting"
+                                defaultExpanded={urgent}
+                                defaultFacet="options"
+                            />
+                        </Box>
+                    );
+                }}</Reactive>
+                <Separator label="SCROLL" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    return <DecisionQueue handle={handle} heading="Decisions waiting" maxHeight="220px" />;
+                }}</Reactive>
             </VStack>
         );
     }),

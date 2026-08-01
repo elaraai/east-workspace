@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Button, HStack, Text, VStack, Stack, Reactive } from "@elaraai/east-ui";
+import { Badge, Button, HStack, Separator, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -57,91 +57,73 @@ export const badgeStyles = example({
         );
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VARIANTS</Text>
-                    <HStack gap="2" wrap="wrap">
-                        <Badge variant="outline">Outline</Badge>
-                        <Badge variant="brand">Brand</Badge>
-                        <Badge variant="ok">OK</Badge>
-                        <Badge variant="warn">Warn</Badge>
-                        <Badge variant="danger">Danger</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COUNT CALLOUT</Text>
-                    <HStack gap="2" wrap="wrap">
-                        <Badge variant="count">17</Badge>
-                        <Badge variant="count">128</Badge>
-                        <Badge variant="callout">NEW</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
-                    <HStack gap="2" wrap="wrap">
-                        <Badge background="#ff6b6b" color="white">Custom BG</Badge>
-                        <Badge background="#1a1a2e" color="#eee">Dark</Badge>
-                        <Badge background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)" color="white">Gradient</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM</Text>
-                    <HStack gap="2">
-                        <Badge variant="brand">100%</Badge>
-                        <Badge variant="brand" opacity={0.75}>75%</Badge>
-                        <Badge variant="brand" opacity={0.5}>50%</Badge>
-                        <Badge variant="brand" opacity={0.25}>25%</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FIXED WIDTH</Text>
-                    <HStack gap="1">
-                        <Badge width="48px" justifyContent="center">3</Badge>
-                        <Badge width="48px" justifyContent="center">12</Badge>
-                        <Badge width="48px" justifyContent="center">128</Badge>
-                        <Badge width="48px" justifyContent="center">4.2K</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BORDER</Text>
-                    <HStack gap="2">
-                        <Badge variant="outline">Solid</Badge>
-                        <Badge variant="outline" borderStyle="dashed">Dashed</Badge>
-                        <Badge variant="brand" borderRadius="full">Pill</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BOX MODEL</Text>
-                    <HStack gap="2">
-                        <Badge variant="brand" padding="3">Padded</Badge>
-                        <Badge variant="outline" width="120px" justifyContent="flex-start">Wide</Badge>
-                        <Badge variant="brand" padding="2" borderRadius="lg">Rounded</Badge>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITIES</Text>
-                    <Stack direction="column" gap="6">
-                        {condensed}
-                        {compact}
-                        {comfortable}
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "badge_counter", 0n));
-                        const value = $.let(counter.read());
-                        const inc = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="center">
-                                <Badge>{East.str`${East.print(value)}`}</Badge>
-                                <Button onClick={inc}>Increment</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="VARIANTS" align="start" />
+                <HStack gap="2" wrap="wrap">
+                    <Badge variant="outline">Outline</Badge>
+                    <Badge variant="brand">Brand</Badge>
+                    <Badge variant="ok">OK</Badge>
+                    <Badge variant="warn">Warn</Badge>
+                    <Badge variant="danger">Danger</Badge>
+                </HStack>
+                <Separator label="COUNT CALLOUT" align="start" />
+                <HStack gap="2" wrap="wrap">
+                    <Badge variant="count">17</Badge>
+                    <Badge variant="count">128</Badge>
+                    <Badge variant="callout">NEW</Badge>
+                </HStack>
+                <Separator label="COLORS" align="start" />
+                <HStack gap="2" wrap="wrap">
+                    <Badge background="#ff6b6b" color="white">Custom BG</Badge>
+                    <Badge background="#1a1a2e" color="#eee">Dark</Badge>
+                    <Badge background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)" color="white">Gradient</Badge>
+                </HStack>
+                <Separator label="CUSTOM" align="start" />
+                <HStack gap="2">
+                    <Badge variant="brand">100%</Badge>
+                    <Badge variant="brand" opacity={0.75}>75%</Badge>
+                    <Badge variant="brand" opacity={0.5}>50%</Badge>
+                    <Badge variant="brand" opacity={0.25}>25%</Badge>
+                </HStack>
+                <Separator label="FIXED WIDTH" align="start" />
+                <HStack gap="1">
+                    <Badge width="48px" justifyContent="center">3</Badge>
+                    <Badge width="48px" justifyContent="center">12</Badge>
+                    <Badge width="48px" justifyContent="center">128</Badge>
+                    <Badge width="48px" justifyContent="center">4.2K</Badge>
+                </HStack>
+                <Separator label="BORDER" align="start" />
+                <HStack gap="2">
+                    <Badge variant="outline">Solid</Badge>
+                    <Badge variant="outline" borderStyle="dashed">Dashed</Badge>
+                    <Badge variant="brand" borderRadius="full">Pill</Badge>
+                </HStack>
+                <Separator label="BOX MODEL" align="start" />
+                <HStack gap="2">
+                    <Badge variant="brand" padding="3">Padded</Badge>
+                    <Badge variant="outline" width="120px" justifyContent="flex-start">Wide</Badge>
+                    <Badge variant="brand" padding="2" borderRadius="lg">Rounded</Badge>
+                </HStack>
+                <Separator label="DENSITIES" align="start" />
+                <Stack direction="column" gap="6">
+                    {condensed}
+                    {compact}
+                    {comfortable}
+                </Stack>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "badge_counter", 0n));
+                    const value = $.let(counter.read());
+                    const inc = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="center">
+                            <Badge>{East.str`${East.print(value)}`}</Badge>
+                            <Button onClick={inc}>Increment</Button>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

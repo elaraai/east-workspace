@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Box, Button, Separator, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -30,81 +30,67 @@ export const boxVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STYLED</Text>
-                    <Box padding="4" background="blue.50" color="blue.800" borderRadius="md">
-                        <Text>Styled container content</Text>
+                <Separator label="STYLED" align="start" />
+                <Box padding="4" background="blue.50" color="blue.800" borderRadius="md">
+                    <Text>Styled container content</Text>
+                </Box>
+                <Separator label="BORDERS" align="start" />
+                <Box display="flex" gap="4">
+                    <Box padding="4" border="2px solid" borderColor="blue.500" borderRadius="md">
+                        <Text>Solid border</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BORDERS</Text>
-                    <Box display="flex" gap="4">
-                        <Box padding="4" border="2px solid" borderColor="blue.500" borderRadius="md">
-                            <Text>Solid border</Text>
-                        </Box>
-                        <Box padding="4" border="2px dashed" borderColor="green.500" borderRadius="md">
-                            <Text>Dashed border</Text>
-                        </Box>
-                        <Box padding="4" borderWidth="4px" borderColor="red.500" background="red.50" borderRadius="lg">
-                            <Text>Custom width</Text>
-                        </Box>
+                    <Box padding="4" border="2px dashed" borderColor="green.500" borderRadius="md">
+                        <Text>Dashed border</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ELEVATED</Text>
-                    <Box padding="4" background="white" borderRadius="md" boxShadow="md">
-                        <Text>Elevated card — BoxShadow.md</Text>
+                    <Box padding="4" borderWidth="4px" borderColor="red.500" background="red.50" borderRadius="lg">
+                        <Text>Custom width</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ANIMATED</Text>
-                    <HStack gap="2" align="center">
-                        <Box width="10px" height="10px" borderRadius="full" background="orange.500" animation="pulse" />
-                        <Text>Recomputing…</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TABULAR NUMERIC</Text>
-                    <Box fontFamily="mono" fontVariantNumeric="tabular-nums" padding="3" background="gray.50" borderRadius="md">
-                        <VStack gap="1" align="flex-end">
-                            <Text>{"  1,234.56"}</Text>
-                            <Text>{"    56.07"}</Text>
-                            <Text>{"789,012.30"}</Text>
+                </Box>
+                <Separator label="ELEVATED" align="start" />
+                <Box padding="4" background="white" borderRadius="md" boxShadow="md">
+                    <Text>Elevated card — BoxShadow.md</Text>
+                </Box>
+                <Separator label="ANIMATED" align="start" />
+                <HStack gap="2" align="center">
+                    <Box width="10px" height="10px" borderRadius="full" background="orange.500" animation="pulse" />
+                    <Text>Recomputing…</Text>
+                </HStack>
+                <Separator label="TABULAR NUMERIC" align="start" />
+                <Box fontFamily="mono" fontVariantNumeric="tabular-nums" padding="3" background="gray.50" borderRadius="md">
+                    <VStack gap="1" align="flex-end">
+                        <Text>{"  1,234.56"}</Text>
+                        <Text>{"    56.07"}</Text>
+                        <Text>{"789,012.30"}</Text>
+                    </VStack>
+                </Box>
+                <Separator label="STICKY" align="start" />
+                <Box overflowY="auto" height="240px" borderColor="gray.300" borderWidth="thin">
+                    <Box position="sticky" top="0" zIndex="sticky" padding="3" background="white" borderColor="gray.200" borderWidth="thin">
+                        <Text>Sticky header</Text>
+                    </Box>
+                    <VStack gap="2" padding="3">
+                        {Array.from({ length: 10 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
+                    </VStack>
+                </Box>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "box_counter", 0n));
+                    const value = $.let(counter.read());
+                    const isEven = $.let(value.remainder(2n).equal(0n));
+                    const bg = $.let(isEven.ifElse(() => "blue.100", () => "green.100"));
+                    const inc = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Box padding="4" background={bg} borderRadius="md">
+                                <Text>Box background toggles between blue and green</Text>
+                            </Box>
+                            <Button onClick={inc}>Toggle background</Button>
                         </VStack>
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STICKY</Text>
-                    <Box overflowY="auto" height="240px" borderColor="gray.300" borderWidth="thin">
-                        <Box position="sticky" top="0" zIndex="sticky" padding="3" background="white" borderColor="gray.200" borderWidth="thin">
-                            <Text>Sticky header</Text>
-                        </Box>
-                        <VStack gap="2" padding="3">
-                            {Array.from({ length: 10 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
-                        </VStack>
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "box_counter", 0n));
-                        const value = $.let(counter.read());
-                        const isEven = $.let(value.remainder(2n).equal(0n));
-                        const bg = $.let(isEven.ifElse(() => "blue.100", () => "green.100"));
-                        const inc = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Box padding="4" background={bg} borderRadius="md">
-                                    <Text>Box background toggles between blue and green</Text>
-                                </Box>
-                                <Button onClick={inc}>Toggle background</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
@@ -121,50 +107,40 @@ export const boxLayout = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FLEX ROW</Text>
-                    <Box display="flex" flexDirection="row" justifyContent="space-between" alignItems="center" gap="4" padding="4" background="gray.100" borderRadius="md">
-                        <Text>Item 1</Text>
-                        <Text>Item 2</Text>
-                        <Text>Item 3</Text>
+                <Separator label="FLEX ROW" align="start" />
+                <Box display="flex" flexDirection="row" justifyContent="space-between" alignItems="center" gap="4" padding="4" background="gray.100" borderRadius="md">
+                    <Text>Item 1</Text>
+                    <Text>Item 2</Text>
+                    <Text>Item 3</Text>
+                </Box>
+                <Separator label="FLEX COLUMN" align="start" />
+                <Box display="flex" flexDirection="column" justifyContent="space-around" alignItems="center" height="150px" padding="4" background="purple.50" color="purple.800" borderRadius="lg">
+                    <Text>Top</Text>
+                    <Text>Middle</Text>
+                    <Text>Bottom</Text>
+                </Box>
+                <Separator label="FIXED" align="start" />
+                <Box display="flex" width="200px" height="100px" justifyContent="center" alignItems="center" background="teal.100" color="teal.800" borderRadius="sm">
+                    <Text>200x100 box</Text>
+                </Box>
+                <Separator label="NESTED" align="start" />
+                <Box padding="4" background="gray.100" borderRadius="md">
+                    <Box padding="2" background="blue.100" borderRadius="sm">
+                        <Text>Inner box</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FLEX COLUMN</Text>
-                    <Box display="flex" flexDirection="column" justifyContent="space-around" alignItems="center" height="150px" padding="4" background="purple.50" color="purple.800" borderRadius="lg">
-                        <Text>Top</Text>
-                        <Text>Middle</Text>
-                        <Text>Bottom</Text>
+                </Box>
+                <Separator label="JUSTIFY" align="start" />
+                <Box display="flex" flexDirection="column" gap="2">
+                    <Box display="flex" justifyContent="flex-start" padding="2" background="green.100" borderRadius="sm">
+                        <Text>start</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FIXED</Text>
-                    <Box display="flex" width="200px" height="100px" justifyContent="center" alignItems="center" background="teal.100" color="teal.800" borderRadius="sm">
-                        <Text>200x100 box</Text>
+                    <Box display="flex" justifyContent="center" padding="2" background="green.100" borderRadius="sm">
+                        <Text>center</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NESTED</Text>
-                    <Box padding="4" background="gray.100" borderRadius="md">
-                        <Box padding="2" background="blue.100" borderRadius="sm">
-                            <Text>Inner box</Text>
-                        </Box>
+                    <Box display="flex" justifyContent="flex-end" padding="2" background="green.100" borderRadius="sm">
+                        <Text>end</Text>
                     </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">JUSTIFY</Text>
-                    <Box display="flex" flexDirection="column" gap="2">
-                        <Box display="flex" justifyContent="flex-start" padding="2" background="green.100" borderRadius="sm">
-                            <Text>start</Text>
-                        </Box>
-                        <Box display="flex" justifyContent="center" padding="2" background="green.100" borderRadius="sm">
-                            <Text>center</Text>
-                        </Box>
-                        <Box display="flex" justifyContent="flex-end" padding="2" background="green.100" borderRadius="sm">
-                            <Text>end</Text>
-                        </Box>
-                    </Box>
-                </VStack>
+                </Box>
             </VStack>
         );
     }),

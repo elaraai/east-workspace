@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { RadioGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { RadioGroup, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -92,31 +92,25 @@ export const radioGroupVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP HORIZONTAL</Text>
-                    <RadioGroup
-                        value="small"
-                        items={RADIO_GROUP_HORIZONTAL_DATA}
-                        orientation="horizontal"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP DISABLED ITEM</Text>
-                    <RadioGroup
-                        value="active"
-                        items={RADIO_GROUP_DISABLED_ITEM_DATA}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GROUP COLOUR OVERRIDES</Text>
-                    <RadioGroup
-                        value="low"
-                        items={RADIO_GROUP_COLOUR_OVERRIDES_DATA}
-                        fillColor="blue.600"
-                        borderColor="blue.300"
-                        color="gray.700"
-                    />
-                </VStack>
+                <Separator label="GROUP HORIZONTAL" align="start" />
+                <RadioGroup
+                    value="small"
+                    items={RADIO_GROUP_HORIZONTAL_DATA}
+                    orientation="horizontal"
+                />
+                <Separator label="GROUP DISABLED ITEM" align="start" />
+                <RadioGroup
+                    value="active"
+                    items={RADIO_GROUP_DISABLED_ITEM_DATA}
+                />
+                <Separator label="GROUP COLOUR OVERRIDES" align="start" />
+                <RadioGroup
+                    value="low"
+                    items={RADIO_GROUP_COLOUR_OVERRIDES_DATA}
+                    fillColor="blue.600"
+                    borderColor="blue.300"
+                    color="gray.700"
+                />
             </VStack>
         );
     }),

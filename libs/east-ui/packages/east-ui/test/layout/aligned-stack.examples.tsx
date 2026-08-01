@@ -6,7 +6,7 @@
 import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType, DragEventType } from "@elaraai/east-ui";
 import { NullType } from "@elaraai/east";
-import { AlignedStack, Box, Calendar, Chart, Gantt, HStack, Library, Matrix, Planner, Table, Text, Trace, VStack } from "@elaraai/east-ui";
+import { AlignedStack, Box, Calendar, Chart, Gantt, HStack, Library, Matrix, Planner, Separator, Table, Trace, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -208,178 +208,164 @@ export const alignedStackPairs = example({
         const ganttLoad = $.const(ALIGNED_STACK_CHART_GANTT_DATA, ArrayType(StructType({ d: FloatType, v: FloatType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHARTS</Text>
-                    <AlignedStack gutter={{ left: "48px", right: "16px" }} gap="8px">
-                        <Box height="180px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(chartsTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "°C" }}
-                                grid
-                            />
-                        </Box>
-                        <Box height="180px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(chartsRate, { x: r => r.day, y: r => r.v }, { color: "purple.solid" })}
-                                x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "rate" }}
-                                grid
-                            />
-                        </Box>
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART TRACE</Text>
-                    <AlignedStack gutter={{ left: "48px", right: "16px" }} gap="8px">
-                        <Box height="160px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(traceTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "°C" }}
-                                grid
-                            />
-                        </Box>
-                        <Trace
-                            tracks={[
-                                { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
-                                { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
-                            ]}
-                            now={4n}
-                            axis={["0", "1", "2", "3", "4", "5", "6"]}
-                            density="comfortable"
+                <Separator label="STACK CHARTS" align="start" />
+                <AlignedStack gutter={{ left: "48px", right: "16px" }} gap="8px">
+                    <Box height="180px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(chartsTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "°C" }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART CALENDAR</Text>
-                    <AlignedStack gutter={{ left: "56px", right: "12px" }} gap="8px">
-                        <Box height="150px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(calendarLoad, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "load" }}
-                                grid
-                            />
-                        </Box>
-                        <Calendar
-                            data={calendarGrid}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART MATRIX</Text>
-                    <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
-                        <Box height="150px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(matrixLoad, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 4.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}
-                                y={{ label: "load" }}
-                                grid
-                            />
-                        </Box>
-                        <Matrix
-                            data={[
-                                { name: "Alice", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85], ["thu", 0.60], ["fri", 0.30]]) },
-                                { name: "Bob", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30], ["thu", 0.75], ["fri", 0.50]]) },
-                            ]}
-                            columns={[
-                                Matrix.column({ key: "mon", label: "Mon" }),
-                                Matrix.column({ key: "tue", label: "Tue" }),
-                                Matrix.column({ key: "wed", label: "Wed" }),
-                                Matrix.column({ key: "thu", label: "Thu" }),
-                                Matrix.column({ key: "fri", label: "Fri" }),
-                            ]}
-                            rowKey={r => r.name}
-                            rowHeader="Resource"
-                            cell={(r, col) => Matrix.cell({ segments: [
-                                Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                            ] })}
+                    </Box>
+                    <Box height="180px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(chartsRate, { x: r => r.day, y: r => r.v }, { color: "purple.solid" })}
+                            x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "rate" }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART TABLE</Text>
-                    <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
-                        <Box height="150px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(tableLoad, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 4.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}
-                                y={{ label: "load" }}
-                                grid
-                            />
-                        </Box>
-                        <Table
-                            data={[
-                                { resource: "Alice", mon: "0.45", tue: "0.70", wed: "0.85", thu: "0.60", fri: "0.30" },
-                                { resource: "Bob", mon: "0.35", tue: "0.60", wed: "0.30", thu: "0.75", fri: "0.50" },
-                            ]}
-                            columns={{
-                                resource: { header: "Resource" },
-                                mon: { header: "Mon" }, tue: { header: "Tue" }, wed: { header: "Wed" },
-                                thu: { header: "Thu" }, fri: { header: "Fri" },
-                            }}
-                            frozen={["resource"]}
+                    </Box>
+                </AlignedStack>
+                <Separator label="STACK CHART TRACE" align="start" />
+                <AlignedStack gutter={{ left: "48px", right: "16px" }} gap="8px">
+                    <Box height="160px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(traceTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "°C" }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART PLANNER</Text>
-                    <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
-                        <Box height="150px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(plannerTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "°C" }}
-                                grid
-                            />
-                        </Box>
-                        <Planner.Point
-                            data={[{ name: "Line A", role: "Primary" }, { name: "Line B", role: "Backup" }]}
-                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
-                            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
-                                Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
-                            ]}
-                            now={Planner.at.number(4)}
-                            onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}
+                    </Box>
+                    <Trace
+                        tracks={[
+                            { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
+                            { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
+                        ]}
+                        now={4n}
+                        axis={["0", "1", "2", "3", "4", "5", "6"]}
+                        density="comfortable"
+                    />
+                </AlignedStack>
+                <Separator label="STACK CHART CALENDAR" align="start" />
+                <AlignedStack gutter={{ left: "56px", right: "12px" }} gap="8px">
+                    <Box height="150px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(calendarLoad, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "load" }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART GANTT</Text>
-                    <AlignedStack gutter={{ left: "180px", right: "14px" }} gap="8px">
-                        <Box height="150px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(ganttLoad, { x: r => r.d, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [0, 3] }}
-                                y={{ label: "load" }}
-                                grid
-                            />
-                        </Box>
-                        <Gantt
-                            data={[
-                                { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
-                                { task: "Design", owner: "Bob", start: new Date("2024-01-15"), end: new Date("2024-02-05") },
-                                { task: "Build", owner: "Carol", start: new Date("2024-01-25"), end: new Date("2024-03-01") },
-                            ]}
-                            columns={["task", "owner"]}
-                            rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                    </Box>
+                    <Calendar
+                        data={calendarGrid}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
+                </AlignedStack>
+                <Separator label="STACK CHART MATRIX" align="start" />
+                <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
+                    <Box height="150px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(matrixLoad, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 4.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}
+                            y={{ label: "load" }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
+                    </Box>
+                    <Matrix
+                        data={[
+                            { name: "Alice", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85], ["thu", 0.60], ["fri", 0.30]]) },
+                            { name: "Bob", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30], ["thu", 0.75], ["fri", 0.50]]) },
+                        ]}
+                        columns={[
+                            Matrix.column({ key: "mon", label: "Mon" }),
+                            Matrix.column({ key: "tue", label: "Tue" }),
+                            Matrix.column({ key: "wed", label: "Wed" }),
+                            Matrix.column({ key: "thu", label: "Thu" }),
+                            Matrix.column({ key: "fri", label: "Fri" }),
+                        ]}
+                        rowKey={r => r.name}
+                        rowHeader="Resource"
+                        cell={(r, col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                        ] })}
+                    />
+                </AlignedStack>
+                <Separator label="STACK CHART TABLE" align="start" />
+                <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
+                    <Box height="150px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(tableLoad, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 4.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}
+                            y={{ label: "load" }}
+                            grid
+                        />
+                    </Box>
+                    <Table
+                        data={[
+                            { resource: "Alice", mon: "0.45", tue: "0.70", wed: "0.85", thu: "0.60", fri: "0.30" },
+                            { resource: "Bob", mon: "0.35", tue: "0.60", wed: "0.30", thu: "0.75", fri: "0.50" },
+                        ]}
+                        columns={{
+                            resource: { header: "Resource" },
+                            mon: { header: "Mon" }, tue: { header: "Tue" }, wed: { header: "Wed" },
+                            thu: { header: "Thu" }, fri: { header: "Fri" },
+                        }}
+                        frozen={["resource"]}
+                    />
+                </AlignedStack>
+                <Separator label="STACK CHART PLANNER" align="start" />
+                <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
+                    <Box height="150px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(plannerTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "°C" }}
+                            grid
+                        />
+                    </Box>
+                    <Planner.Point
+                        data={[{ name: "Line A", role: "Primary" }, { name: "Line B", role: "Backup" }]}
+                        axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                        events={_r => [
+                            Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                            Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
+                        ]}
+                        now={Planner.at.number(4)}
+                        onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}
+                    />
+                </AlignedStack>
+                <Separator label="STACK CHART GANTT" align="start" />
+                <AlignedStack gutter={{ left: "180px", right: "14px" }} gap="8px">
+                    <Box height="150px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(ganttLoad, { x: r => r.d, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [0, 3] }}
+                            y={{ label: "load" }}
+                            grid
+                        />
+                    </Box>
+                    <Gantt
+                        data={[
+                            { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                            { task: "Design", owner: "Bob", start: new Date("2024-01-15"), end: new Date("2024-02-05") },
+                            { task: "Build", owner: "Carol", start: new Date("2024-01-25"), end: new Date("2024-03-01") },
+                        ]}
+                        columns={["task", "owner"]}
+                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                    />
+                </AlignedStack>
             </VStack>
         );
     }),
@@ -398,168 +384,164 @@ export const alignedStackDensity = example({
         const condensedTrend = $.const(ALIGNED_STACK_ALL_CONDENSED_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK ALL COMPACT</Text>
-                    <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="8px" density="compact">
-                        <Box height="130px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(compactTrend, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "value" }}
-                                grid
-                            />
-                        </Box>
-                        <Trace
-                            tracks={[
-                                { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
-                                { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
-                            ]}
-                            now={4n}
-                            axis={["0", "1", "2", "3", "4", "5", "6"]}
+                <Separator label="STACK ALL COMPACT" align="start" />
+                <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="8px" density="compact">
+                    <Box height="130px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(compactTrend, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "value" }}
+                            grid
                         />
-                        <Matrix
-                            data={[
-                                { line: "Line A", booked: new Map([["d0", 0.4], ["d1", 0.7], ["d2", 0.85], ["d3", 0.6], ["d4", 0.8], ["d5", 0.3], ["d6", 0.2]]) },
-                                { line: "Line B", booked: new Map([["d0", 0.5], ["d1", 0.6], ["d2", 0.7], ["d3", 0.9], ["d4", 0.4], ["d5", 0.2], ["d6", 0.1]]) },
-                            ]}
-                            columns={[
-                                Matrix.column({ key: "d0", label: "0" }), Matrix.column({ key: "d1", label: "1" }),
-                                Matrix.column({ key: "d2", label: "2" }), Matrix.column({ key: "d3", label: "3" }),
-                                Matrix.column({ key: "d4", label: "4" }), Matrix.column({ key: "d5", label: "5" }),
-                                Matrix.column({ key: "d6", label: "6" }),
-                            ]}
-                            rowKey={r => r.line}
-                            rowHeader="Line"
-                            cell={(r, col) => Matrix.cell({ segments: [
-                                Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                            ] })}
+                    </Box>
+                    <Trace
+                        tracks={[
+                            { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
+                            { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
+                        ]}
+                        now={4n}
+                        axis={["0", "1", "2", "3", "4", "5", "6"]}
+                    />
+                    <Matrix
+                        data={[
+                            { line: "Line A", booked: new Map([["d0", 0.4], ["d1", 0.7], ["d2", 0.85], ["d3", 0.6], ["d4", 0.8], ["d5", 0.3], ["d6", 0.2]]) },
+                            { line: "Line B", booked: new Map([["d0", 0.5], ["d1", 0.6], ["d2", 0.7], ["d3", 0.9], ["d4", 0.4], ["d5", 0.2], ["d6", 0.1]]) },
+                        ]}
+                        columns={[
+                            Matrix.column({ key: "d0", label: "0" }), Matrix.column({ key: "d1", label: "1" }),
+                            Matrix.column({ key: "d2", label: "2" }), Matrix.column({ key: "d3", label: "3" }),
+                            Matrix.column({ key: "d4", label: "4" }), Matrix.column({ key: "d5", label: "5" }),
+                            Matrix.column({ key: "d6", label: "6" }),
+                        ]}
+                        rowKey={r => r.line}
+                        rowHeader="Line"
+                        cell={(r, col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                        ] })}
+                    />
+                    <Planner.Point
+                        data={[{ name: "Line A" }, { name: "Line B" }]}
+                        axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                        events={_r => [
+                            Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                            Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
+                        ]}
+                        now={Planner.at.number(4)}
+                    />
+                    <Calendar
+                        data={[
+                            { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
+                            { week: "W37", day: "Wed", demand: 0.85 }, { week: "W37", day: "Thu", demand: 0.6 },
+                            { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
+                            { week: "W37", day: "Sun", demand: 0.2 },
+                        ]}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
+                    <Table
+                        data={[
+                            { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },
+                            { metric: "Target", d0: "12", d1: "13", d2: "14", d3: "16", d4: "18", d5: "20", d6: "22" },
+                        ]}
+                        columns={{
+                            metric: { header: "Metric" },
+                            d0: { header: "0" }, d1: { header: "1" }, d2: { header: "2" }, d3: { header: "3" },
+                            d4: { header: "4" }, d5: { header: "5" }, d6: { header: "6" },
+                        }}
+                        frozen={["metric"]}
+                    />
+                    <Gantt
+                        data={[
+                            { phase: "Setup", owner: "—", start: new Date("2024-01-01"), end: new Date("2024-01-02") },
+                            { phase: "Run", owner: "—", start: new Date("2024-01-02"), end: new Date("2024-01-06") },
+                            { phase: "Wrap", owner: "—", start: new Date("2024-01-06"), end: new Date("2024-01-07") },
+                        ]}
+                        columns={["phase", "owner"]}
+                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                    />
+                </AlignedStack>
+                <Separator label="STACK ALL CONDENSED" align="start" />
+                <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="6px" density="condensed">
+                    <Box height="120px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(condensedTrend, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "value" }}
+                            grid
                         />
-                        <Planner.Point
-                            data={[{ name: "Line A" }, { name: "Line B" }]}
-                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
-                            columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
-                                Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
-                            ]}
-                            now={Planner.at.number(4)}
-                        />
-                        <Calendar
-                            data={[
-                                { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
-                                { week: "W37", day: "Wed", demand: 0.85 }, { week: "W37", day: "Thu", demand: 0.6 },
-                                { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
-                                { week: "W37", day: "Sun", demand: 0.2 },
-                            ]}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
-                        <Table
-                            data={[
-                                { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },
-                                { metric: "Target", d0: "12", d1: "13", d2: "14", d3: "16", d4: "18", d5: "20", d6: "22" },
-                            ]}
-                            columns={{
-                                metric: { header: "Metric" },
-                                d0: { header: "0" }, d1: { header: "1" }, d2: { header: "2" }, d3: { header: "3" },
-                                d4: { header: "4" }, d5: { header: "5" }, d6: { header: "6" },
-                            }}
-                            frozen={["metric"]}
-                        />
-                        <Gantt
-                            data={[
-                                { phase: "Setup", owner: "—", start: new Date("2024-01-01"), end: new Date("2024-01-02") },
-                                { phase: "Run", owner: "—", start: new Date("2024-01-02"), end: new Date("2024-01-06") },
-                                { phase: "Wrap", owner: "—", start: new Date("2024-01-06"), end: new Date("2024-01-07") },
-                            ]}
-                            columns={["phase", "owner"]}
-                            rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                        />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK ALL CONDENSED</Text>
-                    <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="6px" density="condensed">
-                        <Box height="120px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(condensedTrend, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "value" }}
-                                grid
-                            />
-                        </Box>
-                        <Trace
-                            tracks={[
-                                { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
-                                { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
-                            ]}
-                            now={4n}
-                            axis={["0", "1", "2", "3", "4", "5", "6"]}
-                        />
-                        <Matrix
-                            data={[
-                                { line: "Line A", booked: new Map([["d0", 0.4], ["d1", 0.7], ["d2", 0.85], ["d3", 0.6], ["d4", 0.8], ["d5", 0.3], ["d6", 0.2]]) },
-                                { line: "Line B", booked: new Map([["d0", 0.5], ["d1", 0.6], ["d2", 0.7], ["d3", 0.9], ["d4", 0.4], ["d5", 0.2], ["d6", 0.1]]) },
-                            ]}
-                            columns={[
-                                Matrix.column({ key: "d0", label: "0" }), Matrix.column({ key: "d1", label: "1" }),
-                                Matrix.column({ key: "d2", label: "2" }), Matrix.column({ key: "d3", label: "3" }),
-                                Matrix.column({ key: "d4", label: "4" }), Matrix.column({ key: "d5", label: "5" }),
-                                Matrix.column({ key: "d6", label: "6" }),
-                            ]}
-                            rowKey={r => r.line}
-                            rowHeader="Line"
-                            cell={(r, col) => Matrix.cell({ segments: [
-                                Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                            ] })}
-                        />
-                        <Planner.Point
-                            data={[{ name: "Line A" }, { name: "Line B" }]}
-                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
-                            columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
-                                Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
-                            ]}
-                            now={Planner.at.number(4)}
-                        />
-                        <Calendar
-                            data={[
-                                { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
-                                { week: "W37", day: "Wed", demand: 0.85 }, { week: "W37", day: "Thu", demand: 0.6 },
-                                { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
-                                { week: "W37", day: "Sun", demand: 0.2 },
-                            ]}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
-                        <Table
-                            data={[
-                                { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },
-                                { metric: "Target", d0: "12", d1: "13", d2: "14", d3: "16", d4: "18", d5: "20", d6: "22" },
-                            ]}
-                            columns={{
-                                metric: { header: "Metric" },
-                                d0: { header: "0" }, d1: { header: "1" }, d2: { header: "2" }, d3: { header: "3" },
-                                d4: { header: "4" }, d5: { header: "5" }, d6: { header: "6" },
-                            }}
-                            frozen={["metric"]}
-                        />
-                        <Gantt
-                            data={[
-                                { phase: "Setup", owner: "—", start: new Date("2024-01-01"), end: new Date("2024-01-02") },
-                                { phase: "Run", owner: "—", start: new Date("2024-01-02"), end: new Date("2024-01-06") },
-                                { phase: "Wrap", owner: "—", start: new Date("2024-01-06"), end: new Date("2024-01-07") },
-                            ]}
-                            columns={["phase", "owner"]}
-                            rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                        />
-                    </AlignedStack>
-                </VStack>
+                    </Box>
+                    <Trace
+                        tracks={[
+                            { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
+                            { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
+                        ]}
+                        now={4n}
+                        axis={["0", "1", "2", "3", "4", "5", "6"]}
+                    />
+                    <Matrix
+                        data={[
+                            { line: "Line A", booked: new Map([["d0", 0.4], ["d1", 0.7], ["d2", 0.85], ["d3", 0.6], ["d4", 0.8], ["d5", 0.3], ["d6", 0.2]]) },
+                            { line: "Line B", booked: new Map([["d0", 0.5], ["d1", 0.6], ["d2", 0.7], ["d3", 0.9], ["d4", 0.4], ["d5", 0.2], ["d6", 0.1]]) },
+                        ]}
+                        columns={[
+                            Matrix.column({ key: "d0", label: "0" }), Matrix.column({ key: "d1", label: "1" }),
+                            Matrix.column({ key: "d2", label: "2" }), Matrix.column({ key: "d3", label: "3" }),
+                            Matrix.column({ key: "d4", label: "4" }), Matrix.column({ key: "d5", label: "5" }),
+                            Matrix.column({ key: "d6", label: "6" }),
+                        ]}
+                        rowKey={r => r.line}
+                        rowHeader="Line"
+                        cell={(r, col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                        ] })}
+                    />
+                    <Planner.Point
+                        data={[{ name: "Line A" }, { name: "Line B" }]}
+                        axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                        events={_r => [
+                            Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                            Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
+                        ]}
+                        now={Planner.at.number(4)}
+                    />
+                    <Calendar
+                        data={[
+                            { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
+                            { week: "W37", day: "Wed", demand: 0.85 }, { week: "W37", day: "Thu", demand: 0.6 },
+                            { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
+                            { week: "W37", day: "Sun", demand: 0.2 },
+                        ]}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
+                    <Table
+                        data={[
+                            { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },
+                            { metric: "Target", d0: "12", d1: "13", d2: "14", d3: "16", d4: "18", d5: "20", d6: "22" },
+                        ]}
+                        columns={{
+                            metric: { header: "Metric" },
+                            d0: { header: "0" }, d1: { header: "1" }, d2: { header: "2" }, d3: { header: "3" },
+                            d4: { header: "4" }, d5: { header: "5" }, d6: { header: "6" },
+                        }}
+                        frozen={["metric"]}
+                    />
+                    <Gantt
+                        data={[
+                            { phase: "Setup", owner: "—", start: new Date("2024-01-01"), end: new Date("2024-01-02") },
+                            { phase: "Run", owner: "—", start: new Date("2024-01-02"), end: new Date("2024-01-06") },
+                            { phase: "Wrap", owner: "—", start: new Date("2024-01-06"), end: new Date("2024-01-07") },
+                        ]}
+                        columns={["phase", "owner"]}
+                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                    />
+                </AlignedStack>
             </VStack>
         );
     }),
@@ -579,67 +561,61 @@ export const alignedStackAxis = example({
         const autoRows = $.const(ALIGNED_STACK_AUTO_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK CHART TITLES</Text>
-                    <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
-                        <Box height="170px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Line(titlesTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
-                                x={{ label: "Day", titleGap: 8, scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                                y={{ label: "°C", titleGap: 6 }}
-                                grid
-                            />
-                        </Box>
-                        <Planner.Point
-                            data={[{ name: "Line A", role: "Primary" }, { name: "Line B", role: "Backup" }]}
-                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
-                            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
-                                Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
-                            ]}
-                            now={Planner.at.number(4)}
+                <Separator label="STACK CHART TITLES" align="start" />
+                <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
+                    <Box height="170px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Line(titlesTemp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                            x={{ label: "Day", titleGap: 8, scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                            y={{ label: "°C", titleGap: 6 }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK DATE AXIS</Text>
-                    <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="8px">
-                        <Box height="150px" width="100%">
-                            <Chart
-                                height="fill"
-                                layers={Chart.Column(dateRuns, { x: r => r.at, y: r => r.kl }, { color: "teal.solid" })}
-                                x={{ scale: "time", domain: [new Date("2026-03-30"), new Date("2026-04-06")], format: Chart.format.date("ddd DD") }}
-                                y={{ label: "kL" }}
-                                grid
-                            />
-                        </Box>
-                        <Planner.Point
-                            data={[{ name: "Press A", role: "Stamp" }, { name: "Press B", role: "Stamp" }]}
-                            axis={Planner.axis.time({
-                                resolution: "day",
-                                format: "ddd DD",
-                                range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") },
-                            })}
-                            now={Planner.at.time(new Date("2026-04-02"))}
-                            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.time(new Date("2026-03-30T09:00:00Z")), label: "Setup", state: "committed" }),
-                                Planner.event({ slot: Planner.at.time(new Date("2026-04-01T09:00:00Z")), label: "Run", state: "committed" }),
-                                Planner.event({ slot: Planner.at.time(new Date("2026-04-03T09:00:00Z")), label: "Plan", state: "added" }),
-                            ]}
+                    </Box>
+                    <Planner.Point
+                        data={[{ name: "Line A", role: "Primary" }, { name: "Line B", role: "Backup" }]}
+                        axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                        events={_r => [
+                            Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                        ]}
+                        now={Planner.at.number(4)}
+                    />
+                </AlignedStack>
+                <Separator label="STACK DATE AXIS" align="start" />
+                <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="8px">
+                    <Box height="150px" width="100%">
+                        <Chart
+                            height="fill"
+                            layers={Chart.Column(dateRuns, { x: r => r.at, y: r => r.kl }, { color: "teal.solid" })}
+                            x={{ scale: "time", domain: [new Date("2026-03-30"), new Date("2026-04-06")], format: Chart.format.date("ddd DD") }}
+                            y={{ label: "kL" }}
+                            grid
                         />
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STACK AUTO</Text>
-                    <AlignedStack gutter="auto" gap="6px">
-                        <Box height="160px" width="100%">
-                            <Chart height="fill" layers={Chart.Line(autoRows, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })} grid />
-                        </Box>
-                    </AlignedStack>
-                </VStack>
+                    </Box>
+                    <Planner.Point
+                        data={[{ name: "Press A", role: "Stamp" }, { name: "Press B", role: "Stamp" }]}
+                        axis={Planner.axis.time({
+                            resolution: "day",
+                            format: "ddd DD",
+                            range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") },
+                        })}
+                        now={Planner.at.time(new Date("2026-04-02"))}
+                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                        events={_r => [
+                            Planner.event({ slot: Planner.at.time(new Date("2026-03-30T09:00:00Z")), label: "Setup", state: "committed" }),
+                            Planner.event({ slot: Planner.at.time(new Date("2026-04-01T09:00:00Z")), label: "Run", state: "committed" }),
+                            Planner.event({ slot: Planner.at.time(new Date("2026-04-03T09:00:00Z")), label: "Plan", state: "added" }),
+                        ]}
+                    />
+                </AlignedStack>
+                <Separator label="STACK AUTO" align="start" />
+                <AlignedStack gutter="auto" gap="6px">
+                    <Box height="160px" width="100%">
+                        <Chart height="fill" layers={Chart.Line(autoRows, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })} grid />
+                    </Box>
+                </AlignedStack>
             </VStack>
         );
     }),

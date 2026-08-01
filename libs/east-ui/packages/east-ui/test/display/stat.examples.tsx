@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { Format, State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Stat, Text, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
+import { Button, Separator, Stat, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -39,40 +39,31 @@ export const statVariants = example({
         const comfortable = $.const(<Stat label="Revenue" value={45231} format={Format.Currency({ currency: "USD", maximumFractionDigits: 0n })} indicator="up" density="comfortable" />);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">HELP TEXT</Text>
-                    <HStack gap="8">
-                        <Stat label="Total Sales" value={12345} format={Format.Currency({ currency: "USD", maximumFractionDigits: 0n })} helpText="Last 30 days" />
-                        <Stat label="New Users" value={89} format={Format.Number()} helpText="This week" />
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INDICATORS</Text>
-                    <HStack gap="8">
-                        <Stat label="Growth" value={0.2336} format={Format.Percent({ maximumFractionDigits: 2n, signDisplay: "exceptZero" })} helpText="vs last month" indicator="up" />
-                        <Stat label="Bounce Rate" value={-0.125} format={Format.Percent({ maximumFractionDigits: 1n, signDisplay: "exceptZero" })} helpText="vs yesterday" indicator="down" />
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FORMATTED</Text>
-                    <HStack gap="8">
-                        <Stat label="ARR" value={1842500} format={Format.Currency({ currency: "AUD", compact: "short" })} />
-                        <Stat label="Requests" value={1240000} format={Format.Compact({ display: "short" })} />
-                        <Stat label="Throughput" value={42.5} format={Format.Unit({ unit: "kilometerPerHour", display: "short" })} />
-                        <Stat label="Last sync" value={1716249600000} format={Format.DateTime("YYYY-MM-DD HH:mm")} />
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITIES</Text>
-                    <Stack direction="column" gap="6">
-                        {condensed}
-                        {compact}
-                        {comfortable}
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
+                <Separator label="HELP TEXT" align="start" />
+                <HStack gap="8">
+                    <Stat label="Total Sales" value={12345} format={Format.Currency({ currency: "USD", maximumFractionDigits: 0n })} helpText="Last 30 days" />
+                    <Stat label="New Users" value={89} format={Format.Number()} helpText="This week" />
+                </HStack>
+                <Separator label="INDICATORS" align="start" />
+                <HStack gap="8">
+                    <Stat label="Growth" value={0.2336} format={Format.Percent({ maximumFractionDigits: 2n, signDisplay: "exceptZero" })} helpText="vs last month" indicator="up" />
+                    <Stat label="Bounce Rate" value={-0.125} format={Format.Percent({ maximumFractionDigits: 1n, signDisplay: "exceptZero" })} helpText="vs yesterday" indicator="down" />
+                </HStack>
+                <Separator label="FORMATTED" align="start" />
+                <HStack gap="8">
+                    <Stat label="ARR" value={1842500} format={Format.Currency({ currency: "AUD", compact: "short" })} />
+                    <Stat label="Requests" value={1240000} format={Format.Compact({ display: "short" })} />
+                    <Stat label="Throughput" value={42.5} format={Format.Unit({ unit: "kilometerPerHour", display: "short" })} />
+                    <Stat label="Last sync" value={1716249600000} format={Format.DateTime("YYYY-MM-DD HH:mm")} />
+                </HStack>
+                <Separator label="DENSITIES" align="start" />
+                <Stack direction="column" gap="6">
+                    {condensed}
+                    {compact}
+                    {comfortable}
+                </Stack>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
                         const counter = $.let(State.bind([IntegerType], "stat_counter", 0n));
                         const value = $.let(counter.read());
                         const inc = $.const(East.function([], NullType, $ => {
@@ -86,7 +77,6 @@ export const statVariants = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

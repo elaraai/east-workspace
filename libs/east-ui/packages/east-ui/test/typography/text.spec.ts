@@ -25,30 +25,30 @@ describeEast("Text", (test) => {
     test("textVariants panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.textVariants.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 15n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORED"));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BOLD"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "ITALIC"));
-        $(Assert.equal(rows.get(3n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "FONT WEIGHTS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TRANSFORMS"));
-        $(Assert.equal(rows.get(5n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BACKGROUND"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "BORDERED"));
-        $(Assert.equal(rows.get(7n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COLORS"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "COMBINED"));
-        $(Assert.equal(rows.get(9n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "DECORATION"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SPACING"));
-        $(Assert.equal(rows.get(11n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OPACITY"));
-        $(Assert.equal(rows.get(12n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "PADDING MARGIN"));
-        $(Assert.equal(rows.get(13n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "OVERFLOW"));
-        $(Assert.equal(rows.get(14n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(rows.size(), 30n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLORED"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BOLD"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ITALIC"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FONT WEIGHTS"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TRANSFORMS"));
+        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BACKGROUND"));
+        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BORDERED"));
+        $(Assert.equal(rows.get(14n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLORS"));
+        $(Assert.equal(rows.get(16n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COMBINED"));
+        $(Assert.equal(rows.get(18n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DECORATION"));
+        $(Assert.equal(rows.get(20n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SPACING"));
+        $(Assert.equal(rows.get(22n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "OPACITY"));
+        $(Assert.equal(rows.get(24n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PADDING MARGIN"));
+        $(Assert.equal(rows.get(26n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "OVERFLOW"));
+        $(Assert.equal(rows.get(28n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
     });
 
     test("textNumericStyles panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.textNumericStyles.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 2n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "MONO KPI"));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "TABULAR NUMS"));
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MONO KPI"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TABULAR NUMS"));
     });
 
     // =========================================================================

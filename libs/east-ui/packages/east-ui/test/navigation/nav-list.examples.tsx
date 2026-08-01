@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { NavList, VStack, Text, Reactive } from "@elaraai/east-ui";
+import { NavList, VStack, Text, Reactive, Separator } from "@elaraai/east-ui";
 
 export const navListBasic = example({
     keywords: ["NavList", "Root", "navigation", "section"],
@@ -69,62 +69,56 @@ export const navListVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST GROUPED</Text>
-                    <NavList sections={[
+                <Separator label="LIST GROUPED" align="start" />
+                <NavList sections={[
+                    {
+                        label: "Account",
+                        items: [
+                            { key: "profile", label: "Profile", active: true },
+                            { key: "security", label: "Security" },
+                            { key: "billing", label: "Billing" },
+                        ],
+                    },
+                    {
+                        label: "Workspace",
+                        items: [
+                            { key: "members", label: "Members", badge: "3" },
+                            { key: "integrations", label: "Integrations" },
+                        ],
+                    },
+                    {
+                        label: "Help",
+                        items: [
+                            { key: "docs", label: "Documentation" },
+                            { key: "contact", label: "Contact support" },
+                        ],
+                    },
+                ]} />
+                <Separator label="LIST WITH ICONS" align="start" />
+                <NavList sections={[
+                    {
+                        items: [
+                            { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
+                            { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
+                            { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
+                        ],
+                    },
+                ]} />
+                <Separator label="LIST SHELL SURFACE" align="start" />
+                <NavList
+                    surface="shell"
+                    background="bg.subtle"
+                    sections={[
                         {
-                            label: "Account",
+                            label: "Operations",
                             items: [
-                                { key: "profile", label: "Profile", active: true },
-                                { key: "security", label: "Security" },
-                                { key: "billing", label: "Billing" },
+                                { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
+                                { key: "runs", label: "Runs", icon: { prefix: "fas", name: "flask" } },
+                                { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
                             ],
                         },
-                        {
-                            label: "Workspace",
-                            items: [
-                                { key: "members", label: "Members", badge: "3" },
-                                { key: "integrations", label: "Integrations" },
-                            ],
-                        },
-                        {
-                            label: "Help",
-                            items: [
-                                { key: "docs", label: "Documentation" },
-                                { key: "contact", label: "Contact support" },
-                            ],
-                        },
-                    ]} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST WITH ICONS</Text>
-                    <NavList sections={[
-                        {
-                            items: [
-                                { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
-                                { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
-                                { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
-                            ],
-                        },
-                    ]} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LIST SHELL SURFACE</Text>
-                    <NavList
-                        surface="shell"
-                        background="bg.subtle"
-                        sections={[
-                            {
-                                label: "Operations",
-                                items: [
-                                    { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
-                                    { key: "runs", label: "Runs", icon: { prefix: "fas", name: "flask" } },
-                                    { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
-                                ],
-                            },
-                        ]}
-                    />
-                </VStack>
+                    ]}
+                />
             </VStack>
         );
     }),

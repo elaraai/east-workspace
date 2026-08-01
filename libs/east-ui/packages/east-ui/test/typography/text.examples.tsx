@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Text, VStack, HStack } from "@elaraai/east-ui";
+import { Button, Reactive, Separator, Text, VStack, HStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -30,122 +30,92 @@ export const textVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORED</Text>
-                    <Text color="blue.500">Blue colored text</Text>
+                <Separator label="COLORED" align="start" />
+                <Text color="blue.500">Blue colored text</Text>
+                <Separator label="BOLD" align="start" />
+                <Text fontWeight="bold">Bold text</Text>
+                <Separator label="ITALIC" align="start" />
+                <Text fontStyle="italic">Italic text</Text>
+                <Separator label="FONT WEIGHTS" align="start" />
+                <HStack gap="4">
+                    <Text fontWeight="light">Light</Text>
+                    <Text fontWeight="normal">Normal</Text>
+                    <Text fontWeight="medium">Medium</Text>
+                    <Text fontWeight="semibold">Semibold</Text>
+                    <Text fontWeight="bold">Bold</Text>
+                </HStack>
+                <Separator label="TRANSFORMS" align="start" />
+                <HStack gap="4">
+                    <Text textTransform="uppercase">uppercase</Text>
+                    <Text textTransform="lowercase">LOWERCASE</Text>
+                    <Text textTransform="capitalize">capitalize</Text>
+                </HStack>
+                <Separator label="BACKGROUND" align="start" />
+                <Text background="yellow.200" color="gray.800">Highlighted text</Text>
+                <Separator label="BORDERED" align="start" />
+                <Text borderWidth="thin" borderStyle="solid" borderColor="gray.400">
+                    Bordered text
+                </Text>
+                <Separator label="COLORS" align="start" />
+                <HStack gap="3">
+                    <Text color="red.500">Red</Text>
+                    <Text color="orange.500">Orange</Text>
+                    <Text color="green.500">Green</Text>
+                    <Text color="teal.500">Teal</Text>
+                    <Text color="blue.500">Blue</Text>
+                    <Text color="purple.500">Purple</Text>
+                </HStack>
+                <Separator label="COMBINED" align="start" />
+                <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
+                    Styled Text
+                </Text>
+                <Separator label="DECORATION" align="start" />
+                <HStack gap="4">
+                    <Text textDecoration="underline">Underline</Text>
+                    <Text textDecoration="line-through">Line-through</Text>
+                    <Text textDecoration="overline">Overline</Text>
+                </HStack>
+                <Separator label="SPACING" align="start" />
+                <VStack gap="2" align="flex-start">
+                    <Text letterSpacing="tighter">Tight letter spacing</Text>
+                    <Text letterSpacing="wider">Wide letter spacing</Text>
+                    <Text lineHeight="tall" maxWidth="250px">Tall line height - wraps to show multi-line effect when the text is long enough</Text>
+                    <Text lineHeight="short" maxWidth="250px">Short line height - compact multi-line text when the content wraps</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BOLD</Text>
-                    <Text fontWeight="bold">Bold text</Text>
+                <Separator label="OPACITY" align="start" />
+                <HStack gap="4">
+                    <Text color="blue.600" fontWeight="bold">100%</Text>
+                    <Text color="blue.600" fontWeight="bold" opacity={0.75}>75%</Text>
+                    <Text color="blue.600" fontWeight="bold" opacity={0.5}>50%</Text>
+                    <Text color="blue.600" fontWeight="bold" opacity={0.25}>25%</Text>
+                </HStack>
+                <Separator label="PADDING MARGIN" align="start" />
+                <VStack gap="2" align="flex-start">
+                    <Text padding="4" background="blue.50" borderWidth="thin" borderStyle="solid" borderColor="blue.200">Padding: 4</Text>
+                    <Text padding="2" margin="4" background="green.50" borderWidth="thin" borderStyle="solid" borderColor="green.200">Padding: 2, Margin: 4</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ITALIC</Text>
-                    <Text fontStyle="italic">Italic text</Text>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FONT WEIGHTS</Text>
-                    <HStack gap="4">
-                        <Text fontWeight="light">Light</Text>
-                        <Text fontWeight="normal">Normal</Text>
-                        <Text fontWeight="medium">Medium</Text>
-                        <Text fontWeight="semibold">Semibold</Text>
-                        <Text fontWeight="bold">Bold</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TRANSFORMS</Text>
-                    <HStack gap="4">
-                        <Text textTransform="uppercase">uppercase</Text>
-                        <Text textTransform="lowercase">LOWERCASE</Text>
-                        <Text textTransform="capitalize">capitalize</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BACKGROUND</Text>
-                    <Text background="yellow.200" color="gray.800">Highlighted text</Text>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BORDERED</Text>
-                    <Text borderWidth="thin" borderStyle="solid" borderColor="gray.400">
-                        Bordered text
+                <Separator label="OVERFLOW" align="start" />
+                <VStack gap="2" align="flex-start">
+                    <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="orange.50" padding="2">
+                        This text is constrained to 200px width and will clip overflow content.
                     </Text>
+                    <Text width="150px" height="40px" background="purple.50" padding="2" overflow="hidden">Fixed width and height box</Text>
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
-                    <HStack gap="3">
-                        <Text color="red.500">Red</Text>
-                        <Text color="orange.500">Orange</Text>
-                        <Text color="green.500">Green</Text>
-                        <Text color="teal.500">Teal</Text>
-                        <Text color="blue.500">Blue</Text>
-                        <Text color="purple.500">Purple</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMBINED</Text>
-                    <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
-                        Styled Text
-                    </Text>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DECORATION</Text>
-                    <HStack gap="4">
-                        <Text textDecoration="underline">Underline</Text>
-                        <Text textDecoration="line-through">Line-through</Text>
-                        <Text textDecoration="overline">Overline</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SPACING</Text>
-                    <VStack gap="2" align="flex-start">
-                        <Text letterSpacing="tighter">Tight letter spacing</Text>
-                        <Text letterSpacing="wider">Wide letter spacing</Text>
-                        <Text lineHeight="tall" maxWidth="250px">Tall line height - wraps to show multi-line effect when the text is long enough</Text>
-                        <Text lineHeight="short" maxWidth="250px">Short line height - compact multi-line text when the content wraps</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OPACITY</Text>
-                    <HStack gap="4">
-                        <Text color="blue.600" fontWeight="bold">100%</Text>
-                        <Text color="blue.600" fontWeight="bold" opacity={0.75}>75%</Text>
-                        <Text color="blue.600" fontWeight="bold" opacity={0.5}>50%</Text>
-                        <Text color="blue.600" fontWeight="bold" opacity={0.25}>25%</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PADDING MARGIN</Text>
-                    <VStack gap="2" align="flex-start">
-                        <Text padding="4" background="blue.50" borderWidth="thin" borderStyle="solid" borderColor="blue.200">Padding: 4</Text>
-                        <Text padding="2" margin="4" background="green.50" borderWidth="thin" borderStyle="solid" borderColor="green.200">Padding: 2, Margin: 4</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OVERFLOW</Text>
-                    <VStack gap="2" align="flex-start">
-                        <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="orange.50" padding="2">
-                            This text is constrained to 200px width and will clip overflow content.
-                        </Text>
-                        <Text width="150px" height="40px" background="purple.50" padding="2" overflow="hidden">Fixed width and height box</Text>
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "text_counter", 0n));
-                        const value = $.let(counter.read());
-                        const increment = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Text>{East.str`Clicked ${East.print(value)} times`}</Text>
-                                <Button onClick={increment}>Click me</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "text_counter", 0n));
+                    const value = $.let(counter.read());
+                    const increment = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Text>{East.str`Clicked ${East.print(value)} times`}</Text>
+                            <Button onClick={increment}>Click me</Button>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
@@ -246,30 +216,26 @@ export const textNumericStyles = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
+                <Separator label="MONO KPI" align="start" />
+                <Text textStyle="mono-kpi">$1,842,500</Text>
+                <Separator label="TABULAR NUMS" align="start" />
                 <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MONO KPI</Text>
-                    <Text textStyle="mono-kpi">$1,842,500</Text>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TABULAR NUMS</Text>
-                    <VStack gap="1" align="stretch">
-                        <HStack gap="4" align="baseline">
-                            <Text textStyle="body-sm" color="fg.muted">Q1</Text>
-                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
-                        </HStack>
-                        <HStack gap="4" align="baseline">
-                            <Text textStyle="body-sm" color="fg.muted">Q2</Text>
-                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
-                        </HStack>
-                        <HStack gap="4" align="baseline">
-                            <Text textStyle="body-sm" color="fg.muted">Q3</Text>
-                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
-                        </HStack>
-                        <HStack gap="4" align="baseline">
-                            <Text textStyle="body-sm" color="fg.muted">Q4</Text>
-                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
-                        </HStack>
-                    </VStack>
+                    <HStack gap="4" align="baseline">
+                        <Text textStyle="body-sm" color="fg.muted">Q1</Text>
+                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
+                    </HStack>
+                    <HStack gap="4" align="baseline">
+                        <Text textStyle="body-sm" color="fg.muted">Q2</Text>
+                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
+                    </HStack>
+                    <HStack gap="4" align="baseline">
+                        <Text textStyle="body-sm" color="fg.muted">Q3</Text>
+                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
+                    </HStack>
+                    <HStack gap="4" align="baseline">
+                        <Text textStyle="body-sm" color="fg.muted">Q4</Text>
+                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
+                    </HStack>
                 </VStack>
             </VStack>
         );

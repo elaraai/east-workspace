@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Text, TimeRangeInput, VStack, Reactive } from "@elaraai/east-ui";
+import { Separator, Text, TimeRangeInput, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -66,9 +66,8 @@ export const timeRangeInputVariants = example({
         const disabledEnd = $.let(840n, IntegerType);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT PRESETS</Text>
-                    <Reactive>{$ => {
+                <Separator label="RANGE INPUT PRESETS" align="start" />
+                <Reactive>{$ => {
                         const startBind = $.let(State.bind([IntegerType], "trin.preset.start", 360n));
                         const endBind = $.let(State.bind([IntegerType], "trin.preset.end", 840n));
                         const start = $.let(startBind.read(), IntegerType);
@@ -91,23 +90,16 @@ export const timeRangeInputVariants = example({
                             />
                         );
                     }}</Reactive>
+                <Separator label="RANGE INPUT COLOURS" align="start" />
+                <TimeRangeInput startValue={coloursStart} endValue={coloursEnd} step={15n} color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />
+                <Separator label="RANGE INPUT SIZES" align="start" />
+                <VStack gap="3" align="flex-start">
+                    <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="sm" />
+                    <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="md" />
+                    <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="lg" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT COLOURS</Text>
-                    <TimeRangeInput startValue={coloursStart} endValue={coloursEnd} step={15n} color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT SIZES</Text>
-                    <VStack gap="3" align="flex-start">
-                        <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="sm" />
-                        <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="md" />
-                        <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="lg" />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RANGE INPUT DISABLED</Text>
-                    <TimeRangeInput startValue={disabledStart} endValue={disabledEnd} step={15n} disabled={true} />
-                </VStack>
+                <Separator label="RANGE INPUT DISABLED" align="start" />
+                <TimeRangeInput startValue={disabledStart} endValue={disabledEnd} step={15n} disabled={true} />
             </VStack>
         );
     }),

@@ -22,7 +22,11 @@ as-is.
 
 ## Panel construction
 
-- Row caption idiom: `<Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CAPTION</Text>`.
+- Group boundary idiom: `<Separator label="GROUP LABEL" align="start" />`
+  before each merged example's tree (Separator coerces the string label
+  to the caption style and adds the hairline — never a hand-rolled
+  caption `Text`, which reads identically to the content's field
+  labels).
 - Data fixtures hoist to module scope as `SCREAMING_SNAKE` consts
   (`<EXPORT>_DATA`, second arrays `<EXPORT>_<ROLE>_DATA`); East-generated
   data (`East.Array.range/generate`) may hoist as module-scope expression
@@ -41,10 +45,12 @@ Every surviving export is wired in the sibling `*.spec.ts` via
 caption-presence test asserting the row count and every caption:
 
 ```ts
+// Panel children are [Separator, content] pairs — size 2 × groups,
+// separators at even indices.
 const panel = $.const(ex.fooVariants.fn() as ExprType<UIComponentType>);
 const rows = $.const(panel.unwrap().unwrap("Stack").children);
-$(Assert.equal(rows.size(), 4n));
-$(Assert.equal(rows.get(0n).unwrap().unwrap("Stack").children.get(0n).unwrap().unwrap("Text").value, "SIZES"));
+$(Assert.equal(rows.size(), 8n));
+$(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SIZES"));
 ```
 
 ## Frozen names

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Code, Reactive, Text, VStack, HStack } from "@elaraai/east-ui";
+import { Button, Code, Reactive, Separator, VStack, HStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -30,57 +30,43 @@ export const codeVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SUBTLE</Text>
-                    <Code variant="subtle">npm install</Code>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SURFACE</Text>
-                    <Code variant="surface">npm run build</Code>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OUTLINE</Text>
-                    <Code variant="outline">npm test</Code>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SIZES</Text>
-                    <HStack gap="4">
-                        <Code size="xs">xs</Code>
-                        <Code size="sm">sm</Code>
-                        <Code size="md">md</Code>
-                        <Code size="lg">lg</Code>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
-                    <HStack gap="3">
-                        <Code variant="subtle" colorPalette="gray">gray</Code>
-                        <Code variant="subtle" colorPalette="blue">blue</Code>
-                        <Code variant="subtle" colorPalette="green">green</Code>
-                        <Code variant="subtle" colorPalette="red">red</Code>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMBINED</Text>
-                    <Code variant="surface" colorPalette="purple" size="md">console.log('Hello')</Code>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "code_counter", 0n));
-                        const value = $.let(counter.read());
-                        const increment = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Code>{East.str`const count = ${East.print(value)};`}</Code>
-                                <Button onClick={increment}>Increment</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="SUBTLE" align="start" />
+                <Code variant="subtle">npm install</Code>
+                <Separator label="SURFACE" align="start" />
+                <Code variant="surface">npm run build</Code>
+                <Separator label="OUTLINE" align="start" />
+                <Code variant="outline">npm test</Code>
+                <Separator label="SIZES" align="start" />
+                <HStack gap="4">
+                    <Code size="xs">xs</Code>
+                    <Code size="sm">sm</Code>
+                    <Code size="md">md</Code>
+                    <Code size="lg">lg</Code>
+                </HStack>
+                <Separator label="COLORS" align="start" />
+                <HStack gap="3">
+                    <Code variant="subtle" colorPalette="gray">gray</Code>
+                    <Code variant="subtle" colorPalette="blue">blue</Code>
+                    <Code variant="subtle" colorPalette="green">green</Code>
+                    <Code variant="subtle" colorPalette="red">red</Code>
+                </HStack>
+                <Separator label="COMBINED" align="start" />
+                <Code variant="surface" colorPalette="purple" size="md">console.log('Hello')</Code>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "code_counter", 0n));
+                    const value = $.let(counter.read());
+                    const increment = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Code>{East.str`const count = ${East.print(value)};`}</Code>
+                            <Button onClick={increment}>Increment</Button>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

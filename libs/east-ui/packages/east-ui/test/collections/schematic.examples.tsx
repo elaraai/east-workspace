@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { HStack, Reactive, Schematic, SegmentGroup, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
+import { HStack, Reactive, Schematic, SegmentGroup, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -495,19 +495,16 @@ export const schematicVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MINIMAL</Text>
-                    <Schematic
+                <Separator label="MINIMAL" align="start" />
+                <Schematic
                         extent={{ width: 12, height: 7 }}
                         height="440px"
                         items={SCHEMATIC_MINIMAL_DATA}
                         item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "warehouse" })}
                         readOnly={true}
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">LAYERS</Text>
-                    <Schematic
+                <Separator label="LAYERS" align="start" />
+                <Schematic
                         extent={{ width: 24, height: 13 }}
                         height="420px"
                         items={SCHEMATIC_LAYERS_DATA}
@@ -526,10 +523,8 @@ export const schematicVariants = example({
                         ]}
                         scaleUnit="m"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GEOMETRY</Text>
-                    <Schematic
+                <Separator label="GEOMETRY" align="start" />
+                <Schematic
                         extent={{ width: 26, height: 14 }}
                         height="440px"
                         items={SCHEMATIC_GEOMETRY_DATA}
@@ -552,10 +547,8 @@ export const schematicVariants = example({
                         scaleUnit="m"
                         grid={true}
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLOR OVERRIDE</Text>
-                    <Schematic
+                <Separator label="COLOR OVERRIDE" align="start" />
+                <Schematic
                         extent={{ width: 16, height: 8 }}
                         height="360px"
                         items={SCHEMATIC_COLOR_OVERRIDE_DATA}
@@ -574,7 +567,6 @@ export const schematicVariants = example({
                         })}
                         scaleUnit="m"
                     />
-                </VStack>
             </VStack>
         );
     }),
@@ -597,9 +589,8 @@ export const schematicSlice = example({
         });
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SLICE EFFECT</Text>
-                    <Reactive>{$ => {
+                <Separator label="SLICE EFFECT" align="start" />
+                <Reactive>{$ => {
                         const data = $.const(SCHEMATIC_SLICE_EFFECT_DATA, ArrayType(EffectEquipType));
                         // Seed an active filter (kind = "unit") so two rows already fail
                         // the narrowing — the effect is visible at first render: the
@@ -666,10 +657,8 @@ export const schematicSlice = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SELECT FILTER</Text>
-                    <Reactive>{$ => {
+                <Separator label="SELECT FILTER" align="start" />
+                <Reactive>{$ => {
                         const data = $.const(SCHEMATIC_SELECT_FILTER_DATA, ArrayType(FilterEquipType));
                         // No initial filter — everything matches until a selection writes one.
                         const slice = $.let(Slice.bind([FilterEquipType], "ex.schematic.selfilter", filterCfg, Slice.state({}), data, none));
@@ -697,7 +686,6 @@ export const schematicSlice = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

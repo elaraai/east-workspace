@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Badge, ChipRail, MetricChip, Tag, Text, VStack, Stack } from "@elaraai/east-ui";
+import { Avatar, Badge, ChipRail, MetricChip, Separator, Tag, Text, VStack, Stack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -57,71 +57,63 @@ export const chipRailVariants = example({
         const labels = $.const(["Week", "Region", "Status", "Cycle"]);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RAIL MIXED</Text>
-                    <ChipRail density="compact" separator="dot">
-                        <Avatar name="Mia Kerr" colorPalette="blue" />
-                        <Tag>Batch A</Tag>
-                        <Tag variant="brand">Running</Tag>
-                        <Badge variant="ok">ON PLAN</Badge>
-                        <MetricChip tone="positive"><Text>+4.2%</Text></MetricChip>
+                <Separator label="RAIL MIXED" align="start" />
+                <ChipRail density="compact" separator="dot">
+                    <Avatar name="Mia Kerr" colorPalette="blue" />
+                    <Tag>Batch A</Tag>
+                    <Tag variant="brand">Running</Tag>
+                    <Badge variant="ok">ON PLAN</Badge>
+                    <MetricChip tone="positive"><Text>+4.2%</Text></MetricChip>
+                </ChipRail>
+                <Separator label="RAIL DOTS" align="start" />
+                <ChipRail density="compact" separator="dot">
+                    <Tag>Observe</Tag>
+                    <Tag>Explain</Tag>
+                    <Tag>Decide</Tag>
+                    <Tag>Commit</Tag>
+                </ChipRail>
+                <Separator label="RAIL LABELED" align="start" />
+                <Stack direction="column" gap="6">
+                    <ChipRail density="condensed" labels={labels}>
+                        <Tag>Week 12</Tag>
+                        <Tag>Europe</Tag>
+                        <Tag>On track</Tag>
+                        <Tag>Red</Tag>
                     </ChipRail>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RAIL DOTS</Text>
+                    <ChipRail density="compact" labels={labels}>
+                        <Tag>Week 12</Tag>
+                        <Tag>Europe</Tag>
+                        <Tag>On track</Tag>
+                        <Tag>Red</Tag>
+                    </ChipRail>
+                    <ChipRail density="comfortable" labels={labels}>
+                        <Tag>Week 12</Tag>
+                        <Tag>Europe</Tag>
+                        <Tag>On track</Tag>
+                        <Tag>Red</Tag>
+                    </ChipRail>
+                </Stack>
+                <Separator label="RAIL DENSITIES" align="start" />
+                <Stack direction="column" gap="4">
+                    <ChipRail density="condensed" separator="dot">
+                        <Tag>Observe</Tag>
+                        <Tag>Explain</Tag>
+                        <Tag>Decide</Tag>
+                        <Tag>Commit</Tag>
+                    </ChipRail>
                     <ChipRail density="compact" separator="dot">
                         <Tag>Observe</Tag>
                         <Tag>Explain</Tag>
                         <Tag>Decide</Tag>
                         <Tag>Commit</Tag>
                     </ChipRail>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RAIL LABELED</Text>
-                    <Stack direction="column" gap="6">
-                        <ChipRail density="condensed" labels={labels}>
-                            <Tag>Week 12</Tag>
-                            <Tag>Europe</Tag>
-                            <Tag>On track</Tag>
-                            <Tag>Red</Tag>
-                        </ChipRail>
-                        <ChipRail density="compact" labels={labels}>
-                            <Tag>Week 12</Tag>
-                            <Tag>Europe</Tag>
-                            <Tag>On track</Tag>
-                            <Tag>Red</Tag>
-                        </ChipRail>
-                        <ChipRail density="comfortable" labels={labels}>
-                            <Tag>Week 12</Tag>
-                            <Tag>Europe</Tag>
-                            <Tag>On track</Tag>
-                            <Tag>Red</Tag>
-                        </ChipRail>
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RAIL DENSITIES</Text>
-                    <Stack direction="column" gap="4">
-                        <ChipRail density="condensed" separator="dot">
-                            <Tag>Observe</Tag>
-                            <Tag>Explain</Tag>
-                            <Tag>Decide</Tag>
-                            <Tag>Commit</Tag>
-                        </ChipRail>
-                        <ChipRail density="compact" separator="dot">
-                            <Tag>Observe</Tag>
-                            <Tag>Explain</Tag>
-                            <Tag>Decide</Tag>
-                            <Tag>Commit</Tag>
-                        </ChipRail>
-                        <ChipRail density="comfortable" separator="dot">
-                            <Tag>Observe</Tag>
-                            <Tag>Explain</Tag>
-                            <Tag>Decide</Tag>
-                            <Tag>Commit</Tag>
-                        </ChipRail>
-                    </Stack>
-                </VStack>
+                    <ChipRail density="comfortable" separator="dot">
+                        <Tag>Observe</Tag>
+                        <Tag>Explain</Tag>
+                        <Tag>Decide</Tag>
+                        <Tag>Commit</Tag>
+                    </ChipRail>
+                </Stack>
             </VStack>
         );
     }),

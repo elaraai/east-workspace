@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Board, Box, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Board, Box, Library, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -321,9 +321,8 @@ export const boardModes = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PUBLISHED</Text>
-                    <Board
+                <Separator label="PUBLISHED" align="start" />
+                <Board
                         id="board-published"
                         areas={BOARD_PUBLISHED_AREAS_DATA}
                         area={a => ({ key: a.id, label: a.name })}
@@ -335,10 +334,8 @@ export const boardModes = example({
                         assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
                         summary="published · Tue 2 Jul"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COVERAGE</Text>
-                    <Board
+                <Separator label="COVERAGE" align="start" />
+                <Board
                         id="board-coverage"
                         mode="edit"
                         areas={BOARD_COVERAGE_AREAS_DATA}
@@ -353,10 +350,8 @@ export const boardModes = example({
                         requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}
                         summary="3 open · 1 over"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">OVERFLOW</Text>
-                    <Board
+                <Separator label="OVERFLOW" align="start" />
+                <Board
                         id="board-overflow"
                         mode="edit"
                         areas={[{ id: "maternity", name: "Maternity" }]}
@@ -375,7 +370,6 @@ export const boardModes = example({
                         assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
                         maxVisible={3}
                     />
-                </VStack>
             </VStack>
         );
     }),
@@ -388,9 +382,8 @@ export const boardFill = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
-                    <Board
+                <Separator label="SCROLL" align="start" />
+                <Board
                         id="board-scroll"
                         areas={BOARD_SCROLL_AREAS_DATA}
                         area={a => ({ key: a.id, label: a.name })}
@@ -402,10 +395,8 @@ export const boardFill = example({
                         assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
                         maxHeight="180px"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
-                    <Box height="180px">
+                <Separator label="FILL" align="start" />
+                <Box height="180px">
                         <Board
                             id="board-fill"
                             areas={BOARD_FILL_AREAS_DATA}
@@ -419,7 +410,6 @@ export const boardFill = example({
                             height="fill"
                         />
                     </Box>
-                </VStack>
             </VStack>
         );
     }),

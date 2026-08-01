@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Button, HStack, Text, VStack, Stack, Reactive } from "@elaraai/east-ui";
+import { Avatar, Button, HStack, Separator, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -39,18 +39,15 @@ export const avatarVariants = example({
         const comfortable = $.const(<Avatar name="Jane Smith" colorPalette="blue" density="comfortable" />);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SIZES</Text>
-                    <HStack gap="3" align="center">
+                <Separator label="SIZES" align="start" />
+                <HStack gap="3" align="center">
                         <Avatar name="XS" size="xs" colorPalette="purple" />
                         <Avatar name="SM" size="sm" colorPalette="purple" />
                         <Avatar name="MD" size="md" colorPalette="purple" />
                         <Avatar name="LG" size="lg" colorPalette="purple" />
                     </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
-                    <HStack gap="2">
+                <Separator label="COLORS" align="start" />
+                <HStack gap="2">
                         <Avatar name="Red User" colorPalette="red" />
                         <Avatar name="Orange User" colorPalette="orange" />
                         <Avatar name="Yellow User" colorPalette="yellow" />
@@ -58,18 +55,14 @@ export const avatarVariants = example({
                         <Avatar name="Blue User" colorPalette="blue" />
                         <Avatar name="Purple User" colorPalette="purple" />
                     </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITIES</Text>
-                    <Stack direction="column" gap="6">
+                <Separator label="DENSITIES" align="start" />
+                <Stack direction="column" gap="6">
                         {condensed}
                         {compact}
                         {comfortable}
                     </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
                         const counter = $.let(State.bind([IntegerType], "avatar_counter", 0n));
                         const value = $.let(counter.read());
                         const inc = $.const(East.function([], NullType, $ => {
@@ -83,7 +76,6 @@ export const avatarVariants = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

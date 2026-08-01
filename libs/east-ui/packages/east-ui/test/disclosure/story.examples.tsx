@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Separator, Story, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -181,50 +181,42 @@ export const storyChromeVariants = example({
         const stepLengthsOrders = $.const(STORY_STEP_LENGTHS_DATA, ArrayType(StructType({ week: StringType, actual: IntegerType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RAIL RIGHT</Text>
-                    <Story layout="rail-right" title="Q4 demand review" stageHeight={340} height={440}>
-                        <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={Chart.Line(railRightOrders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" })} grid />
-                                    </Box>}>
-                            <Text>Orders climbed steadily from week 4 and never gave the gain back.</Text>
-                        </Story.Step>
-                        <Story.Step id="forecast" eyebrow="Forecast" title="The plan missed the turn"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={[
-                                            Chart.Line(railRightOrders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
-                                            Chart.Line(railRightOrders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
-                                        ]} grid legend />
-                                    </Box>}>
-                            <Text>The committed forecast (dashed) kept its old slope after the week-4 turn.</Text>
-                        </Story.Step>
-                    </Story>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STEP BASIC</Text>
-                    <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot">
-                        <Text>Orders climbed from week 4 and never gave the gain back.</Text>
+                <Separator label="RAIL RIGHT" align="start" />
+                <Story layout="rail-right" title="Q4 demand review" stageHeight={340} height={440}>
+                    <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot"
+                                stage={<Box height="100%" width="100%">
+                                    <Chart height="fill" layers={Chart.Line(railRightOrders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" })} grid />
+                                </Box>}>
+                        <Text>Orders climbed steadily from week 4 and never gave the gain back.</Text>
                     </Story.Step>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PROGRESS STANDALONE</Text>
-                    <Story.Progress count={4} title="Q4 demand review" />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STEP LENGTHS</Text>
-                    <Story stepLength="compact" stageHeight={320} height={440}>
-                        <Story.Step id="one" eyebrow="01" title="Quick beat"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={Chart.Line(stepLengthsOrders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
-                                    </Box>}>
-                            <Text>compact = 36vh of runway per step; default = 52vh; long = 72vh.</Text>
-                        </Story.Step>
-                        <Story.Step id="two" eyebrow="02" title="Another quick beat">
-                            <Text>Step length sets pacing — the runway the reader scrolls through per keyframe.</Text>
-                        </Story.Step>
-                    </Story>
-                </VStack>
+                    <Story.Step id="forecast" eyebrow="Forecast" title="The plan missed the turn"
+                                stage={<Box height="100%" width="100%">
+                                    <Chart height="fill" layers={[
+                                        Chart.Line(railRightOrders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
+                                        Chart.Line(railRightOrders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
+                                    ]} grid legend />
+                                </Box>}>
+                        <Text>The committed forecast (dashed) kept its old slope after the week-4 turn.</Text>
+                    </Story.Step>
+                </Story>
+                <Separator label="STEP BASIC" align="start" />
+                <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot">
+                    <Text>Orders climbed from week 4 and never gave the gain back.</Text>
+                </Story.Step>
+                <Separator label="PROGRESS STANDALONE" align="start" />
+                <Story.Progress count={4} title="Q4 demand review" />
+                <Separator label="STEP LENGTHS" align="start" />
+                <Story stepLength="compact" stageHeight={320} height={440}>
+                    <Story.Step id="one" eyebrow="01" title="Quick beat"
+                                stage={<Box height="100%" width="100%">
+                                    <Chart height="fill" layers={Chart.Line(stepLengthsOrders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
+                                </Box>}>
+                        <Text>compact = 36vh of runway per step; default = 52vh; long = 72vh.</Text>
+                    </Story.Step>
+                    <Story.Step id="two" eyebrow="02" title="Another quick beat">
+                        <Text>Step length sets pacing — the runway the reader scrolls through per keyframe.</Text>
+                    </Story.Step>
+                </Story>
             </VStack>
         );
     }),
@@ -255,52 +247,46 @@ export const storyAuthoring = example({
         );
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD KEYFRAME</Text>
-                    <Story stageHeight={380} height={440}>
-                        <Story.Step id="finding" eyebrow="Finding" title="NA absorbed the uplift"
-                                    stage={<Card header={{ title: "Uplift by region", description: "wk 1–4 vs wk 5–8" }}>
-                                        <Box height="260px" width="100%">
-                                            <Chart height="fill" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
-                                        </Box>
-                                    </Card>}>
-                            <Text>A keyframe that wants the Card treatment composes Card like anywhere else — the stage itself owns no chrome.</Text>
-                        </Story.Step>
-                        <Story.Step id="cta" eyebrow="Next" title="Re-forecast NA only">
-                            <Text>Interactive bodies are allowed — the last step routinely carries the call to action.</Text>
-                            <Button onClick={openRun}>Open the run →</Button>
-                        </Story.Step>
-                    </Story>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ACTIVE STEP STATIC</Text>
-                    <Story activeStep="forecast" stageHeight={320}>
-                        <Story.Step id="demand" title="Demand ran hot"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
-                                    </Box>}>
-                            <Text>Beat one.</Text>
-                        </Story.Step>
-                        <Story.Step id="forecast" title="The plan missed the turn"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={[
-                                            Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
-                                            Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
-                                        ]} grid legend />
-                                    </Box>}>
-                            <Text>Beat two — rendered active without scroll; the snapshot pipeline renders one PNG per step.</Text>
-                        </Story.Step>
-                    </Story>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CONDITIONAL STEP</Text>
-                    <Story height={320}>
-                        <Story.Step id="always" title="Always">
-                            <Text>Always shown.</Text>
-                        </Story.Step>
-                        {detailed.ifElse(_$ => detailStep, _$ => summaryStep)}
-                    </Story>
-                </VStack>
+                <Separator label="CARD KEYFRAME" align="start" />
+                <Story stageHeight={380} height={440}>
+                    <Story.Step id="finding" eyebrow="Finding" title="NA absorbed the uplift"
+                                stage={<Card header={{ title: "Uplift by region", description: "wk 1–4 vs wk 5–8" }}>
+                                    <Box height="260px" width="100%">
+                                        <Chart height="fill" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
+                                    </Box>
+                                </Card>}>
+                        <Text>A keyframe that wants the Card treatment composes Card like anywhere else — the stage itself owns no chrome.</Text>
+                    </Story.Step>
+                    <Story.Step id="cta" eyebrow="Next" title="Re-forecast NA only">
+                        <Text>Interactive bodies are allowed — the last step routinely carries the call to action.</Text>
+                        <Button onClick={openRun}>Open the run →</Button>
+                    </Story.Step>
+                </Story>
+                <Separator label="ACTIVE STEP STATIC" align="start" />
+                <Story activeStep="forecast" stageHeight={320}>
+                    <Story.Step id="demand" title="Demand ran hot"
+                                stage={<Box height="100%" width="100%">
+                                    <Chart height="fill" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
+                                </Box>}>
+                        <Text>Beat one.</Text>
+                    </Story.Step>
+                    <Story.Step id="forecast" title="The plan missed the turn"
+                                stage={<Box height="100%" width="100%">
+                                    <Chart height="fill" layers={[
+                                        Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
+                                        Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
+                                    ]} grid legend />
+                                </Box>}>
+                        <Text>Beat two — rendered active without scroll; the snapshot pipeline renders one PNG per step.</Text>
+                    </Story.Step>
+                </Story>
+                <Separator label="CONDITIONAL STEP" align="start" />
+                <Story height={320}>
+                    <Story.Step id="always" title="Always">
+                        <Text>Always shown.</Text>
+                    </Story.Step>
+                    {detailed.ifElse(_$ => detailStep, _$ => summaryStep)}
+                </Story>
             </VStack>
         );
     }),

@@ -19,7 +19,7 @@ import {
     example,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Button, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ---------------------------------------------------------------------------
 // Each example below is self-contained: `UserEventType` is declared inside
@@ -75,9 +75,8 @@ export const slicePredicates = example({
         });
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ADD INTEGER PREDICATE</Text>
-                    <Reactive>{$ => {
+                <Separator label="ADD INTEGER PREDICATE" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -99,10 +98,8 @@ export const slicePredicates = example({
                         }));
                         return <Button onClick={onAdd}>Sessions ≥ 10</Button>;
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ADD STRING IN PREDICATE</Text>
-                    <Reactive>{$ => {
+                <Separator label="ADD STRING IN PREDICATE" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -127,10 +124,8 @@ export const slicePredicates = example({
                         }));
                         return <Button onClick={onAdd}>{"Country ∈ {US, UK, DE}"}</Button>;
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DEFINE COHORT</Text>
-                    <Reactive>{$ => {
+                <Separator label="DEFINE COHORT" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -164,10 +159,8 @@ export const slicePredicates = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SET BREAKDOWN</Text>
-                    <Reactive>{$ => {
+                <Separator label="SET BREAKDOWN" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -189,10 +182,8 @@ export const slicePredicates = example({
                         }));
                         return <Button onClick={onClick}>Break by country (top 5)</Button>;
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SET SEARCH</Text>
-                    <Reactive>{$ => {
+                <Separator label="SET SEARCH" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -220,10 +211,8 @@ export const slicePredicates = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SET VISIBLE</Text>
-                    <Reactive>{$ => {
+                <Separator label="SET VISIBLE" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -245,7 +234,6 @@ export const slicePredicates = example({
                         }));
                         return <Button onClick={onClick}>Show only US and UK</Button>;
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),
@@ -268,9 +256,8 @@ export const sliceRanges = example({
         });
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SET RANGE PRESET</Text>
-                    <Reactive>{$ => {
+                <Separator label="SET RANGE PRESET" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -292,10 +279,8 @@ export const sliceRanges = example({
                         }));
                         return <Button onClick={onClick}>Last 30 days</Button>;
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SET RANGE CUSTOM DATE TIME</Text>
-                    <Reactive>{$ => {
+                <Separator label="SET RANGE CUSTOM DATE TIME" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -320,10 +305,8 @@ export const sliceRanges = example({
                         }));
                         return <Button onClick={onClick}>Q1 2025</Button>;
                     }}</Reactive>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SET RANGE INTEGER</Text>
-                    <Reactive>{$ => {
+                <Separator label="SET RANGE INTEGER" align="start" />
+                <Reactive>{$ => {
                         const cfg = $.let(Slice.config(UserEventType, {
                             fields: {
                                 timestamp: { label: "Time"     },
@@ -345,7 +328,6 @@ export const sliceRanges = example({
                         }));
                         return <Button onClick={onClick}>Sessions 5–100</Button>;
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { MetricChip, Stack, Text, VStack } from "@elaraai/east-ui";
+import { MetricChip, Separator, Stack, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -33,28 +33,20 @@ export const metricChipVariants = example({
         const comfortable = $.const(<MetricChip tone="positive" density="comfortable"><Text>+12.5%</Text></MetricChip>);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP NEGATIVE SOLID</Text>
-                    <MetricChip tone="negative" emphasis="solid"><Text>-8.2%</Text></MetricChip>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP NEUTRAL OUTLINE</Text>
-                    <MetricChip tone="neutral" emphasis="outline" unit="ms"><Text>42</Text></MetricChip>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP DENSITIES</Text>
-                    <Stack direction="column" gap="6">
-                        {condensed}
-                        {compact}
-                        {comfortable}
-                    </Stack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHIP INFO</Text>
-                    <MetricChip tone="info" background="blue.100" color="blue.800" borderColor="blue.300">
-                        <Text>Forecast</Text>
-                    </MetricChip>
-                </VStack>
+                <Separator label="CHIP NEGATIVE SOLID" align="start" />
+                <MetricChip tone="negative" emphasis="solid"><Text>-8.2%</Text></MetricChip>
+                <Separator label="CHIP NEUTRAL OUTLINE" align="start" />
+                <MetricChip tone="neutral" emphasis="outline" unit="ms"><Text>42</Text></MetricChip>
+                <Separator label="CHIP DENSITIES" align="start" />
+                <Stack direction="column" gap="6">
+                    {condensed}
+                    {compact}
+                    {comfortable}
+                </Stack>
+                <Separator label="CHIP INFO" align="start" />
+                <MetricChip tone="info" background="blue.100" color="blue.800" borderColor="blue.300">
+                    <Text>Forecast</Text>
+                </MetricChip>
             </VStack>
         );
     }),

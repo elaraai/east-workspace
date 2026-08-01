@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, StringType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Calendar, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Box, Calendar, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -162,39 +162,31 @@ export const calendarVariants = example({
         const condensed = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="condensed" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MINIMAL</Text>
-                    <Calendar
-                        data={CALENDAR_MINIMAL_DATA}
-                        cell={d => ({ week: d.week, day: d.day, value: d.v })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">VALUES OFF</Text>
-                    <Calendar
-                        data={CALENDAR_VALUES_OFF_DATA}
-                        cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                        values={false}
-                        scale={Calendar.scale({ steps: 6n })}
-                        density="condensed"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TOTALS</Text>
-                    <Calendar
-                        data={CALENDAR_TOTALS_DATA}
-                        cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                        totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
-                        aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DENSITY</Text>
-                    <VStack gap="6">
-                        {comfortable}
-                        {compact}
-                        {condensed}
-                    </VStack>
+                <Separator label="MINIMAL" align="start" />
+                <Calendar
+                    data={CALENDAR_MINIMAL_DATA}
+                    cell={d => ({ week: d.week, day: d.day, value: d.v })}
+                />
+                <Separator label="VALUES OFF" align="start" />
+                <Calendar
+                    data={CALENDAR_VALUES_OFF_DATA}
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
+                    values={false}
+                    scale={Calendar.scale({ steps: 6n })}
+                    density="condensed"
+                />
+                <Separator label="TOTALS" align="start" />
+                <Calendar
+                    data={CALENDAR_TOTALS_DATA}
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                    totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
+                    aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
+                />
+                <Separator label="DENSITY" align="start" />
+                <VStack gap="6">
+                    {comfortable}
+                    {compact}
+                    {condensed}
                 </VStack>
             </VStack>
         );
@@ -208,24 +200,20 @@ export const calendarFill = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCROLL</Text>
+                <Separator label="SCROLL" align="start" />
+                <Calendar
+                    data={CALENDAR_SCROLL_DATA}
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                    maxHeight="200px"
+                />
+                <Separator label="FILL" align="start" />
+                <Box height="200px">
                     <Calendar
-                        data={CALENDAR_SCROLL_DATA}
+                        data={CALENDAR_FILL_DATA}
                         cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                        maxHeight="200px"
+                        height="fill"
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FILL</Text>
-                    <Box height="200px">
-                        <Calendar
-                            data={CALENDAR_FILL_DATA}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                            height="fill"
-                        />
-                    </Box>
-                </VStack>
+                </Box>
             </VStack>
         );
     }),

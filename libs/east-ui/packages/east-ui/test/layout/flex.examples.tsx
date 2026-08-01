@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Button, Flex, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, Flex, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -36,97 +36,81 @@ export const flexVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW JUSTIFY</Text>
-                    <Flex direction="row" justifyContent="space-between" alignItems="center" padding="4" background="blue.50" borderRadius="md">
-                        <Text>Left</Text>
-                        <Text>Center</Text>
-                        <Text>Right</Text>
+                <Separator label="ROW JUSTIFY" align="start" />
+                <Flex direction="row" justifyContent="space-between" alignItems="center" padding="4" background="blue.50" borderRadius="md">
+                    <Text>Left</Text>
+                    <Text>Center</Text>
+                    <Text>Right</Text>
+                </Flex>
+                <Separator label="COLUMN" align="start" />
+                <Flex direction="column" alignItems="center" gap="2" padding="4" background="purple.50" borderRadius="md">
+                    <Text>Top</Text>
+                    <Text>Middle</Text>
+                    <Text>Bottom</Text>
+                </Flex>
+                <Separator label="WRAP" align="start" />
+                <Flex wrap="wrap" gap="2" padding="4" background="green.50" borderRadius="md" width="200px">
+                    <Text>Item 1</Text>
+                    <Text>Item 2</Text>
+                    <Text>Item 3</Text>
+                    <Text>Item 4</Text>
+                    <Text>Item 5</Text>
+                    <Text>Item 6</Text>
+                </Flex>
+                <Separator label="CENTERED" align="start" />
+                <Flex justifyContent="center" alignItems="center" height="100px" background="teal.100" borderRadius="md">
+                    <Text>Centered!</Text>
+                </Flex>
+                <Separator label="NESTED" align="start" />
+                <Flex direction="row" gap="4" padding="4" background="gray.100" borderRadius="md">
+                    <Flex direction="column" gap="1" padding="2" background="orange.100" borderRadius="sm">
+                        <Text>A</Text>
+                        <Text>B</Text>
                     </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN</Text>
-                    <Flex direction="column" alignItems="center" gap="2" padding="4" background="purple.50" borderRadius="md">
-                        <Text>Top</Text>
-                        <Text>Middle</Text>
-                        <Text>Bottom</Text>
+                    <Flex direction="column" gap="1" padding="2" background="orange.100" borderRadius="sm">
+                        <Text>C</Text>
+                        <Text>D</Text>
                     </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WRAP</Text>
-                    <Flex wrap="wrap" gap="2" padding="4" background="green.50" borderRadius="md" width="200px">
-                        <Text>Item 1</Text>
-                        <Text>Item 2</Text>
-                        <Text>Item 3</Text>
-                        <Text>Item 4</Text>
-                        <Text>Item 5</Text>
-                        <Text>Item 6</Text>
+                </Flex>
+                <Separator label="ALIGN ITEMS" align="start" />
+                <Flex direction="row" gap="2">
+                    <Flex alignItems="flex-start" height="60px" padding="2" background="pink.100" borderRadius="sm">
+                        <Text>flex-start</Text>
                     </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CENTERED</Text>
-                    <Flex justifyContent="center" alignItems="center" height="100px" background="teal.100" borderRadius="md">
-                        <Text>Centered!</Text>
+                    <Flex alignItems="center" height="60px" padding="2" background="pink.100" borderRadius="sm">
+                        <Text>center</Text>
                     </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NESTED</Text>
-                    <Flex direction="row" gap="4" padding="4" background="gray.100" borderRadius="md">
-                        <Flex direction="column" gap="1" padding="2" background="orange.100" borderRadius="sm">
-                            <Text>A</Text>
-                            <Text>B</Text>
-                        </Flex>
-                        <Flex direction="column" gap="1" padding="2" background="orange.100" borderRadius="sm">
-                            <Text>C</Text>
-                            <Text>D</Text>
-                        </Flex>
+                    <Flex alignItems="flex-end" height="60px" padding="2" background="pink.100" borderRadius="sm">
+                        <Text>flex-end</Text>
                     </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ALIGN ITEMS</Text>
-                    <Flex direction="row" gap="2">
-                        <Flex alignItems="flex-start" height="60px" padding="2" background="pink.100" borderRadius="sm">
-                            <Text>flex-start</Text>
-                        </Flex>
-                        <Flex alignItems="center" height="60px" padding="2" background="pink.100" borderRadius="sm">
-                            <Text>center</Text>
-                        </Flex>
-                        <Flex alignItems="flex-end" height="60px" padding="2" background="pink.100" borderRadius="sm">
-                            <Text>flex-end</Text>
-                        </Flex>
-                    </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">REVERSE</Text>
-                    <Flex direction="row-reverse" gap="4" padding="4" background="cyan.50" borderRadius="md">
-                        <Text>1</Text>
-                        <Text>2</Text>
-                        <Text>3</Text>
-                    </Flex>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "flex_counter", 0n));
-                        const value = $.let(counter.read());
-                        const isRow = $.let(value.remainder(2n).equal(0n));
-                        const direction = $.let(isRow.ifElse(() => Style.FlexDirection("row"), () => Style.FlexDirection("column")));
-                        const inc = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Flex direction={direction} gap="4" padding="4" background="gray.100" borderRadius="md">
-                                    <Text>A</Text>
-                                    <Text>B</Text>
-                                    <Text>C</Text>
-                                </Flex>
-                                <Button onClick={inc}>Toggle direction</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                </Flex>
+                <Separator label="REVERSE" align="start" />
+                <Flex direction="row-reverse" gap="4" padding="4" background="cyan.50" borderRadius="md">
+                    <Text>1</Text>
+                    <Text>2</Text>
+                    <Text>3</Text>
+                </Flex>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "flex_counter", 0n));
+                    const value = $.let(counter.read());
+                    const isRow = $.let(value.remainder(2n).equal(0n));
+                    const direction = $.let(isRow.ifElse(() => Style.FlexDirection("row"), () => Style.FlexDirection("column")));
+                    const inc = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Flex direction={direction} gap="4" padding="4" background="gray.100" borderRadius="md">
+                                <Text>A</Text>
+                                <Text>B</Text>
+                                <Text>C</Text>
+                            </Flex>
+                            <Button onClick={inc}>Toggle direction</Button>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

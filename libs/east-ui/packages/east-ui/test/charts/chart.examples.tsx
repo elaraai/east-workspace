@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Chart, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
+import { AlignedStack, Box, Chart, Reactive, Separator, Table, VStack } from "@elaraai/east-ui";
 
 // Rows for the tooltip-over-sticky-header layering example (below).
 const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
@@ -219,61 +219,47 @@ export const lineVariants = example({
         const median = $.const(LINE_SAMPLE_FAN_MEDIAN_DATA, ArrayType(StructType({ t: IntegerType, y: FloatType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MULTI COLUMNS</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Line(multiColumns, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BREAKDOWN</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Line(breakdown, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CURVE NATURAL</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Line(curveNatural, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" })} grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STEP NO DOTS</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Line(stepNoDots, { x: r => r.month, y: r => r.price }, { curve: "step", width: 2, dots: false, color: "orange.solid" })} grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STEP AFTER SETPOINT</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Line(stepAfter, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "black" })} grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">DASHED TARGET OVERLAY</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={[
-                            Chart.Line(dashedTarget, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
-                            Chart.Line(dashedTarget, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
-                        ]} legend grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SAMPLE FAN</Text>
-                    <Box height="260px" width="100%">
-                        <Chart
-                            layers={[
-                                // Decoration layer: out of the legend AND the tooltip, so hovering
-                                // surfaces only the median rather than one row per sample id.
-                                Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false, dots: false }),
-                                Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: "Median", color: "blue.solid", width: 2, dots: false }),
-                            ]}
-                            x={{ label: "Step", scale: "linear" }}
-                            y={{ label: "Value" }}
-                            legend grid tooltip
-                        />
-                    </Box>
-                </VStack>
+                <Separator label="MULTI COLUMNS" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Line(multiColumns, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />
+                </Box>
+                <Separator label="BREAKDOWN" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Line(breakdown, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />
+                </Box>
+                <Separator label="CURVE NATURAL" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Line(curveNatural, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" })} grid />
+                </Box>
+                <Separator label="STEP NO DOTS" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Line(stepNoDots, { x: r => r.month, y: r => r.price }, { curve: "step", width: 2, dots: false, color: "orange.solid" })} grid />
+                </Box>
+                <Separator label="STEP AFTER SETPOINT" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Line(stepAfter, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "black" })} grid />
+                </Box>
+                <Separator label="DASHED TARGET OVERLAY" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={[
+                        Chart.Line(dashedTarget, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
+                        Chart.Line(dashedTarget, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
+                    ]} legend grid />
+                </Box>
+                <Separator label="SAMPLE FAN" align="start" />
+                <Box height="260px" width="100%">
+                    <Chart
+                        layers={[
+                            // Decoration layer: out of the legend AND the tooltip, so hovering
+                            // surfaces only the median rather than one row per sample id.
+                            Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false, dots: false }),
+                            Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: "Median", color: "blue.solid", width: 2, dots: false }),
+                        ]}
+                        x={{ label: "Step", scale: "linear" }}
+                        y={{ label: "Value" }}
+                        legend grid tooltip
+                    />
+                </Box>
             </VStack>
         );
     }),
@@ -305,98 +291,82 @@ export const axisVariants = example({
         const end = $.const(new Date("2025-03-20"), DateTimeType);
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TEMPORAL</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(temporal, { x: r => r.at, y: r => r.users })}
-                            x={{ format: Chart.format.date("MMM YYYY") }}
-                            y={{ format: Chart.format.compact() }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NUMERIC X</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(numericX, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
-                            x={{ label: "Dose", scale: "linear", domain: [0, 6] }}
-                            y={{ label: "Response" }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTEGER DAY TICKS</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(dayTicks, { x: r => r.day, y: r => r.temp }, { color: "teal.solid" })}
-                            x={{ label: "Day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                            y={{ label: "°C", numTicks: 3 }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RUNTIME DOMAIN</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(runtimeDomain, { x: r => r.day, y: r => r.value }, { color: "teal.solid" })}
-                            x={{ label: "Day", scale: "linear", domain: [0, decisionDay.add(p95).add(buffer)] }}
-                            y={{ label: "Forecast" }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RUNTIME TIME DOMAIN</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(runtimeTime, { x: r => r.at, y: r => r.v })}
-                            x={{ label: "Month", scale: "time", domain: [start, end], format: Chart.format.date("MMM YYYY") }}
-                            y={{ label: "Value" }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AXIS TEXT STYLED</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(axisStyled, { x: r => r.at, y: r => r.v })}
-                            x={{ scale: "time", format: Chart.format.date("ddd DD"), tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } }}
-                            y={{ label: "Clarified kL", titleGap: 6, tickStyle: { fontSize: "12px" }, titleStyle: { fontFamily: "sans", fontWeight: "semibold", color: "fg.default", letterSpacing: "0.02em" } }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AXIS FORMATTING</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Column(axisFormat, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: Chart.format.date("MMM") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CHART TIME TICK VALUES — #318 MONDAY TICK INSTANTS</Text>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Line(timeTicks, { x: r => r.at, y: r => r.v }, { color: "teal.solid", dots: true })}
-                            x={{
-                                scale: "time",
-                                domain: [new Date("2026-03-30T00:00:00Z"), new Date("2026-04-06T00:00:00Z")],
-                                tickValues: [
-                                    new Date("2026-03-30T00:00:00Z"),
-                                    new Date("2026-04-01T00:00:00Z"),
-                                    new Date("2026-04-03T00:00:00Z"),
-                                    new Date("2026-04-05T00:00:00Z"),
-                                ],
-                                format: Chart.format.date("ddd DD"),
-                            }}
-                            grid
-                        />
-                    </Box>
-                </VStack>
+                <Separator label="TEMPORAL" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(temporal, { x: r => r.at, y: r => r.users })}
+                        x={{ format: Chart.format.date("MMM YYYY") }}
+                        y={{ format: Chart.format.compact() }}
+                        grid
+                    />
+                </Box>
+                <Separator label="NUMERIC X" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(numericX, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
+                        x={{ label: "Dose", scale: "linear", domain: [0, 6] }}
+                        y={{ label: "Response" }}
+                        grid
+                    />
+                </Box>
+                <Separator label="INTEGER DAY TICKS" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(dayTicks, { x: r => r.day, y: r => r.temp }, { color: "teal.solid" })}
+                        x={{ label: "Day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                        y={{ label: "°C", numTicks: 3 }}
+                        grid
+                    />
+                </Box>
+                <Separator label="RUNTIME DOMAIN" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(runtimeDomain, { x: r => r.day, y: r => r.value }, { color: "teal.solid" })}
+                        x={{ label: "Day", scale: "linear", domain: [0, decisionDay.add(p95).add(buffer)] }}
+                        y={{ label: "Forecast" }}
+                        grid
+                    />
+                </Box>
+                <Separator label="RUNTIME TIME DOMAIN" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(runtimeTime, { x: r => r.at, y: r => r.v })}
+                        x={{ label: "Month", scale: "time", domain: [start, end], format: Chart.format.date("MMM YYYY") }}
+                        y={{ label: "Value" }}
+                        grid
+                    />
+                </Box>
+                <Separator label="AXIS TEXT STYLED" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(axisStyled, { x: r => r.at, y: r => r.v })}
+                        x={{ scale: "time", format: Chart.format.date("ddd DD"), tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } }}
+                        y={{ label: "Clarified kL", titleGap: 6, tickStyle: { fontSize: "12px" }, titleStyle: { fontFamily: "sans", fontWeight: "semibold", color: "fg.default", letterSpacing: "0.02em" } }}
+                        grid
+                    />
+                </Box>
+                <Separator label="AXIS FORMATTING" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Column(axisFormat, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: Chart.format.date("MMM") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />
+                </Box>
+                <Separator label="CHART TIME TICK VALUES — #318 MONDAY TICK INSTANTS" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Line(timeTicks, { x: r => r.at, y: r => r.v }, { color: "teal.solid", dots: true })}
+                        x={{
+                            scale: "time",
+                            domain: [new Date("2026-03-30T00:00:00Z"), new Date("2026-04-06T00:00:00Z")],
+                            tickValues: [
+                                new Date("2026-03-30T00:00:00Z"),
+                                new Date("2026-04-01T00:00:00Z"),
+                                new Date("2026-04-03T00:00:00Z"),
+                                new Date("2026-04-05T00:00:00Z"),
+                            ],
+                            format: Chart.format.date("ddd DD"),
+                        }}
+                        grid
+                    />
+                </Box>
             </VStack>
         );
     }),
@@ -421,58 +391,44 @@ export const columnVariants = example({
         const consumed = $.const(COLUMN_STACKED_DIVERGING_CONSUMED_DATA, ArrayType(StructType({ day: StringType, grp: StringType, kl: FloatType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN BASIC</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Column(basic, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN PER CATEGORY</Text>
-                    <Box height="220px" width="100%">
-                        <Chart
-                            layers={Chart.Column(perCategory, {
-                                x: r => r.discipline, y: r => r.share,
-                                colors: { RN: "teal.solid", EN: "cyan.solid", Physio: "blue.solid", OT: "purple.solid", Admin: "gray.solid" },
-                            })}
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN GROUPED</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Column(grouped, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN STACKED</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Column(stacked, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN PERCENT STACKED</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Column(percentStacked, { x: r => r.week, y: r => r.spend, by: r => r.channel }, { stack: "mix" })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN CUSTOM COLORS</Text>
-                    <Box height="220px" width="100%">
-                        <Chart layers={Chart.Column(customColors, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLUMN STACKED DIVERGING</Text>
-                    <Box height="280px" width="100%">
-                        <Chart grid legend tooltip layers={[
-                            Chart.Column(freed, { x: r => r.day, y: r => r.kl, by: r => r.grp }, { stack: "freed" }),
-                            Chart.Column(consumed, { x: r => r.day, y: r => r.kl.multiply(-1.0), by: r => r.grp }, { stack: "consumed" }),
-                            Chart.refLine({ y: 0.0 }),
-                        ]} />
-                    </Box>
-                </VStack>
+                <Separator label="COLUMN BASIC" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Column(basic, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />
+                </Box>
+                <Separator label="COLUMN PER CATEGORY" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart
+                        layers={Chart.Column(perCategory, {
+                            x: r => r.discipline, y: r => r.share,
+                            colors: { RN: "teal.solid", EN: "cyan.solid", Physio: "blue.solid", OT: "purple.solid", Admin: "gray.solid" },
+                        })}
+                        grid
+                    />
+                </Box>
+                <Separator label="COLUMN GROUPED" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Column(grouped, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
+                </Box>
+                <Separator label="COLUMN STACKED" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Column(stacked, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
+                </Box>
+                <Separator label="COLUMN PERCENT STACKED" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Column(percentStacked, { x: r => r.week, y: r => r.spend, by: r => r.channel }, { stack: "mix" })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />
+                </Box>
+                <Separator label="COLUMN CUSTOM COLORS" align="start" />
+                <Box height="220px" width="100%">
+                    <Chart layers={Chart.Column(customColors, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
+                </Box>
+                <Separator label="COLUMN STACKED DIVERGING" align="start" />
+                <Box height="280px" width="100%">
+                    <Chart grid legend tooltip layers={[
+                        Chart.Column(freed, { x: r => r.day, y: r => r.kl, by: r => r.grp }, { stack: "freed" }),
+                        Chart.Column(consumed, { x: r => r.day, y: r => r.kl.multiply(-1.0), by: r => r.grp }, { stack: "consumed" }),
+                        Chart.refLine({ y: 0.0 }),
+                    ]} />
+                </Box>
             </VStack>
         );
     }),
@@ -493,41 +449,33 @@ export const barVariants = example({
         const percentStacked = $.const(BAR_PERCENT_STACKED_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BAR RANKED — ALIGNEDSTACK LABEL GUTTER</Text>
-                    <AlignedStack gutter={{ left: "170px", right: "12px" }}>
-                        <Box height="240px" width="100%">
-                            <Chart
-                                layers={Chart.Bar(ranked, { x: r => r.revenue, y: r => r.product }, { color: "teal.solid" })}
-                                x={{ format: Chart.format.currency({ compact: true }) }}
-                                grid tooltip
-                            />
-                        </Box>
-                    </AlignedStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BAR GROUPED</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Bar(grouped, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } })} legend grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BAR STACKED</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Bar(stacked, { x: r => r.tonnes, y: r => r.site, by: r => r.shift }, { stack: "tonnage" })} legend tooltip grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BAR PERCENT STACKED</Text>
+                <Separator label="BAR RANKED — ALIGNEDSTACK LABEL GUTTER" align="start" />
+                <AlignedStack gutter={{ left: "170px", right: "12px" }}>
                     <Box height="240px" width="100%">
                         <Chart
-                            layers={Chart.Bar(percentStacked, { x: r => r.spend, y: r => r.week, by: r => r.channel }, { stack: "mix" })}
-                            stackOffset="expand"
-                            x={{ format: Chart.format.percent() }}
-                            legend
+                            layers={Chart.Bar(ranked, { x: r => r.revenue, y: r => r.product }, { color: "teal.solid" })}
+                            x={{ format: Chart.format.currency({ compact: true }) }}
+                            grid tooltip
                         />
                     </Box>
-                </VStack>
+                </AlignedStack>
+                <Separator label="BAR GROUPED" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Bar(grouped, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } })} legend grid />
+                </Box>
+                <Separator label="BAR STACKED" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Bar(stacked, { x: r => r.tonnes, y: r => r.site, by: r => r.shift }, { stack: "tonnage" })} legend tooltip grid />
+                </Box>
+                <Separator label="BAR PERCENT STACKED" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Bar(percentStacked, { x: r => r.spend, y: r => r.week, by: r => r.channel }, { stack: "mix" })}
+                        stackOffset="expand"
+                        x={{ format: Chart.format.percent() }}
+                        legend
+                    />
+                </Box>
             </VStack>
         );
     }),
@@ -548,42 +496,34 @@ export const areaScatterVariants = example({
         const bubble = $.const(SCATTER_BUBBLE_DATA, ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AREA STACKED</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={Chart.Area(stacked, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AREA CONFIDENCE BAND</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={[
-                            Chart.Band(band, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
-                            Chart.Line(band, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
-                        ]} legend tooltip grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCATTER QUADRANTS</Text>
-                    <Box height="280px" width="100%">
-                        <Chart
-                            layers={[
-                                Chart.Scatter(quadrants, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
-                                Chart.refLine({ x: 50, dash: "3 3" }),
-                                Chart.refLine({ y: 50, dash: "3 3" }),
-                            ]}
-                            x={{ label: "Effort", scale: "linear", domain: [0, 100] }}
-                            y={{ label: "Value", domain: [0, 100] }}
-                            legend
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCATTER BUBBLE</Text>
-                    <Box height="260px" width="100%">
-                        <Chart layers={Chart.Scatter(bubble, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />
-                    </Box>
-                </VStack>
+                <Separator label="AREA STACKED" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={Chart.Area(stacked, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />
+                </Box>
+                <Separator label="AREA CONFIDENCE BAND" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={[
+                        Chart.Band(band, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
+                        Chart.Line(band, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
+                    ]} legend tooltip grid />
+                </Box>
+                <Separator label="SCATTER QUADRANTS" align="start" />
+                <Box height="280px" width="100%">
+                    <Chart
+                        layers={[
+                            Chart.Scatter(quadrants, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
+                            Chart.refLine({ x: 50, dash: "3 3" }),
+                            Chart.refLine({ y: 50, dash: "3 3" }),
+                        ]}
+                        x={{ label: "Effort", scale: "linear", domain: [0, 100] }}
+                        y={{ label: "Value", domain: [0, 100] }}
+                        legend
+                    />
+                </Box>
+                <Separator label="SCATTER BUBBLE" align="start" />
+                <Box height="260px" width="100%">
+                    <Chart layers={Chart.Scatter(bubble, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />
+                </Box>
             </VStack>
         );
     }),
@@ -605,44 +545,38 @@ export const composedVariants = example({
         const annotations = $.const(REFERENCE_ANNOTATIONS_DATA, ArrayType(StructType({ month: StringType, value: IntegerType })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMPOSED COLUMN LINE</Text>
-                    <Box height="260px" width="100%">
-                        <Chart layers={[
-                            Chart.Column(columnLine, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
-                            Chart.Line(columnLine, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
-                        ]} legend tooltip grid />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMPOSED DUAL AXIS FORECAST</Text>
-                    <Box height="300px" width="100%">
-                        <Chart
-                            layers={[
-                                Chart.Area(forecast, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
-                                Chart.Band(forecast, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
-                                Chart.Line(forecast, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
-                                Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
-                            ]}
-                            y={{ label: "Sessions" }}
-                            y2={{ label: "Trend", format: Chart.format.compact() }}
-                            legend
-                            tooltip
-                            grid
-                        />
-                    </Box>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">REFERENCE ANNOTATIONS</Text>
-                    <Box height="240px" width="100%">
-                        <Chart layers={[
-                            Chart.refBand({ y: [120, 200], label: "Normal" }),
-                            Chart.Line(annotations, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
-                            Chart.refLine({ y: 220, label: "Target", dash: "4 4" }),
-                            Chart.refDot({ x: "Mar", y: 237, label: "Peak" }),
-                        ]} grid />
-                    </Box>
-                </VStack>
+                <Separator label="COMPOSED COLUMN LINE" align="start" />
+                <Box height="260px" width="100%">
+                    <Chart layers={[
+                        Chart.Column(columnLine, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+                        Chart.Line(columnLine, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
+                    ]} legend tooltip grid />
+                </Box>
+                <Separator label="COMPOSED DUAL AXIS FORECAST" align="start" />
+                <Box height="300px" width="100%">
+                    <Chart
+                        layers={[
+                            Chart.Area(forecast, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
+                            Chart.Band(forecast, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
+                            Chart.Line(forecast, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
+                            Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+                        ]}
+                        y={{ label: "Sessions" }}
+                        y2={{ label: "Trend", format: Chart.format.compact() }}
+                        legend
+                        tooltip
+                        grid
+                    />
+                </Box>
+                <Separator label="REFERENCE ANNOTATIONS" align="start" />
+                <Box height="240px" width="100%">
+                    <Chart layers={[
+                        Chart.refBand({ y: [120, 200], label: "Normal" }),
+                        Chart.Line(annotations, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
+                        Chart.refLine({ y: 220, label: "Target", dash: "4 4" }),
+                        Chart.refDot({ x: "Mar", y: 237, label: "Peak" }),
+                    ]} grid />
+                </Box>
             </VStack>
         );
     }),

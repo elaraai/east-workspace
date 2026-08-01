@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Link, Reactive, VStack, HStack, Text } from "@elaraai/east-ui";
+import { Button, Link, Reactive, Separator, VStack, HStack, Text } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -30,57 +30,43 @@ export const linkVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">EXTERNAL</Text>
-                    <Link href="https://github.com" external>Visit GitHub</Link>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">UNDERLINE</Text>
-                    <Link href="/about" variant="underline">Underlined Link</Link>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PLAIN</Text>
-                    <Link href="/contact" variant="plain">Plain Link</Link>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COLORS</Text>
-                    <HStack gap="4">
-                        <Link href="/page" colorPalette="blue">Blue</Link>
-                        <Link href="/page" colorPalette="teal">Teal</Link>
-                        <Link href="/page" colorPalette="purple">Purple</Link>
-                        <Link href="/page" colorPalette="red">Red</Link>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">IN CONTEXT</Text>
-                    <HStack gap="1">
-                        <Text>{"Read the "}</Text>
-                        <Link href="/docs" colorPalette="blue">documentation</Link>
-                        <Text>{" for more info."}</Text>
-                    </HStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMBINED</Text>
-                    <Link href="https://docs.example.com" external variant="underline" colorPalette="blue">View Documentation</Link>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "link_counter", 0n));
-                        const value = $.let(counter.read());
-                        const increment = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Text>Click the button to relabel the link:</Text>
-                                <Link href="https://example.com" external>{East.str`Visited ${East.print(value)} times — click here`}</Link>
-                                <Button onClick={increment}>Bump label</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="EXTERNAL" align="start" />
+                <Link href="https://github.com" external>Visit GitHub</Link>
+                <Separator label="UNDERLINE" align="start" />
+                <Link href="/about" variant="underline">Underlined Link</Link>
+                <Separator label="PLAIN" align="start" />
+                <Link href="/contact" variant="plain">Plain Link</Link>
+                <Separator label="COLORS" align="start" />
+                <HStack gap="4">
+                    <Link href="/page" colorPalette="blue">Blue</Link>
+                    <Link href="/page" colorPalette="teal">Teal</Link>
+                    <Link href="/page" colorPalette="purple">Purple</Link>
+                    <Link href="/page" colorPalette="red">Red</Link>
+                </HStack>
+                <Separator label="IN CONTEXT" align="start" />
+                <HStack gap="1">
+                    <Text>{"Read the "}</Text>
+                    <Link href="/docs" colorPalette="blue">documentation</Link>
+                    <Text>{" for more info."}</Text>
+                </HStack>
+                <Separator label="COMBINED" align="start" />
+                <Link href="https://docs.example.com" external variant="underline" colorPalette="blue">View Documentation</Link>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const counter = $.let(State.bind([IntegerType], "link_counter", 0n));
+                    const value = $.let(counter.read());
+                    const increment = $.const(East.function([], NullType, $ => {
+                        const cur = $.let(counter.read());
+                        $(counter.write(cur.add(1n)));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Text>Click the button to relabel the link:</Text>
+                            <Link href="https://example.com" external>{East.str`Visited ${East.print(value)} times — click here`}</Link>
+                            <Button onClick={increment}>Bump label</Button>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { RadioCardGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { RadioCardGroup, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -91,31 +91,25 @@ export const radioCardGroupVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD GROUP HORIZONTAL</Text>
-                    <RadioCardGroup
-                        value="monthly"
-                        items={RADIO_CARD_GROUP_HORIZONTAL_DATA}
-                        orientation="horizontal"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD GROUP DISABLED ITEM</Text>
-                    <RadioCardGroup
-                        value="active"
-                        items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CARD GROUP COLOUR OVERRIDES</Text>
-                    <RadioCardGroup
-                        value="med"
-                        items={RADIO_CARD_GROUP_COLOUR_OVERRIDES_DATA}
-                        selectedCardBackground="blue.50"
-                        selectedBorderColor="blue.500"
-                        descriptionColor="gray.600"
-                    />
-                </VStack>
+                <Separator label="CARD GROUP HORIZONTAL" align="start" />
+                <RadioCardGroup
+                    value="monthly"
+                    items={RADIO_CARD_GROUP_HORIZONTAL_DATA}
+                    orientation="horizontal"
+                />
+                <Separator label="CARD GROUP DISABLED ITEM" align="start" />
+                <RadioCardGroup
+                    value="active"
+                    items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA}
+                />
+                <Separator label="CARD GROUP COLOUR OVERRIDES" align="start" />
+                <RadioCardGroup
+                    value="med"
+                    items={RADIO_CARD_GROUP_COLOUR_OVERRIDES_DATA}
+                    selectedCardBackground="blue.50"
+                    selectedBorderColor="blue.500"
+                    descriptionColor="gray.600"
+                />
             </VStack>
         );
     }),

@@ -29,7 +29,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Reactive, Text, ValueTree, VStack } from "@elaraai/east-ui";
+import { Box, Reactive, Separator, ValueTree, VStack } from "@elaraai/east-ui";
 
 const MachineType = StructType({
     name: StringType,
@@ -273,14 +273,10 @@ export const valueTreeKitchenSink = example({
     description: "Read-only deep-tree panel — tree dict of structs (a dict of structs with option and variant fields: every branch kind in one tree), tree kitchen sink (deeply nested tree over every East type — nested variants, options of variants, recursion, and summarized opaque leaves)",
     fn: East.function([], UIComponentType, (_$) => (
         <VStack gap="4" align="stretch">
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TREE DICT OF STRUCTS</Text>
-                <ValueTree value={VALUE_TREE_DICT_OF_STRUCTS_DATA} />
-            </VStack>
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TREE KITCHEN SINK</Text>
-                <ValueTree value={VALUE_TREE_KITCHEN_SINK_DATA} />
-            </VStack>
+            <Separator label="TREE DICT OF STRUCTS" align="start" />
+            <ValueTree value={VALUE_TREE_DICT_OF_STRUCTS_DATA} />
+            <Separator label="TREE KITCHEN SINK" align="start" />
+            <ValueTree value={VALUE_TREE_KITCHEN_SINK_DATA} />
         </VStack>
     )),
     inputs: [],
@@ -291,99 +287,91 @@ export const valueTreeEditingContracts = example({
     description: "Editing-contract panel — tree scoped (ValueTree.at routes edits inside one entry to a typed handler; everything else bubbles to onUpdate), tree collections (adds and removes arrive as the rebuilt value through onUpdate, no path plumbing), tree raw paths (onEdit receives the typed path and leaf for hosts with a finer-grained store), tree kitchen sink editable (a deep editable tree — every editable leaf kind, nested variants, options, and collections — through one onUpdate)",
     fn: East.function([], UIComponentType, (_$) => (
         <VStack gap="4" align="stretch">
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TREE SCOPED</Text>
-                <Reactive>{$ => {
-                    const PlantType = DictType(StringType, MachineType);
-                    const bind = $.let(State.bind(
-                        [PlantType],
-                        "vt_plant",
-                        VALUE_TREE_SCOPED_DATA,
-                    ));
-                    const plant = $.let(bind.read());
-                    // The scope receives just the rebuilt "press" machine — a
-                    // specialised, fully-typed handler for that subtree.
-                    const onPress = $.const(East.function([MachineType], NullType, ($, m) => {
+            <Separator label="TREE SCOPED" align="start" />
+            <Reactive>{$ => {
+                const PlantType = DictType(StringType, MachineType);
+                const bind = $.let(State.bind(
+                    [PlantType],
+                    "vt_plant",
+                    VALUE_TREE_SCOPED_DATA,
+                ));
+                const plant = $.let(bind.read());
+                // The scope receives just the rebuilt "press" machine — a
+                // specialised, fully-typed handler for that subtree.
+                const onPress = $.const(East.function([MachineType], NullType, ($, m) => {
+                    const next = $.let(bind.read());
+                    $(next.insertOrUpdate("press", m));
+                    $(bind.write(next));
+                }));
+                // Edits outside the scope (the mill, adds/removes) bubble here.
+                const onUpdate = $.const(East.function([PlantType], NullType, ($, next) => {
+                    $(bind.write(next));
+                }));
+                return (
+                    <ValueTree
+                        value={plant}
+                        onUpdate={onUpdate}
+                        at={[ValueTree.at(PlantType, p => p.entry("press"), onPress)]}
+                    />
+                );
+            }}</Reactive>
+            <Separator label="TREE COLLECTIONS" align="start" />
+            <Reactive>{$ => {
+                const RunType = StructType({
+                    samples: ArrayType(FloatType),
+                    thresholds: DictType(StringType, FloatType),
+                });
+                const bind = $.let(State.bind([RunType], "vt_run", VALUE_TREE_COLLECTIONS_DATA));
+                const run = $.let(bind.read());
+                const onUpdate = $.const(East.function([RunType], NullType, ($, next) => {
+                    $(bind.write(next));
+                }));
+                return <ValueTree value={run} onUpdate={onUpdate} />;
+            }}</Reactive>
+            <Separator label="TREE RAW PATHS" align="start" />
+            <Reactive>{$ => {
+                const bind = $.let(State.bind(
+                    [DictType(StringType, FloatType)],
+                    "vt_rates",
+                    VALUE_TREE_RAW_PATHS_DATA,
+                ));
+                const rates = $.let(bind.read());
+                const onEdit = $.const(East.function(
+                    [ValueTree.Types.Path, ValueTree.Types.Leaf], NullType,
+                    ($, path, leaf) => {
+                        const key = $.let(path.get(0n).unwrap("key"));
                         const next = $.let(bind.read());
-                        $(next.insertOrUpdate("press", m));
+                        $(next.insertOrUpdate(key, leaf.unwrap("float")));
                         $(bind.write(next));
-                    }));
-                    // Edits outside the scope (the mill, adds/removes) bubble here.
-                    const onUpdate = $.const(East.function([PlantType], NullType, ($, next) => {
-                        $(bind.write(next));
-                    }));
-                    return (
-                        <ValueTree
-                            value={plant}
-                            onUpdate={onUpdate}
-                            at={[ValueTree.at(PlantType, p => p.entry("press"), onPress)]}
-                        />
-                    );
-                }}</Reactive>
-            </VStack>
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TREE COLLECTIONS</Text>
-                <Reactive>{$ => {
-                    const RunType = StructType({
-                        samples: ArrayType(FloatType),
-                        thresholds: DictType(StringType, FloatType),
-                    });
-                    const bind = $.let(State.bind([RunType], "vt_run", VALUE_TREE_COLLECTIONS_DATA));
-                    const run = $.let(bind.read());
-                    const onUpdate = $.const(East.function([RunType], NullType, ($, next) => {
-                        $(bind.write(next));
-                    }));
-                    return <ValueTree value={run} onUpdate={onUpdate} />;
-                }}</Reactive>
-            </VStack>
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TREE RAW PATHS</Text>
-                <Reactive>{$ => {
-                    const bind = $.let(State.bind(
-                        [DictType(StringType, FloatType)],
-                        "vt_rates",
-                        VALUE_TREE_RAW_PATHS_DATA,
-                    ));
-                    const rates = $.let(bind.read());
-                    const onEdit = $.const(East.function(
-                        [ValueTree.Types.Path, ValueTree.Types.Leaf], NullType,
-                        ($, path, leaf) => {
-                            const key = $.let(path.get(0n).unwrap("key"));
-                            const next = $.let(bind.read());
-                            $(next.insertOrUpdate(key, leaf.unwrap("float")));
-                            $(bind.write(next));
-                        },
-                    ));
-                    return <ValueTree value={rates} onEdit={onEdit} />;
-                }}</Reactive>
-            </VStack>
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TREE KITCHEN SINK EDITABLE</Text>
-                <Reactive>{$ => {
-                    const LineType = StructType({
-                        machines: ArrayType(StructType({
-                            name: StringType,
-                            commissioned: DateTimeType,
-                            active: BooleanType,
-                            batch: IntegerType,
-                            rate: FloatType,
-                            operator: OptionType(StringType),
-                            state: VariantType({
-                                running: StructType({ rate: FloatType }),
-                                down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
-                                idle: NullType,
-                            }),
-                        })),
-                        thresholds: DictType(StringType, FloatType),
-                    });
-                    const bind = $.let(State.bind([LineType], "vt_line", VALUE_TREE_KITCHEN_SINK_EDITABLE_DATA));
-                    const line = $.let(bind.read());
-                    const onUpdate = $.const(East.function([LineType], NullType, ($, next) => {
-                        $(bind.write(next));
-                    }));
-                    return <ValueTree value={line} onUpdate={onUpdate} />;
-                }}</Reactive>
-            </VStack>
+                    },
+                ));
+                return <ValueTree value={rates} onEdit={onEdit} />;
+            }}</Reactive>
+            <Separator label="TREE KITCHEN SINK EDITABLE" align="start" />
+            <Reactive>{$ => {
+                const LineType = StructType({
+                    machines: ArrayType(StructType({
+                        name: StringType,
+                        commissioned: DateTimeType,
+                        active: BooleanType,
+                        batch: IntegerType,
+                        rate: FloatType,
+                        operator: OptionType(StringType),
+                        state: VariantType({
+                            running: StructType({ rate: FloatType }),
+                            down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
+                            idle: NullType,
+                        }),
+                    })),
+                    thresholds: DictType(StringType, FloatType),
+                });
+                const bind = $.let(State.bind([LineType], "vt_line", VALUE_TREE_KITCHEN_SINK_EDITABLE_DATA));
+                const line = $.let(bind.read());
+                const onUpdate = $.const(East.function([LineType], NullType, ($, next) => {
+                    $(bind.write(next));
+                }));
+                return <ValueTree value={line} onUpdate={onUpdate} />;
+            }}</Reactive>
         </VStack>
     )),
     inputs: [],

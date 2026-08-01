@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Banner, Button, HStack, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Banner, Button, HStack, Reactive, Separator, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Status variants — the Banner status grammar's visual guard (epic #455).
@@ -17,39 +17,30 @@ export const bannerStatusVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STALE DATA</Text>
-                    <Banner
+                <Separator label="STALE DATA" align="start" />
+                <Banner
                         status="stale"
                         title="Data last refreshed 48m ago"
                         description="Some metrics may be stale."
                         actions={<Button variant="outline">Refresh</Button>}
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FROZEN SCENARIO</Text>
-                    <Banner
+                <Separator label="FROZEN SCENARIO" align="start" />
+                <Banner
                         status="info"
                         title="You're viewing a frozen scenario"
                         description="Editing is disabled. Duplicate the scenario to make changes."
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RUN WARNINGS</Text>
-                    <Banner
+                <Separator label="RUN WARNINGS" align="start" />
+                <Banner
                         status="guard"
                         title="3 warnings on this run"
                         description="Review before promoting to production."
                         actions={<Button variant="solid">Review</Button>}
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SCENARIO SAVED</Text>
-                    <Banner status="change" title="Scenario saved" description="Your changes are committed." dismissible />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMMIT LANDED</Text>
-                    <Banner
+                <Separator label="SCENARIO SAVED" align="start" />
+                <Banner status="change" title="Scenario saved" description="Your changes are committed." dismissible />
+                <Separator label="COMMIT LANDED" align="start" />
+                <Banner
                         status="change"
                         title="Commit landed"
                         description="Build #1842 is green."
@@ -61,11 +52,8 @@ export const bannerStatusVariants = example({
                         }
                         dismissible
                     />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SYNC PROGRESS</Text>
-                    <Banner status="info" title="Background sync in progress" description="Stays visible until dismissed." dismissible />
-                </VStack>
+                <Separator label="SYNC PROGRESS" align="start" />
+                <Banner status="info" title="Background sync in progress" description="Stays visible until dismissed." dismissible />
             </VStack>
         );
     }),

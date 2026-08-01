@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { Hotkey, State, UIComponentType } from "@elaraai/east-ui";
-import { CommandPalette, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { CommandPalette, Reactive, Separator, VStack } from "@elaraai/east-ui";
 
 export const commandPaletteBasic = example({
     keywords: ["CommandPalette", "Root", "launcher", "cmdk"],
@@ -68,47 +68,39 @@ export const commandPaletteVariants = example({
         const noop = $.const(East.function([], NullType, (_$) => { /* run command */ }));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PALETTE GROUPED</Text>
-                    <CommandPalette
-                        placeholder="Search commands…"
-                        commands={[
-                            { id: "go.home", label: "Go to Home", shortcut: "G H", group: "Navigate", action: noop },
-                            { id: "go.scenarios", label: "Go to Scenarios", shortcut: "G S", group: "Navigate", action: noop },
-                            { id: "act.run", label: "Run scenario", shortcut: "⌘↵", group: "Actions", action: noop },
-                            { id: "act.export", label: "Export current view", group: "Actions", action: noop },
-                            { id: "set.theme", label: "Toggle theme", group: "Settings", action: noop },
-                        ]}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PALETTE WITH KEYWORDS</Text>
-                    <CommandPalette commands={[
-                        { id: "audit", label: "Show audit trail", keywords: ["logs", "history", "events"], action: noop },
-                        { id: "perm", label: "Manage permissions", keywords: ["roles", "access"], action: noop },
-                    ]} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PALETTE CUSTOM TRIGGER</Text>
-                    <CommandPalette triggerKey="mod+/" commands={[
-                        { id: "help", label: "Show help", action: noop },
-                    ]} />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PALETTE COLOURS</Text>
-                    <CommandPalette
-                        size="md"
-                        background="bg"
-                        borderColor="blue.300"
-                        inputBackground="bg.subtle"
-                        selectedBackground="blue.100"
-                        groupLabelColor="blue.700"
-                        commands={[
-                            { id: "a", label: "Action A", group: "Group", action: noop },
-                            { id: "b", label: "Action B", group: "Group", action: noop },
-                        ]}
-                    />
-                </VStack>
+                <Separator label="PALETTE GROUPED" align="start" />
+                <CommandPalette
+                    placeholder="Search commands…"
+                    commands={[
+                        { id: "go.home", label: "Go to Home", shortcut: "G H", group: "Navigate", action: noop },
+                        { id: "go.scenarios", label: "Go to Scenarios", shortcut: "G S", group: "Navigate", action: noop },
+                        { id: "act.run", label: "Run scenario", shortcut: "⌘↵", group: "Actions", action: noop },
+                        { id: "act.export", label: "Export current view", group: "Actions", action: noop },
+                        { id: "set.theme", label: "Toggle theme", group: "Settings", action: noop },
+                    ]}
+                />
+                <Separator label="PALETTE WITH KEYWORDS" align="start" />
+                <CommandPalette commands={[
+                    { id: "audit", label: "Show audit trail", keywords: ["logs", "history", "events"], action: noop },
+                    { id: "perm", label: "Manage permissions", keywords: ["roles", "access"], action: noop },
+                ]} />
+                <Separator label="PALETTE CUSTOM TRIGGER" align="start" />
+                <CommandPalette triggerKey="mod+/" commands={[
+                    { id: "help", label: "Show help", action: noop },
+                ]} />
+                <Separator label="PALETTE COLOURS" align="start" />
+                <CommandPalette
+                    size="md"
+                    background="bg"
+                    borderColor="blue.300"
+                    inputBackground="bg.subtle"
+                    selectedBackground="blue.100"
+                    groupLabelColor="blue.700"
+                    commands={[
+                        { id: "a", label: "Action A", group: "Group", action: noop },
+                        { id: "b", label: "Action B", group: "Group", action: noop },
+                    ]}
+                />
             </VStack>
         );
     }),

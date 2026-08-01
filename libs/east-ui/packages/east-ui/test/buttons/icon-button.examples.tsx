@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { IconButton, Reactive, Text, VStack, Stat } from "@elaraai/east-ui";
+import { IconButton, Reactive, Separator, VStack, Stat } from "@elaraai/east-ui";
 
 export const iconButtonBasic = example({
     keywords: ["IconButton", "Root", "label", "aria-label", "close"],
@@ -26,44 +26,37 @@ export const iconButtonVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON LOADING</Text>
-                    <IconButton
-                        prefix="fas"
-                        name="rotate"
-                        label="Refresh"
-                        loading
-                        loadingIcon={{ prefix: "fas", name: "spinner" }}
-                        variant="subtle"
-                        colorPalette="blue"
-                    />
+                <Separator label="BUTTON LOADING" align="start" />
+                <IconButton
+                    prefix="fas"
+                    name="rotate"
+                    label="Refresh"
+                    loading
+                    loadingIcon={{ prefix: "fas", name: "spinner" }}
+                    variant="subtle"
+                    colorPalette="blue"
+                />
+                <Separator label="BUTTON COLOURED" align="start" />
+                <IconButton
+                    prefix="fas"
+                    name="rocket"
+                    label="Deploy"
+                    color="#ffffff"
+                    background="#1a2234"
+                    borderColor="#3d5cff"
+                    hoverBackground="#25345a"
+                    size="md"
+                />
+                <Separator label="BUTTON BADGE AND ATTENTION" align="start" />
+                <VStack gap="4">
+                    <IconButton prefix="fas" name="bell" label="Alerts" variant="ghost" badge="3" />
+                    <IconButton prefix="fas" name="bell" label="Many alerts" variant="ghost" badge="99+" badgeColorPalette="orange" />
+                    <IconButton prefix="fas" name="inbox" label="Unread" variant="ghost" badge="" />
+                    <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="red" badge="5" attention="pulse" />
+                    <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="blue" attention="ring" />
                 </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON COLOURED</Text>
-                    <IconButton
-                        prefix="fas"
-                        name="rocket"
-                        label="Deploy"
-                        color="#ffffff"
-                        background="#1a2234"
-                        borderColor="#3d5cff"
-                        hoverBackground="#25345a"
-                        size="md"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON BADGE AND ATTENTION</Text>
-                    <VStack gap="4">
-                        <IconButton prefix="fas" name="bell" label="Alerts" variant="ghost" badge="3" />
-                        <IconButton prefix="fas" name="bell" label="Many alerts" variant="ghost" badge="99+" badgeColorPalette="orange" />
-                        <IconButton prefix="fas" name="inbox" label="Unread" variant="ghost" badge="" />
-                        <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="red" badge="5" attention="pulse" />
-                        <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="blue" attention="ring" />
-                    </VStack>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BUTTON ON CLICK REACTIVE</Text>
-                    <Reactive>{$ => {
+                <Separator label="BUTTON ON CLICK REACTIVE" align="start" />
+                <Reactive>{$ => {
                         const counter = $.let(State.bind([IntegerType], "icon_button_counter", 0n));
                         const count = $.let(counter.read());
                         const increment = $.const(East.function([], NullType, $ => {
@@ -77,7 +70,6 @@ export const iconButtonVariants = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, CodeBlock, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Button, CodeBlock, Reactive, Separator, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -30,47 +30,32 @@ export const codeBlockVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK WITH LANGUAGE</Text>
-                    <CodeBlock language="typescript">{"function greet(name: string): string {\n\treturn `Hello, ${name}!`;\n}"}</CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK LINE NUMBERS</Text>
-                    <CodeBlock language="typescript" showLineNumbers>
+                <Separator label="BLOCK WITH LANGUAGE" align="start" />
+                <CodeBlock language="typescript">{"function greet(name: string): string {\n\treturn `Hello, ${name}!`;\n}"}</CodeBlock>
+                <Separator label="BLOCK LINE NUMBERS" align="start" />
+                <CodeBlock language="typescript" showLineNumbers>
                         {"import { East } from \"@elaraai/east\";\nconst value = East.value(42);\nconsole.log(value);"}
                     </CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK HIGHLIGHTED</Text>
-                    <CodeBlock language="typescript" showLineNumbers highlightLines={[4n]}>
+                <Separator label="BLOCK HIGHLIGHTED" align="start" />
+                <CodeBlock language="typescript" showLineNumbers highlightLines={[4n]}>
                         {"function calculate() {\n\tconst a = 10;\n\tconst b = 20;\n\treturn a + b;  // Important line\n}"}
                     </CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK MAX HEIGHT</Text>
-                    <CodeBlock language="typescript" showLineNumbers maxHeight="150px">
+                <Separator label="BLOCK MAX HEIGHT" align="start" />
+                <CodeBlock language="typescript" showLineNumbers maxHeight="150px">
                         {"// Long code example\nfunction processData(data) {\n  const results = [];\n\n  for (const item of data) {\n    const processed = transform(item);\n    results.push(processed);\n  }\n\n  return results;\n}\n\nfunction transform(item) {\n  return {\n    ...item,\n    processed: true,\n  };\n}"}
                     </CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK PYTHON</Text>
-                    <CodeBlock language="python" showLineNumbers>
+                <Separator label="BLOCK PYTHON" align="start" />
+                <CodeBlock language="python" showLineNumbers>
                         {"def fibonacci(n):\nif n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\nprint(fibonacci(10))"}
                     </CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK JSON</Text>
-                    <CodeBlock language="json">
+                <Separator label="BLOCK JSON" align="start" />
+                <CodeBlock language="json">
                         {"{\n\t\"name\": \"east-ui\",\n\t\"version\": \"1.0.0\",\n\t\"dependencies\": {\n\t\t\"@elaraai/east\": \"^1.0.0\"\n\t}\n}"}
                     </CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK BASH</Text>
-                    <CodeBlock language="bash">{"$ npm install @elaraai/east-ui\n$ npm run build\n$ npm test"}</CodeBlock>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLOCK INTERACTIVE</Text>
-                    <Reactive>{$ => {
+                <Separator label="BLOCK BASH" align="start" />
+                <CodeBlock language="bash">{"$ npm install @elaraai/east-ui\n$ npm run build\n$ npm test"}</CodeBlock>
+                <Separator label="BLOCK INTERACTIVE" align="start" />
+                <Reactive>{$ => {
                         const counter = $.let(State.bind([IntegerType], "code_block_counter", 0n));
                         const value = $.let(counter.read());
                         const increment = $.const(East.function([], NullType, $ => {
@@ -84,7 +69,6 @@ export const codeBlockVariants = example({
                             </VStack>
                         );
                     }}</Reactive>
-                </VStack>
             </VStack>
         );
     }),

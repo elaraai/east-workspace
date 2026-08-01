@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { Button, HStack, Map, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Button, HStack, Map, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -150,81 +150,73 @@ export const mapOverlayVariants = example({
         ], ArrayType(StructType({ id: StringType, name: StringType, shape: Map.Types.AreaShape, st: OptionType(StatusTokenType) })));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AREAS</Text>
-                    <Map
-                        center={Map.at(-34.881, 138.6)}
-                        zoom={12n}
-                        lodZoom={13n}
-                        markers={[]}
-                        areas={MAP_AREAS_DATA}
-                        area={a => ({
-                            key: a.id,
-                            label: a.name,
-                            shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
-                            tone: "brand",
-                            flyTo: Map.point(Map.at(a.lat, a.lng), 14n),
-                        })}
-                        height="420px"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">HEX LOD</Text>
-                    <Map
-                        center={Map.at(-34.881, 138.6)}
-                        zoom={12n}
-                        lodZoom={13n}
-                        hexes={Map.hex({
-                            lattice: { center: Map.at(-34.881, 138.6), k: 11n, resolution: 8n },
-                            tone: "muted",
-                        })}
-                        markers={[]}
-                        areas={MAP_HEX_LOD_DATA}
-                        area={a => ({
-                            key: a.id,
-                            label: a.name,
-                            detailLabel: East.str`${a.name} · EN mornings short 3`,
-                            shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
-                        })}
-                        height="420px"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">PULSE</Text>
-                    <Map
-                        center={Map.at(-34.881, 138.6)}
-                        zoom={12n}
-                        // Faint grey lattice across most of the map; the two status areas pulse on top.
-                        hexes={Map.hex({ lattice: { center: Map.at(-34.881, 138.6), k: 14n, resolution: 8n }, tone: "muted" })}
-                        markers={[]}
-                        areas={MAP_PULSE_DATA}
-                        area={a => ({
-                            key: a.id,
-                            label: a.name,
-                            shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
-                            status: a.st,
-                        })}
-                        lines={[{ id: "move", from_lat: -34.905, from_lng: 138.6, to_lat: -34.852, to_lng: 138.6 }]}
-                        line={l => ({
-                            key: l.id,
-                            points: [Map.at(l.from_lat, l.from_lng), Map.at(l.to_lat, l.to_lng)],
-                            style: Map.dashed({ tone: "brand" }),
-                            arrow: true,
-                        })}
-                        height="420px"
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">REGIONS</Text>
-                    <Map
-                        center={Map.at(-34.878, 138.600)}
-                        zoom={13n}
-                        markers={[]}
-                        areas={areas}
-                        area={a => ({ key: a.id, label: a.name, shape: a.shape, status: a.st })}
-                        height="420px"
-                    />
-                </VStack>
+                <Separator label="AREAS" align="start" />
+                <Map
+                    center={Map.at(-34.881, 138.6)}
+                    zoom={12n}
+                    lodZoom={13n}
+                    markers={[]}
+                    areas={MAP_AREAS_DATA}
+                    area={a => ({
+                        key: a.id,
+                        label: a.name,
+                        shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
+                        tone: "brand",
+                        flyTo: Map.point(Map.at(a.lat, a.lng), 14n),
+                    })}
+                    height="420px"
+                />
+                <Separator label="HEX LOD" align="start" />
+                <Map
+                    center={Map.at(-34.881, 138.6)}
+                    zoom={12n}
+                    lodZoom={13n}
+                    hexes={Map.hex({
+                        lattice: { center: Map.at(-34.881, 138.6), k: 11n, resolution: 8n },
+                        tone: "muted",
+                    })}
+                    markers={[]}
+                    areas={MAP_HEX_LOD_DATA}
+                    area={a => ({
+                        key: a.id,
+                        label: a.name,
+                        detailLabel: East.str`${a.name} · EN mornings short 3`,
+                        shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
+                    })}
+                    height="420px"
+                />
+                <Separator label="PULSE" align="start" />
+                <Map
+                    center={Map.at(-34.881, 138.6)}
+                    zoom={12n}
+                    // Faint grey lattice across most of the map; the two status areas pulse on top.
+                    hexes={Map.hex({ lattice: { center: Map.at(-34.881, 138.6), k: 14n, resolution: 8n }, tone: "muted" })}
+                    markers={[]}
+                    areas={MAP_PULSE_DATA}
+                    area={a => ({
+                        key: a.id,
+                        label: a.name,
+                        shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
+                        status: a.st,
+                    })}
+                    lines={[{ id: "move", from_lat: -34.905, from_lng: 138.6, to_lat: -34.852, to_lng: 138.6 }]}
+                    line={l => ({
+                        key: l.id,
+                        points: [Map.at(l.from_lat, l.from_lng), Map.at(l.to_lat, l.to_lng)],
+                        style: Map.dashed({ tone: "brand" }),
+                        arrow: true,
+                    })}
+                    height="420px"
+                />
+                <Separator label="REGIONS" align="start" />
+                <Map
+                    center={Map.at(-34.878, 138.600)}
+                    zoom={13n}
+                    markers={[]}
+                    areas={areas}
+                    area={a => ({ key: a.id, label: a.name, shape: a.shape, status: a.st })}
+                    height="420px"
+                />
             </VStack>
         );
     }),

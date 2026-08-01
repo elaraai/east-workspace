@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
 import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Gantt, Library, Reactive, Separator, Table, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -105,34 +105,28 @@ export const ganttAxisVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AXIS WINDOW</Text>
-                    <Gantt
-                        axis={{ range: { min: new Date("2024-01-01"), max: new Date("2024-12-31") }, tier: "month", format: "MMM" }}
-                        data={GANTT_AXIS_WINDOW_DATA}
-                        columns={{ task: { header: "Workstream" } }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AXIS QUARTER TIER</Text>
-                    <Gantt
-                        axis={{ tier: "quarter", format: "MMM YYYY" }}
-                        data={GANTT_AXIS_QUARTER_TIER_DATA}
-                        columns={{ epic: { header: "Epic" } }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">AXIS WEEK TIER</Text>
-                    <Gantt
-                        axis={{ tier: "week", format: "MMM DD" }}
-                        showToday={true}
-                        data={GANTT_AXIS_WEEK_TIER_DATA}
-                        columns={{ task: { header: "Task" } }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
+                <Separator label="AXIS WINDOW" align="start" />
+                <Gantt
+                    axis={{ range: { min: new Date("2024-01-01"), max: new Date("2024-12-31") }, tier: "month", format: "MMM" }}
+                    data={GANTT_AXIS_WINDOW_DATA}
+                    columns={{ task: { header: "Workstream" } }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="AXIS QUARTER TIER" align="start" />
+                <Gantt
+                    axis={{ tier: "quarter", format: "MMM YYYY" }}
+                    data={GANTT_AXIS_QUARTER_TIER_DATA}
+                    columns={{ epic: { header: "Epic" } }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="AXIS WEEK TIER" align="start" />
+                <Gantt
+                    axis={{ tier: "week", format: "MMM DD" }}
+                    showToday={true}
+                    data={GANTT_AXIS_WEEK_TIER_DATA}
+                    columns={{ task: { header: "Task" } }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
             </VStack>
         );
     }),
@@ -149,61 +143,55 @@ export const ganttTaskVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH MILESTONES</Text>
-                    <Gantt
-                        data={GANTT_WITH_MILESTONES_DATA}
-                        columns={{ name: { header: "Sprint" } }}
-                        rowSpec={row => ({
-                            tasks: [Gantt.Task({ start: row.start, end: row.end })],
-                            milestones: [Gantt.Milestone({
-                                date: row.checkpoint,
-                                label: "Checkpoint",
-                                kind: row.kind.equal("release").ifElse(
-                                    _$ => variant("release", null),
-                                    _$ => variant("interim", null),
-                                ),
-                            })],
-                        })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">WITH PROGRESS</Text>
-                    <Gantt
-                        data={GANTT_WITH_PROGRESS_DATA}
-                        columns={{ task: { header: "Task" } }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, progress: row.progress })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">RICH LABEL</Text>
-                    <Gantt
-                        data={GANTT_RICH_LABEL_DATA}
-                        columns={["row"]}
-                        rowSpec={(_row) => ({
-                            tasks: [
-                                Gantt.Task({
-                                    start: new Date("2024-01-01"),
-                                    end: new Date("2024-01-15"),
-                                    label: { value: "Plain label" },
-                                }),
-                                Gantt.Task({
-                                    start: new Date("2024-01-20"),
-                                    end: new Date("2024-02-05"),
-                                    label: {
-                                        value: "Styled label",
-                                        align: "center",
-                                        verticalAlign: "center",
-                                        color: "yellow.300",
-                                        fontWeight: "bold",
-                                        fontStyle: "italic",
-                                        fontSize: "lg",
-                                    },
-                                }),
-                            ],
-                        })}
-                    />
-                </VStack>
+                <Separator label="WITH MILESTONES" align="start" />
+                <Gantt
+                    data={GANTT_WITH_MILESTONES_DATA}
+                    columns={{ name: { header: "Sprint" } }}
+                    rowSpec={row => ({
+                        tasks: [Gantt.Task({ start: row.start, end: row.end })],
+                        milestones: [Gantt.Milestone({
+                            date: row.checkpoint,
+                            label: "Checkpoint",
+                            kind: row.kind.equal("release").ifElse(
+                                _$ => variant("release", null),
+                                _$ => variant("interim", null),
+                            ),
+                        })],
+                    })}
+                />
+                <Separator label="WITH PROGRESS" align="start" />
+                <Gantt
+                    data={GANTT_WITH_PROGRESS_DATA}
+                    columns={{ task: { header: "Task" } }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, progress: row.progress })] })}
+                />
+                <Separator label="RICH LABEL" align="start" />
+                <Gantt
+                    data={GANTT_RICH_LABEL_DATA}
+                    columns={["row"]}
+                    rowSpec={(_row) => ({
+                        tasks: [
+                            Gantt.Task({
+                                start: new Date("2024-01-01"),
+                                end: new Date("2024-01-15"),
+                                label: { value: "Plain label" },
+                            }),
+                            Gantt.Task({
+                                start: new Date("2024-01-20"),
+                                end: new Date("2024-02-05"),
+                                label: {
+                                    value: "Styled label",
+                                    align: "center",
+                                    verticalAlign: "center",
+                                    color: "yellow.300",
+                                    fontWeight: "bold",
+                                    fontStyle: "italic",
+                                    fontSize: "lg",
+                                },
+                            }),
+                        ],
+                    })}
+                />
             </VStack>
         );
     }),
@@ -237,100 +225,88 @@ export const ganttStyleVariants = example({
         }));
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">STYLED</Text>
-                    <Gantt
-                        variant="line"
-                        striped={true}
-                        showToday={true}
-                        density="compact"
-                        data={[
-                            { dept: "Engineering", project: "Platform v2", start: new Date(Date.now() - 60 * day), end: new Date(Date.now() + 60 * day) },
-                            { dept: "Design", project: "UI Refresh", start: new Date(Date.now() - 45 * day), end: new Date(Date.now() + 15 * day) },
-                            { dept: "DevOps", project: "CI/CD Pipeline", start: new Date(Date.now() - 20 * day), end: new Date(Date.now() + 30 * day) },
-                            { dept: "QA", project: "Test Automation", start: new Date(Date.now() - 10 * day), end: new Date(Date.now() + 75 * day) },
-                        ]}
-                        columns={{
-                            dept: { header: "Department" },
-                            project: { header: "Project" },
-                        }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW HEIGHT</Text>
-                    <Gantt
-                        rowHeight={44n}
-                        data={GANTT_ROW_HEIGHT_DATA}
-                        columns={["task", "owner"]}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM HEADERS</Text>
-                    <Gantt
-                        data={GANTT_CUSTOM_HEADERS_DATA}
-                        columns={{
-                            phase: { header: "Phase", width: "300px", minWidth: "80px" },
-                            team: { header: "Team", width: "150px", maxWidth: "200px" },
-                        }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">COMPLEX COLUMNS</Text>
-                    <Gantt
-                        variant="line"
-                        striped={true}
-                        data={rows}
-                        columns={{
-                            task: {
-                                header: "Project",
-                                // render closes over `rows` to read a sibling field (owner) for the same row
-                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                    const row = $.let(rows.get(ctx.rowIndex));
-                                    return <Text>{East.str`${row.task} · ${row.owner}`}</Text>;
-                                }),
-                            },
-                            tags: {
-                                header: "Tags",
-                                value: (tags) => tags.size(),
-                                render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                                    <Text>{ctx.cellValue.match({ Integer: (_$2, v) => East.str`${v} tags` }, _$2 => "")}</Text>
-                                )),
-                            },
-                        }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">FROZEN COLUMNS</Text>
-                    <Gantt
-                        frozen={["id", "task"]}
-                        variant="line"
-                        striped={true}
-                        height="300px"
-                        data={GANTT_FROZEN_COLUMNS_DATA}
-                        columns={{
-                            id: { header: "ID", width: "80px" },
-                            task: { header: "Task", width: "150px" },
-                            owner: { header: "Owner", width: "120px" },
-                            dept: { header: "Department", width: "150px" },
-                            priority: { header: "Priority", width: "120px" },
-                        }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">ROW STATUS</Text>
-                    <Gantt
-                        rowStatus={rowStatus}
-                        variant="line"
-                        data={GANTT_ROW_STATUS_DATA}
-                        columns={{ task: { header: "Task" } }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </VStack>
+                <Separator label="STYLED" align="start" />
+                <Gantt
+                    variant="line"
+                    striped={true}
+                    showToday={true}
+                    density="compact"
+                    data={[
+                        { dept: "Engineering", project: "Platform v2", start: new Date(Date.now() - 60 * day), end: new Date(Date.now() + 60 * day) },
+                        { dept: "Design", project: "UI Refresh", start: new Date(Date.now() - 45 * day), end: new Date(Date.now() + 15 * day) },
+                        { dept: "DevOps", project: "CI/CD Pipeline", start: new Date(Date.now() - 20 * day), end: new Date(Date.now() + 30 * day) },
+                        { dept: "QA", project: "Test Automation", start: new Date(Date.now() - 10 * day), end: new Date(Date.now() + 75 * day) },
+                    ]}
+                    columns={{
+                        dept: { header: "Department" },
+                        project: { header: "Project" },
+                    }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="ROW HEIGHT" align="start" />
+                <Gantt
+                    rowHeight={44n}
+                    data={GANTT_ROW_HEIGHT_DATA}
+                    columns={["task", "owner"]}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="CUSTOM HEADERS" align="start" />
+                <Gantt
+                    data={GANTT_CUSTOM_HEADERS_DATA}
+                    columns={{
+                        phase: { header: "Phase", width: "300px", minWidth: "80px" },
+                        team: { header: "Team", width: "150px", maxWidth: "200px" },
+                    }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="COMPLEX COLUMNS" align="start" />
+                <Gantt
+                    variant="line"
+                    striped={true}
+                    data={rows}
+                    columns={{
+                        task: {
+                            header: "Project",
+                            // render closes over `rows` to read a sibling field (owner) for the same row
+                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                const row = $.let(rows.get(ctx.rowIndex));
+                                return <Text>{East.str`${row.task} · ${row.owner}`}</Text>;
+                            }),
+                        },
+                        tags: {
+                            header: "Tags",
+                            value: (tags) => tags.size(),
+                            render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+                                <Text>{ctx.cellValue.match({ Integer: (_$2, v) => East.str`${v} tags` }, _$2 => "")}</Text>
+                            )),
+                        },
+                    }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="FROZEN COLUMNS" align="start" />
+                <Gantt
+                    frozen={["id", "task"]}
+                    variant="line"
+                    striped={true}
+                    height="300px"
+                    data={GANTT_FROZEN_COLUMNS_DATA}
+                    columns={{
+                        id: { header: "ID", width: "80px" },
+                        task: { header: "Task", width: "150px" },
+                        owner: { header: "Owner", width: "120px" },
+                        dept: { header: "Department", width: "150px" },
+                        priority: { header: "Priority", width: "120px" },
+                    }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+                <Separator label="ROW STATUS" align="start" />
+                <Gantt
+                    rowStatus={rowStatus}
+                    variant="line"
+                    data={GANTT_ROW_STATUS_DATA}
+                    columns={{ task: { header: "Task" } }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
             </VStack>
         );
     }),
@@ -441,106 +417,102 @@ export const ganttInteractiveCallbacks = example({
     description: "Interactive pair — interactive callbacks (click rows, cells, tasks, milestones or drag to see events through the ONE onDrag grammar funnel) and task popover (pass a UIComponent into `popover` for rich edit forms / details)",
     fn: East.function([], UIComponentType, (_$) => (
         <VStack gap="4" align="stretch">
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE CALLBACKS</Text>
-                <Reactive>{$ => {
-                    const lastEventBind = $.let(State.bind([StringType], "gantt_last_event", ""));
-                    const lastEvent = $.let(lastEventBind.read());
+            <Separator label="INTERACTIVE CALLBACKS" align="start" />
+            <Reactive>{$ => {
+                const lastEventBind = $.let(State.bind([StringType], "gantt_last_event", ""));
+                const lastEvent = $.let(lastEventBind.read());
 
-                    const onRowClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));
-                    }));
-                    const onRowDoubleClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));
-                    }));
-                    const onCellClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
-                    }));
-                    const onCellDoubleClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
-                    }));
-                    const onSortChange = $.const(East.function([Table.Types.SortEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
-                    }));
-                    const onTaskClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));
-                    }));
-                    const onTaskDoubleClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
-                    }));
-                    // ONE grammar funnel (#268): task-body drags arrive as `move`,
-                    // edge drags as `resize`, Library drops as `add` — the bespoke
-                    // per-gesture callbacks are gone.
-                    const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                        $.match(event, {
-                            move: ($, mv) => { $(lastEventBind.write(East.str`onDrag move: ${mv.from.row}/${mv.from.event.getTag()} → ${mv.to.slot}`)); },
-                            resize: ($, rz) => { $(lastEventBind.write(East.str`onDrag resize: ${rz.event.row} ${rz.edge.getTag()} edge → ${rz.event.slot}`)); },
-                            add: ($, add) => { $(lastEventBind.write(East.str`onDrag add: ${add.from.key} → row ${add.into.row}`)); },
-                            remove: ($, rm) => { $(lastEventBind.write(East.str`onDrag remove: ${rm.from.row}`)); },
-                        });
-                    }));
-                    const onTaskProgressChange = $.const(East.function([Gantt.Types.TaskProgressChangeEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
-                    }));
-                    const onMilestoneClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
-                    }));
-                    const onMilestoneDoubleClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
-                        $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
-                    }));
+                const onRowClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));
+                }));
+                const onRowDoubleClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));
+                }));
+                const onCellClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
+                }));
+                const onCellDoubleClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
+                }));
+                const onSortChange = $.const(East.function([Table.Types.SortEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
+                }));
+                const onTaskClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));
+                }));
+                const onTaskDoubleClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
+                }));
+                // ONE grammar funnel (#268): task-body drags arrive as `move`,
+                // edge drags as `resize`, Library drops as `add` — the bespoke
+                // per-gesture callbacks are gone.
+                const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                    $.match(event, {
+                        move: ($, mv) => { $(lastEventBind.write(East.str`onDrag move: ${mv.from.row}/${mv.from.event.getTag()} → ${mv.to.slot}`)); },
+                        resize: ($, rz) => { $(lastEventBind.write(East.str`onDrag resize: ${rz.event.row} ${rz.edge.getTag()} edge → ${rz.event.slot}`)); },
+                        add: ($, add) => { $(lastEventBind.write(East.str`onDrag add: ${add.from.key} → row ${add.into.row}`)); },
+                        remove: ($, rm) => { $(lastEventBind.write(East.str`onDrag remove: ${rm.from.row}`)); },
+                    });
+                }));
+                const onTaskProgressChange = $.const(East.function([Gantt.Types.TaskProgressChangeEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
+                }));
+                const onMilestoneClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
+                }));
+                const onMilestoneDoubleClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
+                    $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
+                }));
 
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Gantt
-                                striped={true}
-                                showToday={true}
-                                onRowClick={onRowClick}
-                                onRowDoubleClick={onRowDoubleClick}
-                                onCellClick={onCellClick}
-                                onCellDoubleClick={onCellDoubleClick}
-                                onSortChange={onSortChange}
-                                onTaskClick={onTaskClick}
-                                onTaskDoubleClick={onTaskDoubleClick}
-                                id="gantt-live"
-                                onDrag={onDrag}
-                                onTaskProgressChange={onTaskProgressChange}
-                                onMilestoneClick={onMilestoneClick}
-                                onMilestoneDoubleClick={onMilestoneDoubleClick}
-                                data={GANTT_INTERACTIVE_CALLBACKS_DATA}
-                                columns={{ name: { header: "Sprint" } }}
-                                rowSpec={row => ({
-                                    // `proposed` (not committed) so the bars are editable —
-                                    // committed bars are read-only / resize-locked per spec.
-                                    tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, state: "added" })],
-                                    milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
-                                })}
-                            />
-                            <Badge colorPalette="blue" variant="outline">
-                                {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the Gantt chart", _$ => lastEvent)}
-                            </Badge>
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Gantt
+                            striped={true}
+                            showToday={true}
+                            onRowClick={onRowClick}
+                            onRowDoubleClick={onRowDoubleClick}
+                            onCellClick={onCellClick}
+                            onCellDoubleClick={onCellDoubleClick}
+                            onSortChange={onSortChange}
+                            onTaskClick={onTaskClick}
+                            onTaskDoubleClick={onTaskDoubleClick}
+                            id="gantt-live"
+                            onDrag={onDrag}
+                            onTaskProgressChange={onTaskProgressChange}
+                            onMilestoneClick={onMilestoneClick}
+                            onMilestoneDoubleClick={onMilestoneDoubleClick}
+                            data={GANTT_INTERACTIVE_CALLBACKS_DATA}
+                            columns={{ name: { header: "Sprint" } }}
+                            rowSpec={row => ({
+                                // `proposed` (not committed) so the bars are editable —
+                                // committed bars are read-only / resize-locked per spec.
+                                tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, state: "added" })],
+                                milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
+                            })}
+                        />
+                        <Badge colorPalette="blue" variant="outline">
+                            {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the Gantt chart", _$ => lastEvent)}
+                        </Badge>
+                    </VStack>
+                );
+            }}</Reactive>
+            <Separator label="TASK POPOVER" align="start" />
+            <Gantt
+                data={GANTT_TASK_POPOVER_DATA}
+                columns={{ task: { header: "Sprint" } }}
+                rowSpec={row => ({ tasks: [Gantt.Task({
+                    start: row.start,
+                    end: row.end,
+                    label: row.task,
+                    popover: (
+                        <VStack gap="2">
+                            <Text fontWeight="bold">{East.str`Sprint: ${row.task}`}</Text>
+                            <Text>{East.str`Owner: ${row.owner}`}</Text>
+                            <Text>{East.str`From ${row.start} to ${row.end}`}</Text>
                         </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
-            <VStack gap="1" align="stretch">
-                <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">TASK POPOVER</Text>
-                <Gantt
-                    data={GANTT_TASK_POPOVER_DATA}
-                    columns={{ task: { header: "Sprint" } }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({
-                        start: row.start,
-                        end: row.end,
-                        label: row.task,
-                        popover: (
-                            <VStack gap="2">
-                                <Text fontWeight="bold">{East.str`Sprint: ${row.task}`}</Text>
-                                <Text>{East.str`Owner: ${row.owner}`}</Text>
-                                <Text>{East.str`From ${row.start} to ${row.end}`}</Text>
-                            </VStack>
-                        ),
-                    })] })}
-                />
-            </VStack>
+                    ),
+                })] })}
+            />
         </VStack>
     )),
     inputs: [],

@@ -276,12 +276,15 @@ examples are under the slot budget already and are exempt.)
 ### Panel construction
 
 A panel (Variants slot, or any merged multi-row example) is a
-`VStack gap='4'` of captioned rows: the caption is a `Text`
-mono-uppercase row label, the row's content below it is the merged
-example's render tree, verbatim. All data fixtures are hoisted to
-module scope as `SCREAMING_SNAKE` consts (no TS helper calls inside
-East bodies — east#990020). Every merged example's rendering remains
-individually visible in the capture.
+`VStack gap='4'` of labelled groups: each merged example contributes a
+`<Separator label="GROUP LABEL" align="start" />` boundary followed by
+its render tree, verbatim. Separator coerces the string label to the
+caption style AND draws a hairline, so a section boundary never reads
+like the content's own field labels (a hand-rolled caption `Text` is
+typographically identical to field labels — don't use one). All data
+fixtures are hoisted to module scope as `SCREAMING_SNAKE` consts (no TS
+helper calls inside East bodies — east#990020). Every merged example's
+rendering remains individually visible in the capture.
 
 ### Keyword-union rule
 

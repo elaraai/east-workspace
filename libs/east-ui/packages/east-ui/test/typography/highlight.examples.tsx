@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Highlight, Input, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Highlight, Input, Reactive, Separator, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -30,46 +30,32 @@ export const highlightVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">MULTIPLE TERMS</Text>
-                    <Highlight query={["quick", "fox", "dog"]}>The quick brown fox jumps over the lazy dog</Highlight>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">CUSTOM COLOR</Text>
-                    <Highlight query={["Important"]} background="yellow.200">Important information here</Highlight>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">GREEN</Text>
-                    <Highlight query={["saved", "successfully"]} background="green.100" color="green.900">Your changes have been saved successfully</Highlight>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">BLUE</Text>
-                    <Highlight query={["submit", "button"]} background="blue.100" color="blue.900">Click the submit button to proceed</Highlight>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">SEARCH RESULT</Text>
-                    <Highlight query={["TypeScript", "JavaScript"]} background="yellow.200">TypeScript is a typed superset of JavaScript that compiles to plain JavaScript</Highlight>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">NO MATCHES</Text>
-                    <Highlight query={["xyz"]}>This text has no highlighted words</Highlight>
-                </VStack>
-                <VStack gap="1" align="stretch">
-                    <Text textStyle="body-sm" fontFamily="mono" textTransform="uppercase" color="fg.muted">INTERACTIVE</Text>
-                    <Reactive>{$ => {
-                        const search = $.let(State.bind([StringType], "highlight_query", "fox"));
-                        const term = $.let(search.read());
-                        const onChange = $.const(East.function([StringType], NullType, ($, next) => {
-                            $(search.write(next));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <Input.String value={term} onChange={onChange} placeholder="Type a word to highlight" />
-                                <Highlight query={[term]} background="yellow.300">The quick brown fox jumps over the lazy dog</Highlight>
-                            </VStack>
-                        );
-                    }}</Reactive>
-                </VStack>
+                <Separator label="MULTIPLE TERMS" align="start" />
+                <Highlight query={["quick", "fox", "dog"]}>The quick brown fox jumps over the lazy dog</Highlight>
+                <Separator label="CUSTOM COLOR" align="start" />
+                <Highlight query={["Important"]} background="yellow.200">Important information here</Highlight>
+                <Separator label="GREEN" align="start" />
+                <Highlight query={["saved", "successfully"]} background="green.100" color="green.900">Your changes have been saved successfully</Highlight>
+                <Separator label="BLUE" align="start" />
+                <Highlight query={["submit", "button"]} background="blue.100" color="blue.900">Click the submit button to proceed</Highlight>
+                <Separator label="SEARCH RESULT" align="start" />
+                <Highlight query={["TypeScript", "JavaScript"]} background="yellow.200">TypeScript is a typed superset of JavaScript that compiles to plain JavaScript</Highlight>
+                <Separator label="NO MATCHES" align="start" />
+                <Highlight query={["xyz"]}>This text has no highlighted words</Highlight>
+                <Separator label="INTERACTIVE" align="start" />
+                <Reactive>{$ => {
+                    const search = $.let(State.bind([StringType], "highlight_query", "fox"));
+                    const term = $.let(search.read());
+                    const onChange = $.const(East.function([StringType], NullType, ($, next) => {
+                        $(search.write(next));
+                    }));
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Input.String value={term} onChange={onChange} placeholder="Type a word to highlight" />
+                            <Highlight query={[term]} background="yellow.300">The quick brown fox jumps over the lazy dog</Highlight>
+                        </VStack>
+                    );
+                }}</Reactive>
             </VStack>
         );
     }),
