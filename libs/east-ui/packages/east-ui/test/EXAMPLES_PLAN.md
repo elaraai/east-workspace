@@ -12,8 +12,8 @@ summary for anyone adding or changing examples here.
 | Slot | Name | Content |
 |---|---|---|
 | 1 | `<name>Basic` | Smallest meaningful usage — the search-index front door. |
-| 2 | `<name>Variants` | ONE static enumeration panel: every enumerable visual variant as a captioned row (`VStack gap="4"` of rows; caption = mono-uppercase `Text`; each row is the demonstrated tree, fully capture-visible). |
-| 3 | `<name>Configurator` | ONE interactive combo-panel (`Reactive` + `State.bind` switches/selects) for combinatorial spaces. Exemplars: `collections/table.examples.tsx` `tableSelection`, `collections/library.examples.tsx` `libraryLarge`, `collections/schematic.examples.tsx` `schematicInteractions`. Visually regression-guarded combinations may NOT hide behind a switch. |
+| 2 | `<name>Variants` | ONE variant-space example. Preferred form: a live `<Configurator>` surface — prop axes as plain arrays of the values themselves (`getTag()` for segment key + label), one `State.bind` per axis, the same array feeding SegmentGroup and preview; switches via `Slot` + `Spec`; reactive counters in the `aside` (exemplar: `display/badge.examples.tsx`). Static `<Separator label>` panels remain for visual-guard sets, states grammars (banner, cardStates), data-shape enumerations (charts), probe-anchored panels (planner/gantt/table), canvas-content variants (schematic/map/matrix). |
+| 3 | `<name>Configurator` | A separate behavioral combo-panel only when needed beside the Variants slot. Exemplars: `tableSelection`, `libraryLarge`, `schematicInteractions`. Visually regression-guarded combinations may NOT hide behind a switch. |
 | 4 | `<name><Behavior>` | One example per behavioral contract needing isolation: DnD, review chrome, slice binding, deep-linking, overlay stacking, reactive-drag grammars. |
 | 5 | `<name>Stress` | Perf/scale demonstrations (virtualized rows, 500-unit schematic). |
 

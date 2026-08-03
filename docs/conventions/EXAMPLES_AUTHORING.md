@@ -252,17 +252,28 @@ examples are under the slot budget already and are exempt.)
 
 1. **`<name>Basic`** — smallest meaningful usage; the search-index
    front door.
-2. **`<name>Variants`** — ONE static enumeration panel: every
-   enumerable visual variant (variant × size × tone rows) side-by-side
-   in a `VStack`/`Grid` with `Text` captions. Replaces
-   one-prop-per-example files. Fully capture-visible.
-3. **`<name>Configurator`** — ONE interactive combo-panel (`Reactive` +
-   `State.bind` switches/selects/sliders flipping props) for
-   combinatorial spaces that would explode statically. Exemplar:
-   `collections/schematic.examples.tsx` link-editing example. Rule: any
-   combination that must be **visually regression-guarded** may NOT
-   hide behind a switch — it goes in the Variants panel or keeps its
-   own example.
+2. **`<name>Variants`** — ONE variant-space example, in one of two
+   forms:
+   - **A live `<Configurator>` surface** — the preferred form for
+     style-axis components: every prop axis is a plain array of the
+     values themselves (`getTag()` supplies the segment key and label),
+     one `State.bind` per axis, the same array feeding the SegmentGroup
+     and the preview; switch pairs report through `Slot` + `Spec` rows
+     and reactive counters live in the `aside`. Exemplar:
+     `display/badge.examples.tsx`.
+   - **A static enumeration panel** (`VStack` of
+     `<Separator label>`-bounded groups) where a configurator cannot
+     serve: visually regression-guarded combination sets, status/states
+     grammars (`bannerStatusVariants`, `cardStates`), data-shape
+     enumerations (chart marks/axes), probe-anchored panels
+     (planner/gantt/table), and canvas-content variants
+     (schematic/map/matrix).
+3. **`<name>Configurator`** — a SEPARATE interactive combo-panel only
+   when a behavioral space needs its own surface beside the Variants
+   slot (exemplars: `tableSelection`, `libraryLarge`,
+   `schematicInteractions`). Rule: any combination that must be
+   **visually regression-guarded** may NOT hide behind a switch — it
+   goes in a static panel or keeps its own example.
 4. **`<name><Behavior>`** — one example per behavioral contract needing
    isolation: DnD flows, review chrome, slice binding, deep-linking,
    overlay stacking. Anything referenced by name from
