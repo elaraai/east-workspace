@@ -637,7 +637,7 @@ describeEast("Gantt", (test) => {
                     value: "Rich",
                     align: "center",
                     verticalAlign: "end",
-                    color: "yellow.300",
+                    color: "fg.warning",
                     fontWeight: "bold",
                     fontStyle: "italic",
                     fontSize: "lg",
@@ -649,7 +649,7 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(label.value, "Rich"));
         $(Assert.equal(label.align.unwrap("some").hasTag("center"), true));
         $(Assert.equal(label.verticalAlign.unwrap("some").hasTag("end"), true));
-        $(Assert.equal(label.color.unwrap("some"), "yellow.300"));
+        $(Assert.equal(label.color.unwrap("some"), "fg.warning"));
         $(Assert.equal(label.fontWeight.unwrap("some").hasTag("bold"), true));
         $(Assert.equal(label.fontStyle.unwrap("some").hasTag("italic"), true));
         $(Assert.equal(label.fontSize.unwrap("some").hasTag("lg"), true));

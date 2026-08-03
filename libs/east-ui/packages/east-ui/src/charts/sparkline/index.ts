@@ -57,7 +57,7 @@ export {
  * // Styled area sparkline
  * const chart = Sparkline.Root([10, 20, 15, 25, 18, 30], {
  *   type: "area",
- *   color: "blue.500",
+ *   color: "link",
  *   width: "120px",
  *   height: "40px",
  * });
@@ -112,7 +112,7 @@ function createSparkline(
  * // Create a sparkline
  * const trend = Sparkline.Root([1, 2, 1.5, 3, 2.5], {
  *   type: "area",
- *   color: "teal.500",
+ *   color: "brand.600",
  * });
  *
  * // Access the type
@@ -140,7 +140,7 @@ export const Sparkline = {
      * const example = East.function([], UIComponentType, $ => {
      *     return Sparkline.Root(
      *         [1.2, 2.4, 1.8, 3.1, 2.9, 4.2],
-     *         { type: "area", color: "teal.500" }
+     *         { type: "area", color: "brand.600" }
      *     );
      * });
      * ```

@@ -132,29 +132,29 @@ describeEast("Slider", (test) => {
     // Color Palettes
     // =========================================================================
 
-    test("creates slider with blue color palette", $ => {
+    test("creates slider with brand color palette", $ => {
         const slider = $.let(Slider.Root(50.0, {
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.hasTag("some"), true));
-        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates slider with green color palette", $ => {
+    test("creates slider with success color palette", $ => {
         const slider = $.let(Slider.Root(50.0, {
-            colorPalette: "green",
+            colorPalette: "success",
         }));
 
-        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     test("creates slider with Style.ColorScheme helper", $ => {
         const slider = $.let(Slider.Root(50.0, {
-            colorPalette: Style.ColorScheme("purple"),
+            colorPalette: Style.ColorScheme("brand"),
         }));
 
-        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -254,7 +254,7 @@ describeEast("Slider", (test) => {
             max: 100,
             step: 5,
             orientation: "horizontal",
-            colorPalette: "blue",
+            colorPalette: "brand",
             size: "md",
             variant: "subtle",
             disabled: false,
@@ -265,7 +265,7 @@ describeEast("Slider", (test) => {
         $(Assert.equal(slider.unwrap().unwrap("Slider").max.unwrap("some"), 100.0));
         $(Assert.equal(slider.unwrap().unwrap("Slider").step.unwrap("some"), 5.0));
         $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").orientation.unwrap("some").hasTag("horizontal"), true));
-        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(slider.unwrap().unwrap("Slider").disabled.unwrap("some"), false));
@@ -275,7 +275,7 @@ describeEast("Slider", (test) => {
         const slider = $.let(Slider.Root(75.0, {
             min: 0,
             max: 100,
-            colorPalette: "blue",
+            colorPalette: "brand",
             size: "sm",
         }));
 
@@ -300,11 +300,11 @@ describeEast("Slider", (test) => {
             orientation: "vertical",
             min: 0,
             max: 100,
-            colorPalette: "green",
+            colorPalette: "success",
         }));
 
         $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"), true));
-        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(slider.unwrap().unwrap("Slider").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     test("creates disabled readonly slider", $ => {

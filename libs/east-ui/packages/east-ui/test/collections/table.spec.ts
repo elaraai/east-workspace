@@ -219,7 +219,7 @@ describeEast("Table", (test) => {
                 striped: true,
                 interactive: true,
                 stickyHeader: true,
-                colorPalette: "blue",
+                colorPalette: "brand",
             }
         ));
 
@@ -309,7 +309,7 @@ describeEast("Table", (test) => {
             {
                 name: { header: "Name" },
                 email: { header: "Email" },
-                role: { header: "Role", render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => Badge.Root(ctx.cellValue.match({ String: (_$, v) => v }, _$ => ""), { colorPalette: "blue" })) },
+                role: { header: "Role", render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => Badge.Root(ctx.cellValue.match({ String: (_$, v) => v }, _$ => ""), { colorPalette: "brand" })) },
             },
             { variant: "line", striped: true }
         ));
@@ -603,25 +603,25 @@ describeEast("Table", (test) => {
             [{ a: "x" }],
             { a: { header: "A" } },
             {
-                headerBackground: "blue.600",
-                headerColor: "white",
-                borderColor: "blue.200",
-                zebraBackground: "blue.50",
-                hoverBackground: "blue.100",
-                selectedBackground: "blue.200",
-                selectedBorderColor: "blue.400",
-                footerBackground: "gray.100",
+                headerBackground: "bg.brand.subtle",
+                headerColor: "fg.inverse",
+                borderColor: "border.brand",
+                zebraBackground: "bg.brand.subtle",
+                hoverBackground: "bg.brand.subtle",
+                selectedBackground: "bg.brand.subtle",
+                selectedBorderColor: "border.brand",
+                footerBackground: "bg.subtle",
             },
         ));
         const style = $.let(t.unwrap().unwrap("Table").style.unwrap("some"));
-        $(Assert.equal(style.headerBackground.unwrap("some"), "blue.600"));
-        $(Assert.equal(style.headerColor.unwrap("some"), "white"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.200"));
-        $(Assert.equal(style.zebraBackground.unwrap("some"), "blue.50"));
-        $(Assert.equal(style.hoverBackground.unwrap("some"), "blue.100"));
-        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.200"));
-        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "blue.400"));
-        $(Assert.equal(style.footerBackground.unwrap("some"), "gray.100"));
+        $(Assert.equal(style.headerBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.headerColor.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.zebraBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.hoverBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.footerBackground.unwrap("some"), "bg.subtle"));
     });
 
     test("review chrome + accessors encode via the shared contract over the UNSLICED index (#264)", $ => {

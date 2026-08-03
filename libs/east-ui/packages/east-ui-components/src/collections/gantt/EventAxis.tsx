@@ -143,7 +143,7 @@ export const EventAxis = ({
                     left={`${m.x0}px`}
                     width={`${Math.max(m.x1 - m.x0, 0)}px`}
                     height="100%"
-                    color="gray.500"
+                    color="fg.muted"
                     css={columnHeaderStyles}
                 >
                     {m.label}

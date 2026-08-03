@@ -133,19 +133,19 @@ describeEast("Heading", (test) => {
     // =========================================================================
 
     test("creates heading with color", $ => {
-        const heading = $.let(Heading.Root("Colored", { color: "blue.500" }));
+        const heading = $.let(Heading.Root("Colored", { color: "link" }));
         const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.color.unwrap("some"), "link"));
     });
 
     test("creates heading with background (hero band)", $ => {
         const heading = $.let(Heading.Root("Hero", {
-            background: "blue.50",
-            color: "blue.900",
+            background: "bg.brand.subtle",
+            color: "link",
         }));
         const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
-        $(Assert.equal(style.background.unwrap("some"), "blue.50"));
-        $(Assert.equal(style.color.unwrap("some"), "blue.900"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.color.unwrap("some"), "link"));
     });
 
     // =========================================================================
@@ -208,7 +208,7 @@ describeEast("Heading", (test) => {
         const heading = $.let(Heading.Root("Page Title", {
             as: "h1",
             textStyle: "display-md",
-            color: "gray.900",
+            color: "fg.default",
             textAlign: Style.TextAlign("center"),
         }));
         const main = heading.unwrap().unwrap("Heading");
@@ -217,7 +217,7 @@ describeEast("Heading", (test) => {
         $(Assert.equal(main.value, "Page Title"));
         $(Assert.equal(main.as.unwrap("some").hasTag("h1"), true));
         $(Assert.equal(style.textStyle.unwrap("some").hasTag("display-md"), true));
-        $(Assert.equal(style.color.unwrap("some"), "gray.900"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.default"));
         $(Assert.equal(style.textAlign.unwrap("some").hasTag("center"), true));
     });
 

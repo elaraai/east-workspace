@@ -12,6 +12,6 @@ import { UIComponentType, VStack, Text, Badge } from "@elaraai/east-ui";
 export default East.function([], UIComponentType, (_$) => (
     <VStack gap="3" align="stretch">
         <Text fontWeight="bold">Fixture component</Text>
-        <Badge colorPalette="green">ok</Badge>
+        <Badge colorPalette="success">ok</Badge>
     </VStack>
 ));

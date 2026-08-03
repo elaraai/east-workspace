@@ -35,9 +35,9 @@ export const listVariants = example({
                 <Separator label="WITH GAP" align="start" />
                 <List items={["Item A", "Item B", "Item C"]} variant="unordered" gap="4" />
                 <Separator label="COLORED" align="start" />
-                <List items={["Blue item one", "Blue item two", "Blue item three"]} variant="unordered" colorPalette="blue" />
+                <List items={["Blue item one", "Blue item two", "Blue item three"]} variant="unordered" colorPalette="brand" />
                 <Separator label="GREEN" align="start" />
-                <List items={["Complete task A", "Complete task B", "Complete task C"]} variant="ordered" colorPalette="green" />
+                <List items={["Complete task A", "Complete task B", "Complete task C"]} variant="ordered" colorPalette="success" />
                 <Separator label="EMPTY" align="start" />
                 <List items={[]} />
                 <Separator label="INTERACTIVE" align="start" />
@@ -79,7 +79,7 @@ export const listSemantic = example({
         return (
             <VStack gap="4" align="stretch">
                 <Separator label="FEATURES" align="start" />
-                <List items={["Fast performance", "Type-safe development", "Easy to use API", "Comprehensive documentation"]} variant="unordered" gap="2" colorPalette="teal" />
+                <List items={["Fast performance", "Type-safe development", "Easy to use API", "Comprehensive documentation"]} variant="unordered" gap="2" colorPalette="brand" />
                 <Separator label="STEPS" align="start" />
                 <List items={["Install dependencies", "Configure environment", "Run the application", "Verify installation"]} variant="ordered" gap="3" />
                 <Separator label="CHECKMARKS" align="start" />

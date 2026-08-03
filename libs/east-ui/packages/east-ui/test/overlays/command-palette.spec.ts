@@ -81,19 +81,19 @@ describeEast("CommandPalette", (test) => {
             {
                 size: "md",
                 background: "bg",
-                borderColor: "blue.300",
+                borderColor: "border.brand",
                 inputBackground: "bg.subtle",
-                selectedBackground: "blue.100",
-                groupLabelColor: "blue.700",
+                selectedBackground: "bg.brand.subtle",
+                groupLabelColor: "link",
             },
         ));
         const style = $.let(r.unwrap().unwrap("CommandPalette").style.unwrap("some"));
         $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(style.background.unwrap("some"), "bg"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
         $(Assert.equal(style.inputBackground.unwrap("some"), "bg.subtle"));
-        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.100"));
-        $(Assert.equal(style.groupLabelColor.unwrap("some"), "blue.700"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.groupLabelColor.unwrap("some"), "link"));
     });
 
     test("style absent when no visual fields set", $ => {

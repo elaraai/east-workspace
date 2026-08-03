@@ -271,7 +271,7 @@ export const plannerBucketsVariants = example({
  */
 export const plannerEventStyleVariants = example({
     keywords: ["Planner", "stretch", "fill", "content", "align", "orientation", "tile", "both", "horizontal", "tone", "colour", "override", "animation", "pulse", "attention", "warning", "danger", "color", "colorPalette", "brand", "teal", "purple", "match", "chart", "series", "marker", "status", "success", "info", "flag", "tooltip", "rowHover", "hover", "row", "highlight", "outline", "density", "compact", "comfortable", "condensed", "size"],
-    description: "Event-style variant panel — stretch (a both-axis tile with centred content, a width-filling tile, a normal top-left tile), event tone (danger-toned committed event pulses while keeping audit cues), event color (color 'teal.solid' / colorPalette 'purple' match paired chart series), markers (success / warning / danger / info status rings with hover tooltips), row hover (light brand outline around the whole row), density (compact row / header rhythm)",
+    description: "Event-style variant panel — stretch (a both-axis tile with centred content, a width-filling tile, a normal top-left tile), event tone (danger-toned committed event pulses while keeping audit cues), event color (color 'brand.solid' / colorPalette 'brand' match paired chart series), markers (success / warning / danger / info status rings with hover tooltips), row hover (light brand outline around the whole row), density (compact row / header rhythm)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="4" align="stretch">
@@ -305,8 +305,8 @@ export const plannerEventStyleVariants = example({
                     columns={[{ key: "name", frozen: true, value: r => r.name }]}
                     events={_r => [
                         Planner.event({ slot: Planner.at.number(1), label: "Series A", state: "committed", color: "teal.solid" }),
-                        Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "purple" }),
-                        Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "black" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "brand" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "fg.default" }),
                     ]}
                 />
                 <Separator label="MARKERS" align="start" />

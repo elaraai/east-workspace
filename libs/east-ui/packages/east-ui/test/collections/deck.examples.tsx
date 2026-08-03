@@ -13,7 +13,7 @@ import { Chart, Deck, HStack, Reactive, Separator, Tag, Text, VStack } from "@el
  *  custom CSS colours. */
 const LINE_STATUSES = Deck.statuses({
     running:     { label: "Running",     color: "success",  pulse: true, hint: "producing" },
-    standby:     { label: "Standby",     color: "#3568c9",               hint: "idle, ready" },
+    standby:     { label: "Standby",     color: "link",               hint: "idle, ready" },
     maintenance: { label: "Maintenance", color: "warning",               hint: "planned work" },
     fault:       { label: "Fault",       color: "danger",   pulse: true, hint: "needs attention" },
     offline:     { label: "Offline",     color: "neutral",               hint: "powered down" },
@@ -64,7 +64,7 @@ export const deckCustomFace = example({
                         <Tag>{r.team}</Tag>
                         <Tag>{r.state}</Tag>
                     </HStack>
-                    <Text color="gray.500">{East.str`load ${East.print(r.load)}`}</Text>
+                    <Text color="fg.muted">{East.str`load ${East.print(r.load)}`}</Text>
                 </VStack>
             )}
         />
@@ -172,7 +172,7 @@ export const deckDetail = example({
                             </VStack>
                         )}
                         onHover={r => (
-                            <Text color="gray.500">{East.str`${r.name} · load ${East.print(r.load.multiply(100.0))}%`}</Text>
+                            <Text color="fg.muted">{East.str`${r.name} · load ${East.print(r.load.multiply(100.0))}%`}</Text>
                         )}
                         onOpen={onOpen}
                         onClose={onClose}
@@ -182,7 +182,7 @@ export const deckDetail = example({
                         ]}
                         legend
                     />
-                    <Text color="gray.500">{log}</Text>
+                    <Text color="fg.muted">{log}</Text>
                 </VStack>
             );
         }}</Reactive>
@@ -207,7 +207,7 @@ export const deckClickable = example({
                         card={r => ({ key: r.id, title: r.name, sublabel: r.team })}
                         onCardClick={onCardClick}
                     />
-                    <Text color="gray.500">{East.str`selected: ${selected}`}</Text>
+                    <Text color="fg.muted">{East.str`selected: ${selected}`}</Text>
                 </VStack>
             );
         }}</Reactive>

@@ -38,19 +38,19 @@ export const linkVariants = example({
                 <Link href="/contact" variant="plain">Plain Link</Link>
                 <Separator label="COLORS" align="start" />
                 <HStack gap="4">
-                    <Link href="/page" colorPalette="blue">Blue</Link>
-                    <Link href="/page" colorPalette="teal">Teal</Link>
-                    <Link href="/page" colorPalette="purple">Purple</Link>
-                    <Link href="/page" colorPalette="red">Red</Link>
+                    <Link href="/page" colorPalette="brand">Blue</Link>
+                    <Link href="/page" colorPalette="brand">Teal</Link>
+                    <Link href="/page" colorPalette="brand">Purple</Link>
+                    <Link href="/page" colorPalette="danger">Red</Link>
                 </HStack>
                 <Separator label="IN CONTEXT" align="start" />
                 <HStack gap="1">
                     <Text>{"Read the "}</Text>
-                    <Link href="/docs" colorPalette="blue">documentation</Link>
+                    <Link href="/docs" colorPalette="brand">documentation</Link>
                     <Text>{" for more info."}</Text>
                 </HStack>
                 <Separator label="COMBINED" align="start" />
-                <Link href="https://docs.example.com" external variant="underline" colorPalette="blue">View Documentation</Link>
+                <Link href="https://docs.example.com" external variant="underline" colorPalette="brand">View Documentation</Link>
                 <Separator label="INTERACTIVE" align="start" />
                 <Reactive>{$ => {
                     const counter = $.let(State.bind([IntegerType], "link_counter", 0n));

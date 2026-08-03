@@ -97,7 +97,7 @@ export const dateRangeInputVariants = example({
                     );
                 }}</Reactive>
                 <Separator label="RANGE INPUT COLOURS" align="start" />
-                <DateRangeInput startValue={coloursStart} endValue={coloursEnd} precision="date" color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />
+                <DateRangeInput startValue={coloursStart} endValue={coloursEnd} precision="date" color="fg" background="bg.subtle" borderColor="border.brand" focusBorderColor="border.brand" />
                 <Separator label="RANGE INPUT SIZES" align="start" />
                 <VStack gap="3" align="flex-start">
                     <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="sm" />

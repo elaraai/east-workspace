@@ -70,7 +70,7 @@ export {
  *         style: {
  *             variant: "outline",
  *             colorPalette: "blue",
- *             successColor: "#2e7d32",
+ *             successColor: "fg.success",
  *         },
  *     }),
  * );
@@ -165,7 +165,7 @@ export const CopyButton = {
      *         style: {
      *             variant: "outline",
      *             colorPalette: "blue",
-     *             successColor: "#2e7d32",
+     *             successColor: "fg.success",
      *         },
      *     }),
      * );

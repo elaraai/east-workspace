@@ -53,9 +53,9 @@ export const headingVariants = example({
                 </VStack>
                 <Separator label="COLORED" align="start" />
                 <VStack gap="2" align="flex-start">
-                    <Heading textStyle="heading-lg" color="blue.600">Blue Heading</Heading>
-                    <Heading textStyle="heading-lg" color="green.600">Green Heading</Heading>
-                    <Heading textStyle="heading-lg" color="purple.600">Purple Heading</Heading>
+                    <Heading textStyle="heading-lg" color="link">Blue Heading</Heading>
+                    <Heading textStyle="heading-lg" color="fg.success">Green Heading</Heading>
+                    <Heading textStyle="heading-lg" color="accent.purple">Purple Heading</Heading>
                 </VStack>
                 <Separator label="ALIGNMENT" align="start" />
                 <VStack gap="2" align="stretch">
@@ -64,11 +64,11 @@ export const headingVariants = example({
                     <Heading textStyle="heading-md" textAlign="right">Right Aligned</Heading>
                 </VStack>
                 <Separator label="COMBINED" align="start" />
-                <Heading as="h1" textStyle="display-md" color="gray.800" textAlign="center">
+                <Heading as="h1" textStyle="display-md" color="fg.default" textAlign="center">
                     Welcome to East UI
                 </Heading>
                 <Separator label="BACKGROUND" align="start" />
-                <Heading as="h2" textStyle="display-sm" color="blue.900" background="blue.50" textAlign="center" padding="4">
+                <Heading as="h2" textStyle="display-sm" color="link" background="bg.brand.subtle" textAlign="center" padding="4">
                     Platform Overview
                 </Heading>
                 <Separator label="INTERACTIVE" align="start" />

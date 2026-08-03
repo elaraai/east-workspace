@@ -174,7 +174,7 @@ export interface ButtonOptions extends ButtonStyle {
  *         startIcon: { prefix: "fas", name: "check" },
  *         endIcon: { prefix: "fas", name: "arrow-right" },
  *         variant: "ghost",
- *         hoverBackground: "#eef2ff",
+ *         hoverBackground: "bg.brand.subtle",
  *     }),
  * );
  *
@@ -320,7 +320,7 @@ export const Button = {
      *         startIcon: { prefix: "fas", name: "check" },
      *         endIcon: { prefix: "fas", name: "arrow-right" },
      *         variant: "ghost",
-     *         hoverBackground: "#eef2ff",
+     *         hoverBackground: "bg.brand.subtle",
      *     }),
      * );
      *

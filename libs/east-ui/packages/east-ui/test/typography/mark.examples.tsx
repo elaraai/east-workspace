@@ -40,23 +40,23 @@ export const markVariants = example({
                 <Mark variant="plain">Plain</Mark>
                 <Separator label="COLORS" align="start" />
                 <HStack gap="3">
-                    <Mark variant="subtle" colorPalette="yellow">Yellow</Mark>
-                    <Mark variant="subtle" colorPalette="green">Green</Mark>
-                    <Mark variant="subtle" colorPalette="blue">Blue</Mark>
-                    <Mark variant="subtle" colorPalette="red">Red</Mark>
-                    <Mark variant="subtle" colorPalette="purple">Purple</Mark>
+                    <Mark variant="subtle" colorPalette="warning">Yellow</Mark>
+                    <Mark variant="subtle" colorPalette="success">Green</Mark>
+                    <Mark variant="subtle" colorPalette="brand">Blue</Mark>
+                    <Mark variant="subtle" colorPalette="danger">Red</Mark>
+                    <Mark variant="subtle" colorPalette="brand">Purple</Mark>
                 </HStack>
                 <Separator label="SOLID COLORS" align="start" />
                 <HStack gap="3">
-                    <Mark variant="solid" colorPalette="green">Success</Mark>
-                    <Mark variant="solid" colorPalette="orange">Warning</Mark>
-                    <Mark variant="solid" colorPalette="red">Error</Mark>
-                    <Mark variant="solid" colorPalette="blue">Info</Mark>
+                    <Mark variant="solid" colorPalette="success">Success</Mark>
+                    <Mark variant="solid" colorPalette="warning">Warning</Mark>
+                    <Mark variant="solid" colorPalette="danger">Error</Mark>
+                    <Mark variant="solid" colorPalette="brand">Info</Mark>
                 </HStack>
                 <Separator label="IN CONTEXT" align="start" />
                 <HStack gap="1">
                     <Text>{"This feature is "}</Text>
-                    <Mark variant="subtle" colorPalette="orange">deprecated</Mark>
+                    <Mark variant="subtle" colorPalette="warning">deprecated</Mark>
                     <Text>{" and will be removed."}</Text>
                 </HStack>
                 <Separator label="INTERACTIVE" align="start" />
@@ -70,7 +70,7 @@ export const markVariants = example({
                     return (
                         <VStack gap="3" align="stretch">
                             <Text>Marked content updates as you click:</Text>
-                            <Mark variant="subtle" colorPalette="yellow">{East.str`Mark #${East.print(value)}`}</Mark>
+                            <Mark variant="subtle" colorPalette="warning">{East.str`Mark #${East.print(value)}`}</Mark>
                             <Button onClick={increment}>Bump</Button>
                         </VStack>
                     );

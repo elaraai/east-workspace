@@ -83,9 +83,9 @@ describeEast("IconButton", (test) => {
     // =========================================================================
 
     test("creates icon button with colorPalette", $ => {
-        const btn = $.let(IconButton.Root({ prefix: "fas", name: "heart", label: "Favourite", colorPalette: "red" }));
+        const btn = $.let(IconButton.Root({ prefix: "fas", name: "heart", label: "Favourite", colorPalette: "danger" }));
         $(Assert.equal(
-            btn.unwrap().unwrap("IconButton").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"),
+            btn.unwrap().unwrap("IconButton").style.unwrap("some").colorPalette.unwrap("some").hasTag("danger"),
             true,
         ));
     });
@@ -128,16 +128,16 @@ describeEast("IconButton", (test) => {
 
     test("creates icon button with full colour escape hatches", $ => {
         const btn = $.let(IconButton.Root({ prefix: "fas", name: "rocket", label: "Deploy",
-            color: "#ffffff",
-            background: "#1a2234",
-            borderColor: "#3d5cff",
-            hoverBackground: "#25345a",
+            color: "fg.inverse",
+            background: "bg.inverse",
+            borderColor: "border.brand",
+            hoverBackground: "bg.inverse",
         }));
         const s = btn.unwrap().unwrap("IconButton").style.unwrap("some");
-        $(Assert.equal(s.color.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.background.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.hoverBackground.unwrap("some"), "#25345a"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(s.hoverBackground.unwrap("some"), "bg.inverse"));
     });
 
     // =========================================================================
@@ -149,9 +149,9 @@ describeEast("IconButton", (test) => {
             loading: false,
             disabled: false,
             variant: "solid",
-            colorPalette: "green",
+            colorPalette: "success",
             size: "md",
-            color: "#ffffff",
+            color: "fg.inverse",
         }));
         const b = btn.unwrap().unwrap("IconButton");
         $(Assert.equal(b.label, "Confirm"));
@@ -159,8 +159,8 @@ describeEast("IconButton", (test) => {
         $(Assert.equal(b.disabled.unwrap("some"), false));
         const s = b.style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("success"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(s.color.unwrap("some"), "#ffffff"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.inverse"));
     });
 }, { platformFns: TestImpl });

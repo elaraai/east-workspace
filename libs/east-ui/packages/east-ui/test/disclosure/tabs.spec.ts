@@ -125,13 +125,13 @@ describeEast("Tabs", (test) => {
             size: "lg",
             orientation: "vertical",
             fitted: true,
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("lg"), true));
         $(Assert.equal(s.orientation.unwrap("some").hasTag("vertical"), true));
         $(Assert.equal(s.fitted.unwrap("some"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates tabs with activationMode manual + justify", $ => {
@@ -164,18 +164,18 @@ describeEast("Tabs", (test) => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            listBackground: "#f9fafb",
-            indicatorColor: "#3d5cff",
-            activeTriggerColor: "#1a2234",
-            inactiveTriggerColor: "#6b7280",
-            contentBackground: "#ffffff",
+            listBackground: "bg.canvas",
+            indicatorColor: "link",
+            activeTriggerColor: "fg.default",
+            inactiveTriggerColor: "fg.muted",
+            contentBackground: "bg.surface",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
-        $(Assert.equal(s.listBackground.unwrap("some"), "#f9fafb"));
-        $(Assert.equal(s.indicatorColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.activeTriggerColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.inactiveTriggerColor.unwrap("some"), "#6b7280"));
-        $(Assert.equal(s.contentBackground.unwrap("some"), "#ffffff"));
+        $(Assert.equal(s.listBackground.unwrap("some"), "bg.canvas"));
+        $(Assert.equal(s.indicatorColor.unwrap("some"), "link"));
+        $(Assert.equal(s.activeTriggerColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.inactiveTriggerColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(s.contentBackground.unwrap("some"), "bg.surface"));
     });
 
     // =========================================================================
@@ -204,7 +204,7 @@ describeEast("Tabs", (test) => {
             defaultValue: "overview",
             variant: "line",
             size: "md",
-            colorPalette: "blue",
+            colorPalette: "brand",
             fitted: true,
         }));
         const t = tabs.unwrap().unwrap("Tabs");
@@ -212,7 +212,7 @@ describeEast("Tabs", (test) => {
         const s = t.style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("line"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(s.fitted.unwrap("some"), true));
     });
 }, { platformFns: TestImpl });

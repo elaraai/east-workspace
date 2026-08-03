@@ -86,17 +86,17 @@ describeEast("Pagination", (test) => {
     test("applies colour escape hatches", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
         const p = $.let(Pagination.Root({ page: 0n, pageSize: 10n, count: 100n, onPageChange: noop,
-            color: "gray.700",
-            background: "white",
-            activeBackground: "blue.500",
-            activeColor: "white",
+            color: "fg.default",
+            background: "bg.surface",
+            activeBackground: "bg.brand.subtle",
+            activeColor: "fg.inverse",
         }), UIComponentType);
 
         const style = p.unwrap().unwrap("Pagination").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "gray.700"));
-        $(Assert.equal(style.background.unwrap("some"), "white"));
-        $(Assert.equal(style.activeBackground.unwrap("some"), "blue.500"));
-        $(Assert.equal(style.activeColor.unwrap("some"), "white"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(style.activeBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.activeColor.unwrap("some"), "fg.inverse"));
     });
 
 }, { platformFns: TestImpl });

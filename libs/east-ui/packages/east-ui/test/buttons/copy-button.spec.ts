@@ -76,10 +76,10 @@ describeEast("CopyButton", (test) => {
     // =========================================================================
 
     test("creates copy button with size + colorPalette inside style", $ => {
-        const btn = $.let(CopyButton.Root("x", { size: "sm", colorPalette: "blue" }));
+        const btn = $.let(CopyButton.Root("x", { size: "sm", colorPalette: "brand" }));
         const s = btn.unwrap().unwrap("CopyButton").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -88,18 +88,18 @@ describeEast("CopyButton", (test) => {
 
     test("creates copy button with colour escape hatches + successColor", $ => {
         const btn = $.let(CopyButton.Root("x", {
-            color: "#ffffff",
-            background: "#1a2234",
-            borderColor: "#3d5cff",
-            hoverBackground: "#25345a",
-            successColor: "#2e7d32",
+            color: "fg.inverse",
+            background: "bg.inverse",
+            borderColor: "border.brand",
+            hoverBackground: "bg.inverse",
+            successColor: "fg.success",
         }));
         const s = btn.unwrap().unwrap("CopyButton").style.unwrap("some");
-        $(Assert.equal(s.color.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.background.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.hoverBackground.unwrap("some"), "#25345a"));
-        $(Assert.equal(s.successColor.unwrap("some"), "#2e7d32"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(s.hoverBackground.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(s.successColor.unwrap("some"), "fg.success"));
     });
 
     // =========================================================================
@@ -112,9 +112,9 @@ describeEast("CopyButton", (test) => {
             timeout: "2500",
             disabled: false,
             variant: "outline",
-            colorPalette: "teal",
+            colorPalette: "brand",
             size: "md",
-            successColor: "#2e7d32",
+            successColor: "fg.success",
         }));
         const b = btn.unwrap().unwrap("CopyButton");
         $(Assert.equal(b.value, "the-value"));
@@ -123,8 +123,8 @@ describeEast("CopyButton", (test) => {
         $(Assert.equal(b.disabled.unwrap("some"), false));
         const s = b.style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("outline"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("teal"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(s.successColor.unwrap("some"), "#2e7d32"));
+        $(Assert.equal(s.successColor.unwrap("some"), "fg.success"));
     });
 }, { platformFns: TestImpl });

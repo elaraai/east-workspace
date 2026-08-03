@@ -14,9 +14,9 @@ export const carouselBasic = example({
         return (
             <Box width="100%">
                 <Carousel showControls={true} showIndicators={true}>
-                    <Box padding="8" background="teal.100" borderRadius="md"><Text>Slide 1</Text></Box>
-                    <Box padding="8" background="blue.100" borderRadius="md"><Text>Slide 2</Text></Box>
-                    <Box padding="8" background="purple.100" borderRadius="md"><Text>Slide 3</Text></Box>
+                    <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Slide 1</Text></Box>
+                    <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Slide 2</Text></Box>
+                    <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Slide 3</Text></Box>
                 </Carousel>
             </Box>
         );
@@ -37,44 +37,44 @@ export const carouselVariants = example({
                 <Separator label="LOOP" align="start" />
                 <Box width="100%">
                     <Carousel loop={true} showControls={true} showIndicators={true}>
-                        <Box padding="8" background="green.100" borderRadius="md"><Text>First</Text></Box>
-                        <Box padding="8" background="orange.100" borderRadius="md"><Text>Second</Text></Box>
-                        <Box padding="8" background="pink.100" borderRadius="md"><Text>Third</Text></Box>
-                        <Box padding="8" background="cyan.100" borderRadius="md"><Text>Fourth</Text></Box>
+                        <Box padding="8" background="bg.success.subtle" borderRadius="md"><Text>First</Text></Box>
+                        <Box padding="8" background="bg.warning.subtle" borderRadius="md"><Text>Second</Text></Box>
+                        <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Third</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Fourth</Text></Box>
                     </Carousel>
                 </Box>
                 <Separator label="MULTI SLIDE" align="start" />
-                <Box width="100%" background="gray.50" padding="4" borderRadius="md">
+                <Box width="100%" background="bg.subtle" padding="4" borderRadius="md">
                     <Carousel slidesPerView={3n} spacing="4" showControls={true} showIndicators={true}>
-                        <Box padding="4" background="red.100" borderRadius="md"><Text>1</Text></Box>
-                        <Box padding="4" background="orange.100" borderRadius="md"><Text>2</Text></Box>
-                        <Box padding="4" background="yellow.100" borderRadius="md"><Text>3</Text></Box>
-                        <Box padding="4" background="green.100" borderRadius="md"><Text>4</Text></Box>
-                        <Box padding="4" background="blue.100" borderRadius="md"><Text>5</Text></Box>
+                        <Box padding="4" background="bg.danger.subtle" borderRadius="md"><Text>1</Text></Box>
+                        <Box padding="4" background="bg.warning.subtle" borderRadius="md"><Text>2</Text></Box>
+                        <Box padding="4" background="bg.warning.subtle" borderRadius="md"><Text>3</Text></Box>
+                        <Box padding="4" background="bg.success.subtle" borderRadius="md"><Text>4</Text></Box>
+                        <Box padding="4" background="bg.brand.subtle" borderRadius="md"><Text>5</Text></Box>
                     </Carousel>
                 </Box>
                 <Separator label="NO CONTROLS" align="start" />
                 <Box width="100%">
                     <Carousel showControls={false} showIndicators={true}>
-                        <Box padding="8" background="gray.100" borderRadius="md"><Text>Panel A</Text></Box>
-                        <Box padding="8" background="gray.200" borderRadius="md"><Text>Panel B</Text></Box>
-                        <Box padding="8" background="gray.300" borderRadius="md"><Text>Panel C</Text></Box>
+                        <Box padding="8" background="bg.canvas" borderRadius="md"><Text>Panel A</Text></Box>
+                        <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Panel B</Text></Box>
+                        <Box padding="8" background="bg.emphasized" borderRadius="md"><Text>Panel C</Text></Box>
                     </Carousel>
                 </Box>
                 <Separator label="DRAGGABLE" align="start" />
                 <Box width="100%">
                     <Carousel allowMouseDrag={true} showControls={true} showIndicators={true}>
-                        <Box padding="8" background="teal.200" borderRadius="md"><Text>Drag me!</Text></Box>
-                        <Box padding="8" background="teal.300" borderRadius="md"><Text>Swipe left</Text></Box>
-                        <Box padding="8" background="teal.400" borderRadius="md"><Text>Or right</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Drag me!</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Swipe left</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Or right</Text></Box>
                     </Carousel>
                 </Box>
                 <Separator label="MINIMAL" align="start" />
                 <Box width="100%">
                     <Carousel showControls={true} showIndicators={false}>
-                        <Box padding="8" background="purple.100" borderRadius="md"><Text>Image 1</Text></Box>
-                        <Box padding="8" background="purple.200" borderRadius="md"><Text>Image 2</Text></Box>
-                        <Box padding="8" background="purple.300" borderRadius="md"><Text>Image 3</Text></Box>
+                        <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Image 1</Text></Box>
+                        <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Image 2</Text></Box>
+                        <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Image 3</Text></Box>
                     </Carousel>
                 </Box>
                 <Separator label="COLOUR SLOTS" align="start" />
@@ -83,14 +83,14 @@ export const carouselVariants = example({
                         showControls={true}
                         showIndicators={true}
                         spacing="3"
-                        indicatorColor="#cbd5e1"
-                        activeIndicatorColor="#3d5cff"
-                        controlColor="#ffffff"
-                        controlBackground="#1a2234"
+                        indicatorColor="fg.subtle"
+                        activeIndicatorColor="link"
+                        controlColor="fg.inverse"
+                        controlBackground="bg.inverse"
                     >
-                        <Box padding="8" background="blue.100" borderRadius="md"><Text>Branded 1</Text></Box>
-                        <Box padding="8" background="blue.200" borderRadius="md"><Text>Branded 2</Text></Box>
-                        <Box padding="8" background="blue.300" borderRadius="md"><Text>Branded 3</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Branded 1</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Branded 2</Text></Box>
+                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Branded 3</Text></Box>
                     </Carousel>
                 </Box>
                 <Separator label="INTERACTIVE" align="start" />
@@ -104,10 +104,10 @@ export const carouselVariants = example({
                             <VStack gap="3" align="stretch">
                                 <Box width="100%">
                                     <Carousel showControls={true} showIndicators={true} onIndexChange={onIndexChange}>
-                                        <Box padding="8" background="blue.100" borderRadius="md"><Text>Welcome!</Text></Box>
-                                        <Box padding="8" background="green.100" borderRadius="md"><Text>Features</Text></Box>
-                                        <Box padding="8" background="purple.100" borderRadius="md"><Text>Pricing</Text></Box>
-                                        <Box padding="8" background="orange.100" borderRadius="md"><Text>Contact</Text></Box>
+                                        <Box padding="8" background="bg.brand.subtle" borderRadius="md"><Text>Welcome!</Text></Box>
+                                        <Box padding="8" background="bg.success.subtle" borderRadius="md"><Text>Features</Text></Box>
+                                        <Box padding="8" background="bg.subtle" borderRadius="md"><Text>Pricing</Text></Box>
+                                        <Box padding="8" background="bg.warning.subtle" borderRadius="md"><Text>Contact</Text></Box>
                                     </Carousel>
                                 </Box>
                                 {<Text.Eyebrow>{East.str`CURRENT · ${currentIndex.add(1n)} OF 4`}</Text.Eyebrow>}

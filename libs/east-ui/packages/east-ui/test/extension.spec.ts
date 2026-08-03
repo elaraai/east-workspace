@@ -46,7 +46,7 @@ describeEast("EastUI.component (extension API)", (test) => {
         const original = {
             label: "Visits",
             value: 42n,
-            accent: some("#488e97"),
+            accent: some("brand.500"),
         };
         const payload = encodeBeast2For(Schema)(original);
         const decoded = decodeBeast2For(Schema)(payload);

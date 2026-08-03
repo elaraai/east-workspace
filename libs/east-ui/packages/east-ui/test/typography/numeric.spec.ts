@@ -132,9 +132,9 @@ describeEast("Numeric", (test) => {
     });
 
     test("creates numeric with explicit color override", $ => {
-        const n = $.let(Numeric.Root(42, { color: "#7a3b2e", sentiment: "neutral" }));
+        const n = $.let(Numeric.Root(42, { color: "fg.danger", sentiment: "neutral" }));
         const style = n.unwrap().unwrap("Numeric").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.danger"));
     });
 
     test("creates numeric with signColor for the leading +/−", $ => {

@@ -29,17 +29,19 @@ describeEast('Experiment', (test) => {
     test('experimentPrecomputed panel mounts one captioned row per merged example', $ => {
         const panel = $.const(ex.experimentPrecomputed.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap('Stack').children);
-        $(Assert.equal(rows.size(), 2n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'PRECOMPUTED'));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'READONLY PRECOMPUTED'));
+        // Each mini is a captioned Separator followed by its content, so the
+        // panel has two children per merged example.
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap('Separator').label.unwrap('some').unwrap().unwrap('Text').value, 'PRECOMPUTED'));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap('Separator').label.unwrap('some').unwrap().unwrap('Text').value, 'READONLY PRECOMPUTED'));
     });
 
     test('experimentRefusals panel mounts one captioned row per merged example', $ => {
         const panel = $.const(ex.experimentRefusals.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap('Stack').children);
-        $(Assert.equal(rows.size(), 2n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'REFUSAL OVERLAP'));
-        $(Assert.equal(rows.get(1n).unwrap().unwrap('Stack').children.get(0n).unwrap().unwrap('Text').value, 'REFUSAL NOT ESTIMABLE'));
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap('Separator').label.unwrap('some').unwrap().unwrap('Text').value, 'REFUSAL OVERLAP'));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap('Separator').label.unwrap('some').unwrap().unwrap('Text').value, 'REFUSAL NOT ESTIMABLE'));
     });
 
     test('Experiment.Component is declared as an optional EastUI component', $ => {

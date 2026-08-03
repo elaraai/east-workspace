@@ -56,9 +56,9 @@ const SCHEMATIC_GEOMETRY_AREAS_DATA = [
 // marker, `bg` fills the circle footprint — a category palette that is
 // independent of `status`.
 const SCHEMATIC_COLOR_OVERRIDE_DATA = [
-    { id: "U-1", x: 4.0, y: 4.0, r: 1.4, fill: "#2D7FF9" },
-    { id: "U-2", x: 8.0, y: 4.0, r: 1.4, fill: "#16A34A" },
-    { id: "U-3", x: 12.0, y: 4.0, r: 1.4, fill: "#9333EA" },
+    { id: "U-1", x: 4.0, y: 4.0, r: 1.4, fill: "bg.brand.subtle" },
+    { id: "U-2", x: 8.0, y: 4.0, r: 1.4, fill: "bg.success.subtle" },
+    { id: "U-3", x: 12.0, y: 4.0, r: 1.4, fill: "bg.subtle" },
 ];
 const SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA = [
     { id: "bay", name: "Bay", x: 1.5, y: 1.5, w: 13.0, h: 5.5 },
@@ -563,7 +563,7 @@ export const schematicVariants = example({
                         zone={z => ({
                             key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
                             tone: "brand",        // semantic, theme-resolved
-                            bg: "#2D7FF9",        // opt-in area fill
+                            bg: "bg.brand.subtle",        // opt-in area fill
                         })}
                         scaleUnit="m"
                     />

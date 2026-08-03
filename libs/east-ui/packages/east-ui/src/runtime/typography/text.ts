@@ -56,7 +56,7 @@ type TextBuilders = {
  * import { Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const styled = East.function([], UIComponentType, _$ => (
- *     <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
+ *     <Text color="link" fontWeight="bold" fontStyle="italic" background="bg.brand.subtle">
  *         Styled Text
  *     </Text>
  * ));

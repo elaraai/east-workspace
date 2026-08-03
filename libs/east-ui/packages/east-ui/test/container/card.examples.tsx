@@ -47,7 +47,7 @@ export const cardVariants = example({
                     header={{ title: "Actions Card" }}
                     footer={{ actions: [
                         <Button variant="outline" size="sm">Cancel</Button>,
-                        <Button variant="solid" colorPalette="blue" size="sm">Save</Button>,
+                        <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
                     ] }}
                 >
                     <Text>This card has action buttons placed in the footer area.</Text>
@@ -83,13 +83,13 @@ export const cardVariants = example({
                 <Card
                     header={{ eyebrow: "Action required", title: "Please review and respond" }}
                     footer={{ actions: [
-                        <Button variant="solid" colorPalette="green" size="sm">Accept</Button>,
-                        <Button variant="outline" colorPalette="red" size="sm">Decline</Button>,
+                        <Button variant="solid" colorPalette="success" size="sm">Accept</Button>,
+                        <Button variant="outline" colorPalette="danger" size="sm">Decline</Button>,
                     ] }}
                 >
                     <HStack gap="2">
-                        <Badge colorPalette="green" variant="solid">New</Badge>
-                        <Badge colorPalette="purple" variant="solid">Featured</Badge>
+                        <Badge colorPalette="success" variant="solid">New</Badge>
+                        <Badge colorPalette="brand" variant="solid">Featured</Badge>
                     </HStack>
                     <Text>This card demonstrates how multiple components can be nested inside a card body.</Text>
                 </Card>

@@ -56,14 +56,14 @@ describeEast("RadioGroup", (test) => {
 
     test("colour overrides round-trip", $ => {
         const r = $.let(RadioGroup.Root({ value: "x", items: [{ value: "x" }], 
-            color: "gray.700",
-            fillColor: "blue.600",
-            borderColor: "blue.300",
+            color: "fg.default",
+            fillColor: "link",
+            borderColor: "border.brand",
         }));
         const style = $.let(r.unwrap().unwrap("RadioGroup").style.unwrap("some"));
-        $(Assert.equal(style.color.unwrap("some"), "gray.700"));
-        $(Assert.equal(style.fillColor.unwrap("some"), "blue.600"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(style.fillColor.unwrap("some"), "link"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
     });
 
     test("onChange callback round-trips on main", $ => {

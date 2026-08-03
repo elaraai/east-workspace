@@ -141,15 +141,15 @@ describeEast("List", (test) => {
     // =========================================================================
 
     test("creates list with colorPalette", $ => {
-        const list = $.let(List.Root(["A", "B"], { colorPalette: "blue" }));
+        const list = $.let(List.Root(["A", "B"], { colorPalette: "brand" }));
         const style = list.unwrap().unwrap("List").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
-    test("creates list with green colorPalette", $ => {
-        const list = $.let(List.Root(["A", "B"], { colorPalette: "green" }));
+    test("creates list with success colorPalette", $ => {
+        const list = $.let(List.Root(["A", "B"], { colorPalette: "success" }));
         const style = list.unwrap().unwrap("List").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "green"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "success"));
     });
 
     test("creates list with explicit markerColor + color", $ => {
@@ -187,13 +187,13 @@ describeEast("List", (test) => {
         ], {
             variant: "unordered",
             gap: "3",
-            colorPalette: "green",
+            colorPalette: "success",
         }));
         const style = list.unwrap().unwrap("List").style.unwrap("some");
 
         $(Assert.equal(style.variant.unwrap("some").hasTag("unordered"), true));
         $(Assert.equal(style.gap.unwrap("some"), "3"));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "green"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "success"));
     });
 
     test("creates empty list", $ => {

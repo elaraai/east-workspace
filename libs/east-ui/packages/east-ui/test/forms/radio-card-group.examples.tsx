@@ -106,9 +106,9 @@ export const radioCardGroupVariants = example({
                 <RadioCardGroup
                     value="med"
                     items={RADIO_CARD_GROUP_COLOUR_OVERRIDES_DATA}
-                    selectedCardBackground="blue.50"
-                    selectedBorderColor="blue.500"
-                    descriptionColor="gray.600"
+                    selectedCardBackground="bg.brand.subtle"
+                    selectedBorderColor="border.brand"
+                    descriptionColor="fg.muted"
                 />
             </VStack>
         );

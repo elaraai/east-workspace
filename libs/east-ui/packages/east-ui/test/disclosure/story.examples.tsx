@@ -73,7 +73,7 @@ export const storyBasic = example({
                                 ]} grid />
                             </Box>}>
                     <Text>The week-4 inflection lands on the retail promo going live. Demand stepped up and stayed up — a level shift, not a transient.</Text>
-                    <Badge colorPalette="teal">promo live · Nov 14</Badge>
+                    <Badge colorPalette="brand">promo live · Nov 14</Badge>
                 </Story.Step>
                 <Story.Step id="regions" eyebrow="Where" title="The gap wasn't uniform"
                             stage={<Box height="100%" width="100%">

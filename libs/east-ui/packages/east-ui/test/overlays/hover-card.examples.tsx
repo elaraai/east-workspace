@@ -17,10 +17,10 @@ export const hoverCardProfile = example({
                     <Avatar name="John Doe" size="lg" />
                     <VStack gap="1" align="flex-start">
                         <Text fontWeight="semibold">John Doe</Text>
-                        <Text textStyle="body-sm" color="gray.500">Software Engineer</Text>
+                        <Text textStyle="body-sm" color="fg.muted">Software Engineer</Text>
                         <HStack gap="1">
                             <Badge variant="subtle">Pro</Badge>
-                            <Badge colorPalette="green" variant="subtle">Verified</Badge>
+                            <Badge colorPalette="success" variant="subtle">Verified</Badge>
                         </HStack>
                     </VStack>
                 </HStack>

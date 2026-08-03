@@ -48,15 +48,15 @@ describeEast("Collapsible", (test) => {
 
     test("creates collapsible with full colour escape hatches", $ => {
         const c = $.let(Collapsible.Root(Text.Root("C"), { trigger: "T",
-            background: "#ffffff",
-            borderColor: "#e5e7eb",
-            triggerColor: "#1a2234",
-            contentColor: "#374151",
+            background: "bg.surface",
+            borderColor: "border.subtle",
+            triggerColor: "fg.default",
+            contentColor: "fg.default",
         }));
         const s = c.unwrap().unwrap("Collapsible").style.unwrap("some");
-        $(Assert.equal(s.background.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.triggerColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.contentColor.unwrap("some"), "#374151"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.subtle"));
+        $(Assert.equal(s.triggerColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.contentColor.unwrap("some"), "fg.default"));
     });
 }, { platformFns: TestImpl });

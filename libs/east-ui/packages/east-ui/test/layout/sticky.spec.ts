@@ -60,14 +60,14 @@ describeEast("Sticky", (test) => {
         const sticky = $.let(Sticky.Root(Text.Root("Header"), {
             offset: "0",
             boundary: "parent",
-            background: "white",
-            borderColor: "gray.200",
+            background: "bg.surface",
+            borderColor: "border.subtle",
             shadowColor: "shadows.raised",
         }));
 
         $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.hasTag("some"), true));
-        $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.unwrap("some").background.unwrap("some"), "white"));
-        $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.unwrap("some").borderColor.unwrap("some"), "gray.200"));
+        $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.unwrap("some").background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.unwrap("some").borderColor.unwrap("some"), "border.subtle"));
         $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.unwrap("some").shadowColor.unwrap("some"), "shadows.raised"));
     });
 }, { platformFns: TestImpl });

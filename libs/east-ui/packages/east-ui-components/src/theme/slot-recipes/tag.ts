@@ -83,9 +83,9 @@ export const tagSlotRecipe = defineSlotRecipe({
                 root: {
                     background: "{colors.brand.600}",
                     borderColor: "{colors.brand.600}",
-                    color: "white",
+                    color: "fg.inverse",
                 },
-                closeTrigger: { color: "white", _hover: { color: "white" } },
+                closeTrigger: { color: "fg.inverse", _hover: { color: "fg.inverse" } },
             },
         },
         size: {

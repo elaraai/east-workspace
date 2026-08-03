@@ -78,8 +78,8 @@ function ValueNode({
     if (depth > 20) {
         return (
             <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                <Text as="span" color="gray.500">[max depth reached]</Text>
+                {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                <Text as="span" color="fg.muted">[max depth reached]</Text>
             </Box>
         );
     }
@@ -88,8 +88,8 @@ function ValueNode({
     if (isPrimitive(type)) {
         return (
             <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                <Text as="span" color={type.type === 'String' ? 'green.400' : type.type === 'Integer' || type.type === 'Float' ? 'blue.400' : 'gray.300'}>
+                {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                <Text as="span" color={type.type === 'String' ? 'fg.success' : type.type === 'Integer' || type.type === 'Float' ? 'link' : 'fg.muted'}>
                     {formatPrimitive(type, value)}
                 </Text>
                 <Badge size="xs" colorPalette="gray" variant="subtle">{type.type}</Badge>
@@ -107,9 +107,9 @@ function ValueNode({
         if (items.length === 0) {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                    {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                    <Text as="span" color="gray.500">[]</Text>
-                    <Badge size="xs" colorPalette="blue" variant="subtle">Array[0]</Badge>
+                    {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                    <Text as="span" color="fg.muted">[]</Text>
+                    <Badge size="xs" colorPalette="brand" variant="subtle">Array[0]</Badge>
                 </Box>
             );
         }
@@ -117,8 +117,8 @@ function ValueNode({
             <Box>
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="blue" variant="subtle">{typeLabel}</Badge>
+                        {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                        <Badge size="xs" colorPalette="brand" variant="subtle">{typeLabel}</Badge>
                     </summary>
                     <Box pl={4}>
                         {items.map((item, index) => (
@@ -126,7 +126,7 @@ function ValueNode({
                                 key={index}
                                 py={1}
                                 borderBottom={index < items.length - 1 ? '1px solid' : undefined}
-                                borderColor="gray.700"
+                                borderColor="border.strong"
                             >
                                 <ValueNode
                                     type={elementType}
@@ -149,9 +149,9 @@ function ValueNode({
         if (fields.length === 0) {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                    {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                    <Text as="span" color="gray.500">{'{}'}</Text>
-                    <Badge size="xs" colorPalette="orange" variant="subtle">Struct</Badge>
+                    {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                    <Text as="span" color="fg.muted">{'{}'}</Text>
+                    <Badge size="xs" colorPalette="warning" variant="subtle">Struct</Badge>
                 </Box>
             );
         }
@@ -159,8 +159,8 @@ function ValueNode({
             <Box>
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="orange" variant="subtle">{typeLabel}</Badge>
+                        {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                        <Badge size="xs" colorPalette="warning" variant="subtle">{typeLabel}</Badge>
                     </summary>
                     <Box pl={4}>
                         {fields.map((field) => (
@@ -186,8 +186,8 @@ function ValueNode({
         if (!activeCase) {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                    {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                    <Text as="span" color="red.400">Unknown variant: {variant.type}</Text>
+                    {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                    <Text as="span" color="fg.danger">Unknown variant: {variant.type}</Text>
                 </Box>
             );
         }
@@ -195,8 +195,8 @@ function ValueNode({
         if (activeCase.type.type === 'Null') {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                    {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                    <Badge size="xs" colorPalette="purple" variant="subtle">.{variant.type}</Badge>
+                    {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                    <Badge size="xs" colorPalette="brand" variant="subtle">.{variant.type}</Badge>
                 </Box>
             );
         }
@@ -204,8 +204,8 @@ function ValueNode({
             <Box>
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="purple" variant="subtle">.{variant.type}</Badge>
+                        {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                        <Badge size="xs" colorPalette="brand" variant="subtle">.{variant.type}</Badge>
                     </summary>
                     <Box pl={4}>
                         <ValueNode
@@ -227,9 +227,9 @@ function ValueNode({
         if (map.size === 0) {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                    {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                    <Text as="span" color="gray.500">{'Map{}'}</Text>
-                    <Badge size="xs" colorPalette="teal" variant="subtle">Dict[0]</Badge>
+                    {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                    <Text as="span" color="fg.muted">{'Map{}'}</Text>
+                    <Badge size="xs" colorPalette="info" variant="subtle">Dict[0]</Badge>
                 </Box>
             );
         }
@@ -238,8 +238,8 @@ function ValueNode({
             <Box>
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="teal" variant="subtle">{typeLabel}</Badge>
+                        {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                        <Badge size="xs" colorPalette="info" variant="subtle">{typeLabel}</Badge>
                     </summary>
                     <Box pl={4}>
                         {entries.map(([k, v], i) => (
@@ -247,7 +247,7 @@ function ValueNode({
                                 key={i}
                                 py={2}
                                 borderBottom={i < entries.length - 1 ? '1px solid' : undefined}
-                                borderColor="gray.700"
+                                borderColor="border.strong"
                             >
                                 <ValueNode type={keyType} value={k} depth={depth + 1} />
                                 <ValueNode type={valueType} value={v} depth={depth + 1} />
@@ -266,9 +266,9 @@ function ValueNode({
         if (set.size === 0) {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                    {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                    <Text as="span" color="gray.500">{'Set{}'}</Text>
-                    <Badge size="xs" colorPalette="pink" variant="subtle">Set[0]</Badge>
+                    {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                    <Text as="span" color="fg.muted">{'Set{}'}</Text>
+                    <Badge size="xs" colorPalette="brand" variant="subtle">Set[0]</Badge>
                 </Box>
             );
         }
@@ -277,8 +277,8 @@ function ValueNode({
             <Box>
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="pink" variant="subtle">{typeLabel}</Badge>
+                        {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                        <Badge size="xs" colorPalette="brand" variant="subtle">{typeLabel}</Badge>
                     </summary>
                     <Box pl={4}>
                         {items.map((item, i) => (
@@ -286,7 +286,7 @@ function ValueNode({
                                 key={i}
                                 py={1}
                                 borderBottom={i < items.length - 1 ? '1px solid' : undefined}
-                                borderColor="gray.700"
+                                borderColor="border.strong"
                             >
                                 <ValueNode
                                     type={elementType}
@@ -308,8 +308,8 @@ function ValueNode({
             <Box>
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="red" variant="subtle">Ref</Badge>
+                        {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                        <Badge size="xs" colorPalette="danger" variant="subtle">Ref</Badge>
                     </summary>
                     <Box pl={4}>
                         <ValueNode
@@ -327,8 +327,8 @@ function ValueNode({
     if (type.type === 'Function' || type.type === 'AsyncFunction') {
         return (
             <Box py={0.5} display="flex" alignItems="center" gap={2}>
-                {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-                <Text as="span" color="gray.500">[function]</Text>
+                {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+                <Text as="span" color="fg.muted">[function]</Text>
                 <Badge size="xs" colorPalette="gray" variant="subtle">{type.type}</Badge>
             </Box>
         );
@@ -337,8 +337,8 @@ function ValueNode({
     // Fallback for unknown types
     return (
         <Box py={0.5} display="flex" alignItems="center" gap={2}>
-            {label && <Text as="span" color="purple.400" fontWeight="medium">{label}:</Text>}
-            <Text as="span" color="gray.500">[{type.type}]</Text>
+            {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
+            <Text as="span" color="fg.muted">[{type.type}]</Text>
         </Box>
     );
 }

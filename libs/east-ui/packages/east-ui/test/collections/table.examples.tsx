@@ -143,7 +143,7 @@ export const tableColumnsVariants = example({
                                 const row = $.let(complexData.get(ctx.rowIndex));
                                 return (
                                     <HStack gap="1" wrap="wrap">
-                                        {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="blue">{s}</Badge>)}
+                                        {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="brand">{s}</Badge>)}
                                     </HStack>
                                 );
                             }),
@@ -222,7 +222,7 @@ export const tableColumnsVariants = example({
                 <Separator label="MULTI ROW FOOTER" align="start" />
                 <Table
                     variant="line"
-                    footerBackground="gray.50"
+                    footerBackground="bg.subtle"
                     footerRows={[
                         {
                             item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
@@ -291,7 +291,7 @@ export const tableStyleVariants = example({
                         status: {
                             header: "Status",
                             render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                                <Badge variant="solid" colorPalette="blue">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
+                                <Badge variant="solid" colorPalette="brand">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
                             )),
                         },
                     }}
@@ -367,13 +367,13 @@ export const tableSelection = example({
                         variant="line"
                         striped={true}
                         selection={{ mode: selectionMode, selected, onChange }}
-                        selectedBackground={mode.equal("range").ifElse(_$ => "purple.50", _$ => "blue.50")}
-                        selectedBorderColor={mode.equal("range").ifElse(_$ => "purple.300", _$ => "blue.300")}
+                        selectedBackground={mode.equal("range").ifElse(_$ => "bg.info.subtle", _$ => "bg.brand.subtle")}
+                        selectedBorderColor={mode.equal("range").ifElse(_$ => "border.subtle", _$ => "border.brand")}
                         data={TABLE_SELECTION_DATA}
                         columns={{ name: { header: "Name" }, role: { header: "Role" } }}
                     />
-                    <Badge variant="solid" colorPalette="blue">{East.str`${multiSelected.size()} selected`}</Badge>
-                    <Badge variant="outline" colorPalette="purple">{East.str`Range size: ${rangeSelected.size()}`}</Badge>
+                    <Badge variant="solid" colorPalette="brand">{East.str`${multiSelected.size()} selected`}</Badge>
+                    <Badge variant="outline" colorPalette="brand">{East.str`Range size: ${rangeSelected.size()}`}</Badge>
                 </VStack>
             );
         }}</Reactive>
@@ -435,7 +435,7 @@ export const tableInteractiveCallbacks = example({
                             score: { header: "Score" },
                         }}
                     />
-                    <Badge colorPalette="blue" variant="outline">
+                    <Badge colorPalette="brand" variant="outline">
                         {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the table", _$ => lastEvent)}
                     </Badge>
                 </VStack>
@@ -583,19 +583,19 @@ export const tableExpandedRichDetail = example({
                 expandedContent={East.function([IntegerType], UIComponentType, ($, rowIndex) => {
                     const row = $.let(rows.get(rowIndex));
                     return (
-                        <Box padding="4" background="gray.50">
+                        <Box padding="4" background="bg.subtle">
                             <HStack gap="8">
                                 <VStack gap="1">
-                                    <Text textStyle="caption" color="gray.600">Revenue</Text>
+                                    <Text textStyle="caption" color="fg.muted">Revenue</Text>
                                     <Text textStyle="heading-md" fontWeight="bold">{East.str`$${row.revenue}`}</Text>
                                 </VStack>
                                 <VStack gap="1">
-                                    <Text textStyle="caption" color="gray.600">Deals closed</Text>
+                                    <Text textStyle="caption" color="fg.muted">Deals closed</Text>
                                     <Text textStyle="heading-md" fontWeight="bold">{East.str`${row.deals}`}</Text>
                                 </VStack>
                                 <VStack gap="1">
-                                    <Text textStyle="caption" color="gray.600">Region</Text>
-                                    <Badge variant="subtle" colorPalette="blue">{row.region}</Badge>
+                                    <Text textStyle="caption" color="fg.muted">Region</Text>
+                                    <Badge variant="subtle" colorPalette="brand">{row.region}</Badge>
                                 </VStack>
                             </HStack>
                         </Box>

@@ -33,13 +33,13 @@ export const highlightVariants = example({
                 <Separator label="MULTIPLE TERMS" align="start" />
                 <Highlight query={["quick", "fox", "dog"]}>The quick brown fox jumps over the lazy dog</Highlight>
                 <Separator label="CUSTOM COLOR" align="start" />
-                <Highlight query={["Important"]} background="yellow.200">Important information here</Highlight>
+                <Highlight query={["Important"]} background="bg.warning.subtle">Important information here</Highlight>
                 <Separator label="GREEN" align="start" />
-                <Highlight query={["saved", "successfully"]} background="green.100" color="green.900">Your changes have been saved successfully</Highlight>
+                <Highlight query={["saved", "successfully"]} background="bg.success.subtle" color="fg.success">Your changes have been saved successfully</Highlight>
                 <Separator label="BLUE" align="start" />
-                <Highlight query={["submit", "button"]} background="blue.100" color="blue.900">Click the submit button to proceed</Highlight>
+                <Highlight query={["submit", "button"]} background="bg.brand.subtle" color="link">Click the submit button to proceed</Highlight>
                 <Separator label="SEARCH RESULT" align="start" />
-                <Highlight query={["TypeScript", "JavaScript"]} background="yellow.200">TypeScript is a typed superset of JavaScript that compiles to plain JavaScript</Highlight>
+                <Highlight query={["TypeScript", "JavaScript"]} background="bg.warning.subtle">TypeScript is a typed superset of JavaScript that compiles to plain JavaScript</Highlight>
                 <Separator label="NO MATCHES" align="start" />
                 <Highlight query={["xyz"]}>This text has no highlighted words</Highlight>
                 <Separator label="INTERACTIVE" align="start" />
@@ -52,7 +52,7 @@ export const highlightVariants = example({
                     return (
                         <VStack gap="3" align="stretch">
                             <Input.String value={term} onChange={onChange} placeholder="Type a word to highlight" />
-                            <Highlight query={[term]} background="yellow.300">The quick brown fox jumps over the lazy dog</Highlight>
+                            <Highlight query={[term]} background="bg.warning.subtle">The quick brown fox jumps over the lazy dog</Highlight>
                         </VStack>
                     );
                 }}</Reactive>

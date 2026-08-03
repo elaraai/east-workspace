@@ -37,19 +37,19 @@ export const flexVariants = example({
         return (
             <VStack gap="4" align="stretch">
                 <Separator label="ROW JUSTIFY" align="start" />
-                <Flex direction="row" justifyContent="space-between" alignItems="center" padding="4" background="blue.50" borderRadius="md">
+                <Flex direction="row" justifyContent="space-between" alignItems="center" padding="4" background="bg.brand.subtle" borderRadius="md">
                     <Text>Left</Text>
                     <Text>Center</Text>
                     <Text>Right</Text>
                 </Flex>
                 <Separator label="COLUMN" align="start" />
-                <Flex direction="column" alignItems="center" gap="2" padding="4" background="purple.50" borderRadius="md">
+                <Flex direction="column" alignItems="center" gap="2" padding="4" background="bg.subtle" borderRadius="md">
                     <Text>Top</Text>
                     <Text>Middle</Text>
                     <Text>Bottom</Text>
                 </Flex>
                 <Separator label="WRAP" align="start" />
-                <Flex wrap="wrap" gap="2" padding="4" background="green.50" borderRadius="md" width="200px">
+                <Flex wrap="wrap" gap="2" padding="4" background="bg.success.subtle" borderRadius="md" width="200px">
                     <Text>Item 1</Text>
                     <Text>Item 2</Text>
                     <Text>Item 3</Text>
@@ -58,34 +58,34 @@ export const flexVariants = example({
                     <Text>Item 6</Text>
                 </Flex>
                 <Separator label="CENTERED" align="start" />
-                <Flex justifyContent="center" alignItems="center" height="100px" background="teal.100" borderRadius="md">
+                <Flex justifyContent="center" alignItems="center" height="100px" background="bg.brand.subtle" borderRadius="md">
                     <Text>Centered!</Text>
                 </Flex>
                 <Separator label="NESTED" align="start" />
-                <Flex direction="row" gap="4" padding="4" background="gray.100" borderRadius="md">
-                    <Flex direction="column" gap="1" padding="2" background="orange.100" borderRadius="sm">
+                <Flex direction="row" gap="4" padding="4" background="bg.subtle" borderRadius="md">
+                    <Flex direction="column" gap="1" padding="2" background="bg.warning.subtle" borderRadius="sm">
                         <Text>A</Text>
                         <Text>B</Text>
                     </Flex>
-                    <Flex direction="column" gap="1" padding="2" background="orange.100" borderRadius="sm">
+                    <Flex direction="column" gap="1" padding="2" background="bg.warning.subtle" borderRadius="sm">
                         <Text>C</Text>
                         <Text>D</Text>
                     </Flex>
                 </Flex>
                 <Separator label="ALIGN ITEMS" align="start" />
                 <Flex direction="row" gap="2">
-                    <Flex alignItems="flex-start" height="60px" padding="2" background="pink.100" borderRadius="sm">
+                    <Flex alignItems="flex-start" height="60px" padding="2" background="bg.subtle" borderRadius="sm">
                         <Text>flex-start</Text>
                     </Flex>
-                    <Flex alignItems="center" height="60px" padding="2" background="pink.100" borderRadius="sm">
+                    <Flex alignItems="center" height="60px" padding="2" background="bg.subtle" borderRadius="sm">
                         <Text>center</Text>
                     </Flex>
-                    <Flex alignItems="flex-end" height="60px" padding="2" background="pink.100" borderRadius="sm">
+                    <Flex alignItems="flex-end" height="60px" padding="2" background="bg.subtle" borderRadius="sm">
                         <Text>flex-end</Text>
                     </Flex>
                 </Flex>
                 <Separator label="REVERSE" align="start" />
-                <Flex direction="row-reverse" gap="4" padding="4" background="cyan.50" borderRadius="md">
+                <Flex direction="row-reverse" gap="4" padding="4" background="bg.brand.subtle" borderRadius="md">
                     <Text>1</Text>
                     <Text>2</Text>
                     <Text>3</Text>
@@ -102,7 +102,7 @@ export const flexVariants = example({
                     }));
                     return (
                         <VStack gap="3" align="stretch">
-                            <Flex direction={direction} gap="4" padding="4" background="gray.100" borderRadius="md">
+                            <Flex direction={direction} gap="4" padding="4" background="bg.subtle" borderRadius="md">
                                 <Text>A</Text>
                                 <Text>B</Text>
                                 <Text>C</Text>
@@ -127,7 +127,7 @@ export const flexFillScroll = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Flex direction="column" height="220px" width="260px">
-                <Flex background="gray.50" padding="3"><Text>Toolbar</Text></Flex>
+                <Flex background="bg.subtle" padding="3"><Text>Toolbar</Text></Flex>
                 <Flex fill scrollY direction="column" gap="2" padding="3">
                     {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
                 </Flex>

@@ -139,11 +139,11 @@ describeEast("Stack", (test) => {
 
     test("creates stack with background", $ => {
         const stack = $.let(Stack.Root([], {
-            background: "gray.100",
+            background: "bg.subtle",
         }));
 
         $(Assert.equal(stack.unwrap().unwrap("Stack").style.unwrap("some").background.hasTag("some"), true));
-        $(Assert.equal(stack.unwrap().unwrap("Stack").style.unwrap("some").background.unwrap("some"), "gray.100"));
+        $(Assert.equal(stack.unwrap().unwrap("Stack").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
     });
 
     // =========================================================================
@@ -167,7 +167,7 @@ describeEast("Stack", (test) => {
             align: 'center',
             justify: 'space-between',
             padding: "2",
-            background: "gray.50",
+            background: "bg.subtle",
         }));
 
         const style = $.let(stack.unwrap().unwrap("Stack").style.unwrap("some"));
@@ -176,7 +176,7 @@ describeEast("Stack", (test) => {
         $(Assert.equal(style.align.unwrap("some").hasTag("center"), true));
         $(Assert.equal(style.justify.unwrap("some").hasTag("space-between"), true));
         $(Assert.equal(style.padding.unwrap("some").top.unwrap("some"), "2"));
-        $(Assert.equal(style.background.unwrap("some"), "gray.50"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
         // Other styles should be none
         $(Assert.equal(style.wrap.hasTag("none"), true));
         $(Assert.equal(style.margin.hasTag("none"), true));
@@ -333,7 +333,7 @@ describeEast("Stack", (test) => {
             align: Style.AlignItems("center"),
             justify: Style.JustifyContent("space-between"),
             padding: Stack.Padding({ top: "4", right: "4", bottom: "4", left: "4" }),
-            background: "white",
+            background: "bg.surface",
         }));
 
         $(Assert.equal(navBar.unwrap().unwrap("Stack").children.size(), 3n));

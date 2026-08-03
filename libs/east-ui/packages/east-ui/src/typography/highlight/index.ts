@@ -143,7 +143,7 @@ function buildHighlightVisualStyle(
  * const example = East.function([], UIComponentType, $ => {
  *     return Highlight.Root("Search results for: react components", {
  *         query: ["react", "components"],
- *         background: "yellow.200",
+ *         background: "bg.warning.subtle",
  *     });
  * });
  * ```

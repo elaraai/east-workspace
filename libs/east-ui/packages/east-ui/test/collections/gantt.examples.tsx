@@ -183,7 +183,7 @@ export const ganttTaskVariants = example({
                                     value: "Styled label",
                                     align: "center",
                                     verticalAlign: "center",
-                                    color: "yellow.300",
+                                    color: "fg.warning",
                                     fontWeight: "bold",
                                     fontStyle: "italic",
                                     fontSize: "lg",
@@ -490,7 +490,7 @@ export const ganttInteractiveCallbacks = example({
                                 milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
                             })}
                         />
-                        <Badge colorPalette="blue" variant="outline">
+                        <Badge colorPalette="brand" variant="outline">
                             {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the Gantt chart", _$ => lastEvent)}
                         </Badge>
                     </VStack>

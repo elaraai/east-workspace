@@ -91,7 +91,7 @@ export const timeRangeInputVariants = example({
                         );
                     }}</Reactive>
                 <Separator label="RANGE INPUT COLOURS" align="start" />
-                <TimeRangeInput startValue={coloursStart} endValue={coloursEnd} step={15n} color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />
+                <TimeRangeInput startValue={coloursStart} endValue={coloursEnd} step={15n} color="fg" background="bg.subtle" borderColor="border.brand" focusBorderColor="border.brand" />
                 <Separator label="RANGE INPUT SIZES" align="start" />
                 <VStack gap="3" align="flex-start">
                     <TimeRangeInput startValue={sizesStart} endValue={sizesEnd} step={15n} size="sm" />

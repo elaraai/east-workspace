@@ -278,37 +278,37 @@ describeEast("TagsInput", (test) => {
     // Color Palette
     // =========================================================================
 
-    test("creates tags input with blue color palette", $ => {
+    test("creates tags input with brand color palette", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.hasTag("some"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates tags input with red color palette", $ => {
+    test("creates tags input with danger color palette", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: "red",
+            colorPalette: "danger",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("danger"), true));
     });
 
-    test("creates tags input with green color palette", $ => {
+    test("creates tags input with success color palette", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: "green",
+            colorPalette: "success",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     test("supports Style.ColorScheme helper", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: Style.ColorScheme("purple"),
+            colorPalette: Style.ColorScheme("brand"),
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -331,7 +331,7 @@ describeEast("TagsInput", (test) => {
             allowOverflow: false,
             size: "md",
             variant: "outline",
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").value.size(), 2n));
@@ -349,7 +349,7 @@ describeEast("TagsInput", (test) => {
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").allowOverflow.unwrap("some"), false));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates basic skills input", $ => {

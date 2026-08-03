@@ -186,12 +186,12 @@ describeEast("Schematic", (test) => {
                 item: e => ({
                     key: e.id, x: e.x, y: e.y, label: e.id,
                     footprint: Schematic.circle(e.r),
-                    tone: "brand", color: "#2D7FF9", bg: "#2D7FF9", fillOpacity: 0.2, weight: 2.0,
+                    tone: "brand", color: "link", bg: "bg.brand.subtle", fillOpacity: 0.2, weight: 2.0,
                 }),
                 zones: [{ id: "z", name: "Z", x: 0.0, y: 0.0, w: 8.0, h: 6.0 }],
                 zone: z => ({
                     key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
-                    tone: "danger", color: "#DC2626", bg: "#DC2626", fillOpacity: 0.15, weight: 1.5,
+                    tone: "danger", color: "fg.danger", bg: "bg.danger.subtle", fillOpacity: 0.15, weight: 1.5,
                 }),
             },
         ));
@@ -199,15 +199,15 @@ describeEast("Schematic", (test) => {
 
         const item = $.let(root.items.get(0n));
         $(Assert.equal(item.tone.unwrap("some").hasTag("brand"), true));
-        $(Assert.equal(item.color.unwrap("some"), "#2D7FF9"));
-        $(Assert.equal(item.bg.unwrap("some"), "#2D7FF9"));
+        $(Assert.equal(item.color.unwrap("some"), "link"));
+        $(Assert.equal(item.bg.unwrap("some"), "bg.brand.subtle"));
         $(Assert.equal(item.fillOpacity.unwrap("some"), 0.2));
         $(Assert.equal(item.weight.unwrap("some"), 2.0));
 
         const zone = $.let(root.zones.get(0n));
         $(Assert.equal(zone.tone.unwrap("some").hasTag("danger"), true));
-        $(Assert.equal(zone.color.unwrap("some"), "#DC2626"));
-        $(Assert.equal(zone.bg.unwrap("some"), "#DC2626"));
+        $(Assert.equal(zone.color.unwrap("some"), "fg.danger"));
+        $(Assert.equal(zone.bg.unwrap("some"), "bg.danger.subtle"));
         $(Assert.equal(zone.weight.unwrap("some"), 1.5));
     });
 

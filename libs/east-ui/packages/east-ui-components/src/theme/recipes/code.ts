@@ -31,7 +31,7 @@ export const codeRecipe = defineRecipe({
             outline: { background: "transparent", borderWidth: "1px", borderColor: "border.strong", color: "fg" },
             plain:   { background: "transparent", color: "fg" },
             surface: { background: "bg.muted", color: "fg" },
-            solid:   { background: "{colors.brand.700}", color: "white" },
+            solid:   { background: "{colors.brand.700}", color: "fg.inverse" },
         },
     },
     defaultVariants: {

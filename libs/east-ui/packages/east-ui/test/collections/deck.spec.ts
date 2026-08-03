@@ -78,7 +78,7 @@ describeEast("Deck", (test) => {
     test("the status registry resolves token and custom colours", $ => {
         const statuses = Deck.statuses({
             running: { label: "Running", color: "success", pulse: true, hint: "producing" },
-            standby: { label: "Standby", color: "#3568c9" },
+            standby: { label: "Standby", color: "link" },
         });
         const deck = $.let(Deck.Root(ROWS, {
             card: r => ({ key: r.id, title: r.name, status: "running" }),
@@ -92,7 +92,7 @@ describeEast("Deck", (test) => {
         $(Assert.equal(running.pulse, true));
         $(Assert.equal(running.hint.unwrap("some"), "producing"));
         const standby = $.let(payload.statuses.get("standby"));
-        $(Assert.equal(standby.color.unwrap("custom"), "#3568c9"));
+        $(Assert.equal(standby.color.unwrap("custom"), "link"));
         $(Assert.equal(standby.pulse, false));
     });
 

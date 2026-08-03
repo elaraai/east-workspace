@@ -78,10 +78,10 @@ describeEast("Code", (test) => {
     // =========================================================================
 
     test("creates code with colorPalette", $ => {
-        const code = $.let(Code.Root("const x = 1", { colorPalette: "blue" }));
+        const code = $.let(Code.Root("const x = 1", { colorPalette: "brand" }));
         const style = code.unwrap().unwrap("Code").style.unwrap("some");
         $(Assert.equal(style.colorPalette.hasTag("some"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
     // =========================================================================
@@ -126,14 +126,14 @@ describeEast("Code", (test) => {
     test("creates code with explicit color + background + borderColor", $ => {
         const code = $.let(Code.Root("rot_name", {
             variant: "outline",
-            color: "#7a3b2e",
-            background: "#fde3c6",
-            borderColor: "#c89078",
+            color: "fg.danger",
+            background: "bg.warning.subtle",
+            borderColor: "status.warn",
         }));
         const style = code.unwrap().unwrap("Code").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
-        $(Assert.equal(style.background.unwrap("some"), "#fde3c6"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "#c89078"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.danger"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.warning.subtle"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "status.warn"));
     });
 
     // =========================================================================
@@ -143,14 +143,14 @@ describeEast("Code", (test) => {
     test("creates code with variant + palette + size", $ => {
         const code = $.let(Code.Root("function hello() {}", {
             variant: "subtle",
-            colorPalette: "purple",
+            colorPalette: "brand",
             size: "sm",
         }));
         const style = code.unwrap().unwrap("Code").style.unwrap("some");
 
         $(Assert.equal(code.unwrap().unwrap("Code").value, "function hello() {}"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "purple"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
         $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
     });
 

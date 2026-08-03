@@ -34,17 +34,17 @@ export const iconButtonVariants = example({
                     loading
                     loadingIcon={{ prefix: "fas", name: "spinner" }}
                     variant="subtle"
-                    colorPalette="blue"
+                    colorPalette="brand"
                 />
                 <Separator label="BUTTON COLOURED" align="start" />
                 <IconButton
                     prefix="fas"
                     name="rocket"
                     label="Deploy"
-                    color="#ffffff"
-                    background="#1a2234"
-                    borderColor="#3d5cff"
-                    hoverBackground="#25345a"
+                    color="fg.inverse"
+                    background="bg.inverse"
+                    borderColor="border.brand"
+                    hoverBackground="bg.inverse"
                     size="md"
                 />
                 <Separator label="BUTTON BADGE AND ATTENTION" align="start" />
@@ -52,8 +52,8 @@ export const iconButtonVariants = example({
                     <IconButton prefix="fas" name="bell" label="Alerts" variant="ghost" badge="3" />
                     <IconButton prefix="fas" name="bell" label="Many alerts" variant="ghost" badge="99+" badgeColorPalette="orange" />
                     <IconButton prefix="fas" name="inbox" label="Unread" variant="ghost" badge="" />
-                    <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="red" badge="5" attention="pulse" />
-                    <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="blue" attention="ring" />
+                    <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="danger" badge="5" attention="pulse" />
+                    <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="brand" attention="ring" />
                 </VStack>
                 <Separator label="BUTTON ON CLICK REACTIVE" align="start" />
                 <Reactive>{$ => {
@@ -66,7 +66,7 @@ export const iconButtonVariants = example({
                         return (
                             <VStack gap="3" align="flex-start">
                                 <Stat label="Clicks" value={East.print(count)} />
-                                <IconButton prefix="fas" name="plus" label="Increment" onClick={increment} variant="solid" colorPalette="blue" />
+                                <IconButton prefix="fas" name="plus" label="Increment" onClick={increment} variant="solid" colorPalette="brand" />
                             </VStack>
                         );
                     }}</Reactive>

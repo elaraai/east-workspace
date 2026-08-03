@@ -125,7 +125,7 @@ export type CarouselType = typeof CarouselType;
  *             showIndicators: true,
  *             showControls: true,
  *             spacing: "4",
- *             style: { orientation: "horizontal", padding: "2", activeIndicatorColor: "#3d5cff" },
+ *             style: { orientation: "horizontal", padding: "2", activeIndicatorColor: "link" },
  *         },
  *     ),
  * );

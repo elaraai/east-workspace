@@ -21,7 +21,7 @@ export const copyButtonLabelled = example({
     description: "Labelled copy button with a custom 1.5s \"Copied!\" timeout",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <CopyButton label="Copy link" timeout="1500" variant="outline" colorPalette="blue">
+            <CopyButton label="Copy link" timeout="1500" variant="outline" colorPalette="brand">
                 https://elara.ai/share/abc123
             </CopyButton>
         );
@@ -37,11 +37,11 @@ export const copyButtonBranded = example({
             <CopyButton
                 label="Copy API key"
                 variant="solid"
-                color="#ffffff"
-                background="#1a2234"
-                borderColor="#3d5cff"
-                hoverBackground="#25345a"
-                successColor="#2e7d32"
+                color="fg.inverse"
+                background="bg.inverse"
+                borderColor="border.brand"
+                hoverBackground="bg.inverse"
+                successColor="fg.success"
             >
                 elaraai_sk_live_xxxxxxxx
             </CopyButton>

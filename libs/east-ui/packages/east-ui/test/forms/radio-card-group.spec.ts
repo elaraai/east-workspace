@@ -56,12 +56,12 @@ describeEast("RadioCardGroup", (test) => {
 
     test("selectedBorderColor / selectedCardBackground round-trip", $ => {
         const r = $.let(RadioCardGroup.Root({ value: "x", items: [{ value: "x", label: "X" }], 
-            selectedCardBackground: "blue.50",
-            selectedBorderColor: "blue.500",
+            selectedCardBackground: "bg.brand.subtle",
+            selectedBorderColor: "border.brand",
         }));
         const style = $.let(r.unwrap().unwrap("RadioCardGroup").style.unwrap("some"));
-        $(Assert.equal(style.selectedCardBackground.unwrap("some"), "blue.50"));
-        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.selectedCardBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "border.brand"));
     });
 
     test("onChange callback round-trips on main", $ => {

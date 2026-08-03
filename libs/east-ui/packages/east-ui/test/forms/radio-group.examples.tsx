@@ -107,9 +107,9 @@ export const radioGroupVariants = example({
                 <RadioGroup
                     value="low"
                     items={RADIO_GROUP_COLOUR_OVERRIDES_DATA}
-                    fillColor="blue.600"
-                    borderColor="blue.300"
-                    color="gray.700"
+                    fillColor="link"
+                    borderColor="border.brand"
+                    color="fg.default"
                 />
             </VStack>
         );

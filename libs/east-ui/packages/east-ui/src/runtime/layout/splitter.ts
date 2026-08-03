@@ -36,8 +36,8 @@ type SplitterBuilders = {
  *     <Box height="200px">
  *         <Splitter
  *             panels={[
- *                 Splitter.Panel(<Box padding="4" background="gray.800" color="white"><Text>Code Editor</Text></Box>, { id: "editor", minSize: 30 }),
- *                 Splitter.Panel(<Box padding="4" background="gray.900" color="green.400"><Text>Terminal</Text></Box>, { id: "terminal", minSize: 10 }),
+ *                 Splitter.Panel(<Box padding="4" background="bg.inverse" color="fg.inverse"><Text>Code Editor</Text></Box>, { id: "editor", minSize: 30 }),
+ *                 Splitter.Panel(<Box padding="4" background="bg.inverse" color="fg.success"><Text>Terminal</Text></Box>, { id: "terminal", minSize: 10 }),
  *             ]}
  *             defaultSize={[70, 30]}
  *             orientation="vertical"

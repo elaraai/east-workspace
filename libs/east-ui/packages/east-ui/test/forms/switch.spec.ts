@@ -79,37 +79,37 @@ describeEast("Switch", (test) => {
     // Color Palettes (now inside style)
     // =========================================================================
 
-    test("creates switch with blue color palette in style", $ => {
+    test("creates switch with brand color palette in style", $ => {
         const sw = $.let(Switch.Root(true, {
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
         $(Assert.equal(style.colorPalette.hasTag("some"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates switch with green color palette in style", $ => {
+    test("creates switch with success color palette in style", $ => {
         const sw = $.let(Switch.Root(true, {
-            colorPalette: "green",
+            colorPalette: "success",
         }));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
-        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("success"), true));
     });
 
-    test("creates switch with teal color palette in style", $ => {
+    test("creates switch with brand color palette in style", $ => {
         const sw = $.let(Switch.Root(true, {
-            colorPalette: "teal",
+            colorPalette: "brand",
         }));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
-        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("teal"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates switch with Style.ColorScheme helper in style", $ => {
         const sw = $.let(Switch.Root(true, {
-            colorPalette: Style.ColorScheme("purple"),
+            colorPalette: Style.ColorScheme("brand"),
         }));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
-        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -155,14 +155,14 @@ describeEast("Switch", (test) => {
 
     test("onColor / offColor / thumbColor round-trip via style", $ => {
         const sw = $.let(Switch.Root(true, {
-            onColor: "green.500",
-            offColor: "gray.300",
-            thumbColor: "white",
+            onColor: "fg.success",
+            offColor: "fg.muted",
+            thumbColor: "fg.inverse",
         }));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
-        $(Assert.equal(style.onColor.unwrap("some"), "green.500"));
-        $(Assert.equal(style.offColor.unwrap("some"), "gray.300"));
-        $(Assert.equal(style.thumbColor.unwrap("some"), "white"));
+        $(Assert.equal(style.onColor.unwrap("some"), "fg.success"));
+        $(Assert.equal(style.offColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(style.thumbColor.unwrap("some"), "fg.inverse"));
     });
 
     // =========================================================================
@@ -173,7 +173,7 @@ describeEast("Switch", (test) => {
         const sw = $.let(Switch.Root(true, {
             label: "Dark mode",
             disabled: false,
-            colorPalette: "blue",
+            colorPalette: "brand",
             size: "md",
         }));
 
@@ -181,7 +181,7 @@ describeEast("Switch", (test) => {
         $(Assert.equal(sw.unwrap().unwrap("Switch").label.unwrap("some"), "Dark mode"));
         $(Assert.equal(sw.unwrap().unwrap("Switch").disabled.unwrap("some"), false));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
-        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
     });
 
@@ -200,14 +200,14 @@ describeEast("Switch", (test) => {
     test("creates notification settings switch", $ => {
         const sw = $.let(Switch.Root(true, {
             label: "Push notifications",
-            colorPalette: "green",
+            colorPalette: "success",
             size: "sm",
         }));
 
         $(Assert.equal(sw.unwrap().unwrap("Switch").checked, true));
         $(Assert.equal(sw.unwrap().unwrap("Switch").label.unwrap("some"), "Push notifications"));
         const style = $.let(sw.unwrap().unwrap("Switch").style.unwrap("some"));
-        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("success"), true));
         $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
     });
 

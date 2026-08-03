@@ -25,7 +25,7 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  * import { Box, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const card = East.function([], UIComponentType, _$ => (
- *     <Box padding="4" background="blue.50" color="blue.800" borderRadius="md">
+ *     <Box padding="4" background="bg.brand.subtle" color="link" borderRadius="md">
  *         <Text>Styled container content</Text>
  *     </Box>
  * ));

@@ -51,7 +51,7 @@ export const disclosureBranded = example({
     description: "Branded Disclosure with custom body + trigger colours",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Disclosure lines={2n} color="#374151" triggerColor="#3d5cff">
+            <Disclosure lines={2n} color="fg.default" triggerColor="link">
                 {"Branded narrative text that clamps to the configured number of lines and reveals the full content on demand. Useful when the theme's default link colour doesn't fit."}
             </Disclosure>
         );

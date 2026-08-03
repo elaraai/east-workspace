@@ -237,7 +237,7 @@ export const lineVariants = example({
                 </Box>
                 <Separator label="STEP AFTER SETPOINT" align="start" />
                 <Box height="220px" width="100%">
-                    <Chart layers={Chart.Line(stepAfter, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "black" })} grid />
+                    <Chart layers={Chart.Line(stepAfter, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "fg.default" })} grid />
                 </Box>
                 <Separator label="DASHED TARGET OVERLAY" align="start" />
                 <Box height="240px" width="100%">
@@ -503,7 +503,7 @@ export const areaScatterVariants = example({
                 <Separator label="AREA CONFIDENCE BAND" align="start" />
                 <Box height="240px" width="100%">
                     <Chart layers={[
-                        Chart.Band(band, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
+                        Chart.Band(band, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "link", fillOpacity: 0.3 }),
                         Chart.Line(band, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
                     ]} legend tooltip grid />
                 </Box>
@@ -557,7 +557,7 @@ export const composedVariants = example({
                     <Chart
                         layers={[
                             Chart.Area(forecast, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
-                            Chart.Band(forecast, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
+                            Chart.Band(forecast, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "link", fillOpacity: 0.3 }),
                             Chart.Line(forecast, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
                             Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
                         ]}

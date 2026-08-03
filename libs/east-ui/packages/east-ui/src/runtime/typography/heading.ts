@@ -26,7 +26,7 @@ import { content, type ContentProps, type JsxTag } from "../combinators.js";
  * import { Heading, UIComponentType } from "@elaraai/east-ui";
  *
  * const title = East.function([], UIComponentType, _$ => (
- *     <Heading as="h1" textStyle="display-md" color="gray.800" textAlign="center">
+ *     <Heading as="h1" textStyle="display-md" color="fg.default" textAlign="center">
  *         Welcome to East UI
  *     </Heading>
  * ));

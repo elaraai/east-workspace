@@ -65,7 +65,7 @@ export const paginationColourOverrides = example({
             const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
                 $(pageBind.write(next));
             }));
-            return <Pagination page={page} pageSize={25n} count={300n} onPageChange={onPageChange} variant="subtle" activeBackground="blue.500" activeColor="white" />;
+            return <Pagination page={page} pageSize={25n} count={300n} onPageChange={onPageChange} variant="subtle" activeBackground="bg.brand.subtle" activeColor="fg.inverse" />;
         }}</Reactive>
     )),
     inputs: [],

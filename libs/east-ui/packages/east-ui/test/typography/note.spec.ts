@@ -85,15 +85,15 @@ describeEast("Note", (test) => {
     test("creates branded note with explicit colour + background + borderColor + accentColor", $ => {
         const note = $.let(Note.Root("…", {
             variant: "callout",
-            color: "#1a2234",
-            background: "#e7efff",
-            borderColor: "#6a8dff",
-            accentColor: "#3d5cff",
+            color: "fg.default",
+            background: "bg.brand.subtle",
+            borderColor: "border.brand",
+            accentColor: "link",
         }));
         const style = note.unwrap().unwrap("Note").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#1a2234"));
-        $(Assert.equal(style.background.unwrap("some"), "#e7efff"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "#6a8dff"));
-        $(Assert.equal(style.accentColor.unwrap("some"), "#3d5cff"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.accentColor.unwrap("some"), "link"));
     });
 }, { platformFns: TestImpl });

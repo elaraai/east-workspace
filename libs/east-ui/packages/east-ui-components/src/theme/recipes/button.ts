@@ -85,7 +85,7 @@ export const buttonRecipe = defineRecipe({
                  *  red.600 (etc.) — palette is the role-knob, the recipe doesn't
                  *  pin to a single brand stop. */
                 background: "colorPalette.600",
-                color: "white",
+                color: "fg.inverse",
                 fontWeight: "semibold",
                 _hover:  { background: "colorPalette.700" },
                 _active: { background: "colorPalette.800", transform: "scale(0.98)" },
@@ -93,7 +93,7 @@ export const buttonRecipe = defineRecipe({
             ink: {
                 /* Dual-CTA partner — always deep ink regardless of palette. */
                 background: "{colors.brand.900}",
-                color: "white",
+                color: "fg.inverse",
                 fontWeight: "semibold",
                 _hover:  { background: "{colors.brand.800}" },
                 _active: { background: "{colors.brand.700}", transform: "scale(0.98)" },
@@ -138,7 +138,7 @@ export const buttonRecipe = defineRecipe({
             },
             "commit-primary": {
                 background: "{colors.brand.600}",
-                color: "white",
+                color: "fg.inverse",
                 fontWeight: "semibold",
                 _hover: { background: "{colors.brand.700}" },
             },

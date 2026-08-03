@@ -80,16 +80,16 @@ describeEast("EmptyState", (test) => {
     test("creates empty state with size + colour slots", $ => {
         const e = $.let(EmptyState.Root({ title: "T",
             size: "sm",
-            color: "#111827",
-            background: "#f9fafb",
-            borderColor: "#e5e7eb",
-            iconColor: "#3d5cff",
+            color: "fg.default",
+            background: "bg.canvas",
+            borderColor: "border.subtle",
+            iconColor: "link",
         }));
         const s = e.unwrap().unwrap("EmptyState").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(s.color.unwrap("some"), "#111827"));
-        $(Assert.equal(s.background.unwrap("some"), "#f9fafb"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.iconColor.unwrap("some"), "#3d5cff"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.canvas"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.subtle"));
+        $(Assert.equal(s.iconColor.unwrap("some"), "link"));
     });
 }, { platformFns: TestImpl });

@@ -195,7 +195,7 @@ function buildHeadingVisualStyle(
  *     return Heading.Root("Welcome", {
  *         as: "h1",
  *         textStyle: "display-md",
- *         color: "blue.600",
+ *         color: "link",
  *     });
  * });
  * ```

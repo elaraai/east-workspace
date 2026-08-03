@@ -84,12 +84,12 @@ export const EastChakraBreadcrumb = memo(function EastChakraBreadcrumb({ value }
                         fontFamily="mono"
                         fontSize="11px"
                         letterSpacing="0.06em"
-                        color="gray.500"
+                        color="fg.muted"
                         marginInlineStart="12px"
                         paddingInlineStart="12px"
                         borderInlineStartWidth="1px"
                         borderInlineStartStyle="solid"
-                        borderInlineStartColor="gray.200"
+                        borderInlineStartColor="border.subtle"
                     >
                         run <Box as="span" color="brand.900" fontWeight="600">{runAnchor.replace(/^run\s+/i, "")}</Box>
                     </Box>

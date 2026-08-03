@@ -192,20 +192,20 @@ describeEast("Flex", (test) => {
 
     test("creates flex with background", $ => {
         const flex = $.let(Flex.Root([], {
-            background: "gray.100",
+            background: "bg.subtle",
         }));
 
         $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").background.hasTag("some"), true));
-        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "gray.100"));
+        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
     });
 
     test("creates flex with color", $ => {
         const flex = $.let(Flex.Root([], {
-            color: "blue.500",
+            color: "link",
         }));
 
         $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").color.hasTag("some"), true));
-        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").color.unwrap("some"), "blue.500"));
+        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").color.unwrap("some"), "link"));
     });
 
     test("creates flex with borderRadius", $ => {
@@ -239,7 +239,7 @@ describeEast("Flex", (test) => {
             alignItems: "center",
             gap: "4",
             padding: Flex.Padding({ top: "4", right: "4", bottom: "4", left: "4" }),
-            background: "gray.100",
+            background: "bg.subtle",
             borderRadius: "md",
         }));
 
@@ -250,7 +250,7 @@ describeEast("Flex", (test) => {
         $(Assert.equal(style.alignItems.unwrap("some").hasTag("center"), true));
         $(Assert.equal(style.gap.unwrap("some"), "4"));
         $(Assert.equal(style.padding.unwrap("some").top.unwrap("some"), "4"));
-        $(Assert.equal(style.background.unwrap("some"), "gray.100"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
         $(Assert.equal(style.borderRadius.unwrap("some"), "md"));
         // Other styles should be none
         $(Assert.equal(style.width.hasTag("none"), true));
@@ -362,7 +362,7 @@ describeEast("Flex", (test) => {
         ], {
             direction: "column",
             padding: Flex.Padding({ top: "2", right: "2", bottom: "2", left: "2" }),
-            background: "blue.100",
+            background: "bg.brand.subtle",
         });
 
         const outerFlex = $.let(Flex.Root([
@@ -370,11 +370,11 @@ describeEast("Flex", (test) => {
         ], {
             direction: "row",
             padding: Flex.Padding({ top: "4", right: "4", bottom: "4", left: "4" }),
-            background: "gray.100",
+            background: "bg.subtle",
         }));
 
         $(Assert.equal(outerFlex.unwrap().unwrap("Flex").children.size(), 1n));
         $(Assert.equal(outerFlex.unwrap().unwrap("Flex").style.unwrap("some").padding.unwrap("some").top.unwrap("some"), "4"));
-        $(Assert.equal(outerFlex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "gray.100"));
+        $(Assert.equal(outerFlex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
     });
 }, {   platformFns: TestImpl,});

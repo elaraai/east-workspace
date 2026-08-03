@@ -626,7 +626,7 @@ export const ChartSpec = {
      * import { Chart } from "@elaraai/east-ui";
      *
      * const band = Chart.Spec.bandArea(
-     *     [{ key: "Confidence", color: "blue.200", points: [{ x: variant("category", "Mon"), low: 80, high: 120 }] }],
+     *     [{ key: "Confidence", color: "link", points: [{ x: variant("category", "Mon"), low: 80, high: 120 }] }],
      *     { fillOpacity: 0.3 },
      * );
      * ```

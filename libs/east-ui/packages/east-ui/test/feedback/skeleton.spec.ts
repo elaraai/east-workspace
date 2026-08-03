@@ -49,13 +49,13 @@ describeEast("Skeleton", (test) => {
         const s = $.let(Skeleton.Root({ shape: "rect",
             width: "100%",
             height: "80px",
-            background: "#e5e7eb",
-            shimmerColor: "#f3f4f6",
+            background: "bg.emphasized",
+            shimmerColor: "fg.muted",
         }));
         const sv = s.unwrap().unwrap("Skeleton").style.unwrap("some");
         $(Assert.equal(sv.width.unwrap("some"), "100%"));
         $(Assert.equal(sv.height.unwrap("some"), "80px"));
-        $(Assert.equal(sv.background.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(sv.shimmerColor.unwrap("some"), "#f3f4f6"));
+        $(Assert.equal(sv.background.unwrap("some"), "bg.emphasized"));
+        $(Assert.equal(sv.shimmerColor.unwrap("some"), "fg.muted"));
     });
 }, { platformFns: TestImpl });

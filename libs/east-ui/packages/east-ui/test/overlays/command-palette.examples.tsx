@@ -92,10 +92,10 @@ export const commandPaletteVariants = example({
                 <CommandPalette
                     size="md"
                     background="bg"
-                    borderColor="blue.300"
+                    borderColor="border.brand"
                     inputBackground="bg.subtle"
-                    selectedBackground="blue.100"
-                    groupLabelColor="blue.700"
+                    selectedBackground="bg.brand.subtle"
+                    groupLabelColor="link"
                     commands={[
                         { id: "a", label: "Action A", group: "Group", action: noop },
                         { id: "b", label: "Action B", group: "Group", action: noop },

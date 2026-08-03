@@ -37,7 +37,7 @@ export const iconButtonRecipe = defineRecipe({
         variant: {
             ghost:   { background: "transparent", color: "fg.muted", _hover: { background: "bg.subtle", color: "fg" } },
             outline: { background: "bg.surface",  color: "fg",       borderWidth: "1px", borderColor: "border.strong", _hover: { borderColor: "fg.muted" } },
-            solid:   { background: "{colors.brand.600}", color: "white", _hover: { background: "{colors.brand.700}" } },
+            solid:   { background: "{colors.brand.600}", color: "fg.inverse", _hover: { background: "{colors.brand.700}" } },
             ink:     { background: "fg.default", color: "bg.surface", _hover: { background: "{colors.brand.800}" } },
             subtle:  { background: "bg.subtle", color: "fg", _hover: { background: "bg.emphasized" } },
         },

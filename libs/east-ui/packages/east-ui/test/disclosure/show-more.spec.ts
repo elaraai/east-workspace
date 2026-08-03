@@ -44,10 +44,10 @@ describeEast("Disclosure", (test) => {
 
     test("creates disclosure with full colour escape hatches", $ => {
         const d = $.let(Disclosure.Root("Body", {
-            color: "#374151", triggerColor: "#3d5cff",
+            color: "fg.default", triggerColor: "link",
         }));
         const s = d.unwrap().unwrap("Disclosure").style.unwrap("some");
-        $(Assert.equal(s.color.unwrap("some"), "#374151"));
-        $(Assert.equal(s.triggerColor.unwrap("some"), "#3d5cff"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.triggerColor.unwrap("some"), "link"));
     });
 }, { platformFns: TestImpl });

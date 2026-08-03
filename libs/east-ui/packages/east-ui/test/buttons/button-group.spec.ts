@@ -44,10 +44,9 @@ describeEast("ButtonGroup", (test) => {
     });
 
     test("creates button group with shared borderColor", $ => {
-        const g = $.let(ButtonGroup.Root([Button.Root("A")], { borderColor: "#3d5cff" }));
+        const g = $.let(ButtonGroup.Root([Button.Root("A")], { borderColor: "border.brand" }));
         $(Assert.equal(
-            g.unwrap().unwrap("ButtonGroup").style.unwrap("some").borderColor.unwrap("some"),
-            "#3d5cff",
+            g.unwrap().unwrap("ButtonGroup").style.unwrap("some").borderColor.unwrap("some"), "border.brand",
         ));
     });
 
@@ -58,11 +57,11 @@ describeEast("ButtonGroup", (test) => {
             Button.Root("1m", { variant: "outline", size: "sm" }),
         ], {
             attached: true,
-            borderColor: "#14b8a6",
+            borderColor: "accent.teal",
         }));
         const s = g.unwrap().unwrap("ButtonGroup").style.unwrap("some");
         $(Assert.equal(g.unwrap().unwrap("ButtonGroup").buttons.size(), 3n));
         $(Assert.equal(s.attached.unwrap("some"), true));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#14b8a6"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "accent.teal"));
     });
 }, { platformFns: TestImpl });

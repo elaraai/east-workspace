@@ -12,7 +12,7 @@ export const collapsibleWhy = example({
     description: "Inline 'Why?' drawer revealing rationale text",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Collapsible trigger={<Text color="blue.500">Why did we recommend this?</Text>} defaultOpen={false}>
+            <Collapsible trigger={<Text color="link">Why did we recommend this?</Text>} defaultOpen={false}>
                 <Box padding="3" background="bg.subtle" borderRadius="md">
                     <Text color="fg.muted">Stage 1 was delayed ~6h due to setpoint drift since 02:00. Redirecting feedstock to Stage 2 reduces unmet demand at the cost of 1.2% yield.</Text>
                 </Box>
@@ -65,10 +65,10 @@ export const collapsibleBranded = example({
             <Collapsible
                 trigger="Branded trigger"
                 defaultOpen={true}
-                background="#f9fafb"
-                borderColor="#3d5cff"
-                triggerColor="#1a2234"
-                contentColor="#374151"
+                background="bg.canvas"
+                borderColor="border.brand"
+                triggerColor="fg.default"
+                contentColor="fg.default"
             >
                 <Box padding="3"><Text>Branded content</Text></Box>
             </Collapsible>

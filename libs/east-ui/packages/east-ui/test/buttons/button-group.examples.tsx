@@ -49,8 +49,8 @@ export const buttonGroupSplit = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <ButtonGroup attached>
-                <Button variant="solid" colorPalette="blue" size="md">Deploy</Button>
-                <IconButton prefix="fas" name="chevron-down" label="More deploy options" variant="solid" colorPalette="blue" size="md" />
+                <Button variant="solid" colorPalette="brand" size="md">Deploy</Button>
+                <IconButton prefix="fas" name="chevron-down" label="More deploy options" variant="solid" colorPalette="brand" size="md" />
             </ButtonGroup>
         );
     }),

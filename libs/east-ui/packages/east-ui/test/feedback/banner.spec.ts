@@ -93,19 +93,19 @@ describeEast("Banner", (test) => {
         const b = $.let(Banner.Root({ status: "info", title: "T",
             variant: "subtle",
             size: "md",
-            color: "#111827",
-            background: "#eff6ff",
-            borderColor: "#bfdbfe",
-            iconColor: "#2563eb",
-            accentColor: "#2563eb",
+            color: "fg.default",
+            background: "bg.brand.subtle",
+            borderColor: "border.brand",
+            iconColor: "link",
+            accentColor: "link",
         }));
         const s = b.unwrap().unwrap("Banner").style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(s.color.unwrap("some"), "#111827"));
-        $(Assert.equal(s.background.unwrap("some"), "#eff6ff"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#bfdbfe"));
-        $(Assert.equal(s.iconColor.unwrap("some"), "#2563eb"));
-        $(Assert.equal(s.accentColor.unwrap("some"), "#2563eb"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(s.iconColor.unwrap("some"), "link"));
+        $(Assert.equal(s.accentColor.unwrap("some"), "link"));
     });
 }, { platformFns: TestImpl });

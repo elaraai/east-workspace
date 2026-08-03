@@ -46,17 +46,17 @@ export const stackVariants = example({
         return (
             <VStack gap="4" align="stretch">
                 <Separator label="JUSTIFIED H STACK" align="start" />
-                <HStack gap="4" justify="space-between" padding="4" background="gray.100" width="100%">
+                <HStack gap="4" justify="space-between" padding="4" background="bg.subtle" width="100%">
                     <Text>Start</Text>
                     <Text>End</Text>
                 </HStack>
                 <Separator label="CENTERED" align="start" />
-                <VStack gap="2" align="center" justify="center" padding="6" background="blue.50" height="120px">
+                <VStack gap="2" align="center" justify="center" padding="6" background="bg.brand.subtle" height="120px">
                     <Text>Centered content</Text>
                     <Text>Also centered</Text>
                 </VStack>
                 <Separator label="WRAPPING" align="start" />
-                <HStack gap="2" wrap="wrap" padding="3" background="orange.50" width="200px">
+                <HStack gap="2" wrap="wrap" padding="3" background="bg.warning.subtle" width="200px">
                     <Text>Tag 1</Text>
                     <Text>Tag 2</Text>
                     <Text>Tag 3</Text>
@@ -64,12 +64,12 @@ export const stackVariants = example({
                     <Text>Tag 5</Text>
                 </HStack>
                 <Separator label="STRETCHED" align="start" />
-                <VStack gap="3" align="stretch" padding="4" background="green.50">
+                <VStack gap="3" align="stretch" padding="4" background="bg.success.subtle">
                     <Text>Full width item 1</Text>
                     <Text>Full width item 2</Text>
                 </VStack>
                 <Separator label="NESTED" align="start" />
-                <VStack gap="4" padding="4" background="gray.100">
+                <VStack gap="4" padding="4" background="bg.subtle">
                     <HStack gap="2">
                         <Text>Inner 1</Text>
                         <Text>Inner 2</Text>
@@ -77,7 +77,7 @@ export const stackVariants = example({
                     <Text>Outer Item</Text>
                 </VStack>
                 <Separator label="NAVBAR" align="start" />
-                <HStack gap="4" justify="space-between" align="center" padding="4" background="white" width="100%">
+                <HStack gap="4" justify="space-between" align="center" padding="4" background="bg.surface" width="100%">
                     <Text>Logo</Text>
                     <HStack gap="4">
                         <Text>Home</Text>
@@ -140,7 +140,7 @@ export const stackFillScroll = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack height="220px" width="260px" align="stretch" gap="0">
-                <Box background="gray.50" padding="3"><Text>Header</Text></Box>
+                <Box background="bg.subtle" padding="3"><Text>Header</Text></Box>
                 <VStack fill scrollY align="stretch" gap="2" padding="3">
                     {Array.from({ length: 20 }, (_, i) => <Text>{`Item ${i + 1}`}</Text>)}
                 </VStack>

@@ -33,7 +33,16 @@ export const calendarSlotRecipe = defineSlotRecipe({
          * two on-ramp inks live here as CSS variables so the fill (a data-
          * driven binding, applied inline in the renderer) flips with the
          * theme. Dark mode runs a dim-surface → bright-teal ramp and swaps
-         * the on-ramp inks (#362). */
+         * the on-ramp inks (#362).
+         *
+         * These stops are literal hex on purpose, and are the one sanctioned
+         * exception to "semantic tokens only". A heatmap needs a perceptually
+         * even sequential ramp; `tokens/colors.css` deliberately has no such
+         * scale (its brand steps jump from bright cyan to desaturated teal, so
+         * reading them as a ramp would make intensity illegible). The stops
+         * stay inside the brand teal family and are theme-aware via the
+         * `_dark` block below — what they are NOT is reachable from an
+         * existing token. Do not "fix" these to brand.N. */
         root: {
             background: "bg.surface",
             "--cal-r0": "#dcecec", "--cal-r1": "#c2e0e1", "--cal-r2": "#a3ced1", "--cal-r3": "#82b8bd",

@@ -19,8 +19,8 @@ export const splitterBasic = example({
             <Box height="150px">
                 <Splitter
                     panels={[
-                        Splitter.Panel(<Box padding="4" background="blue.50"><Text>Left Panel</Text></Box>, { id: "left" }),
-                        Splitter.Panel(<Box padding="4" background="green.50"><Text>Right Panel</Text></Box>, { id: "right" }),
+                        Splitter.Panel(<Box padding="4" background="bg.brand.subtle"><Text>Left Panel</Text></Box>, { id: "left" }),
+                        Splitter.Panel(<Box padding="4" background="bg.success.subtle"><Text>Right Panel</Text></Box>, { id: "right" }),
                     ]}
                     defaultSize={[50, 50]}
                     orientation="horizontal"
@@ -45,8 +45,8 @@ export const splitterVariants = example({
                 <Box height="200px">
                     <Splitter
                         panels={[
-                            Splitter.Panel(<Box padding="4" background="purple.50"><Text>Top Panel</Text></Box>, { id: "top" }),
-                            Splitter.Panel(<Box padding="4" background="orange.50"><Text>Bottom Panel</Text></Box>, { id: "bottom" }),
+                            Splitter.Panel(<Box padding="4" background="bg.subtle"><Text>Top Panel</Text></Box>, { id: "top" }),
+                            Splitter.Panel(<Box padding="4" background="bg.warning.subtle"><Text>Bottom Panel</Text></Box>, { id: "bottom" }),
                         ]}
                         defaultSize={[40, 60]}
                         orientation="vertical"
@@ -56,9 +56,9 @@ export const splitterVariants = example({
                 <Box height="150px">
                     <Splitter
                         panels={[
-                            Splitter.Panel(<Box padding="3" background="gray.100"><Text>Sidebar</Text></Box>, { id: "sidebar" }),
-                            Splitter.Panel(<Box padding="3" background="gray.50"><Text>Main Content</Text></Box>, { id: "main" }),
-                            Splitter.Panel(<Box padding="3" background="gray.100"><Text>Details</Text></Box>, { id: "details" }),
+                            Splitter.Panel(<Box padding="3" background="bg.subtle"><Text>Sidebar</Text></Box>, { id: "sidebar" }),
+                            Splitter.Panel(<Box padding="3" background="bg.subtle"><Text>Main Content</Text></Box>, { id: "main" }),
+                            Splitter.Panel(<Box padding="3" background="bg.subtle"><Text>Details</Text></Box>, { id: "details" }),
                         ]}
                         defaultSize={[20, 60, 20]}
                         orientation="horizontal"
@@ -68,8 +68,8 @@ export const splitterVariants = example({
                 <Box height="120px">
                     <Splitter
                         panels={[
-                            Splitter.Panel(<Box padding="3" background="teal.50"><Text>Nav (min 15%, max 30%)</Text></Box>, { id: "nav", minSize: 15, maxSize: 30 }),
-                            Splitter.Panel(<Box padding="3" background="teal.100"><Text>Content (min 50%)</Text></Box>, { id: "content", minSize: 50 }),
+                            Splitter.Panel(<Box padding="3" background="bg.brand.subtle"><Text>Nav (min 15%, max 30%)</Text></Box>, { id: "nav", minSize: 15, maxSize: 30 }),
+                            Splitter.Panel(<Box padding="3" background="bg.brand.subtle"><Text>Content (min 50%)</Text></Box>, { id: "content", minSize: 50 }),
                         ]}
                         defaultSize={[25, 75]}
                         orientation="horizontal"
@@ -79,8 +79,8 @@ export const splitterVariants = example({
                 <Box height="120px">
                     <Splitter
                         panels={[
-                            Splitter.Panel(<Box padding="3" background="cyan.50"><Text>Primary (70%)</Text></Box>, { id: "primary" }),
-                            Splitter.Panel(<Box padding="3" background="cyan.100"><Text>Secondary (30%)</Text></Box>, { id: "secondary" }),
+                            Splitter.Panel(<Box padding="3" background="bg.brand.subtle"><Text>Primary (70%)</Text></Box>, { id: "primary" }),
+                            Splitter.Panel(<Box padding="3" background="bg.brand.subtle"><Text>Secondary (30%)</Text></Box>, { id: "secondary" }),
                         ]}
                         defaultSize={[70, 30]}
                         orientation="horizontal"
@@ -90,8 +90,8 @@ export const splitterVariants = example({
                 <Box height="200px">
                     <Splitter
                         panels={[
-                            Splitter.Panel(<Box padding="4" background="gray.800" color="white"><Text>Code Editor</Text></Box>, { id: "editor", minSize: 30 }),
-                            Splitter.Panel(<Box padding="4" background="gray.900" color="green.400"><Text>Terminal</Text></Box>, { id: "terminal", minSize: 10 }),
+                            Splitter.Panel(<Box padding="4" background="bg.inverse" color="fg.inverse"><Text>Code Editor</Text></Box>, { id: "editor", minSize: 30 }),
+                            Splitter.Panel(<Box padding="4" background="bg.inverse" color="fg.success"><Text>Terminal</Text></Box>, { id: "terminal", minSize: 10 }),
                         ]}
                         defaultSize={[70, 30]}
                         orientation="vertical"
@@ -132,8 +132,8 @@ export const splitterResizeEvents = example({
                             <Box height="150px">
                                 <Splitter
                                     panels={[
-                                        Splitter.Panel(<Box padding="4" background="purple.100"><Text>Drag the divider</Text></Box>, { id: "a" }),
-                                        Splitter.Panel(<Box padding="4" background="pink.100"><Text>Right side</Text></Box>, { id: "b" }),
+                                        Splitter.Panel(<Box padding="4" background="bg.subtle"><Text>Drag the divider</Text></Box>, { id: "a" }),
+                                        Splitter.Panel(<Box padding="4" background="bg.subtle"><Text>Right side</Text></Box>, { id: "b" }),
                                     ]}
                                     defaultSize={[50, 50]}
                                     orientation="horizontal"
@@ -142,8 +142,8 @@ export const splitterResizeEvents = example({
                                 />
                             </Box>
                             <HStack gap="2">
-                                <Badge colorPalette="purple">{East.str`Start: ${East.print(startCount)}`}</Badge>
-                                <Badge colorPalette="pink">{East.str`End: ${East.print(endCount)}`}</Badge>
+                                <Badge colorPalette="brand">{East.str`Start: ${East.print(startCount)}`}</Badge>
+                                <Badge colorPalette="brand">{East.str`End: ${East.print(endCount)}`}</Badge>
                             </HStack>
                         </VStack>
                     );
@@ -164,8 +164,8 @@ export const splitterResizeEvents = example({
                             <Box height="150px">
                                 <Splitter
                                     panels={[
-                                        Splitter.Panel(<Box padding="4" background="blue.100"><Text>Left Panel</Text></Box>, { id: "left" }),
-                                        Splitter.Panel(<Box padding="4" background="green.100"><Text>Right Panel</Text></Box>, { id: "right" }),
+                                        Splitter.Panel(<Box padding="4" background="bg.brand.subtle"><Text>Left Panel</Text></Box>, { id: "left" }),
+                                        Splitter.Panel(<Box padding="4" background="bg.success.subtle"><Text>Right Panel</Text></Box>, { id: "right" }),
                                     ]}
                                     defaultSize={[50, 50]}
                                     orientation="horizontal"
@@ -173,8 +173,8 @@ export const splitterResizeEvents = example({
                                 />
                             </Box>
                             <HStack gap="2">
-                                <Badge colorPalette="blue" variant="solid">{East.str`Left: ${East.print(leftSize)}%`}</Badge>
-                                <Badge colorPalette="green" variant="solid">{East.str`Right: ${East.print(rightSize)}%`}</Badge>
+                                <Badge colorPalette="brand" variant="solid">{East.str`Left: ${East.print(leftSize)}%`}</Badge>
+                                <Badge colorPalette="success" variant="solid">{East.str`Right: ${East.print(rightSize)}%`}</Badge>
                             </HStack>
                         </VStack>
                     );
@@ -197,8 +197,8 @@ export const splitterCollapseBelow = example({
             <Box height="150px">
                 <Splitter
                     panels={[
-                        Splitter.Panel(<Box padding="4" background="blue.50"><Text>Primary</Text></Box>, { id: "primary" }),
-                        Splitter.Panel(<Box padding="4" background="green.50"><Text>Secondary</Text></Box>, { id: "secondary" }),
+                        Splitter.Panel(<Box padding="4" background="bg.brand.subtle"><Text>Primary</Text></Box>, { id: "primary" }),
+                        Splitter.Panel(<Box padding="4" background="bg.success.subtle"><Text>Secondary</Text></Box>, { id: "secondary" }),
                     ]}
                     defaultSize={[60, 40]}
                     orientation="horizontal"

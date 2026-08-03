@@ -65,11 +65,11 @@ export const dataListRichValues = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <DataList items={[
-                { label: "Status", value: <Badge variant="solid" colorPalette="green">Active</Badge> },
+                { label: "Status", value: <Badge variant="solid" colorPalette="success">Active</Badge> },
                 {
                     label: "Assigned To",
                     value: (
-                        <HoverCard trigger={<Text color="blue.500">@alice</Text>}>
+                        <HoverCard trigger={<Text color="link">@alice</Text>}>
                             <VStack gap="1">
                                 <Text fontWeight="bold">Alice Johnson</Text>
                                 <Text textStyle="body-sm">Lead Designer — UX Team</Text>
@@ -78,7 +78,7 @@ export const dataListRichValues = example({
                     ),
                 },
                 { label: "Filter", value: <Highlight query={["LIKE"]}>name LIKE '%smith%'</Highlight> },
-                { label: "Priority", value: <Badge variant="subtle" colorPalette="red">Urgent</Badge> },
+                { label: "Priority", value: <Badge variant="subtle" colorPalette="danger">Urgent</Badge> },
             ]} />
         );
     }),
@@ -91,23 +91,23 @@ export const dataListVariants = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="3" align="stretch">
-                <Separator label="List Horizontal" align="start" />
+                <Separator label="LIST HORIZONTAL" align="start" />
                 <DataList orientation="horizontal" items={DATA_LIST_HORIZONTAL_DATA} />
-                <Separator label="List Bold" align="start" />
+                <Separator label="LIST BOLD" align="start" />
                 <DataList variant="bold" items={DATA_LIST_BOLD_DATA} />
-                <Separator label="List Small" align="start" />
+                <Separator label="LIST SMALL" align="start" />
                 <DataList size="sm" items={DATA_LIST_SMALL_DATA} />
-                <Separator label="List Large" align="start" />
+                <Separator label="LIST LARGE" align="start" />
                 <DataList size="lg" items={DATA_LIST_LARGE_DATA} />
-                <Separator label="List Profile" align="start" />
+                <Separator label="LIST PROFILE" align="start" />
                 <DataList items={DATA_LIST_PROFILE_DATA} />
-                <Separator label="List Colour Overrides" align="start" />
+                <Separator label="LIST COLOUR OVERRIDES" align="start" />
                 <DataList
                         orientation="horizontal"
-                        background="blue.50"
-                        borderColor="blue.200"
-                        labelColor="blue.700"
-                        valueColor="blue.900"
+                        background="bg.brand.subtle"
+                        borderColor="border.brand"
+                        labelColor="link"
+                        valueColor="link"
                         items={DATA_LIST_COLOUR_OVERRIDES_DATA}
                     />
             </VStack>

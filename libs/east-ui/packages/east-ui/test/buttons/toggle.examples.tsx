@@ -45,7 +45,7 @@ export const toggleAutoRefreshReactive = example({
             }));
             return (
                 <HStack gap="3" align="center">
-                    <Toggle pressed={pressed} icon={{ prefix: "fas", name: "rotate" }} onChange={onChange} variant="subtle" pressedBackground="#eef2ff">
+                    <Toggle pressed={pressed} icon={{ prefix: "fas", name: "rotate" }} onChange={onChange} variant="subtle" pressedBackground="bg.brand.subtle">
                         Auto-refresh
                     </Toggle>
                     <Text color="fg.muted">{pressed.ifElse(_$ => "On", _$ => "Off")}</Text>

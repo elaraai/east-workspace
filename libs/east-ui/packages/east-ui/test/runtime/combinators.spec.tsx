@@ -42,8 +42,8 @@ import {
 describeEast("JSX tag combinators", (test) => {
     test("shape-3 Button desugars to Button.Root", ($) => {
         $(Assert.equal(
-            <Button variant="solid" colorPalette="blue">Save</Button>,
-            ButtonF.Root("Save", { variant: "solid", colorPalette: "blue" }),
+            <Button variant="solid" colorPalette="brand">Save</Button>,
+            ButtonF.Root("Save", { variant: "solid", colorPalette: "brand" }),
         ));
     });
 
@@ -53,15 +53,15 @@ describeEast("JSX tag combinators", (test) => {
             FlexF.Root([CodeF.Root("x = 1")], { direction: "row", gap: "2" }),
         ));
         $(Assert.equal(
-            <Badge variant="solid" colorPalette="green">Active</Badge>,
-            BadgeF.Root("Active", { variant: "solid", colorPalette: "green" }),
+            <Badge variant="solid" colorPalette="success">Active</Badge>,
+            BadgeF.Root("Active", { variant: "solid", colorPalette: "success" }),
         ));
     });
 
     test("value-leaf tags (Checkbox/Slider) desugar to their factories", ($) => {
         $(Assert.equal(
-            <Checkbox checked={true} colorPalette="blue" />,
-            CheckboxF.Root(true, { colorPalette: "blue" }),
+            <Checkbox checked={true} colorPalette="brand" />,
+            CheckboxF.Root(true, { colorPalette: "brand" }),
         ));
         $(Assert.equal(
             <Slider value={5.0} min={0.0} max={10.0} />,

@@ -34,7 +34,7 @@ export function getCommonPinningStyles<TData>(column: Column<TData, unknown>): C
     const isLastLeftPinnedColumn = isPinned === 'left' && column.getIsLastColumn('left');
 
     return {
-        borderRight: isLastLeftPinnedColumn ? '2px solid var(--chakra-colors-border, #e2e8f0)' : undefined,
+        borderRight: isLastLeftPinnedColumn ? '2px solid var(--chakra-colors-border, #e2e8e8)' : undefined,
         left: isPinned === 'left' ? `${column.getStart('left')}px` : undefined,
         right: isPinned === 'right' ? `${column.getAfter('right')}px` : undefined,
         position: isPinned ? 'sticky' : 'relative',
@@ -177,7 +177,7 @@ export function HeaderControls<TData>({
  *  look. (`right: 0` keeps it inside the cell — no clip under `overflow: hidden`.) */
 const DIVIDER_BAR = {
     position: "absolute" as const, right: "0", top: "50%", transform: "translateY(-50%)",
-    width: "2px", height: "16px", bg: "gray.300", borderRadius: "1px",
+    width: "2px", height: "16px", bg: "bg.emphasized", borderRadius: "1px",
 } as const;
 
 /** A static copy of the resize-handle grip bar, for non-resizable headers. */

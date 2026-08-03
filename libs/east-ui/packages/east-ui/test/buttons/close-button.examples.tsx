@@ -48,9 +48,9 @@ export const closeButtonBranded = example({
             <CloseButton
                 label="Dismiss"
                 variant="solid"
-                color="#ffffff"
-                background="#1a2234"
-                hoverBackground="#25345a"
+                color="fg.inverse"
+                background="bg.inverse"
+                hoverBackground="bg.inverse"
             />
         );
     }),

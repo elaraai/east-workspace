@@ -98,16 +98,16 @@ describeEast("Link", (test) => {
     // =========================================================================
 
     test("creates link with colorPalette", $ => {
-        const link = $.let(Link.Root("Colored", { href: "/page", colorPalette: "blue" }));
+        const link = $.let(Link.Root("Colored", { href: "/page", colorPalette: "brand" }));
         const style = link.unwrap().unwrap("Link").style.unwrap("some");
         $(Assert.equal(style.colorPalette.hasTag("some"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
-    test("creates link with teal colorPalette", $ => {
-        const link = $.let(Link.Root("Teal", { href: "/page", colorPalette: "teal" }));
+    test("creates link with brand colorPalette", $ => {
+        const link = $.let(Link.Root("Teal", { href: "/page", colorPalette: "brand" }));
         const style = link.unwrap().unwrap("Link").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "teal"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
     // =========================================================================
@@ -117,14 +117,14 @@ describeEast("Link", (test) => {
     test("creates link with explicit color / hoverColor / visitedColor", $ => {
         const link = $.let(Link.Root("Branded", {
             href: "/page",
-            color: "#7a3b2e",
-            hoverColor: "#552417",
-            visitedColor: "#3d1a11",
+            color: "fg.danger",
+            hoverColor: "link.hover",
+            visitedColor: "fg.muted",
         }));
         const style = link.unwrap().unwrap("Link").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
-        $(Assert.equal(style.hoverColor.unwrap("some"), "#552417"));
-        $(Assert.equal(style.visitedColor.unwrap("some"), "#3d1a11"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.danger"));
+        $(Assert.equal(style.hoverColor.unwrap("some"), "link.hover"));
+        $(Assert.equal(style.visitedColor.unwrap("some"), "fg.muted"));
     });
 
     // =========================================================================
@@ -136,7 +136,7 @@ describeEast("Link", (test) => {
             href: "https://docs.example.com",
             external: true,
             variant: "underline",
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
         const style = link.unwrap().unwrap("Link").style.unwrap("some");
 
@@ -144,7 +144,7 @@ describeEast("Link", (test) => {
         $(Assert.equal(link.unwrap().unwrap("Link").href, "https://docs.example.com"));
         $(Assert.equal(link.unwrap().unwrap("Link").external.unwrap("some"), true));
         $(Assert.equal(style.variant.unwrap("some").hasTag("underline"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
     test("creates navigation link", $ => {

@@ -38,8 +38,8 @@ export const buttonReactiveCounter = example({
                 <VStack gap="4">
                     <Stat label="Count" value={East.print(count)} />
                     <HStack gap="2">
-                        <Button onClick={decrement} variant="solid" colorPalette="red">-</Button>
-                        <Button onClick={increment} variant="solid" colorPalette="blue">+</Button>
+                        <Button onClick={decrement} variant="solid" colorPalette="danger">-</Button>
+                        <Button onClick={increment} variant="solid" colorPalette="brand">+</Button>
                     </HStack>
                 </VStack>
             );
@@ -59,24 +59,24 @@ export const buttonVariants = example({
         return (
             <VStack gap="4" align="stretch">
                 <Separator label="SOLID VARIANT" align="start" />
-                <Button variant="solid" colorPalette="blue" size="md">Save Changes</Button>
+                <Button variant="solid" colorPalette="brand" size="md">Save Changes</Button>
                 <Separator label="DANGER OUTLINE" align="start" />
                 <HStack gap="2">
-                    <Button variant="solid" colorPalette="red">Delete</Button>
+                    <Button variant="solid" colorPalette="danger">Delete</Button>
                     <Button variant="outline" colorPalette="gray">Cancel</Button>
                     <Button variant="ghost" size="sm">More</Button>
                 </HStack>
                 <Separator label="GHOST" align="start" />
-                <Button variant="ghost" color="#3d5cff" hoverBackground="#eef2ff">View details</Button>
+                <Button variant="ghost" color="link" hoverBackground="bg.brand.subtle">View details</Button>
                 <Separator label="PLAIN" align="start" />
-                <Button variant="plain" colorPalette="blue">Learn more</Button>
+                <Button variant="plain" colorPalette="brand">Learn more</Button>
                 <Separator label="BRANDED COLOURS" align="start" />
                 <Button
                     startIcon={{ prefix: "fas", name: "rocket" }}
-                    color="#ffffff"
-                    background="#1a2234"
-                    borderColor="#3d5cff"
-                    hoverBackground="#25345a"
+                    color="fg.inverse"
+                    background="bg.inverse"
+                    borderColor="border.brand"
+                    hoverBackground="bg.inverse"
                 >
                     Deploy
                 </Button>
@@ -85,7 +85,7 @@ export const buttonVariants = example({
                     startIcon={{ prefix: "fas", name: "save" }}
                     endIcon={{ prefix: "fas", name: "arrow-right" }}
                     variant="solid"
-                    colorPalette="blue"
+                    colorPalette="brand"
                 >
                     Save
                 </Button>
@@ -95,15 +95,15 @@ export const buttonVariants = example({
                     loadingText="Submitting…"
                     loadingIcon={{ prefix: "fas", name: "spinner" }}
                     variant="solid"
-                    colorPalette="blue"
+                    colorPalette="brand"
                 >
                     Submit
                 </Button>
                 <Separator label="RICH LABEL" align="start" />
-                <Button variant="solid" colorPalette="green">
+                <Button variant="solid" colorPalette="success">
                     <HStack gap="1" align="center">
                         <Text>Accept</Text>
-                        <Text color="whiteAlpha.700">→ log to MES</Text>
+                        <Text color="fg.inverse">→ log to MES</Text>
                     </HStack>
                 </Button>
             </VStack>

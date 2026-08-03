@@ -46,12 +46,12 @@ export const codeVariants = example({
                 <Separator label="COLORS" align="start" />
                 <HStack gap="3">
                     <Code variant="subtle" colorPalette="gray">gray</Code>
-                    <Code variant="subtle" colorPalette="blue">blue</Code>
-                    <Code variant="subtle" colorPalette="green">green</Code>
-                    <Code variant="subtle" colorPalette="red">red</Code>
+                    <Code variant="subtle" colorPalette="brand">blue</Code>
+                    <Code variant="subtle" colorPalette="success">green</Code>
+                    <Code variant="subtle" colorPalette="danger">red</Code>
                 </HStack>
                 <Separator label="COMBINED" align="start" />
-                <Code variant="surface" colorPalette="purple" size="md">console.log('Hello')</Code>
+                <Code variant="surface" colorPalette="brand" size="md">console.log('Hello')</Code>
                 <Separator label="INTERACTIVE" align="start" />
                 <Reactive>{$ => {
                     const counter = $.let(State.bind([IntegerType], "code_counter", 0n));

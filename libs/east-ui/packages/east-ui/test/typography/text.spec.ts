@@ -98,17 +98,17 @@ describeEast("Text", (test) => {
     });
 
     test("creates text with color", $ => {
-        const text = $.let(Text.Root("Colored", { color: "blue.500" }));
+        const text = $.let(Text.Root("Colored", { color: "link" }));
         const style = text.unwrap().unwrap("Text").style.unwrap("some");
         $(Assert.equal(text.unwrap().unwrap("Text").value, "Colored"));
         $(Assert.equal(style.color.hasTag("some"), true));
-        $(Assert.equal(style.color.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.color.unwrap("some"), "link"));
     });
 
     test("creates text with background", $ => {
-        const text = $.let(Text.Root("Background", { background: "gray.100" }));
+        const text = $.let(Text.Root("Background", { background: "bg.subtle" }));
         const style = text.unwrap().unwrap("Text").style.unwrap("some");
-        $(Assert.equal(style.background.unwrap("some"), "gray.100"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
     });
 
     test("creates text with fontWeight", $ => {
@@ -160,9 +160,9 @@ describeEast("Text", (test) => {
     });
 
     test("creates text with borderColor", $ => {
-        const text = $.let(Text.Root("Bordered", { borderColor: "red.500" }));
+        const text = $.let(Text.Root("Bordered", { borderColor: "status.neg" }));
         const style = text.unwrap().unwrap("Text").style.unwrap("some");
-        $(Assert.equal(style.borderColor.unwrap("some"), "red.500"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "status.neg"));
     });
 
     // =========================================================================
@@ -171,18 +171,18 @@ describeEast("Text", (test) => {
 
     test("creates text with multiple styles", $ => {
         const text = $.let(Text.Root("Styled", {
-            color: "blue.500",
+            color: "link",
             fontWeight: Style.FontWeight("bold"),
             textAlign: Style.TextAlign("center"),
-            background: "yellow.100",
+            background: "bg.warning.subtle",
         }));
         const style = text.unwrap().unwrap("Text").style.unwrap("some");
 
         $(Assert.equal(text.unwrap().unwrap("Text").value, "Styled"));
-        $(Assert.equal(style.color.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.color.unwrap("some"), "link"));
         $(Assert.equal(style.fontWeight.unwrap("some").hasTag("bold"), true));
         $(Assert.equal(style.textAlign.unwrap("some").hasTag("center"), true));
-        $(Assert.equal(style.background.unwrap("some"), "yellow.100"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.warning.subtle"));
         // Other styles should be none
         $(Assert.equal(style.fontStyle.hasTag("none"), true));
         $(Assert.equal(style.borderWidth.hasTag("none"), true));
@@ -280,12 +280,12 @@ describeEast("Text", (test) => {
         const text = $.let(Text.Root("Bordered", {
             borderWidth: Style.BorderWidth("medium"),
             borderStyle: Style.BorderStyle("solid"),
-            borderColor: "gray.300",
+            borderColor: "border.subtle",
         }));
         const style = text.unwrap().unwrap("Text").style.unwrap("some");
 
         $(Assert.equal(style.borderWidth.unwrap("some").hasTag("medium"), true));
         $(Assert.equal(style.borderStyle.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(style.borderColor.unwrap("some"), "gray.300"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.subtle"));
     });
 }, { platformFns: TestImpl });

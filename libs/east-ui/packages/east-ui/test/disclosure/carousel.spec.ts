@@ -159,16 +159,16 @@ describeEast("Carousel", (test) => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
         ], {
-            indicatorColor: "#cbd5e1",
-            activeIndicatorColor: "#3d5cff",
-            controlColor: "#ffffff",
-            controlBackground: "#1a2234",
+            indicatorColor: "fg.subtle",
+            activeIndicatorColor: "link",
+            controlColor: "fg.inverse",
+            controlBackground: "bg.inverse",
         }));
         const s = carousel.unwrap().unwrap("Carousel").style.unwrap("some");
-        $(Assert.equal(s.indicatorColor.unwrap("some"), "#cbd5e1"));
-        $(Assert.equal(s.activeIndicatorColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.controlColor.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.controlBackground.unwrap("some"), "#1a2234"));
+        $(Assert.equal(s.indicatorColor.unwrap("some"), "fg.subtle"));
+        $(Assert.equal(s.activeIndicatorColor.unwrap("some"), "link"));
+        $(Assert.equal(s.controlColor.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(s.controlBackground.unwrap("some"), "bg.inverse"));
     });
 
     // =========================================================================

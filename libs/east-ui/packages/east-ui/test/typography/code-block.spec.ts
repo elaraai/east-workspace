@@ -148,18 +148,18 @@ describeEast("CodeBlock", (test) => {
 
     test("creates code block with explicit colour slots", $ => {
         const block = $.let(CodeBlock.Root("code", {
-            background: "#0b0f17",
-            borderColor: "#1a2234",
-            headerBackground: "#151b27",
-            lineNumberColor: "#6a758c",
-            highlightBackground: "#ffd70022",
+            background: "bg.inverse",
+            borderColor: "border.strong",
+            headerBackground: "bg.inverse",
+            lineNumberColor: "fg.subtle",
+            highlightBackground: "bg.warning.subtle",
         }));
         const style = block.unwrap().unwrap("CodeBlock").style.unwrap("some");
-        $(Assert.equal(style.background.unwrap("some"), "#0b0f17"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(style.headerBackground.unwrap("some"), "#151b27"));
-        $(Assert.equal(style.lineNumberColor.unwrap("some"), "#6a758c"));
-        $(Assert.equal(style.highlightBackground.unwrap("some"), "#ffd70022"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.strong"));
+        $(Assert.equal(style.headerBackground.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(style.lineNumberColor.unwrap("some"), "fg.subtle"));
+        $(Assert.equal(style.highlightBackground.unwrap("some"), "bg.warning.subtle"));
     });
 
     // =========================================================================

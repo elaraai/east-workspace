@@ -85,7 +85,7 @@ export const mapOverlayHud = example({
                             <Text fontFamily="mono" color="brand.solid">ELARA · AUTO-DETECTED</Text>
                             <Text fontWeight="semibold">Idle EN capacity one cluster south.</Text>
                             <HStack gap="2">
-                                <Button colorPalette="teal" onClick={approve}>Approve swap</Button>
+                                <Button colorPalette="brand" onClick={approve}>Approve swap</Button>
                                 <Button variant="outline" onClick={reject}>Reject</Button>
                             </HStack>
                         </VStack>,

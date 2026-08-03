@@ -13,52 +13,52 @@ import { Badge, Reactive, Separator, Text, TreeView, VStack } from "@elaraai/eas
 
 const TREE_VIEW_ICONS_DATA = [
     TreeView.Branch("src", "src", [
-        TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
-        TreeView.Item("utils", "utils.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
-    ], { prefix: "fas", name: "folder", color: "yellow.500" }),
+        TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
+        TreeView.Item("utils", "utils.ts", { prefix: "fas", name: "file-code", color: "link" }),
+    ], { prefix: "fas", name: "folder", color: "fg.warning" }),
     TreeView.Branch("docs", "docs", [
         TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
-    ], { prefix: "fas", name: "folder", color: "yellow.500" }),
+    ], { prefix: "fas", name: "folder", color: "fg.warning" }),
     TreeView.Item("package", "package.json", { prefix: "far", name: "file" }),
 ];
 const TREE_VIEW_ORG_DATA = [
     TreeView.Branch("ceo", "CEO", [
         TreeView.Branch("cto", "CTO", [
             TreeView.Branch("eng-lead", "Engineering Lead", [
-                TreeView.Item("dev1", "Senior Developer", { prefix: "fas", name: "user", color: "blue.500" }),
-                TreeView.Item("dev2", "Junior Developer", { prefix: "fas", name: "user", color: "blue.400" }),
-            ], { prefix: "fas", name: "users", color: "purple.500" }),
-            TreeView.Item("qa-lead", "QA Lead", { prefix: "fas", name: "user-check", color: "green.500" }),
-        ], { prefix: "fas", name: "user-tie", color: "teal.500" }),
+                TreeView.Item("dev1", "Senior Developer", { prefix: "fas", name: "user", color: "link" }),
+                TreeView.Item("dev2", "Junior Developer", { prefix: "fas", name: "user", color: "link" }),
+            ], { prefix: "fas", name: "users", color: "accent.purple" }),
+            TreeView.Item("qa-lead", "QA Lead", { prefix: "fas", name: "user-check", color: "fg.success" }),
+        ], { prefix: "fas", name: "user-tie", color: "brand.600" }),
         TreeView.Branch("cfo", "CFO", [
-            TreeView.Item("finance", "Finance Manager", { prefix: "fas", name: "user", color: "green.500" }),
-        ], { prefix: "fas", name: "user-tie", color: "teal.500" }),
+            TreeView.Item("finance", "Finance Manager", { prefix: "fas", name: "user", color: "fg.success" }),
+        ], { prefix: "fas", name: "user-tie", color: "brand.600" }),
         TreeView.Branch("cmo", "CMO", [
-            TreeView.Item("marketing", "Marketing Lead", { prefix: "fas", name: "user", color: "pink.500" }),
-        ], { prefix: "fas", name: "user-tie", color: "teal.500" }),
-    ], { prefix: "fas", name: "crown", color: "yellow.500" }),
+            TreeView.Item("marketing", "Marketing Lead", { prefix: "fas", name: "user", color: "accent.pink" }),
+        ], { prefix: "fas", name: "user-tie", color: "brand.600" }),
+    ], { prefix: "fas", name: "crown", color: "fg.warning" }),
 ];
 const TREE_VIEW_SMALL_DATA = [
     TreeView.Branch("docs", "Documentation", [
         TreeView.Item("docs-api", "API Reference", { prefix: "fas", name: "code" }),
         TreeView.Item("docs-guide", "User Guide", { prefix: "fas", name: "book-open" }),
         TreeView.Item("docs-faq", "FAQ", { prefix: "fas", name: "circle-question" }),
-    ], { prefix: "fas", name: "book", color: "blue.500" }),
+    ], { prefix: "fas", name: "book", color: "link" }),
     TreeView.Branch("support", "Support", [
         TreeView.Item("support-tickets", "Tickets", { prefix: "fas", name: "ticket" }),
         TreeView.Item("support-chat", "Live Chat", { prefix: "fas", name: "comments" }),
-    ], { prefix: "fas", name: "headset", color: "green.500" }),
+    ], { prefix: "fas", name: "headset", color: "fg.success" }),
 ];
 const TREE_VIEW_SOLID_DATA = [
     TreeView.Branch("category1", "Electronics", [
         TreeView.Item("cat1-phones", "Phones", { prefix: "fas", name: "mobile-screen" }),
         TreeView.Item("cat1-laptops", "Laptops", { prefix: "fas", name: "laptop" }),
         TreeView.Item("cat1-tablets", "Tablets", { prefix: "fas", name: "tablet-screen-button" }),
-    ], { prefix: "fas", name: "microchip", color: "blue.500" }),
+    ], { prefix: "fas", name: "microchip", color: "link" }),
     TreeView.Branch("category2", "Clothing", [
         TreeView.Item("cat2-mens", "Men's", { prefix: "fas", name: "person" }),
         TreeView.Item("cat2-womens", "Women's", { prefix: "fas", name: "person-dress" }),
-    ], { prefix: "fas", name: "shirt", color: "purple.500" }),
+    ], { prefix: "fas", name: "shirt", color: "accent.purple" }),
 ];
 const TREE_VIEW_EXPANDED_DATA = [
     TreeView.Branch("settings", "Settings", [
@@ -69,8 +69,8 @@ const TREE_VIEW_EXPANDED_DATA = [
         TreeView.Branch("settings-security", "Security", [
             TreeView.Item("settings-security-password", "Password", { prefix: "fas", name: "key" }),
             TreeView.Item("settings-security-2fa", "Two-Factor Auth", { prefix: "fas", name: "shield-halved" }),
-        ], { prefix: "fas", name: "lock", color: "red.500" }),
-    ], { prefix: "fas", name: "cog", color: "gray.600" }),
+        ], { prefix: "fas", name: "lock", color: "fg.danger" }),
+    ], { prefix: "fas", name: "cog", color: "fg.muted" }),
 ];
 const TREE_VIEW_COLOUR_OVERRIDES_DATA = [
     TreeView.Branch("src", "src", [
@@ -159,12 +159,12 @@ export const treeViewVariants = example({
                 <TreeView
                     variant="subtle"
                     size="sm"
-                    itemColor="gray.800"
-                    itemHoverBackground="blue.50"
-                    selectedBackground="blue.100"
-                    selectedColor="blue.900"
-                    caretColor="blue.500"
-                    connectorColor="gray.300"
+                    itemColor="fg.default"
+                    itemHoverBackground="bg.brand.subtle"
+                    selectedBackground="bg.brand.subtle"
+                    selectedColor="link"
+                    caretColor="link"
+                    connectorColor="fg.muted"
                     defaultExpandedValue={["src"]}
                     nodes={TREE_VIEW_COLOUR_OVERRIDES_DATA}
                 />
@@ -195,7 +195,7 @@ export const treeViewEvents = example({
                                 onSelectionChange={onSelectionChange}
                                 nodes={TREE_VIEW_INTERACTIVE_SELECTION_DATA}
                             />
-                            <Badge colorPalette="blue" variant="solid">{East.str`Selected: ${selected.size()}`}</Badge>
+                            <Badge colorPalette="brand" variant="solid">{East.str`Selected: ${selected.size()}`}</Badge>
                             <Text>{East.str`Items selected: ${selected.size()}`}</Text>
                         </VStack>
                     );
@@ -210,7 +210,7 @@ export const treeViewEvents = example({
                     return (
                         <VStack gap="3" align="stretch">
                             <TreeView onExpandedChange={onExpandedChange} nodes={TREE_VIEW_INTERACTIVE_EXPAND_DATA} />
-                            <Badge colorPalette="green" variant="solid">{East.str`Expanded: ${expanded.size()}`}</Badge>
+                            <Badge colorPalette="success" variant="solid">{East.str`Expanded: ${expanded.size()}`}</Badge>
                             <Text>{East.str`Nodes expanded: ${expanded.size()}`}</Text>
                         </VStack>
                     );

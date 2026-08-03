@@ -94,16 +94,16 @@ describeEast("DateRangeInput", (test) => {
             size: "sm",
             color: "fg",
             background: "bg.subtle",
-            borderColor: "blue.300",
-            focusBorderColor: "blue.500",
+            borderColor: "border.brand",
+            focusBorderColor: "border.brand",
         }));
         const style = $.let(r.unwrap().unwrap("DateRangeInput").style.unwrap("some"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
         $(Assert.equal(style.color.unwrap("some"), "fg"));
         $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
-        $(Assert.equal(style.focusBorderColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.focusBorderColor.unwrap("some"), "border.brand"));
     });
 
     test("style absent when no visual fields set", $ => {

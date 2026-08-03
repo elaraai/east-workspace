@@ -112,13 +112,13 @@ describeEast("Progress", (test) => {
 
     test("creates progress with colour slots", $ => {
         const p = $.let(Progress.Root(50.0, {
-            trackColor: "#e5e7eb",
-            fillColor: "#3d5cff",
-            labelColor: "#111827",
+            trackColor: "bg.emphasized",
+            fillColor: "link",
+            labelColor: "fg.default",
         }));
         const s = p.unwrap().unwrap("Progress").style.unwrap("some");
-        $(Assert.equal(s.trackColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.fillColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.labelColor.unwrap("some"), "#111827"));
+        $(Assert.equal(s.trackColor.unwrap("some"), "bg.emphasized"));
+        $(Assert.equal(s.fillColor.unwrap("some"), "link"));
+        $(Assert.equal(s.labelColor.unwrap("some"), "fg.default"));
     });
 }, { platformFns: TestImpl });

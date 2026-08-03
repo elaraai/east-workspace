@@ -52,15 +52,15 @@ describeEast("CloseButton", (test) => {
 
     test("creates close button with full colour escape hatches", $ => {
         const btn = $.let(CloseButton.Root({
-            color: "#ffffff",
-            background: "#1a2234",
-            borderColor: "#3d5cff",
-            hoverBackground: "#25345a",
+            color: "fg.inverse",
+            background: "bg.inverse",
+            borderColor: "border.brand",
+            hoverBackground: "bg.inverse",
         }));
         const s = btn.unwrap().unwrap("CloseButton").style.unwrap("some");
-        $(Assert.equal(s.color.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.background.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.hoverBackground.unwrap("some"), "#25345a"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(s.hoverBackground.unwrap("some"), "bg.inverse"));
     });
 }, { platformFns: TestImpl });

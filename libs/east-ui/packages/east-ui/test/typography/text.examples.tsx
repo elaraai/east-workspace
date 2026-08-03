@@ -31,7 +31,7 @@ export const textVariants = example({
         return (
             <VStack gap="4" align="stretch">
                 <Separator label="COLORED" align="start" />
-                <Text color="blue.500">Blue colored text</Text>
+                <Text color="link">Blue colored text</Text>
                 <Separator label="BOLD" align="start" />
                 <Text fontWeight="bold">Bold text</Text>
                 <Separator label="ITALIC" align="start" />
@@ -51,22 +51,22 @@ export const textVariants = example({
                     <Text textTransform="capitalize">capitalize</Text>
                 </HStack>
                 <Separator label="BACKGROUND" align="start" />
-                <Text background="yellow.200" color="gray.800">Highlighted text</Text>
+                <Text background="bg.warning.subtle" color="fg.default">Highlighted text</Text>
                 <Separator label="BORDERED" align="start" />
-                <Text borderWidth="thin" borderStyle="solid" borderColor="gray.400">
+                <Text borderWidth="thin" borderStyle="solid" borderColor="border.strong">
                     Bordered text
                 </Text>
                 <Separator label="COLORS" align="start" />
                 <HStack gap="3">
-                    <Text color="red.500">Red</Text>
-                    <Text color="orange.500">Orange</Text>
-                    <Text color="green.500">Green</Text>
-                    <Text color="teal.500">Teal</Text>
-                    <Text color="blue.500">Blue</Text>
-                    <Text color="purple.500">Purple</Text>
+                    <Text color="fg.danger">Red</Text>
+                    <Text color="fg.warning">Orange</Text>
+                    <Text color="fg.success">Green</Text>
+                    <Text color="brand.600">Teal</Text>
+                    <Text color="link">Blue</Text>
+                    <Text color="accent.purple">Purple</Text>
                 </HStack>
                 <Separator label="COMBINED" align="start" />
-                <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
+                <Text color="link" fontWeight="bold" fontStyle="italic" background="bg.brand.subtle">
                     Styled Text
                 </Text>
                 <Separator label="DECORATION" align="start" />
@@ -84,22 +84,22 @@ export const textVariants = example({
                 </VStack>
                 <Separator label="OPACITY" align="start" />
                 <HStack gap="4">
-                    <Text color="blue.600" fontWeight="bold">100%</Text>
-                    <Text color="blue.600" fontWeight="bold" opacity={0.75}>75%</Text>
-                    <Text color="blue.600" fontWeight="bold" opacity={0.5}>50%</Text>
-                    <Text color="blue.600" fontWeight="bold" opacity={0.25}>25%</Text>
+                    <Text color="link" fontWeight="bold">100%</Text>
+                    <Text color="link" fontWeight="bold" opacity={0.75}>75%</Text>
+                    <Text color="link" fontWeight="bold" opacity={0.5}>50%</Text>
+                    <Text color="link" fontWeight="bold" opacity={0.25}>25%</Text>
                 </HStack>
                 <Separator label="PADDING MARGIN" align="start" />
                 <VStack gap="2" align="flex-start">
-                    <Text padding="4" background="blue.50" borderWidth="thin" borderStyle="solid" borderColor="blue.200">Padding: 4</Text>
-                    <Text padding="2" margin="4" background="green.50" borderWidth="thin" borderStyle="solid" borderColor="green.200">Padding: 2, Margin: 4</Text>
+                    <Text padding="4" background="bg.brand.subtle" borderWidth="thin" borderStyle="solid" borderColor="border.brand">Padding: 4</Text>
+                    <Text padding="2" margin="4" background="bg.success.subtle" borderWidth="thin" borderStyle="solid" borderColor="status.pos">Padding: 2, Margin: 4</Text>
                 </VStack>
                 <Separator label="OVERFLOW" align="start" />
                 <VStack gap="2" align="flex-start">
-                    <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="orange.50" padding="2">
+                    <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="bg.warning.subtle" padding="2">
                         This text is constrained to 200px width and will clip overflow content.
                     </Text>
-                    <Text width="150px" height="40px" background="purple.50" padding="2" overflow="hidden">Fixed width and height box</Text>
+                    <Text width="150px" height="40px" background="bg.subtle" padding="2" overflow="hidden">Fixed width and height box</Text>
                 </VStack>
                 <Separator label="INTERACTIVE" align="start" />
                 <Reactive>{$ => {

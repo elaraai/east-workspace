@@ -19,7 +19,7 @@ export const segmentGroupViewToggle = example({
                     SegmentGroup.Item("demand", "Demand"),
                     SegmentGroup.Item("coverage", "Coverage"),
                     SegmentGroup.Item("rotation", "Rotation plan"),
-                    SegmentGroup.Item("unmet", <HStack gap="2" align="center"><Text>Unmet</Text><Badge colorPalette="red" variant="subtle">2</Badge></HStack>),
+                    SegmentGroup.Item("unmet", <HStack gap="2" align="center"><Text>Unmet</Text><Badge colorPalette="danger" variant="subtle">2</Badge></HStack>),
                 ]}
                 size="sm"
             />
@@ -42,7 +42,7 @@ export const segmentGroupSized = example({
                     SegmentGroup.Item("3m", "3 months"),
                 ]}
                 size="md"
-                colorPalette="blue"
+                colorPalette="brand"
             />
         );
     }),
@@ -92,11 +92,11 @@ export const segmentGroupBranded = example({
                     SegmentGroup.Item("map", "Map"),
                 ]}
                 size="sm"
-                background="#f9fafb"
-                borderColor="#e5e7eb"
-                activeBackground="#1a2234"
-                activeColor="#ffffff"
-                inactiveColor="#6b7280"
+                background="bg.canvas"
+                borderColor="border.subtle"
+                activeBackground="bg.inverse"
+                activeColor="fg.inverse"
+                inactiveColor="fg.muted"
             />
         );
     }),

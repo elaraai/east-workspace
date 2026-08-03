@@ -768,9 +768,9 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         font: system.token("fonts.mono", "monospace"),
         // 11px (was 10px) — the #315 legibility floor for axis/label text.
         labelSize: "11px",
-        labelColor: system.token("colors.fg.muted", "#64748b"),
+        labelColor: system.token("colors.fg.muted", "#6b8080"),
         titleFont: system.token("fonts.body", "system-ui, sans-serif"),
-        titleColor: system.token("colors.fg.default", "#0f172a"),
+        titleColor: system.token("colors.fg.default", "#111b22"),
         axisStroke: system.token("colors.border.strong", "#cbd5d5"),
         gridStroke: system.token("colors.border.strong", "#cbd5d5"),
         lineWidth: 1.8,
@@ -780,7 +780,7 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         dotRadius: 2.6,
         scatterRadius: 3.4,
         barRadius: 2,
-        accent: system.token("colors.fg", "#1a202c"),
+        accent: system.token("colors.fg", "#111b22"),
         tooltipZIndex: Number(system.token("zIndex.tooltip", 1800)),
         color: (t: string) => {
             const k = t.replace(/[{}]/g, "");

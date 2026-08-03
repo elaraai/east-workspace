@@ -67,14 +67,14 @@ describeEast("ScrollArea", (test) => {
 
     test("creates a scroll area with all style hatches", $ => {
         const sa = $.let(ScrollArea.Root(Text.Root("Content"), {
-            thumbColor: "gray.400",
-            trackColor: "gray.100",
-            background: "white",
+            thumbColor: "fg.muted",
+            trackColor: "bg.subtle",
+            background: "bg.surface",
         }));
 
         $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.hasTag("some"), true));
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.unwrap("some").thumbColor.unwrap("some"), "gray.400"));
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.unwrap("some").trackColor.unwrap("some"), "gray.100"));
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.unwrap("some").background.unwrap("some"), "white"));
+        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.unwrap("some").thumbColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.unwrap("some").trackColor.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.unwrap("some").background.unwrap("some"), "bg.surface"));
     });
 }, { platformFns: TestImpl });
