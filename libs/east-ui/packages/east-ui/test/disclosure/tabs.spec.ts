@@ -20,16 +20,17 @@ describeEast("Tabs", (test) => {
     // Panels — every merged example stays mounted as a captioned row (#463).
     // =========================================================================
 
-    test("tabsVariants panel mounts one captioned row per merged example", $ => {
+    test("tabsVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / size / trigger
+        // tables plus the fitted / disabled switches — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the Tabs.Root tests below, which
+        // construct each option directly.
         const panel = $.const(ex.tabsVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LINE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FITTED"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SIZES"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH DISABLED"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH COUNT BADGES"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TWO LINE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("tabsReactive panel mounts one captioned row per merged example", $ => {

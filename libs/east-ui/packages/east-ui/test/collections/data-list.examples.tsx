@@ -3,46 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { Badge, DataList, Highlight, HoverCard, Separator, Text, VStack } from "@elaraai/east-ui";
-
-// ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
-// ============================================================================
-
-const DATA_LIST_HORIZONTAL_DATA = [
-    { label: "Price", value: <Text>$99.00</Text> },
-    { label: "Quantity", value: <Text>5</Text> },
-    { label: "Total", value: <Text>$495.00</Text> },
-];
-const DATA_LIST_BOLD_DATA = [
-    { label: "CPU", value: <Text>Intel i9-14900K</Text> },
-    { label: "RAM", value: <Text>64GB DDR5</Text> },
-    { label: "Storage", value: <Text>2TB NVMe SSD</Text> },
-];
-const DATA_LIST_SMALL_DATA = [
-    { label: "ID", value: <Text>#12345</Text> },
-    { label: "Type", value: <Text>Premium</Text> },
-    { label: "Status", value: <Text>Verified</Text> },
-];
-const DATA_LIST_LARGE_DATA = [
-    { label: "Revenue", value: <Text>$1,234,567</Text> },
-    { label: "Growth", value: <Text>+15.2%</Text> },
-    { label: "Customers", value: <Text>10,432</Text> },
-];
-const DATA_LIST_PROFILE_DATA = [
-    { label: "Full Name", value: <Text>Jane Smith</Text> },
-    { label: "Email", value: <Text>jane.smith@company.com</Text> },
-    { label: "Department", value: <Text>Engineering</Text> },
-    { label: "Role", value: <Text>Senior Developer</Text> },
-    { label: "Location", value: <Text>San Francisco, CA</Text> },
-];
-const DATA_LIST_COLOUR_OVERRIDES_DATA = [
-    { label: "Username", value: <Text>alice_smith</Text> },
-    { label: "Email", value: <Text>alice@example.com</Text> },
-    { label: "Status", value: <Text>Active</Text> },
-];
+import { East, ArrayType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Configurator, DataList, Highlight, HoverCard, SegmentGroup, Style, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const dataListBasic = example({
     keywords: ["DataList", "Root", "basic", "vertical"],
@@ -85,32 +48,133 @@ export const dataListRichValues = example({
     inputs: [],
 });
 
+// ============================================================================
+// DataList — live configurator over every list axis
+// ============================================================================
+
 export const dataListVariants = example({
-    keywords: ["DataList", "Root", "orientation", "horizontal", "variant", "bold", "size", "sm", "compact", "lg", "profile", "user", "colour", "override", "background", "labelColor", "valueColor"],
-    description: "DataList variant panel — list horizontal (horizontal layout), list bold (bold styling), list small (compact data list), list large (larger data list for emphasis), list profile (real-world data list), list colour overrides (explicit background / border / label / value colours for brand alignment)",
+    keywords: ["DataList", "Root", "orientation", "horizontal", "variant", "bold", "size", "sm", "compact", "lg", "profile", "user", "colour", "override", "background", "labelColor", "valueColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "DataList configurator — orientation, variant, size, content-preset and colour axes driving one live list; the aside stacks the three sizes",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="3" align="stretch">
-                <Separator label="LIST HORIZONTAL" align="start" />
-                <DataList orientation="horizontal" items={DATA_LIST_HORIZONTAL_DATA} />
-                <Separator label="LIST BOLD" align="start" />
-                <DataList variant="bold" items={DATA_LIST_BOLD_DATA} />
-                <Separator label="LIST SMALL" align="start" />
-                <DataList size="sm" items={DATA_LIST_SMALL_DATA} />
-                <Separator label="LIST LARGE" align="start" />
-                <DataList size="lg" items={DATA_LIST_LARGE_DATA} />
-                <Separator label="LIST PROFILE" align="start" />
-                <DataList items={DATA_LIST_PROFILE_DATA} />
-                <Separator label="LIST COLOUR OVERRIDES" align="start" />
-                <DataList
-                        orientation="horizontal"
-                        background="bg.brand.subtle"
-                        borderColor="border.brand"
-                        labelColor="link"
-                        valueColor="link"
-                        items={DATA_LIST_COLOUR_OVERRIDES_DATA}
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const orientations = $.const([
+                    variant("vertical", null), variant("horizontal", null),
+                ], ArrayType(Style.Types.Orientation));
+
+                const variants = $.const([
+                    variant("subtle", null), variant("bold", null),
+                ], ArrayType(DataList.Types.Variant));
+
+                const sizes = $.const([
+                    variant("sm", null), variant("md", null), variant("lg", null),
+                ], ArrayType(DataList.Types.Size));
+
+                // Only the content needs a struct — a preset is its rows PLUS
+                // the label the segment control names it by.
+                const presets = $.const([
+                    {
+                        label: "specs",
+                        items: [
+                            { label: "CPU", value: <Text>Intel i9-14900K</Text> },
+                            { label: "RAM", value: <Text>64GB DDR5</Text> },
+                            { label: "Storage", value: <Text>2TB NVMe SSD</Text> },
+                        ],
+                    },
+                    {
+                        label: "profile",
+                        items: [
+                            { label: "Full Name", value: <Text>Jane Smith</Text> },
+                            { label: "Email", value: <Text>jane.smith@company.com</Text> },
+                            { label: "Department", value: <Text>Engineering</Text> },
+                            { label: "Role", value: <Text>Senior Developer</Text> },
+                            { label: "Location", value: <Text>San Francisco, CA</Text> },
+                        ],
+                    },
+                ], ArrayType(StructType({ label: StringType, items: ArrayType(DataList.Types.Item) })));
+
+                // Colour slots come as a set — the recipe row mirrors the
+                // renderer's defaults, branded shows the escape hatches.
+                const colors = $.const([
+                    { label: "recipe",  background: "transparent",     borderColor: "border.subtle", labelColor: "fg.subtle", valueColor: "fg.default" },
+                    { label: "branded", background: "bg.brand.subtle", borderColor: "border.brand",  labelColor: "link",      valueColor: "link" },
+                ], ArrayType(StructType({ label: StringType, background: StringType, borderColor: StringType, labelColor: StringType, valueColor: StringType })));
+
+                const orientationBind = $.let(State.bind([StringType], "datalist_orientation", "vertical"));
+                const variantBind     = $.let(State.bind([StringType], "datalist_variant", "subtle"));
+                const sizeBind        = $.let(State.bind([StringType], "datalist_size", "md"));
+                const contentBind     = $.let(State.bind([StringType], "datalist_content", "specs"));
+                const colorBind       = $.let(State.bind([StringType], "datalist_color", "recipe"));
+
+                const oKey = $.let(orientationBind.read());
+                const vKey = $.let(variantBind.read());
+                const sKey = $.let(sizeBind.read());
+                const pKey = $.let(contentBind.read());
+                const cKey = $.let(colorBind.read());
+
+                const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+                const onVariant     = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onSize        = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onContent     = $.const(East.function([StringType], NullType, ($, next) => { $(contentBind.write(next)); }));
+                const onColor       = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const orientation = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
+                const listVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const preset = $.let(presets.filter((_$, o) => o.label.equal(pKey)).get(0n));
+                const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Orientation", oKey,
+                                <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
+                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Variant", vKey,
+                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "bold emphasises the values"),
+                            Configurator.Control("Size", sKey,
+                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Content", pKey,
+                                <SegmentGroup value={pKey} onChange={onContent} size="sm"
+                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("Colour", cKey,
+                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "background · border · label · value slots"),
+                        ]}
+                        preview={
+                            <DataList
+                                orientation={orientation}
+                                variant={listVariant}
+                                size={size}
+                                background={color.background}
+                                borderColor={color.borderColor}
+                                labelColor={color.labelColor}
+                                valueColor={color.valueColor}
+                                items={preset.items}
+                            />
+                        }
+                        aside={{
+                            label: "Size ladder",
+                            body: (
+                                <VStack gap="4" align="stretch">
+                                    {sizes.map((_$, d) => <DataList size={d} items={preset.items} />)}
+                                </VStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Rows", East.print(preset.items.size())),
+                        ]}
                     />
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

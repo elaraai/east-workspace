@@ -20,14 +20,17 @@ describeEast("Accordion", (test) => {
     // Panels — every merged example stays mounted as a captioned row (#463).
     // =========================================================================
 
-    test("accordionVariants panel mounts one captioned row per merged example", $ => {
+    test("accordionVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the content-preset table and the
+        // multiple / collapsible switches — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the Accordion.Root tests below, which
+        // construct each option directly.
         const panel = $.const(ex.accordionVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MULTIPLE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLLAPSIBLE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FAQ"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "GRID TRIGGER"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("accordionReactive panel mounts one captioned row per merged example", $ => {

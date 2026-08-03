@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
+import { East, ArrayType, BooleanType, NullType, OptionType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Reactive, Separator, Text, TreeView, VStack } from "@elaraai/east-ui";
+import { Badge, Configurator, HStack, Reactive, SegmentGroup, Separator, Switch, Text, TreeView, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -59,25 +59,6 @@ const TREE_VIEW_SOLID_DATA = [
         TreeView.Item("cat2-mens", "Men's", { prefix: "fas", name: "person" }),
         TreeView.Item("cat2-womens", "Women's", { prefix: "fas", name: "person-dress" }),
     ], { prefix: "fas", name: "shirt", color: "accent.purple" }),
-];
-const TREE_VIEW_EXPANDED_DATA = [
-    TreeView.Branch("settings", "Settings", [
-        TreeView.Branch("settings-general", "General", [
-            TreeView.Item("settings-general-profile", "Profile", { prefix: "fas", name: "id-card" }),
-            TreeView.Item("settings-general-prefs", "Preferences", { prefix: "fas", name: "sliders" }),
-        ], { prefix: "fas", name: "gear" }),
-        TreeView.Branch("settings-security", "Security", [
-            TreeView.Item("settings-security-password", "Password", { prefix: "fas", name: "key" }),
-            TreeView.Item("settings-security-2fa", "Two-Factor Auth", { prefix: "fas", name: "shield-halved" }),
-        ], { prefix: "fas", name: "lock", color: "fg.danger" }),
-    ], { prefix: "fas", name: "cog", color: "fg.muted" }),
-];
-const TREE_VIEW_COLOUR_OVERRIDES_DATA = [
-    TreeView.Branch("src", "src", [
-        TreeView.Item("index", "index.ts"),
-        TreeView.Item("utils", "utils.ts"),
-    ]),
-    TreeView.Item("package", "package.json"),
 ];
 const TREE_VIEW_INTERACTIVE_SELECTION_DATA = [
     TreeView.Branch("fruits", "Fruits", [
@@ -140,35 +121,112 @@ export const treeViewBasic = example({
 });
 
 export const treeViewVariants = example({
-    keywords: ["TreeView", "Root", "Branch", "Item", "icon", "prefix", "color", "organization", "hierarchy", "user", "icons", "size", "sm", "compact", "variant", "solid", "defaultExpandedValue", "settings", "colour", "override", "itemColor", "selectedBackground", "caretColor"],
-    description: "TreeView variant panel — view icons (tree nodes with indicator icons), view org (company hierarchy with user icons), view small (compact tree with documentation icons), view solid (shopping categories with icons), view expanded (settings tree with pre-expanded nodes), view colour overrides (item / hover / selection / caret / connector colour overrides for brand alignment)",
+    keywords: ["TreeView", "Root", "Branch", "Item", "icon", "prefix", "color", "organization", "hierarchy", "user", "icons", "size", "sm", "compact", "variant", "solid", "defaultExpandedValue", "settings", "colour", "override", "itemColor", "selectedBackground", "caretColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "TreeView configurator — tree-preset, size, variant and colour axes plus a default-expanded switch driving one live tree",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="VIEW ICONS" align="start" />
-                <TreeView nodes={TREE_VIEW_ICONS_DATA} />
-                <Separator label="VIEW ORG" align="start" />
-                <TreeView nodes={TREE_VIEW_ORG_DATA} />
-                <Separator label="VIEW SMALL" align="start" />
-                <TreeView size="sm" nodes={TREE_VIEW_SMALL_DATA} />
-                <Separator label="VIEW SOLID" align="start" />
-                <TreeView variant="solid" nodes={TREE_VIEW_SOLID_DATA} />
-                <Separator label="VIEW EXPANDED" align="start" />
-                <TreeView defaultExpandedValue={["settings", "settings-general"]} nodes={TREE_VIEW_EXPANDED_DATA} />
-                <Separator label="VIEW COLOUR OVERRIDES" align="start" />
-                <TreeView
-                    variant="subtle"
-                    size="sm"
-                    itemColor="fg.default"
-                    itemHoverBackground="bg.brand.subtle"
-                    selectedBackground="bg.brand.subtle"
-                    selectedColor="link"
-                    caretColor="link"
-                    connectorColor="fg.muted"
-                    defaultExpandedValue={["src"]}
-                    nodes={TREE_VIEW_COLOUR_OVERRIDES_DATA}
-                />
-            </VStack>
+            <Reactive>{$ => {
+                // A tree preset is its nodes PLUS the branch values the
+                // expanded switch pre-opens, so the axis is a struct.
+                const trees = $.const([
+                    { label: "files",    nodes: TREE_VIEW_ICONS_DATA, expanded: ["src", "docs"] },
+                    { label: "org",      nodes: TREE_VIEW_ORG_DATA,   expanded: ["ceo", "cto", "eng-lead"] },
+                    { label: "docs",     nodes: TREE_VIEW_SMALL_DATA, expanded: ["docs", "support"] },
+                    { label: "shopping", nodes: TREE_VIEW_SOLID_DATA, expanded: ["category1", "category2"] },
+                ], ArrayType(StructType({ label: StringType, nodes: ArrayType(TreeView.Types.Node), expanded: ArrayType(StringType) })));
+
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const sizes = $.const([
+                    variant("xs", null), variant("sm", null), variant("md", null),
+                ], ArrayType(TreeView.Types.Size));
+
+                const variants = $.const([
+                    variant("subtle", null), variant("solid", null),
+                ], ArrayType(TreeView.Types.Variant));
+
+                // Colour slots come as a set — the recipe row mirrors the slot
+                // recipe's defaults, branded shows the escape hatches.
+                const colors = $.const([
+                    { label: "recipe",  item: "fg.default", hover: "bg.subtle",       selectedBg: "bg.brand.subtle", selected: "link", caret: "fg.muted", connector: "border.subtle" },
+                    { label: "branded", item: "fg.default", hover: "bg.brand.subtle", selectedBg: "bg.brand.subtle", selected: "link", caret: "link",     connector: "fg.muted" },
+                ], ArrayType(StructType({ label: StringType, item: StringType, hover: StringType, selectedBg: StringType, selected: StringType, caret: StringType, connector: StringType })));
+
+                const treeBind     = $.let(State.bind([StringType], "treeview_tree", "files"));
+                const sizeBind     = $.let(State.bind([StringType], "treeview_size", "md"));
+                const variantBind  = $.let(State.bind([StringType], "treeview_variant", "subtle"));
+                const colorBind    = $.let(State.bind([StringType], "treeview_color", "recipe"));
+                const expandedBind = $.let(State.bind([BooleanType], "treeview_expanded", true));
+
+                const tKey = $.let(treeBind.read());
+                const sKey = $.let(sizeBind.read());
+                const vKey = $.let(variantBind.read());
+                const cKey = $.let(colorBind.read());
+                const expandedOn = $.let(expandedBind.read());
+
+                const onTree     = $.const(East.function([StringType], NullType, ($, next) => { $(treeBind.write(next)); }));
+                const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onColor    = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
+                const onExpanded = $.const(East.function([BooleanType], NullType, ($, next) => { $(expandedBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const tree = $.let(trees.filter((_$, o) => o.label.equal(tKey)).get(0n));
+                const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const treeVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
+
+                const collapsed = $.const([], ArrayType(StringType));
+                const expanded = $.let(expandedOn.ifElse(_$ => tree.expanded, _$ => collapsed));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Tree", tKey,
+                                <SegmentGroup value={tKey} onChange={onTree} size="sm"
+                                    items={trees.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "each preset carries its indicator icons"),
+                            Configurator.Control("Size", sKey,
+                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Variant", vKey,
+                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "solid fills the selected row"),
+                            Configurator.Control("Colour", cKey,
+                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "item · hover · selection · caret · connector slots"),
+                            // A Slot, not a Control: the switch reports as the
+                            // Expanded spec row below rather than as one value.
+                            Configurator.Slot("State",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={expandedOn} label="Default expanded" onChange={onExpanded} />
+                                    <Text textStyle="caption" color="fg.subtle">defaultExpandedValue pre-opens the preset's branches</Text>
+                                </HStack>),
+                        ]}
+                        preview={
+                            <TreeView
+                                variant={treeVariant}
+                                size={size}
+                                itemColor={color.item}
+                                itemHoverBackground={color.hover}
+                                selectedBackground={color.selectedBg}
+                                selectedColor={color.selected}
+                                caretColor={color.caret}
+                                connectorColor={color.connector}
+                                defaultExpandedValue={expanded}
+                                nodes={tree.nodes}
+                            />
+                        }
+                        spec={[
+                            Configurator.Spec("Roots", East.print(tree.nodes.size())),
+                            Configurator.Spec("Expanded", expandedOn.ifElse(_$ => East.print(tree.expanded.size()), _$ => "collapsed")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

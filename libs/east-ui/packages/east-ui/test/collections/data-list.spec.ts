@@ -17,19 +17,19 @@ describeEast("DataList", (test) => {
 
     // =========================================================================
     // Panels — every merged example stays mounted as a captioned row (#461).
-    // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("dataListVariants panel mounts one captioned row per merged example", $ => {
+    test("dataListVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation / variant /
+        // size / content / colour tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the DataList.Root tests below, which
+        // construct each option directly.
         const panel = $.const(ex.dataListVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LIST HORIZONTAL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LIST BOLD"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LIST SMALL"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LIST LARGE"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LIST PROFILE"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LIST COLOUR OVERRIDES"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

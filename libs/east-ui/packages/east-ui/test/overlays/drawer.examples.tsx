@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, BooleanType, IntegerType, NullType, example, some, none } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Drawer, Reactive, Separator, Status, Text, VStack } from "@elaraai/east-ui";
+import { Box, Button, Configurator, Drawer, Reactive, SegmentGroup, Status, Text, VStack } from "@elaraai/east-ui";
 
 export const drawerBasic = example({
     keywords: ["Drawer", "Root", "placement", "end", "right", "eyebrow", "basic"],
@@ -115,61 +115,101 @@ export const drawerStackedNested = example({
 });
 
 // ============================================================================
-// Variants — static enumeration panel + interactive row (consolidation #455).
+// Drawer — live configurator over the placement + body axes
 // ============================================================================
 
 export const drawerVariants = example({
-    keywords: ["Drawer", "Root", "placement", "start", "left", "navigation", "flush", "bodyPadding", "fillBody", "full-bleed", "padding", "fill-height", "scroll", "Reactive", "State", "onOpenChange", "interactive"],
-    description: "Drawer variant panel — left (slide-in panel from left), flush (full-bleed fill-height body via flush + fillBody so a single child owns its own scroll, plus a custom bodyPadding inset), interactive (onOpenChange callback)",
+    keywords: ["Drawer", "Root", "placement", "start", "left", "navigation", "flush", "bodyPadding", "fillBody", "full-bleed", "padding", "fill-height", "scroll", "Reactive", "State", "onOpenChange", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Drawer configurator — placement and body-preset axes driving one live drawer behind its trigger button; the aside counts onOpenChange opens",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="LEFT" align="start" />
-                <Drawer trigger={<Button variant="outline">Open Navigation</Button>} title="Navigation" placement="start">
-                    <VStack gap="1" align="stretch">
-                        <Button variant="ghost" size="sm">Overview</Button>
-                        <Button variant="ghost" size="sm">Projects</Button>
-                        <Button variant="ghost" size="sm">Team</Button>
-                        <Button variant="ghost" size="sm">Settings</Button>
-                    </VStack>
-                </Drawer>
-                <Separator label="FLUSH" align="start" />
-                <VStack gap="2" align="flex-start">
-                    <Drawer trigger={<Button>Open Full-bleed Drawer</Button>} eyebrow="Rail · data" title="Full-bleed body" placement="end" size="md" flush fillBody>
-                        <Box height="100%" overflowY="auto">
-                            <VStack gap="2" align="stretch">
-                                <Text>This body is flush (zero padding) and fills the panel height.</Text>
-                                <Text color="fg.muted">A single height:100% child owns its scrollbar instead of the whole panel scrolling.</Text>
-                            </VStack>
-                        </Box>
-                    </Drawer>
-                    <Drawer trigger={<Button variant="outline">Open Custom-inset Drawer</Button>} title="Custom inset" placement="end" size="md" bodyPadding="8px 12px">
-                        <Text>This body uses a custom bodyPadding of 8px 12px instead of the default 16px 20px.</Text>
-                    </Drawer>
-                </VStack>
-                <Separator label="INTERACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const openCountBind = $.let(State.bind([IntegerType], "drawer_open_count", 0n));
-                    const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {
-                        const openCount = $.let(openCountBind.read());
-                        $.if(isOpen, $ => {
-                            $(openCountBind.write(openCount.add(1n)));
-                        });
-                    }));
-                    const openCount = $.let(openCountBind.read());
-                    return (
-                        <VStack gap="3" align="flex-start">
-                            <Drawer trigger={<Button>Open Drawer</Button>} title="Interactive Drawer" placement="end" onOpenChange={onOpenChange}>
-                                <VStack gap="4">
-                                    <Text>This drawer counts how many times it’s been opened.</Text>
-                                    <Status label={<Text>{East.str`OPENED · ${East.print(openCount)} TIMES`}</Text>} value="info" />
-                                </VStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const placements = $.const([
+                    variant("start", null), variant("end", null),
+                ], ArrayType(Drawer.Types.Placement));
+
+                // A body preset is the flush / fillBody pair plus the inset
+                // they override, so the axis is a struct. `flush` (zero
+                // padding) + `fillBody` (definite-height flex column) let a
+                // single height:100% child own its own scroll.
+                const bodies = $.const([
+                    { label: "default", flush: false, fillBody: false, bodyPadding: "16px 20px" },
+                    { label: "flush",   flush: true,  fillBody: true,  bodyPadding: "0" },
+                    { label: "inset",   flush: false, fillBody: false, bodyPadding: "8px 12px" },
+                ], ArrayType(StructType({ label: StringType, flush: BooleanType, fillBody: BooleanType, bodyPadding: StringType })));
+
+                const placementBind = $.let(State.bind([StringType], "drawer_placement", "end"));
+                const bodyBind      = $.let(State.bind([StringType], "drawer_body", "default"));
+                const openCountBind = $.let(State.bind([IntegerType], "drawer_open_count", 0n));
+
+                const pKey = $.let(placementBind.read());
+                const bKey = $.let(bodyBind.read());
+                const openCount = $.let(openCountBind.read());
+
+                const onPlacement = $.const(East.function([StringType], NullType, ($, next) => { $(placementBind.write(next)); }));
+                const onBody      = $.const(East.function([StringType], NullType, ($, next) => { $(bodyBind.write(next)); }));
+                const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {
+                    const cur = $.let(openCountBind.read());
+                    $.if(isOpen, $ => {
+                        $(openCountBind.write(cur.add(1n)));
+                    });
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const placement = $.let(placements.filter((_$, v) => v.getTag().equal(pKey)).get(0n));
+                const body = $.let(bodies.filter((_$, o) => o.label.equal(bKey)).get(0n));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Placement", pKey,
+                                <SegmentGroup value={pKey} onChange={onPlacement} size="sm"
+                                    items={placements.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "start slides in from the left edge"),
+                            Configurator.Control("Body", bKey,
+                                <SegmentGroup value={bKey} onChange={onBody} size="sm"
+                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "flush + fillBody · custom bodyPadding inset"),
+                        ]}
+                        preview={
+                            <Drawer
+                                trigger={<Button>Open Drawer</Button>}
+                                eyebrow="Rail · configurator"
+                                title="Configured Drawer"
+                                description={East.str`${pKey} placement · ${bKey} body`}
+                                placement={placement}
+                                size="md"
+                                flush={body.flush}
+                                fillBody={body.fillBody}
+                                bodyPadding={body.bodyPadding}
+                                onOpenChange={onOpenChange}
+                            >
+                                <Box height="100%" overflowY="auto">
+                                    <VStack gap="2" align="stretch">
+                                        <Text>The body follows the configured preset — flush zeroes the padding and fillBody makes this box own the panel scroll.</Text>
+                                        <Text color="fg.muted">The inset preset swaps the default 16px 20px bodyPadding for 8px 12px.</Text>
+                                        <Status label={<Text>{East.str`OPENED · ${East.print(openCount)} TIMES`}</Text>} value="info" />
+                                    </VStack>
+                                </Box>
                             </Drawer>
-                            <Status label={<Text>{East.str`DRAWER OPENED · ${East.print(openCount)} TIMES`}</Text>} value="info" />
-                        </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
+                        }
+                        aside={{
+                            label: "Opens · Reactive",
+                            body: (
+                                <Status label={<Text>{East.str`DRAWER OPENED · ${East.print(openCount)} TIMES`}</Text>} value="info" />
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Flush", body.flush.ifElse(_$ => "full-bleed", _$ => "padded")),
+                            Configurator.Spec("Fill body", body.fillBody.ifElse(_$ => "child owns scroll", _$ => "panel scrolls")),
+                            Configurator.Spec("Body padding", body.bodyPadding),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

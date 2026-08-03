@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from "@elaraai/east";
+import { ArrayType, BooleanType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { Slice, State, UIComponentType } from "@elaraai/east-ui";
-import { Chart, Deck, HStack, Reactive, Separator, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Chart, Configurator, Deck, HStack, Reactive, SegmentGroup, Switch, Tag, Text, VStack } from "@elaraai/east-ui";
 
 /** The board's status registry — one definition per state drives the
  *  solid tag (+ dot / pulse), the faint face wash, the fill colour,
@@ -216,40 +216,131 @@ export const deckClickable = example({
 });
 
 export const deckVariants = example({
-    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "swatch", "layout", "list", "rows", "metric"],
-    description: "Deck variant panel — group by (named GROUP BY options: grouping by the status accessor decorates group heads with the registry's swatch and hint; filtering flows through the slice interface, not a bespoke search), list layout (full-width card rows instead of the wrapping grid)",
+    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "swatch", "layout", "list", "rows", "metric", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Deck configurator — a layout axis plus a grouped switch (group heads carry the registry swatch + hint) driving one live deck of status cards",
     fn: East.function([], UIComponentType, (_$) => (
-        <VStack gap="4" align="stretch">
-            <Separator label="GROUP BY" align="start" />
-            <Deck
-                data={LINES}
-                statuses={LINE_STATUSES}
-                card={r => ({
-                    key: r.id,
-                    title: r.name,
-                    sublabel: r.team,
-                    status: r.state,
-                    fill: { value: r.load.multiply(100.0), max: 100.0 },
-                })}
-                groupBy={[
-                    { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
-                    { key: "team", label: "Team", value: r => r.team },
-                ]}
-            />
-            <Separator label="LIST LAYOUT" align="start" />
-            <Deck
-                data={LINES}
-                statuses={LINE_STATUSES}
-                card={r => ({
-                    key: r.id,
-                    title: r.name,
-                    sublabel: r.team,
-                    status: r.state,
-                    metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
-                })}
-                layout="list"
-            />
-        </VStack>
+        <Reactive>{$ => {
+            // Enumerated axes are just their variants — `getTag()` gives the
+            // segment key AND its label, so there is no parallel table to
+            // keep in step.
+            const layouts = $.const([
+                variant("grid", null), variant("list", null),
+            ], ArrayType(Deck.Types.Layout));
+
+            const layoutBind = $.let(State.bind([StringType], "deck_layout", "grid"));
+            const groupBind  = $.let(State.bind([BooleanType], "deck_group", false));
+
+            const lKey = $.let(layoutBind.read());
+            const grouped = $.let(groupBind.read());
+
+            const onLayout = $.const(East.function([StringType], NullType, ($, next) => { $(layoutBind.write(next)); }));
+            const onGroup  = $.const(East.function([BooleanType], NullType, ($, next) => { $(groupBind.write(next)); }));
+
+            // Each selection is a lookup into the same array the control renders.
+            const layout = $.let(layouts.filter((_$, v) => v.getTag().equal(lKey)).get(0n));
+            const isList = $.let(layout.hasTag("list"));
+
+            // `layout` and `groupBy` are build-time card config — the mapper
+            // callbacks are reified when the deck is constructed — so the two
+            // axes pick between four decks over the same registry + card face.
+            const deck = $.const(grouped.ifElse(
+                _$ => isList.ifElse(
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            statuses={LINE_STATUSES}
+                            card={r => ({
+                                key: r.id,
+                                title: r.name,
+                                sublabel: r.team,
+                                status: r.state,
+                                metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
+                                fill: { value: r.load.multiply(100.0), max: 100.0 },
+                            })}
+                            groupBy={[
+                                { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
+                                { key: "team", label: "Team", value: r => r.team },
+                            ]}
+                            layout="list"
+                        />
+                    ),
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            statuses={LINE_STATUSES}
+                            card={r => ({
+                                key: r.id,
+                                title: r.name,
+                                sublabel: r.team,
+                                status: r.state,
+                                metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
+                                fill: { value: r.load.multiply(100.0), max: 100.0 },
+                            })}
+                            groupBy={[
+                                { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
+                                { key: "team", label: "Team", value: r => r.team },
+                            ]}
+                            layout="grid"
+                        />
+                    ),
+                ),
+                _$ => isList.ifElse(
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            statuses={LINE_STATUSES}
+                            card={r => ({
+                                key: r.id,
+                                title: r.name,
+                                sublabel: r.team,
+                                status: r.state,
+                                metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
+                                fill: { value: r.load.multiply(100.0), max: 100.0 },
+                            })}
+                            layout="list"
+                        />
+                    ),
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            statuses={LINE_STATUSES}
+                            card={r => ({
+                                key: r.id,
+                                title: r.name,
+                                sublabel: r.team,
+                                status: r.state,
+                                metrics: [Deck.metric("Load", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],
+                                fill: { value: r.load.multiply(100.0), max: 100.0 },
+                            })}
+                            layout="grid"
+                        />
+                    ),
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Layout", lKey,
+                            <SegmentGroup value={lKey} onChange={onLayout} size="sm"
+                                items={layouts.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                            "list renders full-width card rows"),
+                        // A Slot, not a Control: the switch reports as the
+                        // Grouping spec row below rather than as one value.
+                        Configurator.Slot("Grouping",
+                            <HStack gap="5" align="center">
+                                <Switch checked={grouped} label="Grouped" onChange={onGroup} />
+                                <Text textStyle="caption" color="fg.subtle">status heads carry the registry swatch + hint</Text>
+                            </HStack>),
+                    ]}
+                    preview={deck}
+                    spec={[
+                        Configurator.Spec("Cards", `${LINES.length}`),
+                        Configurator.Spec("Grouping", grouped.ifElse(_$ => "status · team options", _$ => "flat")),
+                    ]}
+                />
+            );
+        }}</Reactive>
     )),
     inputs: [],
 });

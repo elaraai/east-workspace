@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, NullType, StringType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Accordion, Box, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Accordion, Box, Configurator, HStack, SegmentGroup, Separator, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const accordionBasic = example({
     keywords: ["Accordion", "Root", "Item", "basic", "collapsible"],
@@ -27,59 +27,90 @@ export const accordionBasic = example({
 });
 
 // ============================================================================
-// Variants — static enumeration panel (consolidation epic #455).
+// Accordion — live configurator over the content + behaviour axes
 // ============================================================================
 
 export const accordionVariants = example({
-    keywords: ["Accordion", "Root", "Item", "multiple", "collapsible", "faq", "settings", "title", "meta", "count"],
-    description: "Accordion variant panel — multiple (multiple sections open at once), collapsible (all panels can be collapsed), faq (profile settings — three collapsible sections), grid trigger (headers with title + trailing meta count, scheduling mockup)",
+    keywords: ["Accordion", "Root", "Item", "multiple", "collapsible", "faq", "settings", "title", "meta", "count", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Accordion configurator — a content-preset axis plus multiple and collapsible switches driving one live accordion",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="MULTIPLE" align="start" />
-                <Box width="100%">
-                    <Accordion
-                        items={[
+            <Reactive>{$ => {
+                // Only the content needs a struct — a preset is its items PLUS
+                // the label the segment control names it by, so there is no
+                // single value to key it on.
+                const presets = $.const([
+                    {
+                        label: "basic",
+                        items: [
                             Accordion.Item("section-1", "Section 1", [<Box padding="4"><Text>Content for the first section. This panel can stay open while others are opened.</Text></Box>]),
                             Accordion.Item("section-2", "Section 2", [<Box padding="4"><Text>Content for the second section. Multiple panels can be expanded simultaneously.</Text></Box>]),
                             Accordion.Item("section-3", "Section 3", [<Box padding="4"><Text>Content for the third section.</Text></Box>]),
-                        ]}
-                        multiple={true}
-                    />
-                </Box>
-                <Separator label="COLLAPSIBLE" align="start" />
-                <Box width="100%">
-                    <Accordion
-                        items={[
-                            Accordion.Item("a", "Panel A", [<Box padding="4"><Text>This accordion allows all panels to be collapsed.</Text></Box>]),
-                            Accordion.Item("b", "Panel B", [<Box padding="4"><Text>Click an open panel’s trigger to collapse it.</Text></Box>]),
-                        ]}
-                        collapsible={true}
-                    />
-                </Box>
-                <Separator label="FAQ" align="start" />
-                <Box width="100%">
-                    <Accordion
-                        items={[
+                        ],
+                    },
+                    {
+                        label: "faq",
+                        items: [
                             Accordion.Item("profile", "Profile Settings", [<Box padding="4"><Text>Manage your profile information and preferences.</Text></Box>]),
                             Accordion.Item("security", "Security", [<Box padding="4"><Text>Configure password, two-factor authentication, and security options.</Text></Box>]),
                             Accordion.Item("notifications", "Notifications", [<Box padding="4"><Text>Control email and push notification preferences.</Text></Box>]),
-                        ]}
-                        collapsible={true}
-                    />
-                </Box>
-                <Separator label="GRID TRIGGER" align="start" />
-                <Box width="100%">
-                    <Accordion
-                        items={[
+                        ],
+                    },
+                    {
+                        label: "grid",
+                        items: [
                             Accordion.Item("block-a", "Block A", [<Box padding="4"><Text>Detail panel — per-block schedule, assumptions, guardrails.</Text></Box>], { meta: "3,200 kg · 17–23 Mar" }),
                             Accordion.Item("block-b", "Block B", [<Box padding="4"><Text>Block B detail panel.</Text></Box>], { meta: "1,800 kg · 17–23 Mar" }),
+                        ],
+                    },
+                ], ArrayType(StructType({ label: StringType, items: ArrayType(Accordion.Types.Item) })));
+
+                const contentBind     = $.let(State.bind([StringType], "accordion_content", "basic"));
+                const multipleBind    = $.let(State.bind([BooleanType], "accordion_multiple", false));
+                const collapsibleBind = $.let(State.bind([BooleanType], "accordion_collapsible", true));
+
+                const cKey        = $.let(contentBind.read());
+                const multiple    = $.let(multipleBind.read());
+                const collapsible = $.let(collapsibleBind.read());
+
+                const onContent     = $.const(East.function([StringType], NullType, ($, next) => { $(contentBind.write(next)); }));
+                const onMultiple    = $.const(East.function([BooleanType], NullType, ($, next) => { $(multipleBind.write(next)); }));
+                const onCollapsible = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsibleBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const preset = $.let(presets.filter((_$, o) => o.label.equal(cKey)).get(0n));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Content", cKey,
+                                <SegmentGroup value={cKey} onChange={onContent} size="sm"
+                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "grid carries a trailing meta per trigger"),
+                            // A Slot, not a Control: the two switches report as the
+                            // Multiple / Collapsible spec rows below rather than as
+                            // one value.
+                            Configurator.Slot("Behaviour",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={multiple} label="Multiple" onChange={onMultiple} />
+                                    <Text textStyle="caption" color="fg.subtle">several panels open at once</Text>
+                                    <Switch checked={collapsible} label="Collapsible" onChange={onCollapsible} />
+                                    <Text textStyle="caption" color="fg.subtle">every panel can close</Text>
+                                </HStack>),
                         ]}
-                        multiple={true}
-                        collapsible={true}
+                        preview={
+                            <Box width="100%">
+                                <Accordion items={preset.items} multiple={multiple} collapsible={collapsible} />
+                            </Box>
+                        }
+                        spec={[
+                            Configurator.Spec("Sections", East.print(preset.items.size())),
+                            Configurator.Spec("Multiple", multiple.ifElse(_$ => "on", _$ => "off")),
+                            Configurator.Spec("Collapsible", collapsible.ifElse(_$ => "on", _$ => "off")),
+                        ]}
                     />
-                </Box>
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

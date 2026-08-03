@@ -3,22 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, StringType, NullType, example } from "@elaraai/east";
-import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Calendar, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, StringType, StructType, NullType, example, variant } from "@elaraai/east";
+import { State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Box, Calendar, Configurator, HStack, Reactive, SegmentGroup, Separator, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
+// Module-scope fixtures (consolidation epic #455).
 // ============================================================================
 
-const CALENDAR_MINIMAL_DATA = [
-    { week: "W1", day: "Mon", v: 4.0 },
-    { week: "W1", day: "Wed", v: 9.0 },
-    { week: "W1", day: "Fri", v: 2.0 },
-    { week: "W2", day: "Tue", v: 6.0 },
-    { week: "W2", day: "Sat", v: 12.0 },
-];
-const CALENDAR_VALUES_OFF_DATA = [
+/** Shared row shape so the configurator's minimal switch can swap the dense
+ *  and sparse datasets as one East value. */
+const CALENDAR_ROW = StructType({ week: StringType, day: StringType, demand: FloatType });
+
+const CALENDAR_DENSE_DATA = [
     { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
     { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
     { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
@@ -26,19 +23,12 @@ const CALENDAR_VALUES_OFF_DATA = [
     { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
     { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
 ];
-const CALENDAR_TOTALS_DATA = [
-    { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
-    { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
-    { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
-    { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
-    { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
-    { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
-];
-const CALENDAR_DENSITY_DATA = [
-    { week: "W1", day: "Mon", v: 4.0 }, { week: "W1", day: "Tue", v: 7.0 },
-    { week: "W1", day: "Wed", v: 9.0 }, { week: "W1", day: "Thu", v: 5.0 },
-    { week: "W2", day: "Mon", v: 6.0 }, { week: "W2", day: "Tue", v: 11.0 },
-    { week: "W2", day: "Wed", v: 3.0 }, { week: "W2", day: "Thu", v: 8.0 },
+const CALENDAR_SPARSE_DATA = [
+    { week: "W1", day: "Mon", demand: 4.0 },
+    { week: "W1", day: "Wed", demand: 9.0 },
+    { week: "W1", day: "Fri", demand: 2.0 },
+    { week: "W2", day: "Tue", demand: 6.0 },
+    { week: "W2", day: "Sat", demand: 12.0 },
 ];
 const CALENDAR_SCROLL_DATA = [
     { week: "W31", day: "Mon", demand: 90.0 },
@@ -154,41 +144,117 @@ export const calendarInteractive = example({
 });
 
 export const calendarVariants = example({
-    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes"],
-    description: "Calendar variant panel — minimal (sparse heatmap with no chrome; missing days render the hatched neutral fill), values off (a pure heat read: values={false} drops the in-cell numbers and a 6-step Calendar.scale coarsens the ramp), totals (the weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table), density (the three densities stacked: cell + label sizing comfortable → compact → condensed)",
-    fn: East.function([], UIComponentType, ($) => {
-        const comfortable = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="comfortable" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
-        const compact = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="compact" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
-        const condensed = $.const(<Calendar data={CALENDAR_DENSITY_DATA} density="condensed" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
+    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Calendar configurator — density and scale-step axes plus values, totals and minimal-chrome switches driving one live heatmap",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="MINIMAL" align="start" />
-                <Calendar
-                    data={CALENDAR_MINIMAL_DATA}
-                    cell={d => ({ week: d.week, day: d.day, value: d.v })}
-                />
-                <Separator label="VALUES OFF" align="start" />
-                <Calendar
-                    data={CALENDAR_VALUES_OFF_DATA}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                    values={false}
-                    scale={Calendar.scale({ steps: 6n })}
-                    density="condensed"
-                />
-                <Separator label="TOTALS" align="start" />
-                <Calendar
-                    data={CALENDAR_TOTALS_DATA}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                    totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
-                    aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
-                />
-                <Separator label="DENSITY" align="start" />
-                <VStack gap="6">
-                    {comfortable}
-                    {compact}
-                    {condensed}
-                </VStack>
-            </VStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const densities = $.const([
+                    variant("comfortable", null), variant("compact", null), variant("condensed", null),
+                ], ArrayType(Style.Types.Density));
+
+                // A scale is only legible against its bucket count, so the axis
+                // is a struct (8 is Calendar.scale's default ramp length).
+                const scales = $.const([
+                    { label: "default", steps: 8n },
+                    { label: "6-step",  steps: 6n },
+                ], ArrayType(StructType({ label: StringType, steps: IntegerType })));
+
+                const dense = $.const(CALENDAR_DENSE_DATA, ArrayType(CALENDAR_ROW));
+                const sparse = $.const(CALENDAR_SPARSE_DATA, ArrayType(CALENDAR_ROW));
+
+                const densityBind = $.let(State.bind([StringType], "calendar_density", "comfortable"));
+                const scaleBind   = $.let(State.bind([StringType], "calendar_scale", "default"));
+                const valuesBind  = $.let(State.bind([BooleanType], "calendar_values", true));
+                const totalsBind  = $.let(State.bind([BooleanType], "calendar_totals", false));
+                const chromeBind  = $.let(State.bind([BooleanType], "calendar_chrome", false));
+
+                const dKey     = $.let(densityBind.read());
+                const sKey     = $.let(scaleBind.read());
+                const valuesOn = $.let(valuesBind.read());
+                const totalsOn = $.let(totalsBind.read());
+                const minimal  = $.let(chromeBind.read());
+
+                const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+                const onScale   = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
+                const onValues  = $.const(East.function([BooleanType], NullType, ($, next) => { $(valuesBind.write(next)); }));
+                const onTotals  = $.const(East.function([BooleanType], NullType, ($, next) => { $(totalsBind.write(next)); }));
+                const onChrome  = $.const(East.function([BooleanType], NullType, ($, next) => { $(chromeBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+                const scale = $.let(scales.filter((_$, o) => o.label.equal(sKey)).get(0n));
+
+                // The minimal switch swaps the whole dataset — the sparse weeks
+                // leave gaps that render as hatched missing days.
+                const data = $.let(minimal.ifElse(_$ => sparse, _$ => dense));
+
+                // Totals chrome is the presence of the rail + aggregate row,
+                // not a value of either — so the switch picks between the two
+                // calendars rather than feeding empty configs.
+                const cal = $.const(totalsOn.ifElse(
+                    _$ => (
+                        <Calendar
+                            data={data}
+                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                            values={valuesOn}
+                            scale={Calendar.scale({ steps: scale.steps })}
+                            density={density}
+                            totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
+                            aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
+                        />
+                    ),
+                    _$ => (
+                        <Calendar
+                            data={data}
+                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                            values={valuesOn}
+                            scale={Calendar.scale({ steps: scale.steps })}
+                            density={density}
+                        />
+                    ),
+                ));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Density", dKey,
+                                <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "cell + label sizing"),
+                            Configurator.Control("Scale", sKey,
+                                <SegmentGroup value={sKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "fewer steps coarsen the heat ramp"),
+                            // Slots, not Controls: the switches report as the
+                            // Values / Totals / Data spec rows below rather than
+                            // as one value each.
+                            Configurator.Slot("Cells",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={valuesOn} label="Values" onChange={onValues} />
+                                    <Text textStyle="caption" color="fg.subtle">in-cell numerals · off is a pure heat read</Text>
+                                </HStack>),
+                            Configurator.Slot("Chrome",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={totalsOn} label="Totals" onChange={onTotals} />
+                                    <Text textStyle="caption" color="fg.subtle">Σ-wk rail + weekday aggregate row</Text>
+                                    <Switch checked={minimal} label="Minimal" onChange={onChrome} />
+                                    <Text textStyle="caption" color="fg.subtle">sparse data · hatched missing days</Text>
+                                </HStack>),
+                        ]}
+                        preview={cal}
+                        spec={[
+                            Configurator.Spec("Days", East.print(data.size())),
+                            Configurator.Spec("Steps", East.print(scale.steps)),
+                            Configurator.Spec("Values", valuesOn.ifElse(_$ => "numerals", _$ => "heat only")),
+                            Configurator.Spec("Totals", totalsOn.ifElse(_$ => "sum rail · peak row", _$ => "off")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

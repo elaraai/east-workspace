@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Separator, Tabs, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Box, Configurator, SegmentGroup, Separator, Switch, Tabs, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const tabsBasic = example({
     keywords: ["Tabs", "Root", "Item", "defaultValue", "basic"],
@@ -28,113 +28,137 @@ export const tabsBasic = example({
 });
 
 // ============================================================================
-// Variants — static enumeration panel (consolidation epic #455).
+// Tabs — live configurator over every trigger + style axis
 // ============================================================================
 
 export const tabsVariants = example({
-    keywords: ["Tabs", "Root", "variant", "line", "underline", "fitted", "equal width", "size", "sm", "md", "lg", "Item", "disabled", "trigger", "count", "mono", "rich", "two-line"],
-    description: "Tabs variant panel — line (underline indicator), fitted (equal width tabs), sizes (small, medium, and large), with disabled (one tab disabled), with count badges (rich trigger with an inline mono count per bsys eyebrow grammar), two line (rich two-line trigger mirroring the Week / Period header)",
+    keywords: ["Tabs", "Root", "variant", "line", "underline", "fitted", "equal width", "size", "sm", "md", "lg", "Item", "disabled", "trigger", "count", "mono", "rich", "two-line", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Tabs configurator — variant, size and trigger-preset axes plus fitted and disabled-tab switches driving one live tab strip",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="LINE" align="start" />
-                <Box width="100%">
-                    <Tabs
-                        items={[
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const variants = $.const([
+                    variant("line", null), variant("plain", null),
+                ], ArrayType(Tabs.Types.Variant));
+
+                const sizes = $.const([
+                    variant("sm", null), variant("md", null), variant("lg", null),
+                ], ArrayType(Tabs.Types.Size));
+
+                // A trigger preset is its items PLUS the tab that starts
+                // selected, so the axis is a struct.
+                const presets = $.const([
+                    {
+                        label: "plain", defaultTab: "tab1",
+                        items: [
                             Tabs.Item("tab1", "Account", [<Box padding="4"><Text>Manage your account settings and preferences.</Text></Box>]),
                             Tabs.Item("tab2", "Security", [<Box padding="4"><Text>Configure security options and two-factor authentication.</Text></Box>]),
                             Tabs.Item("tab3", "Billing", [<Box padding="4"><Text>View billing history and update payment methods.</Text></Box>]),
+                        ],
+                    },
+                    {
+                        label: "count", defaultTab: "inputs",
+                        items: [
+                            Tabs.Item("inputs", "Inputs", [<Box padding="4"><Text>Three inputs are defined.</Text></Box>]),
+                            Tabs.Item(
+                                "results",
+                                <HStack gap="2" align="center"><Text>Results</Text>{<Text.MonoSm>{"5"}</Text.MonoSm>}</HStack>,
+                                [<Box padding="4"><Text>Five results computed.</Text></Box>],
+                            ),
+                        ],
+                    },
+                    {
+                        label: "two-line", defaultTab: "week-06",
+                        items: [
+                            Tabs.Item(
+                                "week-06",
+                                <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 06</Text><Text color="fg.muted">Cycle · 3–9 Feb</Text></VStack>,
+                                [<Box padding="4"><Text>Week 06 detail.</Text></Box>],
+                            ),
+                            Tabs.Item(
+                                "week-12",
+                                <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 12</Text><Text color="fg.muted">Cycle · 17–23 Mar</Text></VStack>,
+                                [<Box padding="4"><Text>Week 12 detail.</Text></Box>],
+                            ),
+                        ],
+                    },
+                ], ArrayType(StructType({ label: StringType, defaultTab: StringType, items: ArrayType(Tabs.Types.Item) })));
+
+                const variantBind  = $.let(State.bind([StringType], "tabs_variant", "line"));
+                const sizeBind     = $.let(State.bind([StringType], "tabs_size", "md"));
+                const triggerBind  = $.let(State.bind([StringType], "tabs_trigger", "plain"));
+                const fittedBind   = $.let(State.bind([BooleanType], "tabs_fitted", false));
+                const disabledBind = $.let(State.bind([BooleanType], "tabs_disabled", false));
+
+                const vKey     = $.let(variantBind.read());
+                const sKey     = $.let(sizeBind.read());
+                const tKey     = $.let(triggerBind.read());
+                const fitted   = $.let(fittedBind.read());
+                const disabled = $.let(disabledBind.read());
+
+                const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onTrigger  = $.const(East.function([StringType], NullType, ($, next) => { $(triggerBind.write(next)); }));
+                const onFitted   = $.const(East.function([BooleanType], NullType, ($, next) => { $(fittedBind.write(next)); }));
+                const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const tabsVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const preset = $.let(presets.filter((_$, o) => o.label.equal(tKey)).get(0n));
+
+                // The disabled switch appends a disabled tab to the preset.
+                const locked = $.const([
+                    Tabs.Item("locked", "Disabled", [<Box padding="4"><Text>This content is not accessible.</Text></Box>], { disabled: true }),
+                ], ArrayType(Tabs.Types.Item));
+                const items = $.let(disabled.ifElse(_$ => preset.items.concat(locked), _$ => preset.items));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Variant", vKey,
+                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "line renders the underline indicator"),
+                            Configurator.Control("Size", sKey,
+                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Trigger", tKey,
+                                <SegmentGroup value={tKey} onChange={onTrigger} size="sm"
+                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "count carries a mono badge · two-line stacks a caption"),
+                            // A Slot, not a Control: the two switches report as the
+                            // Fitted / Tabs spec rows below rather than as one value.
+                            Configurator.Slot("List",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={fitted} label="Fitted" onChange={onFitted} />
+                                    <Text textStyle="caption" color="fg.subtle">equal-width triggers</Text>
+                                    <Switch checked={disabled} label="Disabled tab" onChange={onDisabled} />
+                                    <Text textStyle="caption" color="fg.subtle">appends a blocked trigger</Text>
+                                </HStack>),
                         ]}
-                        defaultValue="tab1"
-                        variant="line"
-                    />
-                </Box>
-                <Separator label="FITTED" align="start" />
-                <Box width="100%">
-                    <Tabs
-                        items={[
-                            Tabs.Item("day", "Day", [<Box padding="4"><Text>Daily view of your calendar.</Text></Box>]),
-                            Tabs.Item("week", "Week", [<Box padding="4"><Text>Weekly view of your calendar.</Text></Box>]),
-                            Tabs.Item("month", "Month", [<Box padding="4"><Text>Monthly view of your calendar.</Text></Box>]),
+                        preview={
+                            <Box width="100%">
+                                <Tabs
+                                    items={items}
+                                    defaultValue={preset.defaultTab}
+                                    variant={tabsVariant}
+                                    size={size}
+                                    fitted={fitted}
+                                />
+                            </Box>
+                        }
+                        spec={[
+                            Configurator.Spec("Tabs", East.print(items.size())),
+                            Configurator.Spec("Fitted", fitted.ifElse(_$ => "equal width", _$ => "natural")),
+                            Configurator.Spec("Disabled", disabled.ifElse(_$ => "one blocked", _$ => "none")),
                         ]}
-                        defaultValue="week"
-                        variant="line"
-                        fitted={true}
                     />
-                </Box>
-                <Separator label="SIZES" align="start" />
-                <VStack gap="4" align="stretch" width="100%">
-                    <Tabs
-                        items={[
-                            Tabs.Item("sm1", "Small", [<Box padding="4"><Text>Small size tabs</Text></Box>]),
-                            Tabs.Item("sm2", "Tabs", [<Box padding="4"><Text>Content</Text></Box>]),
-                        ]}
-                        defaultValue="sm1"
-                        size="sm"
-                        variant="line"
-                    />
-                    <Tabs
-                        items={[
-                            Tabs.Item("md1", "Medium", [<Box padding="4"><Text>Medium size tabs</Text></Box>]),
-                            Tabs.Item("md2", "Tabs", [<Box padding="4"><Text>Content</Text></Box>]),
-                        ]}
-                        defaultValue="md1"
-                        size="md"
-                        variant="line"
-                    />
-                    <Tabs
-                        items={[
-                            Tabs.Item("lg1", "Large", [<Box padding="4"><Text>Large size tabs</Text></Box>]),
-                            Tabs.Item("lg2", "Tabs", [<Box padding="4"><Text>Content</Text></Box>]),
-                        ]}
-                        defaultValue="lg1"
-                        size="lg"
-                        variant="line"
-                    />
-                </VStack>
-                <Separator label="WITH DISABLED" align="start" />
-                <Box width="100%">
-                    <Tabs
-                        items={[
-                            Tabs.Item("enabled1", "Enabled", [<Box padding="4"><Text>This tab is enabled.</Text></Box>]),
-                            Tabs.Item("disabled", "Disabled", [<Box padding="4"><Text>This content is not accessible.</Text></Box>], { disabled: true }),
-                            Tabs.Item("enabled2", "Also Enabled", [<Box padding="4"><Text>This tab is also enabled.</Text></Box>]),
-                        ]}
-                        defaultValue="enabled1"
-                        variant="line"
-                    />
-                </Box>
-                <Separator label="WITH COUNT BADGES" align="start" />
-                <Tabs
-                    items={[
-                        Tabs.Item("inputs", "Inputs", [<Box padding="4"><Text>Three inputs are defined.</Text></Box>]),
-                        Tabs.Item(
-                            "results",
-                            <HStack gap="2" align="center"><Text>Results</Text>{<Text.MonoSm>{"5"}</Text.MonoSm>}</HStack>,
-                            [<Box padding="4"><Text>Five results computed.</Text></Box>],
-                        ),
-                    ]}
-                    defaultValue="inputs"
-                    variant="line"
-                />
-                <Separator label="TWO LINE" align="start" />
-                <Tabs
-                    items={[
-                        Tabs.Item(
-                            "week-06",
-                            <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 06</Text><Text color="fg.muted">Cycle · 3–9 Feb</Text></VStack>,
-                            [<Box padding="4"><Text>Week 06 detail.</Text></Box>],
-                        ),
-                        Tabs.Item(
-                            "week-12",
-                            <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 12</Text><Text color="fg.muted">Cycle · 17–23 Mar</Text></VStack>,
-                            [<Box padding="4"><Text>Week 12 detail.</Text></Box>],
-                        ),
-                    ]}
-                    defaultValue="week-06"
-                    variant="line"
-                />
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

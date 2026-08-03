@@ -3,9 +3,81 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { NavList, VStack, Text, Reactive, Separator } from "@elaraai/east-ui";
+import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Section-input fixtures — the NavList factory takes TS input arrays (it
+// builds the IR itself), so the icon flip is a fixture pick, not a data map.
+// ============================================================================
+
+const NAV_LIST_FLAT_SECTIONS = [
+    {
+        items: [
+            { key: "dashboard", label: "Dashboard", active: true },
+            { key: "orders", label: "Orders", badge: "12" },
+            { key: "settings", label: "Settings" },
+        ],
+    },
+];
+const NAV_LIST_FLAT_ICON_SECTIONS = [
+    {
+        items: [
+            { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
+            { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
+            { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
+        ],
+    },
+];
+const NAV_LIST_GROUPED_SECTIONS = [
+    {
+        label: "Account",
+        items: [
+            { key: "profile", label: "Profile", active: true },
+            { key: "security", label: "Security" },
+            { key: "billing", label: "Billing" },
+        ],
+    },
+    {
+        label: "Workspace",
+        items: [
+            { key: "members", label: "Members", badge: "3" },
+            { key: "integrations", label: "Integrations" },
+        ],
+    },
+    {
+        label: "Help",
+        items: [
+            { key: "docs", label: "Documentation" },
+            { key: "contact", label: "Contact support" },
+        ],
+    },
+];
+const NAV_LIST_GROUPED_ICON_SECTIONS = [
+    {
+        label: "Account",
+        items: [
+            { key: "profile", label: "Profile", icon: { prefix: "fas", name: "user" }, active: true },
+            { key: "security", label: "Security", icon: { prefix: "fas", name: "shield-halved" } },
+            { key: "billing", label: "Billing", icon: { prefix: "fas", name: "credit-card" } },
+        ],
+    },
+    {
+        label: "Workspace",
+        items: [
+            { key: "members", label: "Members", icon: { prefix: "fas", name: "users" }, badge: "3" },
+            { key: "integrations", label: "Integrations", icon: { prefix: "fas", name: "plug" } },
+        ],
+    },
+    {
+        label: "Help",
+        items: [
+            { key: "docs", label: "Documentation", icon: { prefix: "fas", name: "book" } },
+            { key: "contact", label: "Contact support", icon: { prefix: "fas", name: "headset" } },
+        ],
+    },
+];
 
 export const navListBasic = example({
     keywords: ["NavList", "Root", "navigation", "section"],
@@ -60,66 +132,82 @@ export const navListReactive = example({
 });
 
 // ============================================================================
-// Variants — static enumeration panel (consolidation epic #455).
+// NavList — live configurator over the structure + surface axes
 // ============================================================================
 
 export const navListVariants = example({
-    keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar"],
-    description: "NavList variant panel — list grouped (Account / Workspace / Help sections), list with icons (items with leading icons), list shell surface (chrome-less app-shell sidebar with a host rail background)",
+    keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "NavList configurator — a structure-preset axis plus icons and shell-surface switches driving one live nav list",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="LIST GROUPED" align="start" />
-                <NavList sections={[
+            <Reactive>{$ => {
+                // The NavList factory takes TS section-input arrays, so each
+                // structure preset carries its four pre-built lists — plain /
+                // icons × card / shell — and the switches pick among them (the
+                // chip-rail labeled-mode precedent).
+                const structures = $.const([
                     {
-                        label: "Account",
-                        items: [
-                            { key: "profile", label: "Profile", active: true },
-                            { key: "security", label: "Security" },
-                            { key: "billing", label: "Billing" },
-                        ],
+                        label: "flat", sections: 1n,
+                        plain: <NavList sections={NAV_LIST_FLAT_SECTIONS} />,
+                        icons: <NavList sections={NAV_LIST_FLAT_ICON_SECTIONS} />,
+                        shellPlain: <NavList surface="shell" background="bg.subtle" sections={NAV_LIST_FLAT_SECTIONS} />,
+                        shellIcons: <NavList surface="shell" background="bg.subtle" sections={NAV_LIST_FLAT_ICON_SECTIONS} />,
                     },
                     {
-                        label: "Workspace",
-                        items: [
-                            { key: "members", label: "Members", badge: "3" },
-                            { key: "integrations", label: "Integrations" },
-                        ],
+                        label: "grouped", sections: 3n,
+                        plain: <NavList sections={NAV_LIST_GROUPED_SECTIONS} />,
+                        icons: <NavList sections={NAV_LIST_GROUPED_ICON_SECTIONS} />,
+                        shellPlain: <NavList surface="shell" background="bg.subtle" sections={NAV_LIST_GROUPED_SECTIONS} />,
+                        shellIcons: <NavList surface="shell" background="bg.subtle" sections={NAV_LIST_GROUPED_ICON_SECTIONS} />,
                     },
-                    {
-                        label: "Help",
-                        items: [
-                            { key: "docs", label: "Documentation" },
-                            { key: "contact", label: "Contact support" },
-                        ],
-                    },
-                ]} />
-                <Separator label="LIST WITH ICONS" align="start" />
-                <NavList sections={[
-                    {
-                        items: [
-                            { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
-                            { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
-                            { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
-                        ],
-                    },
-                ]} />
-                <Separator label="LIST SHELL SURFACE" align="start" />
-                <NavList
-                    surface="shell"
-                    background="bg.subtle"
-                    sections={[
-                        {
-                            label: "Operations",
-                            items: [
-                                { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
-                                { key: "runs", label: "Runs", icon: { prefix: "fas", name: "flask" } },
-                                { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
-                            ],
-                        },
-                    ]}
-                />
-            </VStack>
+                ], ArrayType(StructType({ label: StringType, sections: IntegerType, plain: UIComponentType, icons: UIComponentType, shellPlain: UIComponentType, shellIcons: UIComponentType })));
+
+                const structureBind = $.let(State.bind([StringType], "navlist_structure", "grouped"));
+                const iconsBind     = $.let(State.bind([BooleanType], "navlist_icons", false));
+                const shellBind     = $.let(State.bind([BooleanType], "navlist_shell", false));
+
+                const sKey    = $.let(structureBind.read());
+                const iconsOn = $.let(iconsBind.read());
+                const shell   = $.let(shellBind.read());
+
+                const onStructure = $.const(East.function([StringType], NullType, ($, next) => { $(structureBind.write(next)); }));
+                const onIcons     = $.const(East.function([BooleanType], NullType, ($, next) => { $(iconsBind.write(next)); }));
+                const onShell     = $.const(East.function([BooleanType], NullType, ($, next) => { $(shellBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const structure = $.let(structures.filter((_$, o) => o.label.equal(sKey)).get(0n));
+                const list = $.let(shell.ifElse(
+                    _$ => iconsOn.ifElse(_$ => structure.shellIcons, _$ => structure.shellPlain),
+                    _$ => iconsOn.ifElse(_$ => structure.icons, _$ => structure.plain),
+                ));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Structure", sKey,
+                                <SegmentGroup value={sKey} onChange={onStructure} size="sm"
+                                    items={structures.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "grouped renders labelled sections"),
+                            // A Slot, not a Control: the two switches report as the
+                            // Icons / Surface spec rows below rather than as one
+                            // value.
+                            Configurator.Slot("Treatment",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={iconsOn} label="Icons" onChange={onIcons} />
+                                    <Text textStyle="caption" color="fg.subtle">leading Font Awesome icon per item</Text>
+                                    <Switch checked={shell} label="Shell surface" onChange={onShell} />
+                                    <Text textStyle="caption" color="fg.subtle">chrome-less · host rail background</Text>
+                                </HStack>),
+                        ]}
+                        preview={list}
+                        spec={[
+                            Configurator.Spec("Sections", East.print(structure.sections)),
+                            Configurator.Spec("Icons", iconsOn.ifElse(_$ => "leading", _$ => "none")),
+                            Configurator.Spec("Surface", shell.ifElse(_$ => "shell · bg.subtle", _$ => "card")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

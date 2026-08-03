@@ -20,14 +20,17 @@ describeEast("CommandPalette", (test) => {
     // Panels — every merged example stays mounted as a captioned row (#463).
     // =========================================================================
 
-    test("commandPaletteVariants panel mounts one captioned row per merged example", $ => {
+    test("commandPaletteVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the command-set, trigger-chord
+        // and colour tables — is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the CommandPalette.Root tests below, which construct each
+        // option directly.
         const panel = $.const(ex.commandPaletteVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PALETTE GROUPED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PALETTE WITH KEYWORDS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PALETTE CUSTOM TRIGGER"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PALETTE COLOURS"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     const noop = East.function([], NullType, (_$) => { /* noop */ });
