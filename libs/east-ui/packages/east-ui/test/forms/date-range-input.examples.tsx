@@ -3,9 +3,22 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, DateTimeType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, DateTimeType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { DateRangeInput, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, DateRangeInput, HStack, Input, SegmentGroup, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Module-scope fixtures — presets are a host-level array (not an East
+// expression), so the five canonical ranges live here once.
+// ============================================================================
+
+const DATE_RANGE_PRESETS = [
+    { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+    { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+    { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+    { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+    { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
+];
 
 // ============================================================================
 // Basic — the search-index front door
@@ -51,62 +64,142 @@ export const dateRangeInputReactive = example({
 });
 
 // ============================================================================
-// DateRangeInput — precision, presets, colours, sizes, disabled (variant panel)
+// DateRangeInput — live configurator over every range axis
 // ============================================================================
 
 export const dateRangeInputVariants = example({
-    keywords: ["DateRangeInput", "precision", "datetime", "time", "hours", "presets", "relative", "MTD", "YTD", "Last 7 days", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly"],
-    description: "DateRangeInput variant panel — range input date time (DateTime precision — picker exposes date + time-of-day), range input presets (range with five canonical presets — Last 7 days / MTD / QTD / YTD / Q2 2026), range input colours (explicit colour overrides — text / background / border / focus border), range input sizes (all three sizes sm / md / lg stacked for comparison), range input disabled (disabled range — both inputs read-only)",
-    fn: East.function([], UIComponentType, ($) => {
-        const dateTimeStart = $.let(new Date("2026-04-01T09:00:00Z"), DateTimeType);
-        const dateTimeEnd = $.let(new Date("2026-04-01T17:00:00Z"), DateTimeType);
-        const coloursStart = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
-        const coloursEnd = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
-        const sizesStart = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
-        const sizesEnd = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
-        const disabledStart = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
-        const disabledEnd = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
+    keywords: ["DateRangeInput", "precision", "datetime", "time", "hours", "presets", "relative", "MTD", "YTD", "Last 7 days", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "DateRangeInput configurator — precision, size and colour axes plus disabled and presets switches driving one live State-bound range; the aside reads the range back",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="RANGE INPUT DATE TIME" align="start" />
-                <DateRangeInput startValue={dateTimeStart} endValue={dateTimeEnd} precision="datetime" />
-                <Separator label="RANGE INPUT PRESETS" align="start" />
-                <Reactive>{$ => {
-                    const startBind = $.let(State.bind([DateTimeType], "drin.preset.start", new Date("2026-04-21T00:00:00Z")));
-                    const endBind = $.let(State.bind([DateTimeType], "drin.preset.end", new Date("2026-04-28T00:00:00Z")));
-                    const start = $.let(startBind.read(), DateTimeType);
-                    const end = $.let(endBind.read(), DateTimeType);
-                    const onChange = $.const(East.function([DateTimeType, DateTimeType], NullType, ($, s, e) => {
-                        $(startBind.write(s));
-                        $(endBind.write(e));
-                    }));
-                    return (
-                        <DateRangeInput
-                            startValue={start}
-                            endValue={end}
-                            precision="date"
-                            onChange={onChange}
-                            presets={[
-                                { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                                { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
-                            ]}
-                        />
-                    );
-                }}</Reactive>
-                <Separator label="RANGE INPUT COLOURS" align="start" />
-                <DateRangeInput startValue={coloursStart} endValue={coloursEnd} precision="date" color="fg" background="bg.subtle" borderColor="border.brand" focusBorderColor="border.brand" />
-                <Separator label="RANGE INPUT SIZES" align="start" />
-                <VStack gap="3" align="flex-start">
-                    <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="sm" />
-                    <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="md" />
-                    <DateRangeInput startValue={sizesStart} endValue={sizesEnd} precision="date" size="lg" />
-                </VStack>
-                <Separator label="RANGE INPUT DISABLED" align="start" />
-                <DateRangeInput startValue={disabledStart} endValue={disabledEnd} precision="date" disabled={true} />
-            </VStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const precisions = $.const([
+                    variant("date", null), variant("datetime", null),
+                ], ArrayType(Input.Types.DateTimePrecision));
+
+                const sizes = $.const([
+                    variant("sm", null), variant("md", null), variant("lg", null),
+                ], ArrayType(Style.Types.Size));
+
+                // Only colour needs a struct — the four escape-hatch slots move
+                // together, with no single value to name them by. The `recipe`
+                // row carries empty slots because the preview drops the
+                // overrides entirely for it (below).
+                const colours = $.const([
+                    { label: "recipe",  color: "",           background: "",          borderColor: "",             focusBorder: "" },
+                    { label: "branded", color: "fg.default", background: "bg.subtle", borderColor: "border.brand", focusBorder: "border.brand" },
+                ], ArrayType(StructType({ label: StringType, color: StringType, background: StringType, borderColor: StringType, focusBorder: StringType })));
+
+                const precisionBind = $.let(State.bind([StringType], "date_range_input_precision", "date"));
+                const sizeBind      = $.let(State.bind([StringType], "date_range_input_size", "md"));
+                const colourBind    = $.let(State.bind([StringType], "date_range_input_color", "recipe"));
+                const disabledBind  = $.let(State.bind([BooleanType], "date_range_input_disabled", false));
+                const presetsBind   = $.let(State.bind([BooleanType], "date_range_input_presets", false));
+
+                // The preview is a live control, so the range keeps its own
+                // State-bound start / end pair — the old reactive row's binds.
+                const startBind = $.let(State.bind([DateTimeType], "date_range_input_start", new Date("2026-04-01T00:00:00Z")));
+                const endBind   = $.let(State.bind([DateTimeType], "date_range_input_end", new Date("2026-04-30T00:00:00Z")));
+
+                const pKey      = $.let(precisionBind.read());
+                const sKey      = $.let(sizeBind.read());
+                const cKey      = $.let(colourBind.read());
+                const disabled  = $.let(disabledBind.read());
+                const presetsOn = $.let(presetsBind.read());
+                const start     = $.let(startBind.read(), DateTimeType);
+                const end       = $.let(endBind.read(), DateTimeType);
+
+                const onPrecision = $.const(East.function([StringType], NullType, ($, next) => { $(precisionBind.write(next)); }));
+                const onSize      = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onColour    = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
+                const onDisabled  = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+                const onPresets   = $.const(East.function([BooleanType], NullType, ($, next) => { $(presetsBind.write(next)); }));
+                const onChange    = $.const(East.function([DateTimeType, DateTimeType], NullType, ($, s, e) => {
+                    $(startBind.write(s));
+                    $(endBind.write(e));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const precision = $.let(precisions.filter((_$, v) => v.getTag().equal(pKey)).get(0n));
+                const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
+
+                // The colour slots and the preset rail are escape hatches the
+                // factory omits from the IR entirely when absent — presence IS
+                // the demo — so the preview picks between four ranges (slots ×
+                // presets) rather than feeding empty values.
+                const range = $.const(cKey.equal("recipe").ifElse(
+                    _$ => presetsOn.ifElse(
+                        _$ => (
+                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
+                                disabled={disabled} onChange={onChange} presets={DATE_RANGE_PRESETS} />
+                        ),
+                        _$ => (
+                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
+                                disabled={disabled} onChange={onChange} />
+                        ),
+                    ),
+                    _$ => presetsOn.ifElse(
+                        _$ => (
+                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
+                                disabled={disabled} onChange={onChange} presets={DATE_RANGE_PRESETS}
+                                color={colour.color} background={colour.background} borderColor={colour.borderColor} focusBorderColor={colour.focusBorder} />
+                        ),
+                        _$ => (
+                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
+                                disabled={disabled} onChange={onChange}
+                                color={colour.color} background={colour.background} borderColor={colour.borderColor} focusBorderColor={colour.focusBorder} />
+                        ),
+                    ),
+                ));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Precision", pKey,
+                                <SegmentGroup value={pKey} onChange={onPrecision} size="sm"
+                                    items={precisions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "DATETIME exposes time-of-day"),
+                            Configurator.Control("Size", sKey,
+                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Colour", cKey,
+                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
+                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
+                                "escape hatches over the input recipe"),
+                            // A Slot, not a Control: the switches report as the
+                            // Disabled / Presets spec rows below rather than as
+                            // one value each.
+                            Configurator.Slot("Flags",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
+                                    <Text textStyle="caption" color="fg.subtle">both inputs read-only</Text>
+                                    <Switch checked={presetsOn} label="Presets" onChange={onPresets} />
+                                    <Text textStyle="caption" color="fg.subtle">five canonical ranges</Text>
+                                </HStack>),
+                        ]}
+                        preview={range}
+                        aside={{
+                            label: "Range · Reactive",
+                            body: <Text.MonoLabel>{East.str`${start} → ${end}`}</Text.MonoLabel>,
+                        }}
+                        spec={[
+                            Configurator.Spec("Presets", presetsOn.ifElse(
+                                _$ => "Last 7 days · MTD · QTD · YTD · Q2 2026",
+                                _$ => "hidden",
+                            )),
+                            Configurator.Spec("Disabled", disabled.ifElse(_$ => "both inputs", _$ => "off")),
+                            Configurator.Spec("Slots", cKey.equal("recipe").ifElse(
+                                _$ => "input recipe",
+                                _$ => East.str`${colour.color} · ${colour.background} · ${colour.borderColor}`,
+                            )),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

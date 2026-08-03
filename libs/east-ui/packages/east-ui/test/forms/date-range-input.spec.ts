@@ -20,15 +20,17 @@ describeEast("DateRangeInput", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("dateRangeInputVariants panel mounts one captioned row per merged example", $ => {
+    test("dateRangeInputVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the precision / size / colour
+        // tables and the State-bound live range — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The per-option
+        // coverage lives in the DateRangeInput.Root tests below, which
+        // construct each option directly.
         const panel = $.const(ex.dateRangeInputVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 10n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT DATE TIME"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT PRESETS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT COLOURS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT SIZES"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RANGE INPUT DISABLED"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates range with start + end DateTime", $ => {

@@ -21,14 +21,17 @@ describeEast("Combobox", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("comboboxVariants panel mounts one captioned row per merged example", $ => {
+    test("comboboxVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the size table and the country
+        // data that feeds both the dropdown items and the value presets — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Combobox.Root tests
+        // below, which construct each option directly.
         const panel = $.const(ex.comboboxVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH VALUE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SIZES"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DISABLED"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CUSTOM VALUE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("comboboxInteractive panel mounts one captioned row per merged example", $ => {

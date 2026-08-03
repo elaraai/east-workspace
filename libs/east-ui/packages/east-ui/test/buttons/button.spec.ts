@@ -21,18 +21,16 @@ describeEast("Button", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("buttonVariants panel mounts one captioned row per merged example", $ => {
+    test("buttonVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / palette / size /
+        // colour tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-variant coverage lives in the
+        // Button.Root tests below, which construct each variant directly.
         const panel = $.const(ex.buttonVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 16n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SOLID VARIANT"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DANGER OUTLINE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "GHOST"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PLAIN"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BRANDED COLOURS"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH ICONS"));
-        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LOADING"));
-        $(Assert.equal(rows.get(14n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RICH LABEL"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

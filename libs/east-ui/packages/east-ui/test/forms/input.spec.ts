@@ -11,9 +11,7 @@ import * as ex from "./input.examples.js";
 
 describeEast("Input", (test) => {
     Assert.examples(test, {
-        inputBasics: ex.inputBasics,
         inputStyles: ex.inputStyles,
-        inputReactive: ex.inputReactive,
     });
 
     // =========================================================================
@@ -21,33 +19,17 @@ describeEast("Input", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("inputBasics panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.inputBasics.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STRING"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTEGER"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FLOAT"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DATE TIME"));
-    });
-
-    test("inputStyles panel mounts one captioned row per merged example", $ => {
+    test("inputStyles drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the type / size / variant tables
+        // and the per-type State-bound live inputs — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The per-option
+        // coverage lives in the Input.* tests below, which construct each input
+        // directly.
         const panel = $.const(ex.inputStyles.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SIZES"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VARIANTS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FOCUSED"));
-    });
-
-    test("inputReactive panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.inputReactive.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STRING INTERACTIVE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTEGER INTERACTIVE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FLOAT INTERACTIVE"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DATE TIME INTERACTIVE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

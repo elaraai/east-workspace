@@ -20,13 +20,17 @@ describeEast("RadioCardGroup", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("radioCardGroupVariants panel mounts one captioned row per merged example", $ => {
+    test("radioCardGroupVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation / colour tables
+        // and the State-bound live card group — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the RadioCardGroup.Root tests below,
+        // which construct each option directly.
         const panel = $.const(ex.radioCardGroupVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD GROUP HORIZONTAL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD GROUP DISABLED ITEM"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD GROUP COLOUR OVERRIDES"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates card group with selected value", $ => {
