@@ -20,13 +20,16 @@ describeEast("EditableChip", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("editableChipVariants panel mounts one captioned row per merged example", $ => {
+    test("editableChipVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the density / radius / colour
+        // tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-axis coverage lives in the
+        // EditableChip.Root tests below, which construct each option directly.
         const panel = $.const(ex.editableChipVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP DISABLED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP STYLED"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP DENSITIES"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("editableChipReactive panel mounts one captioned row per merged example", $ => {
@@ -58,14 +61,27 @@ describeEast("EditableChip", (test) => {
 
     test("creates an EditableChip with style slots", $ => {
         const chip = $.let(EditableChip.Root(Text.Root("Branded"), {
-            background: "blue.50",
-            color: "blue.700",
-            borderColor: "blue.200",
-            triggerIconColor: "blue.500",
+            background: "bg.brand.subtle",
+            color: "link",
+            borderColor: "border.brand",
+            triggerIconColor: "link",
         }));
-        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").background.unwrap("some"), "blue.50"));
-        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").color.unwrap("some"), "blue.700"));
-        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").borderColor.unwrap("some"), "blue.200"));
-        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").triggerIconColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").background.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").color.unwrap("some"), "link"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").triggerIconColor.unwrap("some"), "link"));
+    });
+
+    // The density / radius axes moved into the configurator's Reactive body,
+    // which TestImpl never executes — cover them directly here instead.
+    test("creates an EditableChip at each density with an explicit radius", $ => {
+        const condensed = $.let(EditableChip.Root(Text.Root("Service level · 85%"), { density: "condensed", borderRadius: "sm" }));
+        const compact = $.let(EditableChip.Root(Text.Root("Service level · 85%"), { density: "compact", borderRadius: "md" }));
+        const comfortable = $.let(EditableChip.Root(Text.Root("Service level · 85%"), { density: "comfortable", borderRadius: "full" }));
+        $(Assert.equal(condensed.unwrap().unwrap("EditableChip").density.unwrap("some").hasTag("condensed"), true));
+        $(Assert.equal(compact.unwrap().unwrap("EditableChip").density.unwrap("some").hasTag("compact"), true));
+        $(Assert.equal(comfortable.unwrap().unwrap("EditableChip").density.unwrap("some").hasTag("comfortable"), true));
+        $(Assert.equal(condensed.unwrap().unwrap("EditableChip").style.unwrap("some").borderRadius.unwrap("some"), "sm"));
+        $(Assert.equal(comfortable.unwrap().unwrap("EditableChip").style.unwrap("some").borderRadius.unwrap("some"), "full"));
     });
 }, { platformFns: TestImpl });

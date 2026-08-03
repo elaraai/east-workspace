@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Badge, ChipRail, MetricChip, Separator, Tag, Text, VStack, Stack } from "@elaraai/east-ui";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { Avatar, Badge, ChipRail, Configurator, HStack, MetricChip, SegmentGroup, Style, Switch, Tag, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -39,7 +39,7 @@ export const chipRailOverflow = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <ChipRail density="condensed" separator="none" overflow="scroll">
-                {Array.from({ length: 20 }, (_, i) => <Tag variant="subtle" colorPalette="teal">{`Chip ${i + 1}`}</Tag>)}
+                {Array.from({ length: 20 }, (_, i) => <Tag variant="subtle" colorPalette="brand">{`Chip ${i + 1}`}</Tag>)}
             </ChipRail>
         );
     }),
@@ -47,74 +47,119 @@ export const chipRailOverflow = example({
 });
 
 // ============================================================================
-// ChipRail — mixed chips, separators, labels, densities (variant panel)
+// ChipRail — live configurator over every rail axis
 // ============================================================================
 
 export const chipRailVariants = example({
-    keywords: ["ChipRail", "mixed", "Badge", "MetricChip", "Avatar", "Tag", "density", "Root", "tags", "dot-separator", "labels", "labeled", "caption", "dimension", "sizes", "condensed", "compact", "comfortable"],
-    description: "ChipRail variant panel — rail mixed (Avatar, Tags, a Badge and a MetricChip all follow the rail's density), rail dots (Tag chips separated by middle-dots), rail labeled (labeled mode at all three densities — each chip carries a mono uppercase caption), rail densities (the three densities stacked — condensed, compact, comfortable)",
-    fn: East.function([], UIComponentType, ($) => {
-        const labels = $.const(["Week", "Region", "Status", "Cycle"]);
+    keywords: ["ChipRail", "mixed", "Badge", "MetricChip", "Avatar", "Tag", "density", "Root", "tags", "separator", "dot-separator", "line", "none", "labels", "labeled", "caption", "dimension", "sizes", "condensed", "compact", "comfortable", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive"],
+    description: "ChipRail configurator — chip set, density and separator axes plus a labeled-mode switch driving one live rail; the aside stacks the set at all three densities",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="RAIL MIXED" align="start" />
-                <ChipRail density="compact" separator="dot">
-                    <Avatar name="Mia Kerr" colorPalette="blue" />
-                    <Tag>Batch A</Tag>
-                    <Tag variant="brand">Running</Tag>
-                    <Badge variant="ok">ON PLAN</Badge>
-                    <MetricChip tone="positive"><Text>+4.2%</Text></MetricChip>
-                </ChipRail>
-                <Separator label="RAIL DOTS" align="start" />
-                <ChipRail density="compact" separator="dot">
-                    <Tag>Observe</Tag>
-                    <Tag>Explain</Tag>
-                    <Tag>Decide</Tag>
-                    <Tag>Commit</Tag>
-                </ChipRail>
-                <Separator label="RAIL LABELED" align="start" />
-                <Stack direction="column" gap="6">
-                    <ChipRail density="condensed" labels={labels}>
-                        <Tag>Week 12</Tag>
-                        <Tag>Europe</Tag>
-                        <Tag>On track</Tag>
-                        <Tag>Red</Tag>
-                    </ChipRail>
-                    <ChipRail density="compact" labels={labels}>
-                        <Tag>Week 12</Tag>
-                        <Tag>Europe</Tag>
-                        <Tag>On track</Tag>
-                        <Tag>Red</Tag>
-                    </ChipRail>
-                    <ChipRail density="comfortable" labels={labels}>
-                        <Tag>Week 12</Tag>
-                        <Tag>Europe</Tag>
-                        <Tag>On track</Tag>
-                        <Tag>Red</Tag>
-                    </ChipRail>
-                </Stack>
-                <Separator label="RAIL DENSITIES" align="start" />
-                <Stack direction="column" gap="4">
-                    <ChipRail density="condensed" separator="dot">
-                        <Tag>Observe</Tag>
-                        <Tag>Explain</Tag>
-                        <Tag>Decide</Tag>
-                        <Tag>Commit</Tag>
-                    </ChipRail>
-                    <ChipRail density="compact" separator="dot">
-                        <Tag>Observe</Tag>
-                        <Tag>Explain</Tag>
-                        <Tag>Decide</Tag>
-                        <Tag>Commit</Tag>
-                    </ChipRail>
-                    <ChipRail density="comfortable" separator="dot">
-                        <Tag>Observe</Tag>
-                        <Tag>Explain</Tag>
-                        <Tag>Decide</Tag>
-                        <Tag>Commit</Tag>
-                    </ChipRail>
-                </Stack>
-            </VStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const densities = $.const([
+                    variant("condensed", null), variant("compact", null), variant("comfortable", null),
+                ], ArrayType(Style.Types.Density));
+
+                const separators = $.const([
+                    variant("line", null), variant("dot", null), none,
+                ], ArrayType(ChipRail.Types.Separator));
+
+                // Only the chip set needs a struct — a rail is its chips PLUS
+                // the index-aligned captions labeled mode shows above them, so
+                // there is no single value to name it by.
+                const sets = $.const([
+                    {
+                        label: "mixed",
+                        chips: [
+                            <Avatar name="Mia Kerr" colorPalette="brand" />,
+                            <Tag>Batch A</Tag>,
+                            <Tag variant="brand">Running</Tag>,
+                            <Badge variant="ok">ON PLAN</Badge>,
+                            <MetricChip tone="positive"><Text>+4.2%</Text></MetricChip>,
+                        ],
+                        captions: ["Owner", "Batch", "State", "Plan", "Trend"],
+                    },
+                    {
+                        label: "steps",
+                        chips: [<Tag>Observe</Tag>, <Tag>Explain</Tag>, <Tag>Decide</Tag>, <Tag>Commit</Tag>],
+                        captions: ["Step 1", "Step 2", "Step 3", "Step 4"],
+                    },
+                    {
+                        label: "facets",
+                        chips: [<Tag>Week 12</Tag>, <Tag>Europe</Tag>, <Tag>On track</Tag>, <Tag>Red</Tag>],
+                        captions: ["Week", "Region", "Status", "Cycle"],
+                    },
+                ], ArrayType(StructType({ label: StringType, chips: ArrayType(UIComponentType), captions: ArrayType(StringType) })));
+
+                const chipsBind     = $.let(State.bind([StringType], "chiprail_chips", "mixed"));
+                const densityBind   = $.let(State.bind([StringType], "chiprail_density", "compact"));
+                const separatorBind = $.let(State.bind([StringType], "chiprail_separator", "dot"));
+                const labeledBind   = $.let(State.bind([BooleanType], "chiprail_labeled", false));
+
+                const cKey = $.let(chipsBind.read());
+                const dKey = $.let(densityBind.read());
+                const sKey = $.let(separatorBind.read());
+                const labeled = $.let(labeledBind.read());
+
+                const onChips     = $.const(East.function([StringType], NullType, ($, next) => { $(chipsBind.write(next)); }));
+                const onDensity   = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+                const onSeparator = $.const(East.function([StringType], NullType, ($, next) => { $(separatorBind.write(next)); }));
+                const onLabeled   = $.const(East.function([BooleanType], NullType, ($, next) => { $(labeledBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const chipSet = $.let(sets.filter((_$, o) => o.label.equal(cKey)).get(0n));
+                const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+                const separator = $.let(separators.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+
+                // Labeled mode is the presence of `labels`, not a value of it —
+                // so the switch picks between the two rails rather than feeding
+                // an empty caption list.
+                const rail = $.const(labeled.ifElse(
+                    _$ => <ChipRail density={density} separator={separator} labels={chipSet.captions}>{chipSet.chips}</ChipRail>,
+                    _$ => <ChipRail density={density} separator={separator}>{chipSet.chips}</ChipRail>,
+                ));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Chips", cKey,
+                                <SegmentGroup value={cKey} onChange={onChips} size="sm"
+                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("Density", dKey,
+                                <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Separator", sKey,
+                                <SegmentGroup value={sKey} onChange={onSeparator} size="sm"
+                                    items={separators.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                                "suppressed in labeled mode"),
+                            // A Slot, not a Control: the switch reports as the
+                            // Mode / Captions spec rows below rather than as one value.
+                            Configurator.Slot("Labels",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={labeled} label="Labeled" onChange={onLabeled} />
+                                    <Text textStyle="caption" color="fg.subtle">mono uppercase caption above each chip</Text>
+                                </HStack>),
+                        ]}
+                        preview={rail}
+                        aside={{
+                            label: "Density ladder",
+                            body: (
+                                <VStack gap="4" align="stretch">
+                                    {densities.map((_$, d) => <ChipRail density={d} separator={separator}>{chipSet.chips}</ChipRail>)}
+                                </VStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Mode", labeled.ifElse(_$ => "labeled", _$ => "inline")),
+                            Configurator.Spec("Chip count", East.print(chipSet.chips.size())),
+                            Configurator.Spec("Captions", labeled.ifElse(_$ => East.print(chipSet.captions.size()), _$ => "hidden")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

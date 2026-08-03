@@ -19,14 +19,16 @@ describeEast("ChipRail", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("chipRailVariants panel mounts one captioned row per merged example", $ => {
+    test("chipRailVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the chip-set / density / separator
+        // tables — is declared inside the example body, because the documentation
+        // capture only extracts `fn`. That puts the tables inside the Reactive
+        // body, which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-axis coverage lives in the ChipRail.Root tests below,
+        // which construct each density / separator / labels case directly.
         const panel = $.const(ex.chipRailVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RAIL MIXED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RAIL DOTS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RAIL LABELED"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RAIL DENSITIES"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -138,14 +140,14 @@ describeEast("ChipRail", (test) => {
 
     test("creates a chip rail with all style hatches", $ => {
         const rail = $.let(ChipRail.Root([Tag.Root("A")], {
-            background: "gray.50",
-            separatorColor: "gray.200",
-            overflowTriggerColor: "gray.600",
+            background: "bg.subtle",
+            separatorColor: "fg.muted",
+            overflowTriggerColor: "fg.muted",
         }));
 
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.hasTag("some"), true));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").background.unwrap("some"), "gray.50"));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").separatorColor.unwrap("some"), "gray.200"));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").overflowTriggerColor.unwrap("some"), "gray.600"));
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").separatorColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").overflowTriggerColor.unwrap("some"), "fg.muted"));
     });
 }, { platformFns: TestImpl });

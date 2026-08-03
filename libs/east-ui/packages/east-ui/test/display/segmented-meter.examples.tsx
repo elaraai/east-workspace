@@ -93,11 +93,11 @@ export const segmentedMeterResidual = example({
         return (
             <SegmentedMeter
                 segments={[
-                    { value: 30, color: "#3d5cff", label: "Complete" },
-                    { value: 10, color: "#f59e0b", label: "In progress" },
+                    { value: 30, color: "link", label: "Complete" },
+                    { value: 10, color: "fg.warning", label: "In progress" },
                 ]}
                 max={100}
-                trackColor="gray.100"
+                trackColor="bg.subtle"
             />
         );
     }),

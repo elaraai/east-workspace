@@ -19,19 +19,17 @@ describeEast("Badge", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("badgeStyles panel mounts one captioned row per merged example", $ => {
+    test("badgeStyles drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / density / colour /
+        // border / opacity / padding tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That puts
+        // the tables inside the Reactive body, which TestImpl does not execute,
+        // so they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-variant coverage
+        // lives in the Badge.Root tests below, which construct each variant
+        // directly.
         const panel = $.const(ex.badgeStyles.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 18n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VARIANTS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COUNT CALLOUT"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLORS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CUSTOM"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FIXED WIDTH"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BORDER"));
-        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BOX MODEL"));
-        $(Assert.equal(rows.get(14n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DENSITIES"));
-        $(Assert.equal(rows.get(16n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -98,37 +96,37 @@ describeEast("Badge", (test) => {
     // Color Palettes
     // =========================================================================
 
-    test("creates badge with green color palette", $ => {
+    test("creates badge with success color palette", $ => {
         const badge = $.let(Badge.Root("Active", {
-            colorPalette: "green",
+            colorPalette: "success",
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.hasTag("some"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
-    test("creates badge with red color palette", $ => {
+    test("creates badge with danger color palette", $ => {
         const badge = $.let(Badge.Root("Sold", {
-            colorPalette: "red",
+            colorPalette: "danger",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("danger"), true));
     });
 
-    test("creates badge with blue color palette", $ => {
+    test("creates badge with brand color palette", $ => {
         const badge = $.let(Badge.Root("Featured", {
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates badge with Style.ColorScheme helper", $ => {
         const badge = $.let(Badge.Root("Premium", {
-            colorPalette: Style.ColorScheme("purple"),
+            colorPalette: Style.ColorScheme("brand"),
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -183,40 +181,40 @@ describeEast("Badge", (test) => {
     test("creates badge with all options", $ => {
         const badge = $.let(Badge.Root("Active", {
             variant: "solid",
-            colorPalette: "green",
+            colorPalette: "success",
             size: "sm",
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "Active"));
         $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
         $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates status badge", $ => {
         const badge = $.let(Badge.Root("Online", {
-            colorPalette: "green",
+            colorPalette: "success",
             variant: "solid",
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "Online"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     test("creates notification count badge", $ => {
         const badge = $.let(Badge.Root("99+", {
-            colorPalette: "red",
+            colorPalette: "danger",
             variant: "solid",
             size: "xs",
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "99+"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("danger"), true));
     });
 
     test("creates category tag badge", $ => {
         const badge = $.let(Badge.Root("Technology", {
-            colorPalette: "blue",
+            colorPalette: "brand",
             variant: "subtle",
             size: "sm",
         }));
@@ -227,7 +225,7 @@ describeEast("Badge", (test) => {
 
     test("creates premium label badge", $ => {
         const badge = $.let(Badge.Root("PRO", {
-            colorPalette: "purple",
+            colorPalette: "brand",
             variant: "outline",
         }));
 

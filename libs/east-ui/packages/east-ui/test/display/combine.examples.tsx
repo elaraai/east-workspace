@@ -27,7 +27,7 @@ export const combineDensities = example({
                             const row = $.let(lines.get(ctx.rowIndex));
                             return (
                                 <HStack gap="2">
-                                    <Avatar name={row.owner} colorPalette="blue" />
+                                    <Avatar name={row.owner} colorPalette="brand" />
                                     <Text>{row.line}</Text>
                                 </HStack>
                             );
@@ -88,7 +88,7 @@ export const combineDensities = example({
                             const row = $.let(lines.get(ctx.rowIndex));
                             return (
                                 <HStack gap="2">
-                                    <Avatar name={row.owner} colorPalette="blue" />
+                                    <Avatar name={row.owner} colorPalette="brand" />
                                     <Text>{row.line}</Text>
                                 </HStack>
                             );
@@ -149,7 +149,7 @@ export const combineDensities = example({
                             const row = $.let(lines.get(ctx.rowIndex));
                             return (
                                 <HStack gap="2">
-                                    <Avatar name={row.owner} colorPalette="blue" />
+                                    <Avatar name={row.owner} colorPalette="brand" />
                                     <Text>{row.line}</Text>
                                 </HStack>
                             );

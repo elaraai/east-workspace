@@ -3,32 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { Trace, ChipRail, Separator, Tag, VStack, Stack } from "@elaraai/east-ui";
-
-// ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
-// ============================================================================
-
-const TRACE_DENSITIES_DATA = [
-    { name: "A", values: [12, 14, 13, 18, 20, 22] },
-    { name: "B", values: [40, 38, 35, 30, 28, 25] },
-];
-const TRACE_SCALES_DATA = [
-    { name: "A", values: [12, 14, 13, 18, 20, 22] },
-    { name: "B", values: [40, 38, 35, 30, 28, 25] },
-    { name: "C", values: [5, 9, 7, 11, 8, 14] },
-];
-const TRACE_RAGGED_DATA = [
-    { name: "Series A", values: [12, 11, 10, 9, 8] },  // 5 steps
-    { name: "°C", values: [22, 23, 24, 25, 26, 27] },  // 6 steps — one longer
-];
-const TRACE_LABEL_WIDTH_DATA = [
-    { name: "Series A · 20", values: [12, 14, 13, 18, 20, 22] },
-    { name: "Series B · 8", values: [3, 5, 4, 6, 8, 7] },
-    { name: "Series C · 12", values: [8, 10, 9, 11, 12, 10] },
-];
+import { East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { ChipRail, Configurator, HStack, SegmentGroup, Stack, Style, Tag, Text, Trace, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -88,48 +65,163 @@ export const traceWithChipRail = example({
 });
 
 // ============================================================================
-// Trace — densities, scales, ragged tracks, label gutter (variant panel)
+// Trace — live configurator over every axis
 // ============================================================================
 
 export const traceVariants = example({
-    keywords: ["Trace", "density", "condensed", "compact", "comfortable", "sizes", "scale", "brand", "diverge", "categorical", "colour", "ragged", "unequal", "lengths", "padding", "phantom", "row", "labelWidth", "gutter", "label", "truncate", "width"],
-    description: "Trace variant panel — densities (the three densities stacked — step height + font scale condensed → compact → comfortable, matching ChipRail), scales (the three colour encodings — sequential brand, diverging about each track's midpoint, and one hue per track), ragged (tracks of unequal length — the longer track is padded into its own row), label width (a wider label gutter so a per-track total folded into the name stays legible)",
-    fn: East.function([], UIComponentType, ($) => {
-        const condensed = $.const(<Trace tracks={TRACE_DENSITIES_DATA} now={4n} density="condensed" />);
-        const compact = $.const(<Trace tracks={TRACE_DENSITIES_DATA} now={4n} density="compact" />);
-        const comfortable = $.const(<Trace tracks={TRACE_DENSITIES_DATA} now={4n} density="comfortable" />);
-        const brand = $.const(<Trace tracks={TRACE_SCALES_DATA} now={4n} density="compact" scale="brand" />);
-        const diverge = $.const(<Trace tracks={TRACE_SCALES_DATA} now={4n} density="compact" scale="diverge" />);
-        const categorical = $.const(<Trace tracks={TRACE_SCALES_DATA} now={4n} density="compact" scale="categorical" />);
+    keywords: ["Trace", "density", "condensed", "compact", "comfortable", "sizes", "scale", "brand", "diverge", "categorical", "colour", "ragged", "unequal", "lengths", "padding", "phantom", "row", "labelWidth", "gutter", "label", "truncate", "width", "now", "future", "ghost", "hatch", "fade", "tracks", "ChipRail", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator", "interactive"],
+    description: "Trace configurator — density, scale, future, now-line, label-gutter and track-data axes driving one live trace; the aside re-checks the ChipRail height-match at the selected density",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="DENSITIES" align="start" />
-                <Stack direction="column" gap="6">
-                    {condensed}
-                    {compact}
-                    {comfortable}
-                </Stack>
-                <Separator label="SCALES" align="start" />
-                <Stack direction="column" gap="6">
-                    {brand}
-                    {diverge}
-                    {categorical}
-                </Stack>
-                <Separator label="RAGGED" align="start" />
-                <Trace
-                    tracks={TRACE_RAGGED_DATA}
-                    now={4n}
-                    future="ghost"
-                    density="compact"
-                />
-                <Separator label="LABEL WIDTH" align="start" />
-                <Trace
-                    tracks={TRACE_LABEL_WIDTH_DATA}
-                    now={4n}
-                    density="compact"
-                    labelWidth="120px"
-                />
-            </VStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const densities = $.const([
+                    variant("condensed", null), variant("compact", null), variant("comfortable", null),
+                ], ArrayType(Style.Types.Density));
+
+                const scales = $.const([
+                    variant("brand", null), variant("diverge", null), variant("categorical", null),
+                ], ArrayType(Trace.Types.Scale));
+
+                const futures = $.const([
+                    variant("ghost", null), variant("hatch", null), variant("fade", null),
+                ], ArrayType(Trace.Types.Future));
+
+                // Numeric / token axes collapse the same way: the now-line is a
+                // step index and the label gutter is a CSS length, so both are
+                // bare arrays of the value itself ("34px" is the compact density
+                // default, so it reads as the no-override case).
+                const nows = $.const([0n, 2n, 4n, 6n], ArrayType(IntegerType));
+                const gutters = $.const(["34px", "72px", "120px"], ArrayType(StringType));
+
+                // Only the data needs a struct — a track set is names PLUS value
+                // rows, with no single value to name it by. `ragged` carries rows
+                // of 5 / 6 / 4 steps (the longer rows pad out); `totals` folds a
+                // per-track total into each name, which is what the wide gutter
+                // is for.
+                const datasets = $.const([
+                    {
+                        label: "trend",
+                        names: ["A", "B", "C"],
+                        values: [[12, 14, 13, 18, 20, 22], [40, 38, 35, 30, 28, 25], [5, 9, 7, 11, 8, 14]],
+                    },
+                    {
+                        label: "ragged",
+                        names: ["Series A", "°C", "Load"],
+                        values: [[12, 11, 10, 9, 8], [22, 23, 24, 25, 26, 27], [5, 9, 7, 11]],
+                    },
+                    {
+                        label: "totals",
+                        names: ["Series A · 20", "Series B · 8", "Series C · 12"],
+                        values: [[12, 14, 13, 18, 20, 22], [3, 5, 4, 6, 8, 7], [8, 10, 9, 11, 12, 10]],
+                    },
+                ], ArrayType(StructType({
+                    label: StringType,
+                    names: ArrayType(StringType),
+                    values: ArrayType(ArrayType(FloatType)),
+                })));
+
+                const densityBind = $.let(State.bind([StringType], "trace_density", "compact"));
+                const scaleBind   = $.let(State.bind([StringType], "trace_scale", "brand"));
+                const futureBind  = $.let(State.bind([StringType], "trace_future", "ghost"));
+                const nowBind     = $.let(State.bind([StringType], "trace_now", "4"));
+                const gutterBind  = $.let(State.bind([StringType], "trace_gutter", "34px"));
+                const dataBind    = $.let(State.bind([StringType], "trace_data", "trend"));
+
+                const densityKey = $.let(densityBind.read());
+                const scaleKey   = $.let(scaleBind.read());
+                const futureKey  = $.let(futureBind.read());
+                const nowKey     = $.let(nowBind.read());
+                const gutterKey  = $.let(gutterBind.read());
+                const dataKey    = $.let(dataBind.read());
+
+                const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+                const onScale   = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
+                const onFuture  = $.const(East.function([StringType], NullType, ($, next) => { $(futureBind.write(next)); }));
+                const onNow     = $.const(East.function([StringType], NullType, ($, next) => { $(nowBind.write(next)); }));
+                const onGutter  = $.const(East.function([StringType], NullType, ($, next) => { $(gutterBind.write(next)); }));
+                const onData    = $.const(East.function([StringType], NullType, ($, next) => { $(dataBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const density = $.let(densities.filter((_$, v) => v.getTag().equal(densityKey)).get(0n));
+                const scale = $.let(scales.filter((_$, v) => v.getTag().equal(scaleKey)).get(0n));
+                const future = $.let(futures.filter((_$, v) => v.getTag().equal(futureKey)).get(0n));
+                const now = $.let(nows.filter((_$, n) => East.print(n).equal(nowKey)).get(0n));
+                const gutter = $.let(gutters.filter((_$, w) => w.equal(gutterKey)).get(0n));
+                const data = $.let(datasets.filter((_$, d) => d.label.equal(dataKey)).get(0n));
+
+                // The step counts are derived, not configured — they report in the
+                // spec column, and their spread is what "ragged" means.
+                const stepsA = $.let(data.values.get(0n).size());
+                const stepsB = $.let(data.values.get(1n).size());
+                const stepsC = $.let(data.values.get(2n).size());
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Data", dataKey,
+                                <SegmentGroup value={dataKey} onChange={onData} size="sm"
+                                    items={datasets.map((_$, d) => SegmentGroup.Item(d.label, <Text>{d.label.upperCase()}</Text>))} />,
+                                "ragged = unequal lengths"),
+                            Configurator.Control("Density", densityKey,
+                                <SegmentGroup value={densityKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Scale", scaleKey,
+                                <SegmentGroup value={scaleKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Future", futureKey,
+                                <SegmentGroup value={futureKey} onChange={onFuture} size="sm"
+                                    items={futures.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Now", nowKey,
+                                <SegmentGroup value={nowKey} onChange={onNow} size="sm"
+                                    items={nows.map((_$, n) => SegmentGroup.Item(East.print(n), <Text>{East.print(n)}</Text>))} />,
+                                "steps before it read as measured"),
+                            Configurator.Control("Label width", gutterKey,
+                                <SegmentGroup value={gutterKey} onChange={onGutter} size="sm"
+                                    items={gutters.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />,
+                                "34px = the compact default"),
+                        ]}
+                        preview={
+                            <Trace
+                                tracks={[
+                                    { name: data.names.get(0n), values: data.values.get(0n) },
+                                    { name: data.names.get(1n), values: data.values.get(1n) },
+                                    { name: data.names.get(2n), values: data.values.get(2n) },
+                                ]}
+                                now={now}
+                                density={density}
+                                scale={scale}
+                                future={future}
+                                labelWidth={gutter}
+                            />
+                        }
+                        aside={{
+                            label: "Row · ChipRail height match",
+                            body: (
+                                <HStack gap="8" align="center">
+                                    <Trace
+                                        tracks={[{ name: data.names.get(0n), values: data.values.get(0n) }]}
+                                        now={now}
+                                        density={density}
+                                        scale={scale}
+                                    />
+                                    <ChipRail density={density} separator="dot">
+                                        <Tag>Open</Tag>
+                                        <Tag>3 days</Tag>
+                                        <Tag>On track</Tag>
+                                    </ChipRail>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Tracks", East.print(data.names.size())),
+                            Configurator.Spec("Steps", East.str`${East.print(stepsA)} · ${East.print(stepsB)} · ${East.print(stepsC)}`),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

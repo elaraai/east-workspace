@@ -38,9 +38,9 @@ describeEast("AvatarGroup", (test) => {
     test("creates an AvatarGroup with shared size + border colour", $ => {
         const g = $.let(AvatarGroup.Root([
             { name: "Sol" },
-        ], { size: "lg", borderColor: "blue.200" }));
+        ], { size: "lg", borderColor: "border.brand" }));
         $(Assert.equal(g.unwrap().unwrap("AvatarGroup").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
-        $(Assert.equal(g.unwrap().unwrap("AvatarGroup").style.unwrap("some").borderColor.unwrap("some"), "blue.200"));
+        $(Assert.equal(g.unwrap().unwrap("AvatarGroup").style.unwrap("some").borderColor.unwrap("some"), "border.brand"));
     });
 
     test("AvatarGroup builds nested AvatarType values from plain options", $ => {

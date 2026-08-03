@@ -55,9 +55,9 @@ describeEast("BarStrip", (test) => {
     test("BarStrip with explicit colour slots", $ => {
         const s = $.let(BarStrip.Root([
             { label: Text.Root("A"), value: 1.0 },
-        ], { trackColor: "gray.200", labelColor: "fg.muted", valueColor: "fg.inverse" }));
+        ], { trackColor: "bg.subtle", labelColor: "fg.muted", valueColor: "fg.inverse" }));
         const style = $.let(s.unwrap().unwrap("BarStrip").style.unwrap("some"));
-        $(Assert.equal(style.trackColor.unwrap("some"), "gray.200"));
+        $(Assert.equal(style.trackColor.unwrap("some"), "bg.subtle"));
         $(Assert.equal(style.labelColor.unwrap("some"), "fg.muted"));
         $(Assert.equal(style.valueColor.unwrap("some"), "fg.inverse"));
     });

@@ -19,14 +19,17 @@ describeEast("Trace", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("traceVariants panel mounts one captioned row per merged example", $ => {
+    test("traceVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the density / scale / future /
+        // now / label-width / dataset tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That puts
+        // the tables inside the Reactive body, which TestImpl does not execute,
+        // so they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-axis coverage
+        // lives in the Trace.Root tests below, which construct each value
+        // directly.
         const panel = $.const(ex.traceVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DENSITIES"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SCALES"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RAGGED"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LABEL WIDTH"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -97,12 +100,12 @@ describeEast("Trace", (test) => {
 
     test("stores colour overrides", $ => {
         const trace = $.let(Trace.Root([{ name: "A", values: [1.0] }], {
-            brandColor: "purple.500",
-            nowLineColor: "gray.700",
+            brandColor: "accent.purple",
+            nowLineColor: "fg.default",
         }));
         const style = $.let(trace.unwrap().unwrap("Trace").style.unwrap("some"));
 
-        $(Assert.equal(style.brandColor.unwrap("some"), "purple.500"));
-        $(Assert.equal(style.nowLineColor.unwrap("some"), "gray.700"));
+        $(Assert.equal(style.brandColor.unwrap("some"), "accent.purple"));
+        $(Assert.equal(style.nowLineColor.unwrap("some"), "fg.default"));
     });
 }, { platformFns: TestImpl });

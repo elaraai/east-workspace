@@ -29,7 +29,7 @@ export const kbdStyled = example({
     keywords: ["Kbd", "Root", "variant", "solid"],
     description: "Solid Kbd with blue palette",
     fn: East.function([], UIComponentType, ($) => {
-        return <Kbd keys={["Ctrl", "Shift", "P"]} variant="solid" colorPalette="blue" size="md" />;
+        return <Kbd keys={["Ctrl", "Shift", "P"]} variant="solid" colorPalette="brand" size="md" />;
     }),
     inputs: [],
 });

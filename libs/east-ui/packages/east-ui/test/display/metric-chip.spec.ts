@@ -19,14 +19,17 @@ describeEast("MetricChip", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("metricChipVariants panel mounts one captioned row per merged example", $ => {
+    test("metricChipVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tone / emphasis / density /
+        // size / unit / colour tables — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-axis coverage
+        // lives in the MetricChip.Root tests below, which construct each
+        // combination directly.
         const panel = $.const(ex.metricChipVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP NEGATIVE SOLID"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP NEUTRAL OUTLINE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP DENSITIES"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP INFO"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a positive MetricChip", $ => {
@@ -53,13 +56,13 @@ describeEast("MetricChip", (test) => {
     test("creates an info MetricChip with explicit colour slots", $ => {
         const chip = $.let(MetricChip.Root(Text.Root("Forecast"), {
             tone: "info",
-            background: "blue.100",
-            color: "blue.800",
-            borderColor: "blue.300",
+            background: "bg.brand.subtle",
+            color: "link",
+            borderColor: "border.brand",
         }));
         $(Assert.equal(chip.unwrap().unwrap("MetricChip").tone.hasTag("info"), true));
-        $(Assert.equal(chip.unwrap().unwrap("MetricChip").style.unwrap("some").background.unwrap("some"), "blue.100"));
-        $(Assert.equal(chip.unwrap().unwrap("MetricChip").style.unwrap("some").color.unwrap("some"), "blue.800"));
-        $(Assert.equal(chip.unwrap().unwrap("MetricChip").style.unwrap("some").borderColor.unwrap("some"), "blue.300"));
+        $(Assert.equal(chip.unwrap().unwrap("MetricChip").style.unwrap("some").background.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(chip.unwrap().unwrap("MetricChip").style.unwrap("some").color.unwrap("some"), "link"));
+        $(Assert.equal(chip.unwrap().unwrap("MetricChip").style.unwrap("some").borderColor.unwrap("some"), "border.brand"));
     });
 }, { platformFns: TestImpl });

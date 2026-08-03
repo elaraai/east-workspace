@@ -32,19 +32,19 @@ describeEast("Kbd", (test) => {
     test("creates a styled Kbd", $ => {
         const kbd = $.let(Kbd.Root(["Ctrl", "Shift", "P"], {
             variant: "solid",
-            colorPalette: "blue",
+            colorPalette: "brand",
             size: "md",
         }));
         $(Assert.equal(kbd.unwrap().unwrap("Kbd").keys.size(), 3n));
         $(Assert.equal(kbd.unwrap().unwrap("Kbd").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(kbd.unwrap().unwrap("Kbd").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(kbd.unwrap().unwrap("Kbd").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(kbd.unwrap().unwrap("Kbd").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates a Kbd with explicit shadow colour", $ => {
         const kbd = $.let(Kbd.Root(["Esc"], {
-            shadowColor: "blackAlpha.200",
+            shadowColor: "border.subtle",
         }));
-        $(Assert.equal(kbd.unwrap().unwrap("Kbd").style.unwrap("some").shadowColor.unwrap("some"), "blackAlpha.200"));
+        $(Assert.equal(kbd.unwrap().unwrap("Kbd").style.unwrap("some").shadowColor.unwrap("some"), "border.subtle"));
     });
 }, { platformFns: TestImpl });

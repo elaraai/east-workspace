@@ -53,7 +53,7 @@ export const avatarGroupLarge = example({
     keywords: ["AvatarGroup", "Root", "size", "lg"],
     description: "Large avatar group with custom border",
     fn: East.function([], UIComponentType, ($) => {
-        return <AvatarGroup avatars={[{ name: "Mira" }, { name: "Noah" }]} size="lg" borderColor="blue.200" />;
+        return <AvatarGroup avatars={[{ name: "Mira" }, { name: "Noah" }]} size="lg" borderColor="border.brand" />;
     }),
     inputs: [],
 });

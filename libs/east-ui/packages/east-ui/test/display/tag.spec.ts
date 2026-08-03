@@ -20,16 +20,17 @@ describeEast("Tag", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("tagStyles panel mounts one captioned row per merged example", $ => {
+    test("tagStyles drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / density / colour /
+        // border / opacity / padding tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That puts
+        // the tables inside the Reactive body, which TestImpl does not execute,
+        // so they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-variant coverage
+        // lives in the Tag.Root tests below, which construct each variant
+        // directly.
         const panel = $.const(ex.tagStyles.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VARIANTS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CUSTOM"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BORDER"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BOX MODEL"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DENSITIES"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DYNAMIC"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("tagClosable panel mounts one captioned row per merged example", $ => {
@@ -99,37 +100,37 @@ describeEast("Tag", (test) => {
     // Color Palettes
     // =========================================================================
 
-    test("creates tag with blue color palette", $ => {
+    test("creates tag with brand color palette", $ => {
         const tag = $.let(Tag.Root("React", {
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.hasTag("some"), true));
-        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates tag with green color palette", $ => {
+    test("creates tag with success color palette", $ => {
         const tag = $.let(Tag.Root("Active", {
-            colorPalette: "green",
+            colorPalette: "success",
         }));
 
-        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
-    test("creates tag with cyan color palette", $ => {
+    test("creates tag with info color palette", $ => {
         const tag = $.let(Tag.Root("Node.js", {
-            colorPalette: "cyan",
+            colorPalette: "info",
         }));
 
-        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("cyan"), true));
+        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("info"), true));
     });
 
     test("creates tag with Style.ColorScheme helper", $ => {
         const tag = $.let(Tag.Root("Premium", {
-            colorPalette: Style.ColorScheme("purple"),
+            colorPalette: Style.ColorScheme("brand"),
         }));
 
-        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -205,31 +206,31 @@ describeEast("Tag", (test) => {
     test("creates tag with all options", $ => {
         const tag = $.let(Tag.Root("Complete", {
             variant: "solid",
-            colorPalette: "blue",
+            colorPalette: "brand",
             size: "md",
             closable: true,
         }));
 
         $(Assert.equal(tag.unwrap().unwrap("Tag").label, "Complete"));
         $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(tag.unwrap().unwrap("Tag").closable.unwrap("some"), true));
     });
 
     test("creates programming language tag", $ => {
         const tag = $.let(Tag.Root("Python", {
-            colorPalette: "yellow",
+            colorPalette: "warning",
             variant: "subtle",
         }));
 
         $(Assert.equal(tag.unwrap().unwrap("Tag").label, "Python"));
-        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("yellow"), true));
+        $(Assert.equal(tag.unwrap().unwrap("Tag").style.unwrap("some").colorPalette.unwrap("some").hasTag("warning"), true));
     });
 
     test("creates filter chip tag", $ => {
         const tag = $.let(Tag.Root("Technology", {
-            colorPalette: "blue",
+            colorPalette: "brand",
             closable: true,
             size: "sm",
         }));
@@ -240,7 +241,7 @@ describeEast("Tag", (test) => {
 
     test("creates status tag", $ => {
         const tag = $.let(Tag.Root("In Progress", {
-            colorPalette: "orange",
+            colorPalette: "warning",
             variant: "solid",
             size: "sm",
         }));
@@ -251,7 +252,7 @@ describeEast("Tag", (test) => {
 
     test("creates removable skill tag", $ => {
         const tag = $.let(Tag.Root("React", {
-            colorPalette: "cyan",
+            colorPalette: "info",
             variant: "outline",
             closable: true,
         }));

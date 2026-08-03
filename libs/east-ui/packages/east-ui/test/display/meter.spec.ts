@@ -19,14 +19,17 @@ describeEast("Meter", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("meterVariants panel mounts one captioned row per merged example", $ => {
+    test("meterVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tone / density / thickness /
+        // reading / scale / colour / caption tables — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples` above
+        // still compiles and evaluates the outer function. The per-axis coverage
+        // lives in the Meter.Root tests below, which construct each option
+        // directly.
         const panel = $.const(ex.meterVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SUCCESS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WARNING"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DENSITIES"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CUSTOM MAX"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a basic meter", $ => {
@@ -55,9 +58,9 @@ describeEast("Meter", (test) => {
     });
 
     test("creates a meter with explicit colour slots", $ => {
-        const m = $.let(Meter.Root(50.0, { fillColor: "purple.500", trackColor: "purple.100", labelColor: "purple.700" }));
-        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").fillColor.unwrap("some"), "purple.500"));
-        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").trackColor.unwrap("some"), "purple.100"));
-        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").labelColor.unwrap("some"), "purple.700"));
+        const m = $.let(Meter.Root(50.0, { fillColor: "accent.purple", trackColor: "bg.subtle", labelColor: "accent.purple" }));
+        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").fillColor.unwrap("some"), "accent.purple"));
+        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").trackColor.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").labelColor.unwrap("some"), "accent.purple"));
     });
 }, { platformFns: TestImpl });
