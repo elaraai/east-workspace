@@ -234,12 +234,14 @@ def test_traced_matches_python_path(name, invoke, fn):
     traced = invoke(rows, fn)
 
     # force the python path with a gate-defeating (but semantically inert)
-    # closure over a mutable object
+    # closure over a mutable object. Declare the wrapped arity explicitly:
+    # a bare *args wrapper reads as "takes everything", and the eager
+    # methods would then hand it the builtin's full (el, idx) signature.
     poison = []
 
-    def python_fn(*args):
+    def python_fn(el):
         _ = poison
-        return fn(*args)
+        return fn(el)
 
     python_result = invoke(rows, python_fn)
 

@@ -111,17 +111,40 @@ syntax, fastest first:
    lambda ONCE with typed expression proxies (exactly like a TS
    `East.function` builder); the whole builtin surface records East IR —
    field access, arithmetic, comparisons, boolean algebra, string/datetime
-   methods, every `East.<Type>.*` namespace call, collection transforms with
-   nested lambdas (`.map`/`.filter`/`.fold`/`.some`/`.every`/`.first_map`/
-   `.string_join`/`[index_expr]`/`.try_get` — `some`/`every`/`first_map`
-   compile to the native short-circuiting FirstMap scans, so traced and
-   eager forms have identical early-exit execution), captured East
-   collections (trace-time
-   snapshots hoisted to build-once constants — explicit `kernel()` only), option
-   construct/consume (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
+   methods, every `East.<Type>.*` namespace call, captured East collections
+   (trace-time snapshots hoisted to build-once constants — explicit
+   `kernel()` only), option construct/consume
+   (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
    `.try_parse(T) -> Option<T>` — east-c compiles it, and the loop AND the
    kernel execute natively, zero python per element (~5× a per-element
-   callback on a 300k-row map, and it composes with chaining). Methods that
+   callback on a 300k-row map, and it composes with chaining).
+
+   Collection methods on traced expressions are a **closed, enumerated
+   surface** (an unsupported method raises `KernelTraceError` naming it;
+   with no loop IR these ARE the kernel language's iteration constructs).
+   Nested lambdas trace recursively and may reference outer parameters;
+   `some`/`every`/`first_map` compile to the native short-circuiting
+   FirstMap scans, so traced and eager forms have identical early-exit
+   execution:
+
+   - **Array**: `map` `filter` `filter_map` `first_map` `fold` `map_reduce`
+     `flatten_to_array` `flatten_to_set` `to_dict` `to_set` `unique`
+     `group_by` `sorted` `is_sorted` `some` `every` `string_join` `concat`
+     `slice` `reversed` `copy` `get_keys` `size` `has` `get`
+     `get_or_default` `try_get` `[index_expr]`
+   - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce`
+     `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
+     `intersect` `diff` `sym_diff` `is_subset` `is_disjoint` `copy` `size`
+     `has`
+   - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce`
+     `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
+     `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
+     `try_get` `[key_expr]`
+
+   Mutators and side-effecting methods are deliberately absent (the kernel
+   language is pure), so a whole `record → legs → values` descent — or a
+   `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
+   with no materialised intermediate between stages. Methods that
    exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
    inference otherwise samples the lambda on a decoded python value):
 
@@ -144,7 +167,17 @@ syntax, fastest first:
    including a `.bind(...)` result — passes its native function value
    **straight through every eager method** (#409): the loop runs entirely in
    east-c with zero per-element python, and the output type comes from the
-   kernel's own signature, so no `out=` and no sampling. Compiled East
+   kernel's own signature, so no `out=` and no sampling. If you DO pass
+   `out=` (or the method has a declared type) and the kernel's signature
+   contradicts it, the call raises `EastTypeError` immediately — both types
+   are known statically, and a mislabelled result would corrupt far from the
+   cause (#467). Kernels are also **dual-mode** (#470): called with plain
+   values they execute natively; referenced inside another `kernel()` lambda
+   or a pure wrapper they re-run their source and splice into that trace —
+   so kernels compose (`kernel(Row, lambda r: amount(r) * 1.1)`), and every
+   grouping/sugar method runs them with zero per-element python
+   (`.bind(...)` results are the exception: native everywhere, but not
+   re-traceable inside another trace). Compiled East
    functions loaded from elsewhere (`compile_from_beast2/json/east`, or
    `compile_from_value` for a homoiconic IR value built with
    `east.ir.builders`) are accepted the same way:
@@ -172,16 +205,21 @@ syntax, fastest first:
 
 - Reference only the lambda's parameters, plain scalar constants
   (closure floats/ints/strings are baked — same value per element either
-  way), East types/values, the `East` builtin namespace, and `where`. Any
-  other module reference (`random.…`, `np.…`), mutable closure, callable
-  helper that itself fails these rules, or closure mutation
+  way), East types/values (`east_null` included), the `East` builtin
+  namespace, `where`/`some`/`none`, **precompiled `kernel()` results**
+  (dual-mode: they re-trace from their source, at any nesting depth,
+  #470), and — two wrapper levels deep, enough for helper lambdas that
+  compose a callback — other lambdas that pass the same rules. Any
+  other module reference (`random.…`, `np.…`), mutable closure, arbitrary
+  callable, or closure mutation
   (`nonlocal x; x += 1`) **disables tracing** — the python path runs and
   semantics are exactly today's. A closed-over East *collection* also
   disables auto-tracing (tracing snapshots it, which would diverge from
   live per-element semantics) — capture side-tables in an explicit
   `kernel()`, which opts into the snapshot. Side effects therefore never
   get lost: an impure lambda runs per element; a traced lambda ran once,
-  at trace time.
+  at trace time (type inference likewise never runs an impure lambda
+  against proxies — it samples on a real element instead).
 - Python won't let a library overload `and`/`or`/`not`/`if`, so traced
   kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
   `where(cond, then, otherwise)` for conditionals. `where` is dual-mode:
@@ -372,6 +410,7 @@ Task → What do you need?
     │   │   └─ Optional → some(x) / none
     │   ├─ Numeric buffer for ML/tensors → EastVector(FloatType, np_1d) / EastMatrix(FloatType, np_2d)
     │   ├─ A ref cell → east_ref(value)
+    │   ├─ Raw bytes → EastBlob(b"...")   (a bytes subclass; decode_csv/beast2/utf8 live on it)
     │   ├─ Generate (range/zeros/…) → classmethods: EastArray.range / EastVector.zeros / …  (NOT East.Array.*)
     │   └─ Anything, type-driven (int→Float, dict→Struct, np 1-D→Array, …) → coerce_to(value, typ)
     │
@@ -383,8 +422,8 @@ Task → What do you need?
     │
     ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
     │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/where()/greatest()/least() author them explicitly)
-    │   ├─ Array<T>
-    │   │   ├─ Access → get(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] · len() · iterate
+    │   ├─ Array<T>  (element callbacks take fn(el) — or fn(el, idx) when declared, the builtin's index)
+    │   │   ├─ Access → get(i) ❗bounds · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] (pythonic) · len() · iterate
     │   │   ├─ Reorder → sort(key=, reverse=) (in place) · sorted(key=, reverse=) · reverse() · reversed()
     │   │   ├─ Slice & combine → slice(start, end) · concat(other) · copy()
     │   │   ├─ Per-element → map(fn, out=) · filter(pred) · filter_map(fn, out=) · for_each(fn)
@@ -396,35 +435,49 @@ Task → What do you need?
     │   │   │            group_mean(key, fn=) · group_maximum/minimum(key, by=) ❗returns the projected VALUE per
     │   │   │            group, not the row/index (find_maximum finds the index) · group_every/some(key, pred) ·
     │   │   │            group_to_arrays(key, value=) · group_to_sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
-    │   │   ├─ Convert → to_dict(key, value=, combine=) · to_set(key=) · unique() · string_join(sep) · flatten_to_array/set/dict
+    │   │   ├─ Convert → to_dict(key, value=, combine=) ❗dup w/o combine · to_set(key=) · unique() · string_join(sep) ·
+    │   │   │            flatten_to_array/set/dict (flatten_to_dict ❗dup w/o combine)
     │   │   ├─ Columnar → to_columns(fields=) · EastArray.from_columns(T, cols) · map_batches(fn, out=, batch_size=)
     │   │   ├─ Mutate (in place) → append · extend (bulk, one crossing) · insert · pop · remove · clear · arr[i]=v
     │   │   └─ Generate → EastArray.range(n) · .linspace(a, b, n) · .generate(n, fn)
     │   ├─ Set<K>
+    │   │   ├─ Access → len(s) · value in s · has(value) · iterate (East order)
     │   │   ├─ Algebra → union · intersect · diff · sym_diff · is_subset · is_disjoint · union_in_place
     │   │   ├─ Per-element → map(fn)→Dict · filter(pred) · filter_map(fn)→Dict · first_map(fn) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · map_reduce(fn, reduce) ❗empty · sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
     │   │   ├─ Group → group_fold(key, init, fold) · group_size(key) · group_sum(key, fn=) · group_mean(key, fn=) ·
     │   │   │            group_every/some(key, pred) · group_to_arrays/sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
-    │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=)
-    │   │   └─ Mutate (in place) → add · insert · remove · delete · discard · clear · copy()
-    │   ├─ Dict<K,V>  (callbacks: map=fn(v) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
+    │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=) ❗dup w/o combine
+    │   │   ├─ Flatten → flatten_to_array(fn, out=) · flatten_to_set(fn, out=) · flatten_to_dict(fn, combine=) ❗dup w/o combine
+    │   │   └─ Mutate (in place) → add · insert ❗exists · try_insert(v)→bool · remove · delete ❗missing ·
+    │   │                          try_delete(v)→bool · discard · clear · copy()
+    │   ├─ Dict<K,V>  (callbacks: map=fn(v)|fn(v,k) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
     │   │   ├─ Access → d[k] · get(k, default=None) · get_or_default(k, d) · try_get(k) · has(k) · keys()/values()/items() · len()
-    │   │   ├─ Combine → merge(other, combine(existing, incoming)=) · get_keys(keys, fill)
+    │   │   ├─ Combine → merge(other, combine=) ❗shared key w/o combine · get_keys(keys, fill)
     │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · map_reduce(map_fn, reduce_fn, out=) ❗empty · sum? (use reduce) · mean(fn=)
     │   │   ├─ Group → group_fold(key_fn, init_fn, fold_fn) · group_size(key_fn) · group_sum(key_fn, fn=) ·
     │   │   │            group_mean(key_fn, fn=) · group_every/some(key_fn, pred) ·
     │   │   │            group_to_arrays/sets(key_fn, value_fn) · group_to_dicts(key_fn, key2_fn, value_fn, combine=)
+    │   │   ├─ Flatten → flatten_to_array(fn) · flatten_to_set(fn) · flatten_to_dict(fn, combine=) ❗dup w/o combine
     │   │   ├─ Convert → keys_set() · to_array(fn, out=) · to_set(fn, out=) · to_dict(key_fn, value_fn, combine)
-    │   │   └─ Mutate (in place) → d[k]=v · insert · get_or_insert(k, fn) · insert_or_update(k, v, combine) · update(k, fn) ·
-    │   │                          swap · delete/try_delete · pop · clear · (bulk) update_many(keys, values, combine=)
-    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix/to_rows ·
-    │   │                   to_numpy(copy=False)/to_torch() · from_numpy/from_torch/zeros/ones/fill
+    │   │   └─ Mutate (in place) → d[k]=v · insert ❗exists · get_or_insert(k, fn) · insert_or_update(k, v, combine) ·
+    │   │                          update(k, fn) ❗missing · swap ❗missing · delete ❗missing/try_delete · pop · clear ·
+    │   │                          merge_all(other, merge, default) (fold other in) · (bulk) update_many(keys, values, combine=)
+    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col ·
+    │   │                   to_array/to_vector/to_matrix/to_rows · to_numpy(copy=False)/to_torch() ·
+    │   │                   from_numpy/from_torch/zeros/ones/fill
     │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
     │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · .match({case: handler}, default=)
-    │   └─ Blob          → size/get_uint8 · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
+    │   ├─ Ref           → get() · set(value) · update(fn(current)) · merge(patch, combine)
+    │   └─ Blob          → size/get_uint8/.data · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
     │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …))
+    │
+    ├─ Diff / patch two values of one type (East's structural patch algebra)
+    │   ├─ Compute a patch → East.diff(before, after)   (patch type is PatchType(T))
+    │   ├─ Apply it → East.apply_patch(value, patch)
+    │   ├─ Combine two patches → East.compose_patch(T, first, second)
+    │   └─ Reverse one → East.invert_patch(T, patch)
     │
     ├─ A scalar/primitive builtin (you can't method-call a float/int/str/bool/datetime)
     │   ├─ Numeric → East.Float.<op> / East.Integer.<op>
@@ -440,6 +493,8 @@ Task → What do you need?
     │   ├─ Use a LARGE side-table in a kernel → declare it as a trailing parameter + k.bind(table)
     │   │   (by reference: zero-copy at any size, LIVE — mutations observed; small tables just capture = snapshot)
     │   ├─ Pass a precompiled kernel (incl. a .bind result) to any eager method → native loop, no out=, no sampling
+    │   │   (a kernel contradicting a declared out= raises EastTypeError at the call — #467; kernels also COMPOSE:
+    │   │    reference one inside another kernel() lambda or a pure wrapper and it splices into that trace — #470)
     │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats() (trampoline/kernel/pushdown counters)
     │   ├─ What traces (the expression surface inside kernels)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
@@ -457,11 +512,15 @@ Task → What do you need?
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) under a typed context
-    │   │   ├─ Collections → .size() · .has(i|k) · .get(i|k) ❗ · [i|k expr] ❗ · .get_or_default(i|k, d) · .try_get(i|k) ·
-    │   │   │                 .map(fn) · .filter(fn) · .fold(init, fn) · .some(fn) · .every(fn) · .string_join(sep) ·
-    │   │   │                 .first_map(fn, out=) → Option (early exit: Array/Set fn(el), Dict fn(k,v); scan stops at first some)
+    │   │   ├─ Collections → the FULL closed surface enumerated in [Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)
+    │   │   │                 (#452): map · filter · filter_map · fold · map_reduce · flatten_to_array/set ·
+    │   │   │                 to_dict · to_set · unique · group_by · sorted · is_sorted · some · every ·
+    │   │   │                 string_join · concat · slice · reversed · copy · get_keys · the Set algebra ·
+    │   │   │                 keys_set · to_array · size · has · get ❗ · [i|k expr] ❗ · get_or_default · try_get ·
+    │   │   │                 first_map(fn, out=) → Option (early exit: Array/Set fn(el), Dict fn(k,v))
     │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True;
-    │   │   │                  some/every/first_map short-circuit natively — identical to the eager path)
+    │   │   │                  some/every/first_map short-circuit natively — identical to the eager path; an unsupported
+    │   │   │                  method raises KernelTraceError NAMING the supported set)
     │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
     │   │   ├─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
     │   │   │   SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
@@ -494,6 +553,34 @@ Task → What do you need?
         └─ Cache a pure, expensive one (dev/test) → @memoize above @platform_function;
            inert until configure_memo(dir) / EAST_MEMO_DIR — e3 is the production cache
 ```
+
+## What is NOT east-c (the honest list)
+
+Almost everything above delegates to native builtins — these are the paths
+that still run python, so you can reason about cost and semantics:
+
+- **The per-element trampoline** — any impure/untraceable callback: east-c
+  drives the loop, python runs per element (by design; `eager_stats()` shows
+  it).
+- **`EastVector`/`EastMatrix` `map`/`fold`/`map_elements`/`map_rows`** run in
+  python (the tensor surface does its real math via `to_numpy`/`to_torch`).
+- **`Dict.get_or_insert`** composes membership + get python-side so `fn` is
+  only called on a miss (deliberately lazier than East's strict default
+  expression). The other singles (`insert`/`update`/`swap`/`delete`/
+  `try_delete`/`insert_or_update`) are the native builtins — including their
+  error semantics (`insert` on an existing key and `delete`/`update`/`swap`
+  on a missing one raise East's messages).
+- **Reduction sugar** — `mean`, `group_mean`, `group_size`, …: several
+  native passes, zero python per element, but not a single fused builtin
+  (mirrors the TS composition).
+- **Boundary utilities** — `coerce_to`/`assert_value_of`/`type_of`,
+  `variant`/`struct` validation, `match()` dispatch, and the
+  `compare_for`/`make_east_key` ordering helpers are python walkers (that is
+  their job: the python↔East edge).
+- **Iteration** — `for x in arr` / `list(arr)` boxes per element (lazily:
+  elements decode as you go, and East's iteration lock is held, so mutating
+  during a loop raises `Cannot modify … during iteration` exactly like an
+  East for-loop); cross once with `to_columns`/`to_numpy` instead.
 
 ## Sharp edges
 
@@ -604,14 +691,14 @@ input, or a widening map). `.element_type` is the logical element type.
 
 | Group | Methods |
 |-------|----------------------|
-| Access | `get(i)` · `get_or_default(i, default)` · `try_get(i) -> some/none` · `has(i)` · `get_keys(indices: EastArray)` |
+| Access | `get(i)` (errors when out of bounds — `arr[i]` is the pythonic read) · `get_or_default(i, default)` · `try_get(i) -> some/none` · `has(i)` · `get_keys(indices: EastArray)` |
 | Reorder | `sort(*, key=None, reverse=False) -> None` (in place) · `sorted(key=None, *, reverse=False)` · `reverse() -> None` · `reversed()` |
 | Slice & combine | `slice(start, end)` · `concat(other)` · `copy()` |
-| Per-element | `map(fn(el), out=None)` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None)` · `for_each(fn(el)) -> None` |
+| Per-element | `map(fn(el), out=None)` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None)` · `for_each(fn(el)) -> None` — every element callback may also declare `(el, idx)` to receive the builtin's index |
 | Reduce | `fold(initial, fn(acc, el))` · `map_reduce(map_fn(el), reduce_fn(acc, m), out=None)` · `sum(fn=None)` · `mean(fn=None) -> float` (NaN when empty) · `maximum(by=None)` ❗empty · `minimum(by=None)` ❗empty · `every(pred=None) -> bool` · `some(pred=None) -> bool` (native short-circuit) |
-| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` (Dict of the projected VALUE per group — `find_maximum` is the index finder) · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
+| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` (Dict of the projected VALUE per group — `find_maximum` is the index finder) · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` (duplicate key errors without `combine`) · `to_set(key=None) -> Set` · `unique() -> Set` |
 | Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
-| Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` |
+| Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* (C-side fill needs numpy columns — float64/int64/bool, `Option<Float>` as float64+NaN; python lists convert per cell) · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
 | Convert | `string_join(sep) -> str` (String arrays) |
 | Mutate (in place) | `append(item)` · `extend(items)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `clear()` · `count(value) -> int` · `index(value) -> int` |
@@ -626,11 +713,11 @@ Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration
 |-------|---------|
 | Access | `len(s)` · `value in s` · `has(value)` · `for el in s` |
 | Algebra (vs another set) | `union(other)` · `intersect(other)` · `diff(other)` · `sym_diff(other)` · `is_subset(other) -> bool` · `is_disjoint(other) -> bool` |
-| Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` · `for_each(fn(el)) -> None` |
+| Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` (duplicate key errors without `combine`) · `for_each(fn(el)) -> None` |
 | Reduce | `reduce(initial, fn(acc, el))` · `map_reduce(fn(el), reduce(a,b))` (raises on empty) · `sum(fn=None)` · `mean(fn=None) -> float` · `every(pred=None)` · `some(pred=None)` (native short-circuit) |
 | Group | `group_fold(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` |
-| Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine)` — **pin `out`; the no-`out` inference path is broken** |
-| Mutate (in place) | `add(item)` · `insert(value)` (alias) · `remove(item)` · `delete(value)` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
+| Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine=None)` (duplicate key errors without `combine`) — **pin `out`; the no-`out` inference path is broken** |
+| Mutate (in place) | `add(item)` · `insert(value)` (errors if present) · `try_insert(value) -> bool` (True if newly added) · `remove(item)` · `delete(value)` (errors if absent) · `try_delete(value) -> bool` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
 
 ### EastDict — complete method surface
 
@@ -642,13 +729,13 @@ take `fn(key, value)`; `reduce` takes `fn(acc, key, value)`; collision `combine`
 | Group | Methods |
 |-------|---------|
 | Access | `d[k]` · `k in d` · `has(k)` · `len(d)`/`size()` · `get(k, default=None)` · `get_or_default(k, default)` · `try_get(k) -> some/none` · `keys()`/`values()`/`items()` |
-| Combine | `merge(other, combine(existing, incoming)=None)` · `get_keys(keys: Set, fill(k)) -> Dict` |
-| Per-entry | `map(fn(value), out=None)` · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
+| Combine | `merge(other, combine=None)` (new dict; a shared key errors without `combine`) · `merge_all(other, merge(existing, incoming, key), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys) · `get_keys(keys: Set, fill(k)) -> Dict` |
+| Per-entry | `map(fn(value), out=None)` (a two-arg `fn(value, key)` also accepted) · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
 | Reduce | `reduce(initial, fn(acc, key, value))` · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) · `mean(fn(key, value)=None) -> float` |
 | Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` |
-| Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine(existing, incoming, key))` |
+| Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Convert | `keys_set() -> Set` · `to_array(fn(key, value), out=None)` · `to_set(fn(key, value), out=None)` · `to_dict(key_fn, value_fn, combine(existing, incoming, new_key), key_out=None, value_out=None)` · `copy()` |
-| Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` · `pop(k, *default)` · `clear()` |
+| Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` (errors if present) · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` (`update`/`swap`/`delete` error on a missing key) · `pop(k, *default)` · `clear()` |
 | Bulk (in place) | `update_many(keys, values, combine(existing, incoming)=None)` — the whole batch crosses once; a pure/precompiled `combine` resolves collisions C-to-C (dicts as hot-loop accumulators) |
 
 ### EastVector — complete method surface
@@ -840,6 +927,15 @@ Every one delegates to east-c.
 
 **`East`** comparisons (East total order; element type `T` first): `compare(T, a, b) -> int`,
 `equal/not_equal/less/less_equal/greater/greater_equal(T, a, b) -> bool`.
+
+**`East`** structural diff/patch (any East type `T`; a patch is a value of `PatchType(T)`):
+
+| Signature | Notes |
+|-----------|-------|
+| `diff(before, after) -> patch` | The patch turning `before` into `after` (types inferred) |
+| `apply_patch(value, patch) -> value` | Apply; `apply_patch(v, diff(v, w)) == w` |
+| `compose_patch(T, first, second) -> patch` | One patch equal to applying `first` then `second` |
+| `invert_patch(T, patch) -> patch` | The undo: applying patch then its inverse round-trips |
 
 ### DateTime format codes
 

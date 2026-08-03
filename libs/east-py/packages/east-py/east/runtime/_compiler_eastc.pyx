@@ -62,7 +62,13 @@ _eager_counters = {"trampoline_calls": 0, "kernel_direct": 0, "pushdown_traced":
 
 
 def _eager_counters_snapshot():
-    return dict(_eager_counters)
+    snap = dict(_eager_counters)
+    # The C→py decode counter lives in the bridge (a cdef long on the decode
+    # hot path); surface it through the same single stats API.
+    from east._eastc_bridge import decode_stats
+
+    snap["c_to_py_decodes"] = decode_stats()
+    return snap
 
 
 cdef _eastc.EvalResult _py_invoke_trampoline(_eastc.EastCompiledFn* self,
