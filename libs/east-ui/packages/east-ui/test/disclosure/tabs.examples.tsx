@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, SegmentGroup, Separator, Switch, Tabs, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Box, Configurator, SegmentGroup, Switch, Tabs, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const tabsBasic = example({
     keywords: ["Tabs", "Root", "Item", "defaultValue", "basic"],
@@ -32,8 +32,8 @@ export const tabsBasic = example({
 // ============================================================================
 
 export const tabsVariants = example({
-    keywords: ["Tabs", "Root", "variant", "line", "underline", "fitted", "equal width", "size", "sm", "md", "lg", "Item", "disabled", "trigger", "count", "mono", "rich", "two-line", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Tabs configurator — variant, size and trigger-preset axes plus fitted and disabled-tab switches driving one live tab strip",
+    keywords: ["Tabs", "Root", "variant", "line", "underline", "fitted", "equal width", "size", "sm", "md", "lg", "Item", "disabled", "trigger", "count", "mono", "rich", "two-line", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onValueChange", "interactive", "controlled"],
+    description: "Tabs configurator — variant, size and trigger-preset axes plus fitted and disabled-tab switches driving one live tab strip; the aside round-trips a controlled strip's active tab",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -92,18 +92,24 @@ export const tabsVariants = example({
                 const triggerBind  = $.let(State.bind([StringType], "tabs_trigger", "plain"));
                 const fittedBind   = $.let(State.bind([BooleanType], "tabs_fitted", false));
                 const disabledBind = $.let(State.bind([BooleanType], "tabs_disabled", false));
+                // The aside is the reactive row — a controlled strip whose
+                // active tab round-trips through State (the old reactive
+                // panel's key).
+                const activeBind   = $.let(State.bind([StringType], "tabs_reactive_active", "a"));
 
                 const vKey     = $.let(variantBind.read());
                 const sKey     = $.let(sizeBind.read());
                 const tKey     = $.let(triggerBind.read());
                 const fitted   = $.let(fittedBind.read());
                 const disabled = $.let(disabledBind.read());
+                const active   = $.let(activeBind.read(), StringType);
 
                 const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
                 const onTrigger  = $.const(East.function([StringType], NullType, ($, next) => { $(triggerBind.write(next)); }));
                 const onFitted   = $.const(East.function([BooleanType], NullType, ($, next) => { $(fittedBind.write(next)); }));
                 const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+                const onActive   = $.const(East.function([StringType], NullType, ($, next) => { $(activeBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const tabsVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
@@ -151,6 +157,24 @@ export const tabsVariants = example({
                                 />
                             </Box>
                         }
+                        aside={{
+                            label: "Controlled · Reactive",
+                            body: (
+                                <VStack gap="3" align="stretch">
+                                    <Tabs
+                                        items={[
+                                            Tabs.Item("a", "Tab A", [<Box padding="4"><Text>A content</Text></Box>]),
+                                            Tabs.Item("b", "Tab B", [<Box padding="4"><Text>B content</Text></Box>]),
+                                            Tabs.Item("c", "Tab C", [<Box padding="4"><Text>C content</Text></Box>]),
+                                        ]}
+                                        value={active}
+                                        onValueChange={onActive}
+                                        variant="line"
+                                    />
+                                    <Text color="fg.muted">{East.str`Active: ${active}`}</Text>
+                                </VStack>
+                            ),
+                        }}
                         spec={[
                             Configurator.Spec("Tabs", East.print(items.size())),
                             Configurator.Spec("Fitted", fitted.ifElse(_$ => "equal width", _$ => "natural")),
@@ -164,66 +188,3 @@ export const tabsVariants = example({
     inputs: [],
 });
 
-// ============================================================================
-// Reactive — interactive/controlled rows (consolidation epic #455).
-// ============================================================================
-
-export const tabsReactive = example({
-    keywords: ["Tabs", "Root", "Reactive", "State", "onValueChange", "interactive", "controlled"],
-    description: "Reactive tabs panel — interactive (click tabs to see the onValueChange callback), reactive (controlled Tabs with a live active-tab indicator)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="INTERACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const selectedBind = $.let(State.bind([StringType], "tabs_selected", "tab1"));
-                    const selected = $.let(selectedBind.read(), StringType);
-                    const onValueChange = $.const(East.function([StringType], NullType, ($, newValue) => {
-                        $(selectedBind.write(newValue));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Box width="100%">
-                                <Tabs
-                                    items={[
-                                        Tabs.Item("tab1", "Dashboard", [<Box padding="4"><Text>Dashboard content - view your metrics here.</Text></Box>]),
-                                        Tabs.Item("tab2", "Analytics", [<Box padding="4"><Text>Analytics content - detailed reports and charts.</Text></Box>]),
-                                        Tabs.Item("tab3", "Settings", [<Box padding="4"><Text>Settings content - configure your preferences.</Text></Box>]),
-                                    ]}
-                                    defaultValue="tab1"
-                                    onValueChange={onValueChange}
-                                    variant="line"
-                                />
-                            </Box>
-                            {<Text.Eyebrow>{East.str`SELECTED · ${selected}`}</Text.Eyebrow>}
-                        </VStack>
-                    );
-                }}</Reactive>
-                <Separator label="REACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const bind = $.let(State.bind([StringType], "tabs_reactive_active", "a"));
-                    const active = $.let(bind.read(), StringType);
-                    const onValueChange = $.const(East.function([StringType], NullType, ($, next) => {
-                        $(bind.write(next));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Tabs
-                                items={[
-                                    Tabs.Item("a", "Tab A", [<Box padding="4"><Text>A content</Text></Box>]),
-                                    Tabs.Item("b", "Tab B", [<Box padding="4"><Text>B content</Text></Box>]),
-                                    Tabs.Item("c", "Tab C", [<Box padding="4"><Text>C content</Text></Box>]),
-                                ]}
-                                value={active}
-                                onValueChange={onValueChange}
-                                variant="line"
-                            />
-                            <Text color="fg.muted">{East.str`Active: ${active}`}</Text>
-                        </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});

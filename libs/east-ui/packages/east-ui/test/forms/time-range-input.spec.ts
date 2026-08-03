@@ -11,7 +11,6 @@ import * as ex from "./time-range-input.examples.js";
 describeEast("TimeRangeInput", (test) => {
     Assert.examples(test, {
         timeRangeInputBasic: ex.timeRangeInputBasic,
-        timeRangeInputReactive: ex.timeRangeInputReactive,
         timeRangeInputVariants: ex.timeRangeInputVariants,
     });
 

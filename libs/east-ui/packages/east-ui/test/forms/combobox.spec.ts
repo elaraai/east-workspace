@@ -12,7 +12,6 @@ describeEast("Combobox", (test) => {
     Assert.examples(test, {
         comboboxBasic: ex.comboboxBasic,
         comboboxVariants: ex.comboboxVariants,
-        comboboxInteractive: ex.comboboxInteractive,
         comboboxEvents: ex.comboboxEvents,
     });
 
@@ -34,14 +33,6 @@ describeEast("Combobox", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("comboboxInteractive panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.comboboxInteractive.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MULTIPLE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE MULTI"));
-    });
 
     test("comboboxEvents panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.comboboxEvents.fn() as ExprType<UIComponentType>);

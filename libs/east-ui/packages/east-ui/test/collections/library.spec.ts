@@ -20,9 +20,20 @@ describeEast("Library", (test) => {
     // =========================================================================
     // Panels — every merged example stays mounted as a captioned row (#461).
     // The mono-uppercase Text captions are the stable per-mini anchors.
-    // (libraryLarge is a configurator — a single Reactive tree, no captions —
-    // so Assert.examples coverage suffices for it.)
     // =========================================================================
+
+    test("libraryLarge drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the mode axis and the three
+        // 400-card branch palettes — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The 400-card generation
+        // coverage lives in the generator test below, which constructs the
+        // same fixture shape directly.
+        const panel = $.const(ex.libraryLarge.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
 
     test("libraryVariants panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.libraryVariants.fn() as ExprType<UIComponentType>);

@@ -131,8 +131,7 @@ MUST have a matching entry in the corresponding
    describeEast("Button", (test) => {
        Assert.examples(test, {
            buttonBasic: ex.buttonBasic,
-           buttonSolidVariant: ex.buttonSolidVariant,
-           buttonReactiveCounter: ex.buttonReactiveCounter,
+           buttonVariants: ex.buttonVariants,
        });
        // ... tests
    }, { platformFns: TestImpl });

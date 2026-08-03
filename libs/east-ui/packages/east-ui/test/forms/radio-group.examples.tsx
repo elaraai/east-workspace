@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, RadioGroup, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, RadioGroup, SegmentGroup, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — the configurator's item set, with and without the
@@ -46,44 +46,11 @@ export const radioGroupBasic = example({
 });
 
 // ============================================================================
-// Reactive — picking an option writes to State and re-renders
-// ============================================================================
-
-export const radioGroupReactive = example({
-    keywords: ["RadioGroup", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive radio group bound to State — picking an option writes to State and re-renders",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const choiceBind = $.let(State.bind([StringType], "radio_choice", "small"));
-            const choice = $.let(choiceBind.read(), StringType);
-            const onChange = $.const(East.function([StringType], NullType, ($, next) => {
-                $(choiceBind.write(next));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <RadioGroup
-                        value={choice}
-                        items={[
-                            { value: "small", label: "Small" },
-                            { value: "medium", label: "Medium" },
-                            { value: "large", label: "Large" },
-                        ]}
-                        onChange={onChange}
-                    />
-                    <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${choice}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
 // RadioGroup — live configurator over every group axis
 // ============================================================================
 
 export const radioGroupVariants = example({
-    keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "RadioGroup configurator — orientation and colour-override axes plus a disabled-item switch driving one live State-bound group; the aside reads the selection back",
     fn: East.function([], UIComponentType, (_$) => {
         return (

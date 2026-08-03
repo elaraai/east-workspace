@@ -12,7 +12,6 @@ import * as ex from "./button.examples.js";
 describeEast("Button", (test) => {
     Assert.examples(test, {
         buttonBasic: ex.buttonBasic,
-        buttonReactiveCounter: ex.buttonReactiveCounter,
         buttonVariants: ex.buttonVariants,
     });
 

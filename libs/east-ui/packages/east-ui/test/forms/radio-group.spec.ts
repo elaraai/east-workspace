@@ -11,7 +11,6 @@ import * as ex from "./radio-group.examples.js";
 describeEast("RadioGroup", (test) => {
     Assert.examples(test, {
         radioGroupBasic: ex.radioGroupBasic,
-        radioGroupReactive: ex.radioGroupReactive,
         radioGroupVariants: ex.radioGroupVariants,
     });
 

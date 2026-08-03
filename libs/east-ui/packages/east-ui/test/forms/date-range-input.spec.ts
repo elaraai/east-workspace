@@ -11,7 +11,6 @@ import * as ex from "./date-range-input.examples.js";
 describeEast("DateRangeInput", (test) => {
     Assert.examples(test, {
         dateRangeInputBasic: ex.dateRangeInputBasic,
-        dateRangeInputReactive: ex.dateRangeInputReactive,
         dateRangeInputVariants: ex.dateRangeInputVariants,
     });
 

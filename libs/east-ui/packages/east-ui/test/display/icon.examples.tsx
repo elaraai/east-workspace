@@ -34,8 +34,8 @@ export const iconBasic = example({
 // ============================================================================
 
 export const iconStyles = example({
-    keywords: ["Icon", "Root", "fas", "far", "fab", "FontAwesome", "prefix", "name", "glyph", "solid", "regular", "brands", "size", "xs", "sm", "md", "lg", "xl", "2xl", "color", "tint", "colorPalette", "opacity", "background", "borderRadius", "padding", "tile", "label", "aria-hidden", "decorative", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator", "interactive"],
-    description: "Icon configurator — glyph, size, tint, opacity, tile and padding axes driving one live glyph; the aside sets it on a text baseline",
+    keywords: ["Icon", "Root", "fas", "far", "fab", "FontAwesome", "prefix", "name", "glyph", "solid", "regular", "brands", "size", "xs", "sm", "md", "lg", "xl", "2xl", "color", "tint", "colorPalette", "opacity", "background", "borderRadius", "padding", "tile", "label", "aria-hidden", "decorative", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "toggle"],
+    description: "Icon configurator — glyph, size, tint, opacity, tile and padding axes driving one live glyph; the aside sets it on a text baseline and toggles a star / heart on click",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -71,6 +71,10 @@ export const iconStyles = example({
                 const opacityBind = $.let(State.bind([StringType], "icon_opacity", "100"));
                 const tileBind    = $.let(State.bind([StringType], "icon_tile", "none"));
                 const paddingBind = $.let(State.bind([StringType], "icon_padding", "0"));
+                // The aside's toggle is the reactive row — clicking flips the
+                // counter's parity, which swaps the star / heart glyph (the old
+                // interactive example's key).
+                const counter     = $.let(State.bind([IntegerType], "icon_counter", 0n));
 
                 const gKey = $.let(glyphBind.read());
                 const sKey = $.let(sizeBind.read());
@@ -78,6 +82,13 @@ export const iconStyles = example({
                 const oKey = $.let(opacityBind.read());
                 const bKey = $.let(tileBind.read());
                 const pKey = $.let(paddingBind.read());
+                const clicks = $.let(counter.read());
+
+                const isStar = $.let(clicks.remainder(2n).equal(0n));
+                const toggled = $.let(isStar.ifElse(
+                    () => <Icon prefix="fas" name="star" size="2xl" colorPalette="warning" />,
+                    () => <Icon prefix="fas" name="heart" size="2xl" colorPalette="danger" />,
+                ));
 
                 const onGlyph   = $.const(East.function([StringType], NullType, ($, next) => { $(glyphBind.write(next)); }));
                 const onSize    = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
@@ -85,6 +96,10 @@ export const iconStyles = example({
                 const onOpacity = $.const(East.function([StringType], NullType, ($, next) => { $(opacityBind.write(next)); }));
                 const onTile    = $.const(East.function([StringType], NullType, ($, next) => { $(tileBind.write(next)); }));
                 const onPadding = $.const(East.function([StringType], NullType, ($, next) => { $(paddingBind.write(next)); }));
+                const inc       = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
@@ -136,12 +151,14 @@ export const iconStyles = example({
                         ]}
                         preview={glyph.icon}
                         aside={{
-                            label: "Inline · text baseline",
+                            label: "Inline · Reactive",
                             body: (
                                 <HStack gap="2" align="center">
                                     <Text>Reads inline with body copy</Text>
                                     {glyph.icon}
                                     <Text textStyle="caption" color="fg.subtle">same size · tint · tile as the preview</Text>
+                                    {toggled}
+                                    <Button size="xs" onClick={inc}>Toggle icon</Button>
                                 </HStack>
                             ),
                         }}
@@ -161,29 +178,3 @@ export const iconStyles = example({
     inputs: [],
 });
 
-export const iconInteractive = example({
-    keywords: ["Icon", "Reactive", "State", "interactive", "toggle"],
-    description: "Toggle between a star and heart icon on each click",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "icon_counter", 0n));
-            const value = $.let(counter.read());
-            const isStar = $.let(value.remainder(2n).equal(0n));
-            const display = $.let(isStar.ifElse(
-                () => <Icon prefix="fas" name="star" size="2xl" colorPalette="warning" />,
-                () => <Icon prefix="fas" name="heart" size="2xl" colorPalette="danger" />,
-            ));
-            const inc = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <HStack gap="3" align="center">
-                    {display}
-                    <Button onClick={inc}>Toggle icon</Button>
-                </HStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});

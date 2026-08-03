@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, DateTimeType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, DateRangeInput, HStack, Input, SegmentGroup, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, DateRangeInput, HStack, Input, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — presets are a host-level array (not an East
@@ -36,39 +36,11 @@ export const dateRangeInputBasic = example({
 });
 
 // ============================================================================
-// Reactive — both fields write back through one callback
-// ============================================================================
-
-export const dateRangeInputReactive = example({
-    keywords: ["DateRangeInput", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive range bound to State — both fields write back through one callback",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const startBind = $.let(State.bind([DateTimeType], "drin.start", new Date("2026-04-01T00:00:00Z")));
-            const endBind = $.let(State.bind([DateTimeType], "drin.end", new Date("2026-04-07T00:00:00Z")));
-            const start = $.let(startBind.read(), DateTimeType);
-            const end = $.let(endBind.read(), DateTimeType);
-            const onChange = $.const(East.function([DateTimeType, DateTimeType], NullType, ($, s, e) => {
-                $(startBind.write(s));
-                $(endBind.write(e));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <DateRangeInput startValue={start} endValue={end} precision="date" onChange={onChange} />
-                    {<Text.MonoLabel>{East.str`${start} → ${end}`}</Text.MonoLabel>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
 // DateRangeInput — live configurator over every range axis
 // ============================================================================
 
 export const dateRangeInputVariants = example({
-    keywords: ["DateRangeInput", "precision", "datetime", "time", "hours", "presets", "relative", "MTD", "YTD", "Last 7 days", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["DateRangeInput", "precision", "datetime", "time", "hours", "presets", "relative", "MTD", "YTD", "Last 7 days", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "DateRangeInput configurator — precision, size and colour axes plus disabled and presets switches driving one live State-bound range; the aside reads the range back",
     fn: East.function([], UIComponentType, (_$) => {
         return (

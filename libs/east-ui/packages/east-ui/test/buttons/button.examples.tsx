@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, SegmentGroup, Stat, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 export const buttonBasic = example({
     keywords: ["Button", "Root", "label", "basic", "create"],
@@ -16,44 +16,12 @@ export const buttonBasic = example({
     inputs: [],
 });
 
-export const buttonReactiveCounter = example({
-    keywords: ["Button", "Root", "onClick", "Reactive", "State", "callback", "interactive", "counter"],
-    description: "Reactive counter with increment/decrement buttons using onClick callbacks and State",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "counter", 0n));
-            const count = $.let(counter.read());
-
-            const increment = $.const(East.function([], NullType, $ => {
-                const current = $.let(counter.read());
-                $(counter.write(current.add(1n)));
-            }));
-
-            const decrement = $.const(East.function([], NullType, $ => {
-                const current = $.let(counter.read());
-                $(counter.write(current.subtract(1n)));
-            }));
-
-            return (
-                <VStack gap="4">
-                    <Stat label="Count" value={East.print(count)} />
-                    <HStack gap="2">
-                        <Button onClick={decrement} variant="solid" colorPalette="danger">-</Button>
-                        <Button onClick={increment} variant="solid" colorPalette="brand">+</Button>
-                    </HStack>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 // ============================================================================
 // Button — live configurator over every style axis
 // ============================================================================
 
 export const buttonVariants = example({
-    keywords: ["Button", "Root", "variant", "solid", "colorPalette", "blue", "size", "outline", "ghost", "red", "danger", "escape-hatch", "color", "hoverBackground", "plain", "unadorned", "style", "background", "borderColor", "branded", "startIcon", "endIcon", "icon", "loading", "loadingText", "loadingIcon", "spinner", "label", "rich", "UIComp", "HStack", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Button", "Root", "variant", "solid", "colorPalette", "blue", "size", "outline", "ghost", "red", "danger", "escape-hatch", "color", "hoverBackground", "plain", "unadorned", "style", "background", "borderColor", "branded", "startIcon", "endIcon", "icon", "loading", "loadingText", "loadingIcon", "spinner", "label", "rich", "UIComp", "HStack", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "onClick", "Reactive", "State", "callback", "interactive", "counter"],
     description: "Button configurator — variant, palette, size and colour axes plus loading, icons and rich-label switches driving one live button; the aside increments a reactive count",
     fn: East.function([], UIComponentType, (_$) => {
         return (

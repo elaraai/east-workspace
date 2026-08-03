@@ -23,9 +23,20 @@ describeEast("Schematic", (test) => {
     // =========================================================================
     // Panels — every merged example stays mounted as a captioned row (#461).
     // The mono-uppercase Text captions are the stable per-mini anchors.
-    // (schematicInteractions is a configurator — a single Reactive tree, no
-    // captions — so Assert.examples coverage suffices for it.)
     // =========================================================================
+
+    test("schematicInteractions drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tool axis, the per-tool prop
+        // mapping and the event-log binds — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. Interaction
+        // prop coverage lives in the Schematic.Root tests below, which
+        // construct each config directly.
+        const panel = $.const(ex.schematicInteractions.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
 
     test("schematicVariants panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.schematicVariants.fn() as ExprType<UIComponentType>);

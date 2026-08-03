@@ -12,7 +12,6 @@ import * as ex from "./nav-list.examples.js";
 describeEast("NavList", (test) => {
     Assert.examples(test, {
         navListBasic: ex.navListBasic,
-        navListReactive: ex.navListReactive,
         navListVariants: ex.navListVariants,
     });
 

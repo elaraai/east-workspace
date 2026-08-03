@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Library, Reactive, SegmentGroup, Separator, Slice, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Reactive, SegmentGroup, Separator, Slice, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -153,8 +153,8 @@ export const libraryVariants = example({
 });
 
 export const libraryLarge = example({
-    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows"],
-    description: "Large-library configurator — a SegmentGroup flips one shared 400-card generated crew fixture between grouped (depot / role group-by, meter + chips dims, search; rows virtualize behind a 480px scroll region), flat (no group-by: the flat layout virtualizes through the identical entry model, zero group heads), and sliced (the cards behind Slice chrome: a rail mounting [\"filter\", \"search\"] and a derived-count footer, rows fed explicitly via Slice.rows so filtered-out cards leave the palette)",
+    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Large-library configurator — a mode axis (grouped / flat / sliced) flipping one shared 400-card generated crew palette; sliced mounts Slice chrome with rows fed via Slice.rows",
     fn: East.function([], UIComponentType, (_$) => {
         const cfg = Slice.config(CrewType, {
             fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
@@ -162,6 +162,10 @@ export const libraryLarge = example({
         });
         return (
             <Reactive>{$ => {
+                // The mode axis is a bare label array — the control, the
+                // routing and the spec all read the same three keys.
+                const modes = $.const(["grouped", "flat", "sliced"], ArrayType(StringType));
+
                 const modeBind = $.let(State.bind([StringType], "library_large_mode", "grouped"));
                 const mode = $.let(modeBind.read());
                 const onModeChange = $.const(East.function([StringType], NullType, ($, next) => {
@@ -225,19 +229,19 @@ export const libraryLarge = example({
                     _$ => mode.equal("sliced").ifElse(_$ => sliced, _$ => grouped),
                 ), UIComponentType);
                 return (
-                    <VStack gap="3" align="stretch">
-                        <SegmentGroup
-                            value={mode}
-                            onChange={onModeChange}
-                            items={[
-                                SegmentGroup.Item("grouped", "Grouped"),
-                                SegmentGroup.Item("flat", "Flat"),
-                                SegmentGroup.Item("sliced", "Sliced"),
-                            ]}
-                            size="sm"
-                        />
-                        {body}
-                    </VStack>
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Mode", mode,
+                                <SegmentGroup value={mode} onChange={onModeChange} size="sm"
+                                    items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />,
+                                "sliced mounts Slice chrome · rows via Slice.rows"),
+                        ]}
+                        preview={body}
+                        spec={[
+                            Configurator.Spec("Cards", East.print(crew.size())),
+                            Configurator.Spec("Viewport", "480px · virtualized"),
+                        ]}
+                    />
                 );
             }}</Reactive>
         );

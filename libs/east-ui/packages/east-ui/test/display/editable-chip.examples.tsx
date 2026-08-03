@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, EditableChip, SegmentGroup, Separator, Style, Switch, Text, HStack, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, EditableChip, SegmentGroup, Style, Switch, Text, HStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -25,8 +25,8 @@ export const editableChipBasic = example({
 // ============================================================================
 
 export const editableChipVariants = example({
-    keywords: ["EditableChip", "Root", "disabled", "style", "colour", "color", "background", "borderColor", "triggerIconColor", "borderRadius", "density", "condensed", "compact", "comfortable", "sizes", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive"],
-    description: "EditableChip configurator — density, radius and colour-slot axes plus a disabled switch driving one live chip; the spec breaks the colour struct into its slots",
+    keywords: ["EditableChip", "Root", "disabled", "style", "colour", "color", "background", "borderColor", "triggerIconColor", "borderRadius", "density", "condensed", "compact", "comfortable", "sizes", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "onClick", "callback"],
+    description: "EditableChip configurator — density, radius and colour-slot axes plus a disabled switch driving one live chip; the aside chip's onClick cycles a scenario",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -58,16 +58,27 @@ export const editableChipVariants = example({
                 const radiusBind   = $.let(State.bind([StringType], "chip_radius", "md"));
                 const colorBind    = $.let(State.bind([StringType], "chip_color", "brand"));
                 const disabledBind = $.let(State.bind([BooleanType], "chip_disabled", false));
+                // The aside chip is the reactive row — its onClick cycles a
+                // scenario through State (the old reactive panel's key).
+                const scenarioBind = $.let(State.bind([IntegerType], "scenarioIndex", 0n));
 
                 const dKey = $.let(densityBind.read());
                 const rKey = $.let(radiusBind.read());
                 const cKey = $.let(colorBind.read());
                 const disabled = $.let(disabledBind.read());
+                const scenarioIndex = $.let(scenarioBind.read());
+
+                const scenarios = $.let(["Baseline", "Optimistic", "Stress"]);
+                const currentLabel = $.let(scenarios.get(scenarioIndex.remainder(3n)));
 
                 const onDensity  = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onRadius   = $.const(East.function([StringType], NullType, ($, next) => { $(radiusBind.write(next)); }));
                 const onColor    = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
                 const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+                const cycle      = $.const(East.function([], NullType, $ => {
+                    const current = $.let(scenarioBind.read());
+                    $(scenarioBind.write(current.add(1n)));
+                }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
@@ -106,11 +117,12 @@ export const editableChipVariants = example({
                             </EditableChip>
                         }
                         aside={{
-                            label: "Density · row alignment",
+                            label: "Row alignment · Reactive",
                             body: (
                                 <HStack gap="2" align="center">
-                                    <EditableChip density={density}><Text>Service level · 85%</Text></EditableChip>
+                                    <EditableChip density={density} onClick={cycle}><Text>{currentLabel}</Text></EditableChip>
                                     <EditableChip density={density}><Text>Horizon · 12 weeks</Text></EditableChip>
+                                    <Text textStyle="caption" color="fg.subtle">first chip cycles the scenario on click</Text>
                                 </HStack>
                             ),
                         }}
@@ -130,38 +142,3 @@ export const editableChipVariants = example({
     inputs: [],
 });
 
-// ============================================================================
-// EditableChip — onClick callback + scenario cycling (reactive panel)
-// ============================================================================
-
-export const editableChipReactive = example({
-    keywords: ["EditableChip", "Root", "onClick", "callback", "Reactive", "State", "interactive"],
-    description: "EditableChip reactive panel — chip with callback (editable chip with an onClick callback), chip reactive (reactive editable chip that cycles through three scenarios on click)",
-    fn: East.function([], UIComponentType, ($) => {
-        const onClick = $.const(East.function([], NullType, _ => {}));
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="CHIP WITH CALLBACK" align="start" />
-                <EditableChip onClick={onClick}><Text>Scenario: Q4 forecast</Text></EditableChip>
-                <Separator label="CHIP REACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const scenarioIndex = $.let(State.bind([IntegerType], "scenarioIndex", 0n));
-                    const index = $.let(scenarioIndex.read());
-                    const scenarios = $.let(["Baseline", "Optimistic", "Stress"]);
-                    const currentLabel = $.let(scenarios.get(index.remainder(3n)));
-                    const cycle = $.const(East.function([], NullType, $ => {
-                        const current = $.let(scenarioIndex.read());
-                        $(scenarioIndex.write(current.add(1n)));
-                    }));
-                    return (
-                        <HStack gap="2" align="center">
-                            <Text>{"Scenario: "}</Text>
-                            <EditableChip onClick={cycle}><Text>{currentLabel}</Text></EditableChip>
-                        </HStack>
-                    );
-                }}</Reactive>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});

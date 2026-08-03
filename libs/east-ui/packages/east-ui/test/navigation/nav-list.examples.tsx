@@ -98,46 +98,13 @@ export const navListBasic = example({
     inputs: [],
 });
 
-export const navListReactive = example({
-    keywords: ["NavList", "Reactive", "State", "onSelect", "interactive"],
-    description: "Reactive nav list — clicking an item updates State and re-renders the active highlight + selected-key display",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const activeBind = $.let(State.bind([StringType], "navlist.example.active", "profile"));
-            const active = $.let(activeBind.read(), StringType);
-            const onSelect = $.const(East.function([StringType], NullType, ($, key) => {
-                $(activeBind.write(key));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <NavList
-                        sections={[
-                            {
-                                label: "Settings",
-                                items: [
-                                    { key: "profile", label: "Profile", active: active.equals("profile") },
-                                    { key: "security", label: "Security", active: active.equals("security") },
-                                    { key: "billing", label: "Billing", active: active.equals("billing"), badge: "Trial" },
-                                ],
-                            },
-                        ]}
-                        onSelect={onSelect}
-                    />
-                    <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${active}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 // ============================================================================
 // NavList — live configurator over the structure + surface axes
 // ============================================================================
 
 export const navListVariants = example({
-    keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "NavList configurator — a structure-preset axis plus icons and shell-surface switches driving one live nav list",
+    keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive"],
+    description: "NavList configurator — a structure-preset axis plus icons and shell-surface switches driving one live nav list; the aside routes onSelect through State and reads it back",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -165,14 +132,20 @@ export const navListVariants = example({
                 const structureBind = $.let(State.bind([StringType], "navlist_structure", "grouped"));
                 const iconsBind     = $.let(State.bind([BooleanType], "navlist_icons", false));
                 const shellBind     = $.let(State.bind([BooleanType], "navlist_shell", false));
+                // The aside is the reactive row — clicking an item writes its
+                // key to State, which re-renders the active highlight and the
+                // readout (the old reactive example's key).
+                const activeBind    = $.let(State.bind([StringType], "navlist.example.active", "profile"));
 
                 const sKey    = $.let(structureBind.read());
                 const iconsOn = $.let(iconsBind.read());
                 const shell   = $.let(shellBind.read());
+                const active  = $.let(activeBind.read(), StringType);
 
                 const onStructure = $.const(East.function([StringType], NullType, ($, next) => { $(structureBind.write(next)); }));
                 const onIcons     = $.const(East.function([BooleanType], NullType, ($, next) => { $(iconsBind.write(next)); }));
                 const onShell     = $.const(East.function([BooleanType], NullType, ($, next) => { $(shellBind.write(next)); }));
+                const onSelect    = $.const(East.function([StringType], NullType, ($, key) => { $(activeBind.write(key)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const structure = $.let(structures.filter((_$, o) => o.label.equal(sKey)).get(0n));
@@ -200,6 +173,27 @@ export const navListVariants = example({
                                 </HStack>),
                         ]}
                         preview={list}
+                        aside={{
+                            label: "Selection · Reactive",
+                            body: (
+                                <VStack gap="3" align="flex-start">
+                                    <NavList
+                                        sections={[
+                                            {
+                                                label: "Settings",
+                                                items: [
+                                                    { key: "profile", label: "Profile", active: active.equals("profile") },
+                                                    { key: "security", label: "Security", active: active.equals("security") },
+                                                    { key: "billing", label: "Billing", active: active.equals("billing"), badge: "Trial" },
+                                                ],
+                                            },
+                                        ]}
+                                        onSelect={onSelect}
+                                    />
+                                    <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${active}`}</Text>
+                                </VStack>
+                            ),
+                        }}
                         spec={[
                             Configurator.Spec("Sections", East.print(structure.sections)),
                             Configurator.Spec("Icons", iconsOn.ifElse(_$ => "leading", _$ => "none")),

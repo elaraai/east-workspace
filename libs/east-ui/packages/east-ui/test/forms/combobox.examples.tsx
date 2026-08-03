@@ -8,18 +8,6 @@ import { State, UIComponentType } from "@elaraai/east-ui";
 import { Combobox, Configurator, HStack, SegmentGroup, Separator, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
-// ============================================================================
-
-const COMBOBOX_MULTIPLE_DATA = [
-    Combobox.Item("red", "Red"),
-    Combobox.Item("green", "Green"),
-    Combobox.Item("blue", "Blue"),
-    Combobox.Item("yellow", "Yellow"),
-    Combobox.Item("purple", "Purple"),
-];
-
-// ============================================================================
 // Basic — the search-index front door
 // ============================================================================
 
@@ -51,8 +39,8 @@ export const comboboxBasic = example({
 // ============================================================================
 
 export const comboboxVariants = example({
-    keywords: ["Combobox", "Root", "initial value", "preselected", "size", "xs", "sm", "md", "lg", "disabled", "Item", "allowCustomValue", "freeform", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Combobox configurator — value and size axes plus disabled and custom-value switches driving one live single-select bound to State; the aside reads the selection back",
+    keywords: ["Combobox", "Root", "initial value", "preselected", "size", "xs", "sm", "md", "lg", "disabled", "Item", "allowCustomValue", "freeform", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "multiple", "multi-select", "Reactive", "State", "onChange", "interactive", "onChangeMultiple", "multi"],
+    description: "Combobox configurator — value and size axes plus disabled, custom-value and multiple switches driving one live select bound to State; the aside reads the single and multi selections back",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -79,20 +67,58 @@ export const comboboxVariants = example({
                 const valueBind    = $.let(State.bind([StringType], "combobox_value", "ca"));
                 const disabledBind = $.let(State.bind([BooleanType], "combobox_disabled", false));
                 const customBind   = $.let(State.bind([BooleanType], "combobox_custom", false));
+                const multipleBind = $.let(State.bind([BooleanType], "combobox_multiple", false));
+                // Multi selection keeps its own State key (the old interactive
+                // panel's), so flipping the Multiple switch preserves each
+                // mode's selection.
+                const multiBind    = $.let(State.bind([ArrayType(StringType)], "form_combobox_multi", []));
 
                 const sKey     = $.let(sizeBind.read());
                 const selected = $.let(valueBind.read());
                 const disabled = $.let(disabledBind.read());
                 const custom   = $.let(customBind.read());
+                const multiple = $.let(multipleBind.read());
+                const multiSel = $.let(multiBind.read());
 
-                const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-                const onValue    = $.const(East.function([StringType], NullType, ($, next) => { $(valueBind.write(next)); }));
-                const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
-                const onCustom   = $.const(East.function([BooleanType], NullType, ($, next) => { $(customBind.write(next)); }));
+                const onSize           = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onValue          = $.const(East.function([StringType], NullType, ($, next) => { $(valueBind.write(next)); }));
+                const onDisabled       = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+                const onCustom         = $.const(East.function([BooleanType], NullType, ($, next) => { $(customBind.write(next)); }));
+                const onMultiple       = $.const(East.function([BooleanType], NullType, ($, next) => { $(multipleBind.write(next)); }));
+                const onChangeMultiple = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(multiBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
                 const selDisplay = $.let(East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(none)"));
+                const multiDisplay = $.let(East.greater(multiSel.size(), 0n).ifElse(_$ => multiSel.stringJoin(", "), _$ => "(none)"));
+
+                // `multiple` routes the selection through onChangeMultiple and
+                // its own array-valued State key; single keeps the value axis.
+                const combo = $.const(multiple.ifElse(
+                    _$ => (
+                        <Combobox
+                            value=""
+                            items={countries.map((_$, c) => Combobox.Item(c.value, c.label, { disabled: c.disabled }))}
+                            placeholder="Search countries..."
+                            size={size}
+                            disabled={disabled}
+                            allowCustomValue={custom}
+                            multiple={true}
+                            onChangeMultiple={onChangeMultiple}
+                        />
+                    ),
+                    _$ => (
+                        <Combobox
+                            value={selected}
+                            items={countries.map((_$, c) => Combobox.Item(c.value, c.label, { disabled: c.disabled }))}
+                            placeholder="Search countries..."
+                            size={size}
+                            disabled={disabled}
+                            allowCustomValue={custom}
+                            onChange={onValue}
+                        />
+                    ),
+                ));
 
                 return (
                     <Configurator
@@ -105,32 +131,30 @@ export const comboboxVariants = example({
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switches report as the
-                            // Disabled / Custom spec rows below rather than as
-                            // one value each.
+                            // Disabled / Custom / Mode spec rows below rather
+                            // than as one value each.
                             Configurator.Slot("Flags",
                                 <HStack gap="5" align="center">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
                                     <Text textStyle="caption" color="fg.subtle">whole control</Text>
                                     <Switch checked={custom} label="Custom value" onChange={onCustom} />
                                     <Text textStyle="caption" color="fg.subtle">freeform entries allowed</Text>
+                                    <Switch checked={multiple} label="Multiple" onChange={onMultiple} />
+                                    <Text textStyle="caption" color="fg.subtle">pick many · own State key</Text>
                                 </HStack>),
                         ]}
-                        preview={
-                            <Combobox
-                                value={selected}
-                                items={countries.map((_$, c) => Combobox.Item(c.value, c.label, { disabled: c.disabled }))}
-                                placeholder="Search countries..."
-                                size={size}
-                                disabled={disabled}
-                                allowCustomValue={custom}
-                                onChange={onValue}
-                            />
-                        }
+                        preview={combo}
                         aside={{
                             label: "Selection · Reactive",
-                            body: <Text.MonoLabel>{East.str`SELECTED · ${selDisplay.upperCase()}`}</Text.MonoLabel>,
+                            body: (
+                                <VStack gap="1" align="flex-start">
+                                    <Text.MonoLabel>{East.str`SELECTED · ${selDisplay.upperCase()}`}</Text.MonoLabel>
+                                    <Text.MonoLabel>{East.str`MULTI · ${multiDisplay.upperCase()}`}</Text.MonoLabel>
+                                </VStack>
+                            ),
                         }}
                         spec={[
+                            Configurator.Spec("Mode", multiple.ifElse(_$ => "multi · onChangeMultiple", _$ => "single · onChange")),
                             Configurator.Spec("Disabled", disabled.ifElse(_$ => "control", _$ => "antarctica item only")),
                             Configurator.Spec("Custom values", custom.ifElse(_$ => "accepted", _$ => "list only")),
                             Configurator.Spec("Items", East.str`${East.print(countries.size())} · antarctica disabled`),
@@ -143,82 +167,6 @@ export const comboboxVariants = example({
     inputs: [],
 });
 
-// ============================================================================
-// Combobox — single + multi select live side by side (interactive panel)
-// ============================================================================
-
-export const comboboxInteractive = example({
-    keywords: ["Combobox", "Root", "multiple", "multi-select", "Reactive", "State", "onChange", "interactive", "onChangeMultiple", "multi"],
-    description: "Combobox interactive panel — multiple (select multiple values from the list), interactive (single select - type to search, pick one), interactive multi (multi select - type to search, pick many)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="MULTIPLE" align="start" />
-                <Combobox
-                    value=""
-                    items={COMBOBOX_MULTIPLE_DATA}
-                    placeholder="Search colors..."
-                    multiple={true}
-                />
-                <Separator label="INTERACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const selectBind = $.let(State.bind([StringType], "form_combobox", ""));
-                    const selected = $.let(selectBind.read());
-                    const onChange = $.const(East.function([StringType], NullType, ($, newValue) => {
-                        $(selectBind.write(newValue));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Combobox
-                                value={selected}
-                                items={[
-                                    Combobox.Item("apple", "Apple"),
-                                    Combobox.Item("banana", "Banana"),
-                                    Combobox.Item("cherry", "Cherry"),
-                                    Combobox.Item("date", "Date"),
-                                    Combobox.Item("elderberry", "Elderberry"),
-                                    Combobox.Item("fig", "Fig"),
-                                    Combobox.Item("guava", "Guava"),
-                                ]}
-                                placeholder="Search fruits..."
-                                onChange={onChange}
-                            />
-                            {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(NONE)")}`}</Text.MonoLabel>}
-                        </VStack>
-                    );
-                }}</Reactive>
-                <Separator label="INTERACTIVE MULTI" align="start" />
-                <Reactive>{$ => {
-                    const selectBind = $.let(State.bind([ArrayType(StringType)], "form_combobox_multi", []));
-                    const selected = $.let(selectBind.read());
-                    const onChangeMultiple = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
-                        $(selectBind.write(newValue));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Combobox
-                                value=""
-                                items={[
-                                    Combobox.Item("react", "React"),
-                                    Combobox.Item("vue", "Vue"),
-                                    Combobox.Item("angular", "Angular"),
-                                    Combobox.Item("svelte", "Svelte"),
-                                    Combobox.Item("solid", "Solid"),
-                                    Combobox.Item("ember", "Ember"),
-                                ]}
-                                placeholder="Search frameworks..."
-                                multiple={true}
-                                onChangeMultiple={onChangeMultiple}
-                            />
-                            {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected.stringJoin(", "), _$ => "(NONE)")}`}</Text.MonoLabel>}
-                        </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
 
 // ============================================================================
 // Combobox — keystroke + open/close logs (events panel)

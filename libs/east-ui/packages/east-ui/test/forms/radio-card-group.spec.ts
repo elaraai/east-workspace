@@ -11,7 +11,6 @@ import * as ex from "./radio-card-group.examples.js";
 describeEast("RadioCardGroup", (test) => {
     Assert.examples(test, {
         radioCardGroupBasic: ex.radioCardGroupBasic,
-        radioCardGroupReactive: ex.radioCardGroupReactive,
         radioCardGroupVariants: ex.radioCardGroupVariants,
     });
 

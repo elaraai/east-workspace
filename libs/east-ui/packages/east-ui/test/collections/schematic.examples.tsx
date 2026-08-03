@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { HStack, Reactive, Schematic, SegmentGroup, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, Schematic, SegmentGroup, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -693,10 +693,13 @@ export const schematicSlice = example({
 });
 
 export const schematicInteractions = example({
-    keywords: ["Schematic", "Reactive", "State", "onSelect", "onItemOpen", "double-click", "open", "drill-in", "interactive", "selection", "selectionMode", "single", "multiple", "marquee", "onSelectionChange", "selectZoomFocus", "focus", "zoom", "multi-select", "Switch", "zone", "area", "onSelectZone", "onZoneSelectionChange", "childItemKeys", "move", "reposition", "drag", "onMoveItem", "readOnlyItems", "editing", "group", "hover", "HoverCard", "itemHover", "zoneHover", "linkHover", "Sparkline", "chart", "inspection", "lazy", "viewport", "onViewportChange", "camera", "bounds", "settle"],
-    description: "Interaction configurator — a tool SegmentGroup flips select / marquee / zone / move over one shared canvas: select (onSelect tracks the inspected item and onItemOpen double-click drill-in tracks the opened one; a background double-click still resets the view), marquee (drag a marquee or Shift-click to select many — onSelectionChange writes the whole key set to State; the Multi-select switch flips single/multiple and the selectZoomFocus switch flips tap-flies / marquee-fits vs camera-stays), zone (zone selection — onZoneSelectionChange reports the selected zones AND their child items; the Multi-select switch turns on Shift-extend), move (item drag-to-reposition — onMoveItem fires once per gesture with the final position, every moved key, and the shared delta; the Items movable switch flips readOnlyItems reactively); hover cards (item / zone / link cards an East function builds LAZILY from the hovered key, a Sparkline the headline case) stay enabled in every mode, and the footer renders the selection, count, zone, move, and debounced viewport log lines as mono Text",
+    keywords: ["Schematic", "Reactive", "State", "onSelect", "onItemOpen", "double-click", "open", "drill-in", "interactive", "selection", "selectionMode", "single", "multiple", "marquee", "onSelectionChange", "selectZoomFocus", "focus", "zoom", "multi-select", "Switch", "zone", "area", "onSelectZone", "onZoneSelectionChange", "childItemKeys", "move", "reposition", "drag", "onMoveItem", "readOnlyItems", "editing", "group", "hover", "HoverCard", "itemHover", "zoneHover", "linkHover", "Sparkline", "chart", "inspection", "lazy", "viewport", "onViewportChange", "camera", "bounds", "settle", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Schematic interaction configurator — a tool axis (select / marquee / zone / move) plus multi-select, zoom-focus and movable switches; hover cards stay on; the aside logs five event lines",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            // The tool axis is a bare label array — the control and the
+            // per-tool prop mapping below read the same four keys.
+            const tools = $.const(["select", "marquee", "zone", "move"], ArrayType(StringType));
             // Tool mode — select / marquee / zone / move.
             const toolBind = $.let(State.bind([StringType], "schematic_tool", "select"));
             const tool = $.let(toolBind.read());
@@ -791,53 +794,67 @@ export const schematicInteractions = example({
             // Items reposition only under the move tool, gated by its switch.
             const roItems = $.let(tool.equal("move").ifElse(_$ => mOn.not(), _$ => true), BooleanType);
             return (
-                <VStack gap="3" align="stretch">
-                    <SegmentGroup
-                        value={tool}
-                        onChange={onToolChange}
-                        items={[
-                            SegmentGroup.Item("select", "Select"),
-                            SegmentGroup.Item("marquee", "Marquee"),
-                            SegmentGroup.Item("zone", "Zone"),
-                            SegmentGroup.Item("move", "Move"),
-                        ]}
-                        size="sm"
-                    />
-                    <HStack gap="4" align="center">
-                        <Switch checked={multiOn} label="Multi-select (Shift extends)" onChange={onMulti} />
-                        <Switch checked={focusOn} label="Zoom to focus on select" onChange={onFocus} />
-                        <Switch checked={mOn} label="Items movable" onChange={onM} />
-                    </HStack>
-                    {/* schematicZoneSelect's 24 × 12 extent — the zone bodies (and
-                        the M1 / P1 / P2 rows inside them) need the wider world rect. */}
-                    <Schematic
-                        extent={{ width: 24, height: 12 }}
-                        height="440px"
-                        items={SCHEMATIC_INTERACTIONS_ITEMS}
-                        item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "industry" })}
-                        zones={SCHEMATIC_INTERACTIONS_ZONES}
-                        zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}
-                        onSelect={onSelect}
-                        onItemOpen={onItemOpen}
-                        selectionMode={selMode}
-                        selectZoomFocus={zoomFocus}
-                        onSelectionChange={onSelectionChange}
-                        onZoneSelectionChange={onZoneSelectionChange}
-                        readOnlyItems={roItems}
-                        onMoveItem={onMoveItem}
-                        itemHover={itemHover}
-                        zoneHover={zoneHover}
-                        linkHover={linkHover}
-                        onViewportChange={onViewportChange}
-                    />
-                    <VStack gap="1" align="stretch">
-                        <Text fontFamily="mono">{East.str`INSPECTING · ${selected} · OPENED · ${openedKey}`}</Text>
-                        <Text fontFamily="mono">{East.str`SELECTED · ${East.print(count)}`}</Text>
-                        <Text fontFamily="mono">{East.str`ZONES · ${zoneTxt}`}</Text>
-                        <Text fontFamily="mono">{East.str`MOVE · ${moveTxt}`}</Text>
-                        <Text fontFamily="mono">{East.str`VIEW · ${viewportTxt}`}</Text>
-                    </VStack>
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Tool", tool,
+                            <SegmentGroup value={tool} onChange={onToolChange} size="sm"
+                                items={tools.map((_$, t) => SegmentGroup.Item(t, <Text>{t.upperCase()}</Text>))} />,
+                            "each tool remaps selectionMode · camera · readOnlyItems"),
+                        // Slots, not Controls: the switches report through the
+                        // aside's event log rather than as one value each.
+                        Configurator.Slot("Selection",
+                            <HStack gap="5" align="center">
+                                <Switch checked={multiOn} label="Multi-select (Shift extends)" onChange={onMulti} />
+                                <Text textStyle="caption" color="fg.subtle">marquee + zone tools</Text>
+                            </HStack>),
+                        Configurator.Slot("Camera",
+                            <HStack gap="5" align="center">
+                                <Switch checked={focusOn} label="Zoom to focus on select" onChange={onFocus} />
+                                <Text textStyle="caption" color="fg.subtle">marquee tool · tap-flies / marquee-fits</Text>
+                            </HStack>),
+                        Configurator.Slot("Items",
+                            <HStack gap="5" align="center">
+                                <Switch checked={mOn} label="Items movable" onChange={onM} />
+                                <Text textStyle="caption" color="fg.subtle">move tool · flips readOnlyItems</Text>
+                            </HStack>),
+                    ]}
+                    preview={
+                        /* schematicZoneSelect's 24 × 12 extent — the zone bodies (and
+                           the M1 / P1 / P2 rows inside them) need the wider world rect. */
+                        <Schematic
+                            extent={{ width: 24, height: 12 }}
+                            height="440px"
+                            items={SCHEMATIC_INTERACTIONS_ITEMS}
+                            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "industry" })}
+                            zones={SCHEMATIC_INTERACTIONS_ZONES}
+                            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}
+                            onSelect={onSelect}
+                            onItemOpen={onItemOpen}
+                            selectionMode={selMode}
+                            selectZoomFocus={zoomFocus}
+                            onSelectionChange={onSelectionChange}
+                            onZoneSelectionChange={onZoneSelectionChange}
+                            readOnlyItems={roItems}
+                            onMoveItem={onMoveItem}
+                            itemHover={itemHover}
+                            zoneHover={zoneHover}
+                            linkHover={linkHover}
+                            onViewportChange={onViewportChange}
+                        />
+                    }
+                    aside={{
+                        label: "Event log · Reactive",
+                        body: (
+                            <VStack gap="1" align="stretch">
+                                <Text fontFamily="mono">{East.str`INSPECTING · ${selected} · OPENED · ${openedKey}`}</Text>
+                                <Text fontFamily="mono">{East.str`SELECTED · ${East.print(count)}`}</Text>
+                                <Text fontFamily="mono">{East.str`ZONES · ${zoneTxt}`}</Text>
+                                <Text fontFamily="mono">{East.str`MOVE · ${moveTxt}`}</Text>
+                                <Text fontFamily="mono">{East.str`VIEW · ${viewportTxt}`}</Text>
+                            </VStack>
+                        ),
+                    }}
+                />
             );
         }}</Reactive>
     )),

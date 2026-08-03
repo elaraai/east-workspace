@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, SegmentGroup, Style, Switch, Text, TimeRangeInput, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, SegmentGroup, Style, Switch, Text, TimeRangeInput, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — presets are a host-level array (not an East
@@ -34,39 +34,11 @@ export const timeRangeInputBasic = example({
 });
 
 // ============================================================================
-// Reactive — both inputs write back through the same callback
-// ============================================================================
-
-export const timeRangeInputReactive = example({
-    keywords: ["TimeRangeInput", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive range bound to State — both inputs write back through the same callback",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const startBind = $.let(State.bind([IntegerType], "trin.start", 360n));
-            const endBind = $.let(State.bind([IntegerType], "trin.end", 840n));
-            const start = $.let(startBind.read(), IntegerType);
-            const end = $.let(endBind.read(), IntegerType);
-            const onChange = $.const(East.function([IntegerType, IntegerType], NullType, ($, s, e) => {
-                $(startBind.write(s));
-                $(endBind.write(e));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <TimeRangeInput startValue={start} endValue={end} step={15n} onChange={onChange} />
-                    {<Text.MonoLabel>{East.str`MIN · ${start} → ${end}`}</Text.MonoLabel>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
 // TimeRangeInput — live configurator over every range axis
 // ============================================================================
 
 export const timeRangeInputVariants = example({
-    keywords: ["TimeRangeInput", "presets", "shift", "morning", "afternoon", "night", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["TimeRangeInput", "presets", "shift", "morning", "afternoon", "night", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "TimeRangeInput configurator — size and colour axes plus disabled and presets switches driving one live State-bound shift window; the aside reads the minutes back",
     fn: East.function([], UIComponentType, (_$) => {
         return (

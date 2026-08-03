@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Accordion, Box, Configurator, HStack, SegmentGroup, Separator, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Accordion, Box, Configurator, HStack, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const accordionBasic = example({
     keywords: ["Accordion", "Root", "Item", "basic", "collapsible"],
@@ -31,8 +31,8 @@ export const accordionBasic = example({
 // ============================================================================
 
 export const accordionVariants = example({
-    keywords: ["Accordion", "Root", "Item", "multiple", "collapsible", "faq", "settings", "title", "meta", "count", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Accordion configurator — a content-preset axis plus multiple and collapsible switches driving one live accordion",
+    keywords: ["Accordion", "Root", "Item", "multiple", "collapsible", "faq", "settings", "title", "meta", "count", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onValueChange", "interactive", "controlled"],
+    description: "Accordion configurator — a content-preset axis plus multiple and collapsible switches driving one live accordion; the aside is a controlled multi-open accordion with live counts",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -68,14 +68,20 @@ export const accordionVariants = example({
                 const contentBind     = $.let(State.bind([StringType], "accordion_content", "basic"));
                 const multipleBind    = $.let(State.bind([BooleanType], "accordion_multiple", false));
                 const collapsibleBind = $.let(State.bind([BooleanType], "accordion_collapsible", true));
+                // The aside is the reactive row — a controlled multi-open
+                // accordion whose value round-trips through State (the old
+                // reactive panel's key).
+                const expandedBind    = $.let(State.bind([ArrayType(StringType)], "accordion_reactive_multi", []));
 
                 const cKey        = $.let(contentBind.read());
                 const multiple    = $.let(multipleBind.read());
                 const collapsible = $.let(collapsibleBind.read());
+                const expanded    = $.let(expandedBind.read(), ArrayType(StringType));
 
                 const onContent     = $.const(East.function([StringType], NullType, ($, next) => { $(contentBind.write(next)); }));
                 const onMultiple    = $.const(East.function([BooleanType], NullType, ($, next) => { $(multipleBind.write(next)); }));
                 const onCollapsible = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsibleBind.write(next)); }));
+                const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(expandedBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const preset = $.let(presets.filter((_$, o) => o.label.equal(cKey)).get(0n));
@@ -103,6 +109,25 @@ export const accordionVariants = example({
                                 <Accordion items={preset.items} multiple={multiple} collapsible={collapsible} />
                             </Box>
                         }
+                        aside={{
+                            label: "Controlled · Reactive",
+                            body: (
+                                <VStack gap="3" align="stretch">
+                                    <Accordion
+                                        items={[
+                                            Accordion.Item("recipe", "Recipe", [<Box padding="4"><Text>Recipe detail</Text></Box>], { meta: "12 inputs" }),
+                                            Accordion.Item("schedule", "Schedule", [<Box padding="4"><Text>Schedule detail</Text></Box>], { meta: "3 conflicts" }),
+                                            Accordion.Item("cost", "Cost", [<Box padding="4"><Text>Cost detail</Text></Box>], { meta: East.str`${East.print(expanded.size())} open` }),
+                                        ]}
+                                        multiple={true}
+                                        collapsible={true}
+                                        value={expanded}
+                                        onValueChange={onValueChange}
+                                    />
+                                    {<Text.Eyebrow>{East.str`EXPANDED · ${expanded.size()}`}</Text.Eyebrow>}
+                                </VStack>
+                            ),
+                        }}
                         spec={[
                             Configurator.Spec("Sections", East.print(preset.items.size())),
                             Configurator.Spec("Multiple", multiple.ifElse(_$ => "on", _$ => "off")),
@@ -116,64 +141,3 @@ export const accordionVariants = example({
     inputs: [],
 });
 
-// ============================================================================
-// Reactive — interactive/controlled rows (consolidation epic #455).
-// ============================================================================
-
-export const accordionReactive = example({
-    keywords: ["Accordion", "Root", "Reactive", "State", "onValueChange", "interactive", "multiple", "controlled", "count"],
-    description: "Reactive accordion panel — interactive (expand/collapse to see the onValueChange callback), reactive multi (controlled multi-open accordion with mono-numeral counts on each trigger)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="INTERACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const expandedBind = $.let(State.bind([ArrayType(StringType)], "accordion_expanded", []));
-                    const expanded = $.let(expandedBind.read(), ArrayType(StringType));
-                    const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newValue) => {
-                        $(expandedBind.write(newValue));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Box width="100%">
-                                <Accordion
-                                    items={[
-                                        Accordion.Item("intro", "Introduction", [<Box padding="4"><Text>Welcome! This is the introduction section.</Text></Box>]),
-                                        Accordion.Item("features", "Features", [<Box padding="4"><Text>Explore the amazing features available.</Text></Box>]),
-                                        Accordion.Item("help", "Help & Support", [<Box padding="4"><Text>Get help and support for any issues.</Text></Box>]),
-                                    ]}
-                                    multiple={true}
-                                    collapsible={true}
-                                    onValueChange={onValueChange}
-                                />
-                            </Box>
-                            {<Text.Eyebrow>{East.str`EXPANDED · ${expanded.size()}`}</Text.Eyebrow>}
-                        </VStack>
-                    );
-                }}</Reactive>
-                <Separator label="REACTIVE MULTI" align="start" />
-                <Reactive>{$ => {
-                    const bind = $.let(State.bind([ArrayType(StringType)], "accordion_reactive_multi", []));
-                    const expanded = $.let(bind.read(), ArrayType(StringType));
-                    const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => {
-                        $(bind.write(next));
-                    }));
-                    return (
-                        <Accordion
-                            items={[
-                                Accordion.Item("recipe", "Recipe", [<Box padding="4"><Text>Recipe detail</Text></Box>], { meta: "12 inputs" }),
-                                Accordion.Item("schedule", "Schedule", [<Box padding="4"><Text>Schedule detail</Text></Box>], { meta: "3 conflicts" }),
-                                Accordion.Item("cost", "Cost", [<Box padding="4"><Text>Cost detail</Text></Box>], { meta: East.str`${East.print(expanded.size())} open` }),
-                            ]}
-                            multiple={true}
-                            collapsible={true}
-                            value={expanded}
-                            onValueChange={onValueChange}
-                        />
-                    );
-                }}</Reactive>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});

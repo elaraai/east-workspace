@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, RadioCardGroup, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, RadioCardGroup, SegmentGroup, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — the configurator's card set, with and without the
@@ -46,44 +46,11 @@ export const radioCardGroupBasic = example({
 });
 
 // ============================================================================
-// Reactive — picking a card writes to State and re-renders
-// ============================================================================
-
-export const radioCardGroupReactive = example({
-    keywords: ["RadioCardGroup", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive radio cards bound to State — picking a card writes to State and re-renders the selected-value indicator below",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const planBind = $.let(State.bind([StringType], "plan_choice", "team"));
-            const plan = $.let(planBind.read(), StringType);
-            const onChange = $.const(East.function([StringType], NullType, ($, next) => {
-                $(planBind.write(next));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <RadioCardGroup
-                        value={plan}
-                        items={[
-                            { value: "starter", label: "Starter", description: "Up to 5 users" },
-                            { value: "team", label: "Team", description: "Up to 50 users" },
-                            { value: "business", label: "Business", description: "Unlimited" },
-                        ]}
-                        onChange={onChange}
-                    />
-                    <Text textStyle="body-sm" color="fg.muted">{East.str`Selected plan: ${plan}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
 // RadioCardGroup — live configurator over every card-group axis
 // ============================================================================
 
 export const radioCardGroupVariants = example({
-    keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "RadioCardGroup configurator — orientation and selected-card colour axes plus a disabled-card switch driving one live State-bound card group; the aside reads the selection back",
     fn: East.function([], UIComponentType, (_$) => {
         return (

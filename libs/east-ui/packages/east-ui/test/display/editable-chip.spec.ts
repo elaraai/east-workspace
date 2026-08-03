@@ -12,7 +12,6 @@ describeEast("EditableChip", (test) => {
     Assert.examples(test, {
         editableChipBasic: ex.editableChipBasic,
         editableChipVariants: ex.editableChipVariants,
-        editableChipReactive: ex.editableChipReactive,
     });
 
     // =========================================================================
@@ -32,13 +31,6 @@ describeEast("EditableChip", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("editableChipReactive panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.editableChipReactive.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP WITH CALLBACK"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHIP REACTIVE"));
-    });
 
     test("creates an EditableChip with a label", $ => {
         const chip = $.let(EditableChip.Root(Text.Root("Scenario")));

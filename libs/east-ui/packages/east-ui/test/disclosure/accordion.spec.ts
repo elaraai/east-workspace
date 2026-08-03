@@ -13,7 +13,6 @@ describeEast("Accordion", (test) => {
     Assert.examples(test, {
         accordionBasic: ex.accordionBasic,
         accordionVariants: ex.accordionVariants,
-        accordionReactive: ex.accordionReactive,
     });
 
     // =========================================================================
@@ -33,13 +32,6 @@ describeEast("Accordion", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("accordionReactive panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.accordionReactive.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REACTIVE MULTI"));
-    });
 
     // =========================================================================
     // Accordion.Item — title + optional meta

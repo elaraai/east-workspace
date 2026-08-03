@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, HStack, Reactive, SegmentGroup, Separator, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, HStack, Reactive, SegmentGroup, Separator, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -325,14 +325,21 @@ export const tableStyleVariants = example({
 
 /**
  * Selection configurator — one table whose `selection.mode` flips between
- * multiple and range from a SegmentGroup; each mode's selection mirrors its
+ * multiple and range from the Mode control; each mode's selection mirrors its
  * own State array so switching modes preserves each mode's selection.
  */
 export const tableSelection = example({
-    keywords: ["Table", "Root", "selection", "multiple", "checkbox", "Reactive", "State", "range", "shift-click"],
-    description: "Selection configurator — a SegmentGroup flips selection.mode: multiple — toggles rows independently; range — shift-click extends from the last anchor, plain click resets. Each mode's selection mirrors its own State array (table_multi_selected / table_range_selected), so switching modes preserves each mode's selection; both count readouts render below the table",
+    keywords: ["Table", "Root", "selection", "multiple", "checkbox", "Reactive", "State", "range", "shift-click", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Table selection configurator — a selection-mode axis (multiple / range) driving one live State-bound table; each mode mirrors its own State array and the spec reads both counts back",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            // Enumerated axes are just their variants — `getTag()` gives the
+            // segment key AND its label, so there is no parallel table to
+            // keep in step.
+            const modes = $.const([
+                variant("multiple", null), variant("range", null),
+            ], ArrayType(Table.Types.SelectionMode));
+
             const modeBind = $.let(State.bind([StringType], "table_selection_mode", "multiple"));
             const mode = $.let(modeBind.read());
             const multiBind = $.let(State.bind([ArrayType(IntegerType)], "table_multi_selected", []));
@@ -348,33 +355,34 @@ export const tableSelection = example({
                 const m = $.let(modeBind.read());
                 $(m.equal("range").ifElse(_$ => rangeBind.write(next), _$ => multiBind.write(next)));
             }));
-            const selectionMode = $.const(mode.equal("range").ifElse(
-                _$ => variant("range", null),
-                _$ => variant("multiple", null),
-            ), Table.Types.SelectionMode);
+            // The selection is a lookup into the same array the control renders.
+            const selectionMode = $.let(modes.filter((_$, v) => v.getTag().equal(mode)).get(0n));
             return (
-                <VStack gap="3" align="stretch">
-                    <SegmentGroup
-                        value={mode}
-                        onChange={onModeChange}
-                        items={[
-                            SegmentGroup.Item("multiple", "Multiple"),
-                            SegmentGroup.Item("range", "Range"),
-                        ]}
-                        size="sm"
-                    />
-                    <Table
-                        variant="line"
-                        striped={true}
-                        selection={{ mode: selectionMode, selected, onChange }}
-                        selectedBackground={mode.equal("range").ifElse(_$ => "bg.info.subtle", _$ => "bg.brand.subtle")}
-                        selectedBorderColor={mode.equal("range").ifElse(_$ => "border.subtle", _$ => "border.brand")}
-                        data={TABLE_SELECTION_DATA}
-                        columns={{ name: { header: "Name" }, role: { header: "Role" } }}
-                    />
-                    <Badge variant="solid" colorPalette="brand">{East.str`${multiSelected.size()} selected`}</Badge>
-                    <Badge variant="outline" colorPalette="brand">{East.str`Range size: ${rangeSelected.size()}`}</Badge>
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Mode", mode,
+                            <SegmentGroup value={mode} onChange={onModeChange} size="sm"
+                                items={modes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
+                            "range: shift-click extends from the last anchor"),
+                    ]}
+                    preview={
+                        <Table
+                            variant="line"
+                            striped={true}
+                            selection={{ mode: selectionMode, selected, onChange }}
+                            selectedBackground={mode.equal("range").ifElse(_$ => "bg.info.subtle", _$ => "bg.brand.subtle")}
+                            selectedBorderColor={mode.equal("range").ifElse(_$ => "border.subtle", _$ => "border.brand")}
+                            data={TABLE_SELECTION_DATA}
+                            columns={{ name: { header: "Name" }, role: { header: "Role" } }}
+                        />
+                    }
+                    spec={[
+                        // Each mode's count reads its own State array, so both
+                        // readouts stay live while the other mode is parked.
+                        Configurator.Spec("Multiple selected", East.print(multiSelected.size())),
+                        Configurator.Spec("Range size", East.print(rangeSelected.size())),
+                    ]}
+                />
             );
         }}</Reactive>
     )),
