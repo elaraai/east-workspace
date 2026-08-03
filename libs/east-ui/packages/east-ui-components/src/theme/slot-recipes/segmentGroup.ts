@@ -37,20 +37,28 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             "--segment-radius": "0px",
             display: "inline-flex",
             alignItems: "stretch",
-            width: "max-content",
-            /* Compact containers (#349): overflowing segments scroll (no
-             * wrap — the Zag indicator assumes a single row). */
+            /* Compact containers (#349): overflowing segments WRAP onto
+             * further rows. Safe here because the sliding indicator is
+             * hidden (active state paints via the item's `_checked`), so
+             * the Zag single-row assumption never applies. Width stays
+             * auto (shrink-to-fit) with `minWidth: 0` so a flex parent can
+             * actually clamp the box — a fixed `max-content` width plus
+             * the min-width:auto floor defeats both the percentage clamp
+             * and line-shrink, and the wrap never engages. The 1px rowGap
+             * exposes the border-coloured root surface as the inter-row
+             * rule; every variant paints its items `bg.surface`, so the
+             * root colour is invisible on a single row. */
+            minWidth: 0,
             maxWidth: "100%",
-            overflowX: "auto",
-            scrollbarWidth: "none",
-            "&::-webkit-scrollbar": { display: "none" },
+            flexWrap: "wrap",
+            rowGap: "1px",
             /* Keep intrinsic width even inside a parent flex with
              * `align-items: stretch` (e.g. VStack). */
             alignSelf: "flex-start",
             borderRadius: "{radii.sm}",
             borderWidth: "1px",
             borderColor: "border.strong",
-            background: "bg.surface",
+            background: "border.strong",
             padding: "0",
             overflow: "hidden",
             position: "relative",
@@ -69,6 +77,9 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
+            /* Wrapped rows fill flush (no ragged root-colour exposure);
+             * an unwrapped group shrinks to fit, so grow never shows. */
+            flexGrow: 1,
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
             /* Touch (#346). */
