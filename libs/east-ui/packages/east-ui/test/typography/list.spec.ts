@@ -13,7 +13,6 @@ describeEast("List", (test) => {
     Assert.examples(test, {
         listUnordered: ex.listUnordered,
         listVariants: ex.listVariants,
-        listSemantic: ex.listSemantic,
         listRichItems: ex.listRichItems,
     });
 
@@ -22,26 +21,18 @@ describeEast("List", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("listVariants panel mounts one captioned row per merged example", $ => {
+    test("listVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the content / variant / gap /
+        // palette tables, including the semantic check / dash treatments that
+        // used to live in `listSemantic` — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-prop coverage
+        // lives in the List.Root tests below, which construct each style
+        // directly.
         const panel = $.const(ex.listVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ORDERED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH GAP"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLORED"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "GREEN"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "EMPTY"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
-    });
-
-    test("listSemantic panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.listSemantic.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FEATURES"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STEPS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CHECKMARKS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DASHED"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

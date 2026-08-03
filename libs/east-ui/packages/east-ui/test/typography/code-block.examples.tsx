@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, CodeBlock, Reactive, Separator, VStack } from "@elaraai/east-ui";
+import { Button, CodeBlock, Configurator, HStack, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -21,55 +21,118 @@ export const codeBlockBasic = example({
 });
 
 // ============================================================================
-// CodeBlock — languages, line numbers, sizing (variant panel)
+// CodeBlock — live configurator over every block axis
 // ============================================================================
 
 export const codeBlockVariants = example({
-    keywords: ["CodeBlock", "Root", "language", "typescript", "showLineNumbers", "line numbers", "highlightLines", "emphasis", "maxHeight", "scroll", "scrollable", "python", "json", "bash", "terminal", "Reactive", "State", "interactive", "counter"],
-    description: "CodeBlock variant panel — block with language (TypeScript code block), block line numbers (line numbers displayed), block highlighted (specific lines emphasized), block max height (scrollable code block), block python (Python code example), block json (JSON data example), block bash (terminal commands), block interactive (reactive code block whose contents update from a counter)",
+    keywords: ["CodeBlock", "Root", "language", "typescript", "showLineNumbers", "line numbers", "highlightLines", "emphasis", "maxHeight", "scroll", "scrollable", "python", "json", "bash", "terminal", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "CodeBlock configurator — language-preset and max-height axes plus line-number / highlight switches driving one live block; the aside grows a reactive snippet",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="BLOCK WITH LANGUAGE" align="start" />
-                <CodeBlock language="typescript">{"function greet(name: string): string {\n\treturn `Hello, ${name}!`;\n}"}</CodeBlock>
-                <Separator label="BLOCK LINE NUMBERS" align="start" />
-                <CodeBlock language="typescript" showLineNumbers>
-                        {"import { East } from \"@elaraai/east\";\nconst value = East.value(42);\nconsole.log(value);"}
-                    </CodeBlock>
-                <Separator label="BLOCK HIGHLIGHTED" align="start" />
-                <CodeBlock language="typescript" showLineNumbers highlightLines={[4n]}>
-                        {"function calculate() {\n\tconst a = 10;\n\tconst b = 20;\n\treturn a + b;  // Important line\n}"}
-                    </CodeBlock>
-                <Separator label="BLOCK MAX HEIGHT" align="start" />
-                <CodeBlock language="typescript" showLineNumbers maxHeight="150px">
-                        {"// Long code example\nfunction processData(data) {\n  const results = [];\n\n  for (const item of data) {\n    const processed = transform(item);\n    results.push(processed);\n  }\n\n  return results;\n}\n\nfunction transform(item) {\n  return {\n    ...item,\n    processed: true,\n  };\n}"}
-                    </CodeBlock>
-                <Separator label="BLOCK PYTHON" align="start" />
-                <CodeBlock language="python" showLineNumbers>
-                        {"def fibonacci(n):\nif n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\nprint(fibonacci(10))"}
-                    </CodeBlock>
-                <Separator label="BLOCK JSON" align="start" />
-                <CodeBlock language="json">
-                        {"{\n\t\"name\": \"east-ui\",\n\t\"version\": \"1.0.0\",\n\t\"dependencies\": {\n\t\t\"@elaraai/east\": \"^1.0.0\"\n\t}\n}"}
-                    </CodeBlock>
-                <Separator label="BLOCK BASH" align="start" />
-                <CodeBlock language="bash">{"$ npm install @elaraai/east-ui\n$ npm run build\n$ npm test"}</CodeBlock>
-                <Separator label="BLOCK INTERACTIVE" align="start" />
-                <Reactive>{$ => {
-                        const counter = $.let(State.bind([IntegerType], "code_block_counter", 0n));
-                        const value = $.let(counter.read());
-                        const increment = $.const(East.function([], NullType, $ => {
-                            const cur = $.let(counter.read());
-                            $(counter.write(cur.add(1n)));
-                        }));
-                        return (
-                            <VStack gap="3" align="stretch">
-                                <CodeBlock language="typescript" showLineNumbers>{East.str`function f() {\n  return ${East.print(value)};\n}`}</CodeBlock>
-                                <Button onClick={increment}>Increment</Button>
-                            </VStack>
-                        );
-                    }}</Reactive>
-            </VStack>
+            <Reactive>{$ => {
+                // Language is the one axis that needs a struct: a snippet is
+                // only legible in the language it was written for, so each
+                // entry carries the code and the line worth emphasising. The
+                // language's own `getTag()` still names the segment — there is
+                // no separate key column.
+                const snippets = $.const([
+                    {
+                        language: variant("typescript", null),
+                        code: "// Long code example\nfunction processData(data) {\n  const results = [];\n\n  for (const item of data) {\n    const processed = transform(item);\n    results.push(processed);\n  }\n\n  return results;\n}\n\nfunction transform(item) {\n  return {\n    ...item,\n    processed: true,\n  };\n}",
+                        line: 6n,
+                    },
+                    {
+                        language: variant("python", null),
+                        code: "def fibonacci(n):\nif n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\nprint(fibonacci(10))",
+                        line: 4n,
+                    },
+                    {
+                        language: variant("json", null),
+                        code: "{\n\t\"name\": \"east-ui\",\n\t\"version\": \"1.0.0\",\n\t\"dependencies\": {\n\t\t\"@elaraai/east\": \"^1.0.0\"\n\t}\n}",
+                        line: 3n,
+                    },
+                    {
+                        language: variant("bash", null),
+                        code: "$ npm install @elaraai/east-ui\n$ npm run build\n$ npm test",
+                        line: 2n,
+                    },
+                ], ArrayType(StructType({ language: CodeBlock.Types.Language, code: StringType, line: IntegerType })));
+
+                // A max height is a CSS length token, so the axis is a bare
+                // array of the value itself — "none" leaves the block unclipped.
+                const heights = $.const(["none", "150px", "300px"], ArrayType(StringType));
+
+                const languageBind  = $.let(State.bind([StringType], "code_block_language", "typescript"));
+                const heightBind    = $.let(State.bind([StringType], "code_block_maxheight", "none"));
+                const linesBind     = $.let(State.bind([BooleanType], "code_block_lines", true));
+                const highlightBind = $.let(State.bind([BooleanType], "code_block_highlight", false));
+                const counter       = $.let(State.bind([IntegerType], "code_block_counter", 0n));
+
+                const lKey  = $.let(languageBind.read());
+                const hKey  = $.let(heightBind.read());
+                const lines = $.let(linesBind.read());
+                const hl    = $.let(highlightBind.read());
+                const count = $.let(counter.read());
+
+                const onLanguage  = $.const(East.function([StringType], NullType, ($, next) => { $(languageBind.write(next)); }));
+                const onHeight    = $.const(East.function([StringType], NullType, ($, next) => { $(heightBind.write(next)); }));
+                const onLines     = $.const(East.function([BooleanType], NullType, ($, next) => { $(linesBind.write(next)); }));
+                const onHighlight = $.const(East.function([BooleanType], NullType, ($, next) => { $(highlightBind.write(next)); }));
+                const inc         = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const snippet = $.let(snippets.filter((_$, o) => o.language.getTag().equal(lKey)).get(0n));
+                const maxHeight = $.let(heights.filter((_$, s) => s.equal(hKey)).get(0n));
+
+                // A highlight is the presence of `highlightLines`, not a value
+                // of it — so the switch picks between the two blocks rather
+                // than feeding an empty line list.
+                const block = $.const(hl.ifElse(
+                    _$ => <CodeBlock language={snippet.language} showLineNumbers={lines} highlightLines={[snippet.line]} maxHeight={maxHeight}>{snippet.code}</CodeBlock>,
+                    _$ => <CodeBlock language={snippet.language} showLineNumbers={lines} maxHeight={maxHeight}>{snippet.code}</CodeBlock>,
+                ));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Language", lKey,
+                                <SegmentGroup value={lKey} onChange={onLanguage} size="sm"
+                                    items={snippets.map((_$, o) => SegmentGroup.Item(o.language.getTag(), <Text>{o.language.getTag().upperCase()}</Text>))} />,
+                                "snippet · highlight line follow the language"),
+                            Configurator.Control("Max height", hKey,
+                                <SegmentGroup value={hKey} onChange={onHeight} size="sm"
+                                    items={heights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
+                                "the block scrolls past the cap"),
+                            // A Slot, not a Control: the two switches report as
+                            // the Line numbers / Highlight spec rows below
+                            // rather than as one value.
+                            Configurator.Slot("Wiring",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={lines} label="Line numbers" onChange={onLines} />
+                                    <Switch checked={hl} label="Highlight" onChange={onHighlight} />
+                                    <Text textStyle="caption" color="fg.subtle">one emphasised line per snippet</Text>
+                                </HStack>),
+                        ]}
+                        preview={block}
+                        aside={{
+                            label: "Count · Reactive",
+                            body: (
+                                <VStack gap="3" align="stretch">
+                                    <CodeBlock language="typescript" showLineNumbers>{East.str`function f() {\n  return ${East.print(count)};\n}`}</CodeBlock>
+                                    <Button size="xs" onClick={inc}>Increment</Button>
+                                </VStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Line numbers", lines.ifElse(_$ => "shown", _$ => "hidden")),
+                            Configurator.Spec("Highlight", hl.ifElse(_$ => East.str`line ${East.print(snippet.line)}`, _$ => "off")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

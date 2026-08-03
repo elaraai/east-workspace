@@ -21,18 +21,17 @@ describeEast("CodeBlock", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("codeBlockVariants panel mounts one captioned row per merged example", $ => {
+    test("codeBlockVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the language-snippet / max-height
+        // tables and the line-number / highlight switches — is declared inside
+        // the example body, because the documentation capture only extracts
+        // `fn`. That puts the tables inside the Reactive body, which TestImpl
+        // does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the CodeBlock.Root tests
+        // below, which construct each option directly.
         const panel = $.const(ex.codeBlockVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 16n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK WITH LANGUAGE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK LINE NUMBERS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK HIGHLIGHTED"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK MAX HEIGHT"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK PYTHON"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK JSON"));
-        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK BASH"));
-        $(Assert.equal(rows.get(14n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BLOCK INTERACTIVE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

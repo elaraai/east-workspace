@@ -22,25 +22,17 @@ describeEast("Text", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("textVariants panel mounts one captioned row per merged example", $ => {
+    test("textVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the ink / weight / emphasis /
+        // treatment / spacing / opacity / box tables — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The per-prop
+        // coverage lives in the Text.Root tests below, which construct each
+        // style directly.
         const panel = $.const(ex.textVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 30n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLORED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BOLD"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ITALIC"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FONT WEIGHTS"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TRANSFORMS"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BACKGROUND"));
-        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BORDERED"));
-        $(Assert.equal(rows.get(14n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLORS"));
-        $(Assert.equal(rows.get(16n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COMBINED"));
-        $(Assert.equal(rows.get(18n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DECORATION"));
-        $(Assert.equal(rows.get(20n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SPACING"));
-        $(Assert.equal(rows.get(22n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "OPACITY"));
-        $(Assert.equal(rows.get(24n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PADDING MARGIN"));
-        $(Assert.equal(rows.get(26n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "OVERFLOW"));
-        $(Assert.equal(rows.get(28n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("textNumericStyles panel mounts one captioned row per merged example", $ => {
