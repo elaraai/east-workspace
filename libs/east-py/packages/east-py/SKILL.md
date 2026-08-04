@@ -808,10 +808,12 @@ independently decodable segment. Use for exports too big to hold, or to
 re-read a huge file one batch at a time.
 
 **Managed files — start here (`open_beast2_file` / `write_beast2_file`, #481).**
-Path + East type in, East values out: the file object owns the fd + mmap
-(closes on `with`-exit), east-c does all byte work, and segment sizing is
-managed — no buffers, iterators, or batch sizes in user code. The read flavor
-mirrors the root collection's read surface name-for-name.
+Path in, East values out — the file is self-describing, so reads need no
+declared type (writes do; declaring one on a read validates it at open). The
+file object owns the fd + mmap (closes on `with`-exit), east-c does all byte
+work, and segment sizing is managed — no buffers, iterators, or batch sizes
+in user code. The read flavor mirrors the root collection's read surface
+name-for-name.
 
 | Signature | Description |
 |-----------|-------------|
@@ -833,9 +835,9 @@ from east.serialization.beast2 import open_beast2_file, write_beast2_file
 
 write_beast2_file(path, rows_t, rows)             # any size, one call
 
-with open_beast2_file(path, rows_t) as f:         # mmap-backed, managed
-    row = f[1_234_567]                            # one segment decode
-    for batch in f.segments():                    # O(segment) scan
+with open_beast2_file(path) as f:                 # self-describing: type from the
+    row = f[1_234_567]                            #   header (f.wire_type); pass rows_t
+    for batch in f.segments():                    #   instead to VALIDATE it at open
         totals.merge_all(batch.group_sum(lambda r: r["sku"], lambda r: r["qty"]),
                          lambda a, b, _k: a + b, lambda _k: 0)  # batch processed natively
     table = f.load()                              # whole table when you truly need it
