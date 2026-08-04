@@ -13,44 +13,31 @@ describeEast("AlignedStack", (test) => {
     // (fixed{left,right} / auto) + children encode + round-trip as valid East IR.
     Assert.examples(test, {
         alignedStackAll: ex.alignedStackAll,
-        alignedStackPairs: ex.alignedStackPairs,
-        alignedStackDensity: ex.alignedStackDensity,
-        alignedStackAxis: ex.alignedStackAxis,
         alignedStackLibraryDnd: ex.alignedStackLibraryDnd,
     });
 
     // =========================================================================
-    // Panels — every merged example stays mounted as a captioned row (#460).
-    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // Panels — every merged example stays mounted as a captioned row
+    // (#460 → epic #455). The mono-uppercase Text captions are the stable
+    // per-mini anchors.
     // =========================================================================
 
-    test("alignedStackPairs panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.alignedStackPairs.fn() as ExprType<UIComponentType>);
+    test("alignedStackAll panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.alignedStackAll.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 14n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHARTS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART TRACE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART CALENDAR"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART MATRIX"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART TABLE"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART PLANNER"));
-        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART GANTT"));
-    });
-
-    test("alignedStackDensity panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.alignedStackDensity.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK ALL COMPACT"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK ALL CONDENSED"));
-    });
-
-    test("alignedStackAxis panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.alignedStackAxis.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART TITLES"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK DATE AXIS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK AUTO"));
+        $(Assert.equal(rows.size(), 26n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK ALL"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHARTS"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART TRACE"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART CALENDAR"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART MATRIX"));
+        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART TABLE"));
+        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART PLANNER"));
+        $(Assert.equal(rows.get(14n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART GANTT"));
+        $(Assert.equal(rows.get(16n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK ALL COMPACT"));
+        $(Assert.equal(rows.get(18n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK ALL CONDENSED"));
+        $(Assert.equal(rows.get(20n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK CHART TITLES"));
+        $(Assert.equal(rows.get(22n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK DATE AXIS"));
+        $(Assert.equal(rows.get(24n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STACK AUTO"));
     });
 }, { platformFns: TestImpl });

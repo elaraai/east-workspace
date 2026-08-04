@@ -41,7 +41,6 @@ const ListType = RecursiveType(self => VariantType({
 describeEast("ValueTree", (test) => {
     Assert.examples(test, {
         valueTreeBasic: ex.valueTreeBasic,
-        valueTreeEditable: ex.valueTreeEditable,
         valueTreeVirtualized: ex.valueTreeVirtualized,
         valueTreeFillsBoundedParent: ex.valueTreeFillsBoundedParent,
         valueTreeKitchenSink: ex.valueTreeKitchenSink,
@@ -53,22 +52,28 @@ describeEast("ValueTree", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // ------------------------------------------------------------------
 
-    test("valueTreeKitchenSink panel mounts one captioned row per merged example", $ => {
+    test("valueTreeKitchenSink drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the data-shape table routing
+        // between the two deep-tree fixtures — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // materialization coverage lives in the ValueTree.Root tests below,
+        // which construct each node kind directly.
         const panel = $.const(ex.valueTreeKitchenSink.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE DICT OF STRUCTS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE KITCHEN SINK"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("valueTreeEditingContracts panel mounts one captioned row per merged example", $ => {
         const panel = $.const(ex.valueTreeEditingContracts.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE SCOPED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE COLLECTIONS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE RAW PATHS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE KITCHEN SINK EDITABLE"));
+        $(Assert.equal(rows.size(), 10n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE EDITABLE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE SCOPED"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE COLLECTIONS"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE RAW PATHS"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TREE KITCHEN SINK EDITABLE"));
     });
 
     // ------------------------------------------------------------------

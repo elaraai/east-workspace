@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, SegmentGroup, Separator, Switch, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, SegmentGroup, Switch, Tag, Text } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -31,8 +31,8 @@ export const tagBasic = example({
 // ============================================================================
 
 export const tagStyles = example({
-    keywords: ["Tag", "Root", "variant", "outline", "brand", "subtle", "solid", "dashed", "background", "color", "custom", "escape", "opacity", "borderWidth", "borderStyle", "borderRadius", "padding", "width", "overflow", "density", "condensed", "compact", "comfortable", "sizes", "ifElse", "dynamic", "Style", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive"],
-    description: "Tag configurator — variant, density, colour, border, opacity and padding axes plus pill / fixed-width switches driving one live chip; the aside resolves a variant dynamically via ifElse",
+    keywords: ["Tag", "Root", "variant", "outline", "brand", "subtle", "solid", "dashed", "background", "color", "custom", "escape", "opacity", "borderWidth", "borderStyle", "borderRadius", "padding", "width", "overflow", "density", "condensed", "compact", "comfortable", "sizes", "ifElse", "dynamic", "Style", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "closable", "removable", "onClose"],
+    description: "Tag configurator — variant, density, colour, border, opacity and padding axes plus pill / fixed-width / closable switches driving one live chip; the aside resolves a variant via ifElse and counts onClose",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -77,6 +77,8 @@ export const tagStyles = example({
                 const pillBind    = $.let(State.bind([BooleanType], "tag_pill", false));
                 const wideBind    = $.let(State.bind([BooleanType], "tag_wide", false));
                 const activeBind  = $.let(State.bind([BooleanType], "tag_active", true));
+                const closableBind = $.let(State.bind([BooleanType], "tag_closable", true));
+                const closeCount  = $.let(State.bind([IntegerType], "tag_close_count", 0n));
 
                 const vKey = $.let(variantBind.read());
                 const dKey = $.let(densityBind.read());
@@ -87,6 +89,8 @@ export const tagStyles = example({
                 const pill = $.let(pillBind.read());
                 const wide = $.let(wideBind.read());
                 const active = $.let(activeBind.read());
+                const closable = $.let(closableBind.read());
+                const closed = $.let(closeCount.read());
 
                 const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
@@ -97,6 +101,11 @@ export const tagStyles = example({
                 const onPill    = $.const(East.function([BooleanType], NullType, ($, next) => { $(pillBind.write(next)); }));
                 const onWide    = $.const(East.function([BooleanType], NullType, ($, next) => { $(wideBind.write(next)); }));
                 const onActive  = $.const(East.function([BooleanType], NullType, ($, next) => { $(activeBind.write(next)); }));
+                const onClosable = $.const(East.function([BooleanType], NullType, ($, next) => { $(closableBind.write(next)); }));
+                const onClose   = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(closeCount.read());
+                    $(closeCount.write(cur.add(1n)));
+                }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const tagVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
@@ -139,14 +148,18 @@ export const tagStyles = example({
                             Configurator.Slot("Shape",
                                 <HStack gap="5" align="center">
                                     <Switch checked={pill} label="Pill" onChange={onPill} />
-                                    <Text textStyle="caption" color="fg.subtle">radius-full</Text>
                                     <Switch checked={wide} label="Fixed width" onChange={onWide} />
-                                    <Text textStyle="caption" color="fg.subtle">120px · overflow hidden</Text>
                                 </HStack>),
                             Configurator.Slot("Dynamic",
                                 <HStack gap="5" align="center">
                                     <Switch checked={active} label="Active" onChange={onActive} />
-                                    <Text textStyle="caption" color="fg.subtle">true → brand · false → outline</Text>
+                                </HStack>),
+                            // Filter chips set by the operator always carry a
+                            // removable × — the switch drives `closable` and the
+                            // preview's onClose feeds the aside counter.
+                            Configurator.Slot("Closable",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={closable} label="Closable" onChange={onClosable} />
                                 </HStack>),
                         ]}
                         preview={
@@ -161,16 +174,19 @@ export const tagStyles = example({
                                 borderStyle={border}
                                 opacity={opacityPct.toFloat().divide(100.0)}
                                 padding={{ top: some(pad), right: some(pad), bottom: some(pad), left: some(pad) }}
+                                closable={closable}
+                                onClose={onClose}
                             >
                                 {East.str`region · ${tagVariant.getTag().upperCase()}`}
                             </Tag>
                         }
                         aside={{
-                            label: "Dynamic · ifElse",
+                            label: "Dynamic · onClose",
                             body: (
                                 <HStack gap="3" align="center">
                                     <Tag variant={dynamicVariant} density={density}>{East.str`ACTIVE → ${dynamicVariant.getTag().upperCase()}`}</Tag>
                                     <Tag variant={Style.StyleVariant("solid")} density={density}>Style.StyleVariant solid</Tag>
+                                    {<Text.MonoLabel>{East.str`CLOSED · ${closed}`}</Text.MonoLabel>}
                                 </HStack>
                             ),
                         }}
@@ -179,47 +195,11 @@ export const tagStyles = example({
                             Configurator.Spec("Width", wide.ifElse(_$ => "120px", _$ => "auto")),
                             Configurator.Spec("Overflow", wide.ifElse(_$ => "hidden", _$ => "visible")),
                             Configurator.Spec("Dynamic", dynamicVariant.getTag()),
+                            Configurator.Spec("Closable", closable.ifElse(_$ => "removable ×", _$ => "static")),
                         ]}
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Tag — removable × + reactive onClose counter (closable panel)
-// ============================================================================
-
-export const tagClosable = example({
-    keywords: ["Tag", "Root", "closable", "removable", "Reactive", "State", "interactive", "onClose"],
-    description: "Tag closable panel — closable (filter chips set by the operator — always carry a removable ×), on close interactive (closable tag whose onClose increments a reactive counter)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="CLOSABLE" align="start" />
-                <HStack gap="2">
-                    <Tag closable={true} variant="brand">region · SE</Tag>
-                    <Tag closable={true} variant="brand">status · active</Tag>
-                    <Tag closable={true} variant="brand">after 2026-04-01</Tag>
-                </HStack>
-                <Separator label="ON CLOSE INTERACTIVE" align="start" />
-                <Reactive>{$ => {
-                    const bind = $.let(State.bind([IntegerType], "tag_close_count", 0n));
-                    const value = $.let(bind.read());
-                    const onClose = $.const(East.function([], NullType, $ => {
-                        const cur = $.let(bind.read());
-                        $(bind.write(cur.add(1n)));
-                    }));
-                    return (
-                        <VStack gap="3" align="center">
-                            <Tag closable={true} variant="brand" onClose={onClose}>Click × to close</Tag>
-                            {<Text.MonoLabel>{East.str`CLOSED · ${value}`}</Text.MonoLabel>}
-                        </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
         );
     }),
     inputs: [],

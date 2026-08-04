@@ -121,14 +121,12 @@ export const radioCardGroupVariants = example({
                                     items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "selected-card background · border · description"),
+                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Disabled spec row below rather than as one value.
                             Configurator.Slot("Cards",
                                 <HStack gap="5" align="center">
                                     <Switch checked={disabledOne} label="Disabled card" onChange={onDisabled} />
-                                    <Text textStyle="caption" color="fg.subtle">ARCHIVED opts out of selection</Text>
                                 </HStack>),
                         ]}
                         preview={cards}

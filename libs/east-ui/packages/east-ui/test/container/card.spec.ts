@@ -13,7 +13,6 @@ describeEast("Card", (test) => {
     Assert.examples(test, {
         cardBasic: ex.cardBasic,
         cardVariants: ex.cardVariants,
-        cardStates: ex.cardStates,
     });
 
     // =========================================================================
@@ -22,26 +21,16 @@ describeEast("Card", (test) => {
     // =========================================================================
 
     test("cardVariants drives its preview from inline option tables", $ => {
-        // Everything the configurator needs — the header / body / sizing tables
-        // and the prebuilt slot combinations — is declared inside the example
-        // body, because the documentation capture only extracts `fn`. That puts
-        // the tables inside the Reactive body, which TestImpl does not execute,
-        // so they cannot be asserted from here; `Assert.examples` above still
-        // compiles and evaluates the outer function. The per-option coverage
-        // lives in the Card.Root tests below, which construct each form
-        // directly.
+        // Everything the configurator needs — the header / body / sizing /
+        // runtime-state tables and the prebuilt slot combinations — is declared
+        // inside the example body, because the documentation capture only
+        // extracts `fn`. That puts the tables inside the Reactive body, which
+        // TestImpl does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Card.Root tests below,
+        // which construct each form directly.
         const panel = $.const(ex.cardVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("cardStates panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.cardStates.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LOADING"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "EMPTY"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ERROR"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PERMISSION DENIED"));
     });
 
     // =========================================================================

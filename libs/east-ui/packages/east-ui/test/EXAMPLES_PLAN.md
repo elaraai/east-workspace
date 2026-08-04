@@ -12,8 +12,8 @@ summary for anyone adding or changing examples here.
 | Slot | Name | Content |
 |---|---|---|
 | 1 | `<name>Basic` | Smallest meaningful usage — the search-index front door. |
-| 2 | `<name>Variants` | ONE variant-space example. Preferred form: a live `<Configurator>` surface — prop axes as plain arrays of the values themselves (`getTag()` for segment key + label), one `State.bind` per axis, the same array feeding SegmentGroup and preview; switches via `Slot` + `Spec`; reactive counters in the `aside` (exemplar: `display/badge.examples.tsx`). Static `<Separator label>` panels remain for visual-guard sets, states grammars (banner, cardStates), data-shape enumerations (charts), probe-anchored panels (planner/gantt/table), canvas-content variants (schematic/map/matrix). |
-| 3 | `<name>Configurator` | A separate behavioral combo-panel only when needed beside the Variants slot. Exemplars: `tableSelection`, `libraryLarge`, `schematicInteractions`. Visually regression-guarded combinations may NOT hide behind a switch. |
+| 2 | `<name>Variants` | ONE variant-space example, as a live `<Configurator>` surface — prop axes as plain arrays of the values themselves (`getTag()` for segment key + label), one `State.bind` per axis, the same array feeding SegmentGroup and preview; whole-fixture rows become a preset/data axis; switches via `Slot` + `Spec`; reactive counters/logs in the `aside` (exemplar: `display/badge.examples.tsx`). Static `<Separator label>` panels remain ONLY for merged visual-grammar sets whose value is seeing every row at once (exemplars: `plannerVariants`, `ganttVariants`, `matrixReactive`, `alignedStackAll`, `tableReview`). |
+| 3 | `<name>Configurator` | A separate behavioral combo-configurator only when needed beside the Variants slot. Exemplars: `tableSelection`, `plannerConfigurator`, `ganttConfigurator`, `schematicInteractions`. |
 | 4 | `<name><Behavior>` | One example per behavioral contract needing isolation: DnD, review chrome, slice binding, deep-linking, overlay stacking, reactive-drag grammars. |
 | 5 | `<name>Stress` | Perf/scale demonstrations (virtualized rows, 500-unit schematic). |
 
@@ -58,16 +58,16 @@ $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").un
 Export names referenced from `east-ui-components/scripts/probe-*.ts`,
 `snapshot.ts`, or `east-ui-showcase/tests/responsive/*` are frozen —
 retarget the referencing script in the same PR or don't touch the name.
-As of epic #455: `tooltipOverStickyTable`, `alignedStackAll`,
-`splitterCollapseBelow`, `rosterInteractive`, `schematicNets`,
-`storyBasic`, `storyStacked`, `drawerStackedNested`, `sliceTableChrome`,
-`sliceChartChrome`, `sliceRail`, `sliceNarrow`, `sliceGanttChrome`, plus
-the probe-collections target list (`tableBasic`, `tableColumnsVariants`,
-`tableStyleVariants`, `tableSelection`, `tableReactivePagination`,
-`tableExpandedRichDetail`, `tableInteractiveCallbacks`, `plannerPoint`,
-`plannerEventStates`, `plannerColumns`, `plannerBucketsVariants`,
-`plannerEventStyleVariants`, `ganttAxisVariants`, `ganttTaskVariants`)
-and the DnD probes' `plannerLibraryDnd` / `ganttLibraryDnd`.
+As of epic #455 (post pass 3): `tooltipOverStickyTable`,
+`alignedStackAll`, `splitterCollapseBelow`, `rosterInteractive`,
+`schematicNets`, `storyBasic`, `storyStacked`, `drawerStackedNested`,
+`sliceTableChrome`, `sliceChartChrome`, `sliceRail`, `sliceNarrow`,
+`sliceGanttChrome`, plus the probe-collections target list
+(`tableBasic`, `tableColumnsVariants`, `tableStyleVariants`,
+`tableSelection`, `tableExpandedRichDetail`, `plannerPoint`,
+`plannerVariants`, `plannerConfigurator`, `ganttVariants`,
+`ganttConfigurator`) and the DnD probes' `plannerLibraryDnd` /
+`ganttLibraryDnd`.
 
 ## Cascade for any consolidation / example change
 

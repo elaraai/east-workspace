@@ -13,7 +13,6 @@ describe("TreeView", (test) => {
     Assert.examples(test, {
         treeViewBasic: ex.treeViewBasic,
         treeViewVariants: ex.treeViewVariants,
-        treeViewEvents: ex.treeViewEvents,
     });
 
     // =========================================================================
@@ -23,24 +22,16 @@ describe("TreeView", (test) => {
 
     test("treeViewVariants drives its preview from inline option tables", $ => {
         // Everything the configurator needs — the tree-preset / size /
-        // variant / colour tables plus the default-expanded switch — is
-        // declared inside the example body, because the documentation capture
-        // only extracts `fn`. That puts the tables inside the Reactive body,
-        // which TestImpl does not execute, so they cannot be asserted from
-        // here; `Assert.examples` above still compiles and evaluates the
-        // outer function. The per-option coverage lives in the TreeView.Root
-        // tests below, which construct each option directly.
+        // variant / colour tables plus the default-expanded switch and the
+        // selection / expand / focus event-log aside — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the TreeView.Root tests
+        // below, which construct each option directly.
         const panel = $.const(ex.treeViewVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("treeViewEvents panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.treeViewEvents.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VIEW INTERACTIVE SELECTION"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VIEW INTERACTIVE EXPAND"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VIEW ON FOCUS CHANGE"));
     });
 
     // =========================================================================

@@ -19,27 +19,27 @@ describeEast("Slice", (test) => {
         sliceGanttChrome:          ex.sliceGanttChrome,
         sliceExpressiveFilters:    ex.sliceExpressiveFilters,
         sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
-        slicePresets:              ex.slicePresets,
-        sliceBrush:                ex.sliceBrush,
     });
 
     // =========================================================================
     // Panels — every merged example stays mounted as a captioned row (#463).
     // =========================================================================
 
-    test("slicePresets panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.slicePresets.fn() as ExprType<UIComponentType>);
+    test("sliceRail panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.sliceRail.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRESETS RAIL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRESETS BAR"));
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MULTI-CONSUMER RAIL"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BRUSH DATETIME"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BRUSH CURRENCY"));
     });
 
-    test("sliceBrush panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.sliceBrush.fn() as ExprType<UIComponentType>);
+    test("sliceExpressiveFilters panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.sliceExpressiveFilters.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BRUSH DATETIME"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BRUSH CURRENCY"));
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "EXPRESSIVE FILTERS"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRESETS RAIL"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRESETS BAR"));
     });
 }, { platformFns: TestImpl });

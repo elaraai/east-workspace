@@ -4,16 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, IntegerType, NullType } from "@elaraai/east";
+import { East, IntegerType, NullType, type ExprType } from "@elaraai/east";
 import { Pagination, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./pagination.examples.js";
 
 describeEast("Pagination", (test) => {
     Assert.examples(test, {
         paginationBasic: ex.paginationBasic,
-        paginationOutlineLarge: ex.paginationOutlineLarge,
-        paginationSiblings: ex.paginationSiblings,
-        paginationColourOverrides: ex.paginationColourOverrides,
+        paginationVariants: ex.paginationVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("paginationVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / size / siblings /
+        // palette tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the Pagination.Root tests below, which construct each
+        // option directly.
+        const panel = $.const(ex.paginationVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

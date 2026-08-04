@@ -100,7 +100,6 @@ export const editableChipVariants = example({
                             Configurator.Control("State", disabled.ifElse(_$ => "disabled", _$ => "enabled"),
                                 <HStack gap="5" align="center">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
-                                    <Text textStyle="caption" color="fg.subtle">locks the chip · dims the trigger</Text>
                                 </HStack>),
                         ]}
                         preview={
@@ -122,7 +121,6 @@ export const editableChipVariants = example({
                                 <HStack gap="2" align="center">
                                     <EditableChip density={density} onClick={cycle}><Text>{currentLabel}</Text></EditableChip>
                                     <EditableChip density={density}><Text>Horizon · 12 weeks</Text></EditableChip>
-                                    <Text textStyle="caption" color="fg.subtle">first chip cycles the scenario on click</Text>
                                 </HStack>
                             ),
                         }}

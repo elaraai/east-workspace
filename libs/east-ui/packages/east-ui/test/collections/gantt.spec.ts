@@ -11,60 +11,21 @@ import * as ex from "./gantt.examples.js";
 describeEast("Gantt", (test) => {
     Assert.examples(test, {
         ganttBasic: ex.ganttBasic,
-        ganttAxisVariants: ex.ganttAxisVariants,
-        ganttTaskVariants: ex.ganttTaskVariants,
-        ganttStyleVariants: ex.ganttStyleVariants,
-        ganttStateAndStatus: ex.ganttStateAndStatus,
-        ganttLifecycleArms: ex.ganttLifecycleArms,
-        ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
+        ganttVariants: ex.ganttVariants,
         ganttReactiveDrag: ex.ganttReactiveDrag,
         ganttReview: ex.ganttReview,
         ganttLibraryDnd: ex.ganttLibraryDnd,
-        ganttFill: ex.ganttFill,
     });
 
-    // =========================================================================
-    // Panels — every merged example stays mounted as a captioned row (#458).
-    // The mono-uppercase Text captions are the stable per-mini anchors
-    // (probe-collections selects panel rows through them).
-    // =========================================================================
-
-    test("ganttAxisVariants panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.ganttAxisVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "AXIS WINDOW"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "AXIS QUARTER TIER"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "AXIS WEEK TIER"));
-    });
-
-    test("ganttTaskVariants panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.ganttTaskVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH MILESTONES"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH PROGRESS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RICH LABEL"));
-    });
-
-    test("ganttStyleVariants panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.ganttStyleVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STYLED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROW HEIGHT"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CUSTOM HEADERS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COMPLEX COLUMNS"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FROZEN COLUMNS"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROW STATUS"));
-    });
-
-    test("ganttInteractiveCallbacks mounts the callbacks + task-popover rows", $ => {
-        const panel = $.const(ex.ganttInteractiveCallbacks.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE CALLBACKS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TASK POPOVER"));
+    test("ganttVariants is the live configurator", $ => {
+        // The preset / variant / density / row-height tables live inside the
+        // Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. Style / axis shape coverage lives in
+        // the Gantt.Root tests below, which construct each configuration
+        // directly.
+        const panel = $.const(ex.ganttVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

@@ -12,7 +12,6 @@ describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicPlant: ex.schematicPlant,
         schematicStress: ex.schematicStress,
-        schematicFacility: ex.schematicFacility,
         schematicLinkEdit: ex.schematicLinkEdit,
         schematicNets: ex.schematicNets,
         schematicVariants: ex.schematicVariants,
@@ -38,14 +37,15 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("schematicVariants panel mounts one captioned row per merged example", $ => {
+    test("schematicVariants drives its preview from inline option tables", $ => {
+        // The canvas-preset axis and the readOnly switch are declared inside
+        // the example body, because the documentation capture only extracts
+        // `fn`. That puts them inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. Per-canvas
+        // prop coverage lives in the Schematic.Root tests below.
         const panel = $.const(ex.schematicVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MINIMAL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "LAYERS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "GEOMETRY"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COLOR OVERRIDE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("schematicSlice panel mounts one captioned row per merged example", $ => {

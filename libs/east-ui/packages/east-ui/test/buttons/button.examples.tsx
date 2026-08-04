@@ -154,22 +154,18 @@ export const buttonVariants = example({
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "escape hatches over the variant recipe"),
+                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // Slots, not Controls: the switches report as the
                             // Loading / Icons / Label spec rows below rather than
                             // as one value each.
                             Configurator.Slot("State",
                                 <HStack gap="5" align="center">
                                     <Switch checked={loading} label="Loading" onChange={onLoading} />
-                                    <Text textStyle="caption" color="fg.subtle">loadingText · spinner swap</Text>
                                 </HStack>),
                             Configurator.Slot("Content",
                                 <HStack gap="5" align="center">
                                     <Switch checked={icons} label="Icons" onChange={onIcons} />
-                                    <Text textStyle="caption" color="fg.subtle">save · arrow-right</Text>
                                     <Switch checked={rich} label="Rich label" onChange={onRich} />
-                                    <Text textStyle="caption" color="fg.subtle">HStack of Texts</Text>
                                 </HStack>),
                         ]}
                         preview={btn}

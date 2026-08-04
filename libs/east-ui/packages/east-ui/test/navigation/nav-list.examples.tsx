@@ -159,17 +159,14 @@ export const navListVariants = example({
                         controls={[
                             Configurator.Control("Structure", sKey,
                                 <SegmentGroup value={sKey} onChange={onStructure} size="sm"
-                                    items={structures.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "grouped renders labelled sections"),
+                                    items={structures.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as the
                             // Icons / Surface spec rows below rather than as one
                             // value.
                             Configurator.Slot("Treatment",
                                 <HStack gap="5" align="center">
                                     <Switch checked={iconsOn} label="Icons" onChange={onIcons} />
-                                    <Text textStyle="caption" color="fg.subtle">leading Font Awesome icon per item</Text>
                                     <Switch checked={shell} label="Shell surface" onChange={onShell} />
-                                    <Text textStyle="caption" color="fg.subtle">chrome-less · host rail background</Text>
                                 </HStack>),
                         ]}
                         preview={list}

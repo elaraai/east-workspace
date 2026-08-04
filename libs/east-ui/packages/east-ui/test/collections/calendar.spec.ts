@@ -12,7 +12,6 @@ import * as ex from "./calendar.examples.js";
 describeEast("Calendar", (test) => {
     Assert.examples(test, {
         calendarDemand: ex.calendarDemand,
-        calendarInteractive: ex.calendarInteractive,
         calendarVariants: ex.calendarVariants,
         calendarFill: ex.calendarFill,
     });
@@ -24,8 +23,9 @@ describeEast("Calendar", (test) => {
 
     test("calendarVariants drives its preview from inline option tables", $ => {
         // Everything the configurator needs — the density / scale tables plus
-        // the values / totals / minimal switches — is declared inside the
-        // example body, because the documentation capture only extracts `fn`.
+        // the values / totals / minimal switches and the onSelect aside — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`.
         // That puts the tables inside the Reactive body, which TestImpl does
         // not execute, so they cannot be asserted from here; `Assert.examples`
         // above still compiles and evaluates the outer function. The

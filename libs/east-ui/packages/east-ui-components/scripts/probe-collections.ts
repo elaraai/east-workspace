@@ -24,18 +24,14 @@ const HARNESS_ROOT = path.resolve(__dirname, "../snapshot");
 // per-group selector anchors.
 const TABLE_EXAMPLES = [
     "tableBasic", "tableColumnsVariants", "tableStyleVariants", "tableSelection",
-    "tableReactivePagination", "tableExpandedRichDetail", "tableInteractiveCallbacks",
+    "tableExpandedRichDetail",
 ];
 
 const TARGETS: ReadonlyArray<{ file: string; example: string }> = [
     ...TABLE_EXAMPLES.map(example => ({ file: "collections/table", example })),
-    { file: "collections/gantt",   example: "ganttAxisVariants" },
-    { file: "collections/gantt",   example: "ganttTaskVariants" },
+    { file: "collections/gantt",   example: "ganttVariants" },
     { file: "collections/planner", example: "plannerPoint" },
-    { file: "collections/planner", example: "plannerEventStates" },
-    { file: "collections/planner", example: "plannerColumns" },
-    { file: "collections/planner", example: "plannerBucketsVariants" },
-    { file: "collections/planner", example: "plannerEventStyleVariants" },
+    { file: "collections/planner", example: "plannerVariants" },
 ];
 
 async function main() {

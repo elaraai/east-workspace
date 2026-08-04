@@ -4,18 +4,31 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Dock, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./dock.examples.js";
 
 describeEast("Dock", (test) => {
     // Compiling each example validates the Dock IR — the `body` children +
     // config struct encode + round-trip as valid East IR.
     Assert.examples(test, {
-        dockExpanded: ex.dockExpanded,
-        dockCollapsedRail: ex.dockCollapsedRail,
+        dockVariants: ex.dockVariants,
         dockBesidePlanner: ex.dockBesidePlanner,
-        dockVertical: ex.dockVertical,
         dockNested: ex.dockNested,
+    });
+
+    test("dockVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation axis and the
+        // prebuilt orientation × badge leaves — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That puts
+        // the tables inside the Reactive body, which TestImpl does not execute,
+        // so they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the Dock.Root tests below, which construct each form
+        // directly.
+        const panel = $.const(ex.dockVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("Dock.Root lowers config + collapsed state onto the variant", $ => {

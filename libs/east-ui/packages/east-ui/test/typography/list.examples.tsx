@@ -139,12 +139,10 @@ export const listVariants = example({
                         controls={[
                             Configurator.Control("Content", cKey,
                                 <SegmentGroup value={cKey} onChange={onContent} size="sm"
-                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "check / dash presets carry their own marker"),
+                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "suppressed by check / dash presets"),
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Gap", gKey,
                                 <SegmentGroup value={gKey} onChange={onGap} size="sm"
                                     items={gaps.map((_$, s) => SegmentGroup.Item(s, <Text>{s}</Text>))} />),
@@ -156,7 +154,6 @@ export const listVariants = example({
                             Configurator.Slot("Empty",
                                 <HStack gap="5" align="center">
                                     <Switch checked={empty} label="No items" onChange={onEmpty} />
-                                    <Text textStyle="caption" color="fg.subtle">renders nothing — the empty contract</Text>
                                 </HStack>),
                         ]}
                         preview={list}

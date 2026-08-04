@@ -95,8 +95,7 @@ export const linkVariants = example({
                         controls={[
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variantKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
-                                "default is the spec link — underline on hover"),
+                                    items={variantKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             Configurator.Control("Palette", pKey,
                                 <SegmentGroup value={pKey} onChange={onPalette} size="sm"
                                     items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
@@ -107,7 +106,6 @@ export const linkVariants = example({
                                 <HStack gap="5" align="center">
                                     <Switch checked={ext} label="External" onChange={onExternal} />
                                     <Switch checked={ctx} label="In sentence" onChange={onContext} />
-                                    <Text textStyle="caption" color="fg.subtle">new tab · running text flow</Text>
                                 </HStack>),
                         ]}
                         preview={preview}

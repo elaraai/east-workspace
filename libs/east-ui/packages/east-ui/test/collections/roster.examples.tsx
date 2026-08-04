@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { BooleanType, East, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, Status, UIComponentType } from "@elaraai/east-ui";
-import { Box, Library, Reactive, Roster, Separator, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Reactive, Roster, SegmentGroup, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -83,35 +83,61 @@ const ROSTER_FILL_DATA = [
 ];
 
 export const rosterModes = example({
-    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days"],
-    description: "Roster mode pair — edit (committed, added, removed, and model-ghost shifts with the status strip) above published (a work-week roster with committed shifts only, no grips, pointer-immutable)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="EDIT" align="start" />
-                <Roster
-                    id="roster-se"
-                    sources={["people"]}
-                    mode="edit"
-                    people={ROSTER_EDIT_PEOPLE_DATA}
-                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                    shifts={ROSTER_EDIT_DATA}
-                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                    summary="3 dirty · 1 new · 2 model-ghost"
+    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Roster mode configurator — a mode preset axis (edit / published) swaps one live work-week roster between the full proposal states and committed-only, pointer-immutable",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The mode axis is a bare label array — each preset swaps the whole
+            // roster (data, days, chrome), so the axis is a preset picker
+            // rather than a per-prop lookup.
+            const modes = $.const(["edit", "published"], ArrayType(StringType));
+            const modeBind = $.let(State.bind([StringType], "roster_mode", "edit"));
+            const mode = $.let(modeBind.read());
+            const onMode = $.const(East.function([StringType], NullType, ($, next) => {
+                $(modeBind.write(next));
+            }));
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Mode", mode,
+                            <SegmentGroup value={mode} onChange={onMode} size="sm"
+                                items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                    ]}
+                    preview={
+                        mode.equal("edit").ifElse(
+                            // Edit — committed, added, removed, and model-ghost
+                            // shifts with the status strip.
+                            _$ => (
+                                <Roster
+                                    id="roster-se"
+                                    sources={["people"]}
+                                    mode="edit"
+                                    people={ROSTER_EDIT_PEOPLE_DATA}
+                                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                                    shifts={ROSTER_EDIT_DATA}
+                                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                                    summary="3 dirty · 1 new · 2 model-ghost"
+                                />
+                            ),
+                            // Published — a work-week roster with committed shifts
+                            // only, no grips.
+                            _$ => (
+                                <Roster
+                                    id="roster-published"
+                                    people={ROSTER_PUBLISHED_PEOPLE_DATA}
+                                    person={p => ({ key: p.id, label: p.name })}
+                                    shifts={ROSTER_PUBLISHED_DATA}
+                                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                                    days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                                    summary="published · wk of Sep 16"
+                                />
+                            ),
+                        )
+                    }
                 />
-                <Separator label="PUBLISHED" align="start" />
-                <Roster
-                    id="roster-published"
-                    people={ROSTER_PUBLISHED_PEOPLE_DATA}
-                    person={p => ({ key: p.id, label: p.name })}
-                    shifts={ROSTER_PUBLISHED_DATA}
-                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                    days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                    summary="published · wk of Sep 16"
-                />
-            </VStack>
-        );
-    }),
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -151,72 +177,6 @@ export const rosterInteractive = example({
                         onAccept={onAccept}
                     />
                     <Text.MonoLabel>{East.str`DRAGS · ${East.print(drags)} · ACCEPTS · ${East.print(accepts)}`}</Text.MonoLabel>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * IR-level drop validation (#261) — `canDrop` receives the synthesized
- * candidate event for every hovered cell; returning `false` shows the ⊘
- * invalid stage and the drop is a no-op. Here Kim is day-shift only: any
- * `add` of the `kim` card onto a weekend column is vetoed, and `move`s onto
- * weekends are vetoed for everyone (weekend line-up is committed).
- */
-export const rosterCanDrop = example({
-    keywords: ["Roster", "canDrop", "veto", "invalid", "drag", "validation", "candidate", "drop"],
-    description: "IR-level canDrop veto — Kim's card can't land on weekend columns (⊘ while dragging, no LAST log), moves onto weekends are vetoed for all; allowed gestures log through onDrag",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
-                const weekend = $.const(East.function([StringType], BooleanType, (_$, day) =>
-                    East.equal(day, "Sat").or(_$ => East.equal(day, "Sun"))));
-                return event.match({
-                    add: (_$, add) => East.equal(add.from.key, "kim").and(_$ => weekend(add.into.slot)).not(),
-                    move: (_$, mv) => weekend(mv.to.slot).not(),
-                    remove: (_$) => East.value(true),
-                    resize: (_$) => East.value(true),
-                });
-            }));
-            // Delivered gestures log under the roster — a vetoed drop stays
-            // visibly silent.
-            const lastBind = $.let(State.bind([StringType], "roster_veto_last", "none yet"));
-            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                $.match(event, {
-                    add: ($, add) => { $(lastBind.write(East.str`add · ${add.from.key} → ${add.into.row} · ${add.into.slot}`)); },
-                    move: ($, mv) => { $(lastBind.write(East.str`move · ${mv.to.row} · ${mv.to.slot}`)); },
-                    remove: ($, rm) => { $(lastBind.write(East.str`remove · ${rm.from.row} · ${rm.from.slot} → ${rm.to.getTag()}`)); },
-                    resize: (_$) => {},
-                });
-            }));
-            const last = $.let(lastBind.read());
-            return (
-                <VStack gap="4" align="stretch">
-                    <Library
-                        id="people"
-                        data={[
-                            { id: "patel", name: "Patel, R.", role: "Senior SE" },
-                            { id: "kim", name: "Kim, A.", role: "Mid SE · day-shift only" },
-                        ]}
-                        item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: "user" })}
-                    />
-                    <Roster
-                        id="roster-wk"
-                        sources={["people"]}
-                        mode="edit"
-                        people={[{ id: "patel", name: "Patel" }, { id: "kim", name: "Kim" }]}
-                        person={p => ({ key: p.id, label: p.name })}
-                        shifts={[
-                            { id: "p1", person: "patel", day: "Fri", hours: 8n, state: variant("proposed", variant("added", null)) },
-                        ]}
-                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                        days={["Fri", "Sat", "Sun"]}
-                        canDrop={canDrop}
-                        onDrag={onDrag}
-                    />
-                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>
@@ -279,11 +239,30 @@ export const rosterReview = example({
     inputs: [],
 });
 
+/**
+ * IR-level drop validation (#261) folds into the DnD grammar — `canDrop`
+ * receives the synthesized candidate event for every hovered cell; returning
+ * `false` shows the ⊘ invalid stage and the drop is a no-op. Here Kim is
+ * day-shift only: any `add` of the `kim` card onto a weekend column is
+ * vetoed, and `move`s onto weekends are vetoed for everyone (weekend line-up
+ * is committed). Delivered gestures log under the roster — a vetoed drop
+ * stays visibly silent.
+ */
 export const rosterLibraryDnd = example({
-    keywords: ["Roster", "Library", "DnD", "drag", "add", "move", "remove", "trash", "onDrag", "page", "composition"],
-    description: "Library + Roster DnD — drag a person onto a cell (add), drag proposed chips between cells (move) or to the trash sink (remove); every gesture logs through the one onDrag grammar funnel",
+    keywords: ["Roster", "Library", "DnD", "drag", "add", "move", "remove", "trash", "onDrag", "page", "composition", "canDrop", "veto", "invalid", "validation", "candidate", "drop"],
+    description: "Library + Roster DnD — drag a person onto a cell (add), drag proposed chips between cells (move) or to the trash sink (remove), every gesture logging through the one onDrag grammar funnel; the canDrop stage vetoes Kim's card on weekend columns (⊘ while dragging, no LAST log) and every move onto weekends",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
+                const weekend = $.const(East.function([StringType], BooleanType, (_$, day) =>
+                    East.equal(day, "Sat").or(_$ => East.equal(day, "Sun"))));
+                return event.match({
+                    add: (_$, add) => East.equal(add.from.key, "kim").and(_$ => weekend(add.into.slot)).not(),
+                    move: (_$, mv) => weekend(mv.to.slot).not(),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                });
+            }));
             const lastBind = $.let(State.bind([StringType], "roster_last_drop", "none yet"));
             const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
                 $.match(event, {
@@ -301,7 +280,7 @@ export const rosterLibraryDnd = example({
                         data={[
                             { id: "patel", name: "Patel, R.", role: "Senior SE" },
                             { id: "cho", name: "Cho, J.", role: "Senior SE" },
-                            { id: "kim", name: "Kim, A.", role: "Mid SE" },
+                            { id: "kim", name: "Kim, A.", role: "Mid SE · day-shift only" },
                         ]}
                         item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: "user" })}
                     />
@@ -309,14 +288,16 @@ export const rosterLibraryDnd = example({
                         id="roster-se"
                         sources={["people"]}
                         mode="edit"
-                        people={[{ id: "patel", name: "Patel" }, { id: "cho", name: "Cho" }]}
+                        people={[{ id: "patel", name: "Patel" }, { id: "cho", name: "Cho" }, { id: "kim", name: "Kim" }]}
                         person={p => ({ key: p.id, label: p.name })}
                         shifts={[
                             { id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("committed", null) },
+                            { id: "p2", person: "patel", day: "Fri", hours: 8n, state: variant("proposed", variant("added", null)) },
                             { id: "c1", person: "cho", day: "Tue", hours: 6n, state: variant("proposed", variant("added", null)) },
                         ]}
                         shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                        days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                        days={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}
+                        canDrop={canDrop}
                         onDrag={onDrag}
                     />
                     <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>

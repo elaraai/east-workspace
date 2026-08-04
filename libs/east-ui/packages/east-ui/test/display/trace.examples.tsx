@@ -163,8 +163,7 @@ export const traceVariants = example({
                         controls={[
                             Configurator.Control("Data", dataKey,
                                 <SegmentGroup value={dataKey} onChange={onData} size="sm"
-                                    items={datasets.map((_$, d) => SegmentGroup.Item(d.label, <Text>{d.label.upperCase()}</Text>))} />,
-                                "ragged = unequal lengths"),
+                                    items={datasets.map((_$, d) => SegmentGroup.Item(d.label, <Text>{d.label.upperCase()}</Text>))} />),
                             Configurator.Control("Density", densityKey,
                                 <SegmentGroup value={densityKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -176,12 +175,10 @@ export const traceVariants = example({
                                     items={futures.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Now", nowKey,
                                 <SegmentGroup value={nowKey} onChange={onNow} size="sm"
-                                    items={nows.map((_$, n) => SegmentGroup.Item(East.print(n), <Text>{East.print(n)}</Text>))} />,
-                                "steps before it read as measured"),
+                                    items={nows.map((_$, n) => SegmentGroup.Item(East.print(n), <Text>{East.print(n)}</Text>))} />),
                             Configurator.Control("Label width", gutterKey,
                                 <SegmentGroup value={gutterKey} onChange={onGutter} size="sm"
-                                    items={gutters.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />,
-                                "34px = the compact default"),
+                                    items={gutters.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />),
                         ]}
                         preview={
                             <Trace

@@ -215,130 +215,6 @@ export const schematicStress = example({
     inputs: [],
 });
 
-export const schematicFacility = example({
-    keywords: ["Schematic", "facility", "navigator", "minimap", "zoom", "LOD", "click-to-fly", "large", "generate", "footprint", "geometry", "circle", "polygon", "shape"],
-    description: "500-unit facility — navigator rail, minimap, semantic zoom, click-to-fly from the navigator; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)",
-    fn: East.function([], UIComponentType, ($) => {
-        const UnitType = StructType({
-            key: StringType,
-            x: FloatType,
-            y: FloatType,
-            kind: StringType,
-            fill: FloatType,
-            cap: FloatType,
-            metric: StringType,
-            status: OptionType(StatusTokenType),
-            // Footprint discriminator + half-size (world units) — the item
-            // mapper turns these into a circle / square / triangle / diamond.
-            shape: IntegerType,
-            size: FloatType,
-        });
-        const statuses = $.const([
-            some(variant("success", null)),
-            some(variant("success", null)),
-            some(variant("success", null)),
-            some(variant("warning", null)),
-            some(variant("info", null)),
-            some(variant("neutral", null)),
-        ], ArrayType(OptionType(StatusTokenType)));
-        // One generated grid block per zone — geometry and pseudo-random
-        // fill computed with East expressions over the unit index. Blocks
-        // mix row spacing (tight ⇢ sparse) and add hash jitter so the
-        // semantic-zoom declutter has real density variation to chew on.
-        const block = $.const(East.function(
-            [StringType, FloatType, FloatType, IntegerType, IntegerType, FloatType, FloatType],
-            ArrayType(UnitType),
-            (_$, prefix, x0, y0, count, cols, spacing, cap) =>
-                East.Array.generate(count, UnitType, ($, i) => {
-                    const col = $.let(i.remainder(cols));
-                    const row = $.let(i.subtract(col).divide(cols));
-                    const fill = $.let(i.add(1n).multiply(7919n).remainder(100n).toFloat().divide(100.0).multiply(cap));
-                    const jx = $.let(i.multiply(2654435761n).remainder(97n).toFloat().divide(97.0).subtract(0.5).multiply(spacing.multiply(0.3)));
-                    const jy = $.let(i.multiply(40503n).remainder(89n).toFloat().divide(89.0).subtract(0.5).multiply(spacing.multiply(0.3)));
-                    // Cycle the four footprint shapes (period 4) and three sizes
-                    // (period 3) independently, so consecutive cells vary in both.
-                    const shape = $.let(i.remainder(4n));
-                    const size = $.let(i.remainder(3n).toFloat().multiply(0.3).add(0.55));
-                    return {
-                        key: East.str`${prefix}-${East.print(i.add(1n))}`,
-                        x: x0.add(col.toFloat().multiply(spacing)).add(jx),
-                        y: y0.add(row.toFloat().multiply(spacing)).add(jy),
-                        kind: East.str`${East.Float.printFixed(cap, 0n)} t cell`,
-                        fill,
-                        cap,
-                        metric: East.str`${East.Float.printFixed(fill, 1n)} t`,
-                        status: statuses.get(i.remainder(6n)),
-                        shape,
-                        size,
-                    };
-                }),
-        ));
-        const units = $.let(
-            block("IN", 3.0, 3.5, 16n, 8n, 3.1, 20.0)
-                .concat(block("PA", 33.0, 3.5, 84n, 14n, 3.1, 40.0))
-                .concat(block("PB", 33.0, 27.5, 84n, 21n, 2.0, 40.0))
-                .concat(block("ST", 3.0, 15.5, 80n, 10n, 1.6, 12.0))
-                .concat(block("QA", 81.0, 3.5, 30n, 5n, 3.6, 60.0))
-                .concat(block("OUT", 81.0, 27.5, 12n, 4n, 4.8, 24.0)));
-        const areas = $.const([
-            { id: "inbound", name: "Inbound", x: 1.0, y: 1.0, w: 28.0, h: 10.0 },
-            { id: "hall-a", name: "Process Hall A", x: 31.0, y: 1.0, w: 46.0, h: 22.0 },
-            { id: "hall-b", name: "Process Hall B", x: 31.0, y: 25.0, w: 46.0, h: 22.0 },
-            { id: "storage", name: "Storage", x: 1.0, y: 13.0, w: 28.0, h: 34.0 },
-            { id: "qa", name: "Quality", x: 79.0, y: 1.0, w: 20.0, h: 22.0 },
-            { id: "outbound", name: "Outbound", x: 79.0, y: 25.0, w: 20.0, h: 22.0 },
-        ]);
-        return (
-            <Schematic
-                extent={{ width: 100, height: 48 }}
-                height="440px"
-                items={units}
-                item={u => ({
-                    key: u.key, x: u.x, y: u.y, label: u.key,
-                    sublabel: u.kind, icon: "cube",
-                    status: u.status,
-                    meter: { value: u.fill, max: u.cap },
-                    metric: u.metric,
-                    // Four footprint shapes of varying size, centred on the
-                    // unit's (x, y) anchor — polygon vertices are absolute world
-                    // coords, so they are offset from the anchor by ±size.
-                    footprint: u.shape.equal(0n).ifElse(
-                        _$ => Schematic.circle(u.size),
-                        _$ => u.shape.equal(1n).ifElse(
-                            _$ => Schematic.polygon([                                      // square
-                                { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },
-                                { x: u.x.add(u.size), y: u.y.subtract(u.size) },
-                                { x: u.x.add(u.size), y: u.y.add(u.size) },
-                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },
-                            ]),
-                            _$ => u.shape.equal(2n).ifElse(
-                                _$ => Schematic.polygon([                                  // triangle
-                                    { x: u.x, y: u.y.subtract(u.size) },
-                                    { x: u.x.add(u.size), y: u.y.add(u.size) },
-                                    { x: u.x.subtract(u.size), y: u.y.add(u.size) },
-                                ]),
-                                _$ => Schematic.polygon([                                  // diamond
-                                    { x: u.x, y: u.y.subtract(u.size) },
-                                    { x: u.x.add(u.size), y: u.y },
-                                    { x: u.x, y: u.y.add(u.size) },
-                                    { x: u.x.subtract(u.size), y: u.y },
-                                ]),
-                            ),
-                        ),
-                    ),
-                })}
-                zones={areas}
-                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}
-                scaleUnit="m"
-                grid={true}
-                navigator={true}
-                minimap={true}
-            />
-        );
-    }),
-    inputs: [],
-});
-
 export const schematicLinkEdit = example({
     keywords: ["Schematic", "link", "editing", "connect", "linkMode", "session", "onCreateLink", "onSelectLink", "onEditLink", "onDeleteLink", "readOnlyLinks", "readOnly", "draw", "Reactive", "State", "Switch"],
     description: "Link editing — the connect tool drags item→item to create links (draw mode adds them locally, form-input style; connect mode is event-only for planning operations between areas); Shift+drag ADDS to the session and onCreateLink reports the accumulated links + the pair's existing links; click a link to select it, drag an endpoint handle to re-target (SHIFT-drag from an endpoint instead SEEDS a net session that absorbs the link), Del deletes; switches flip linkMode and readOnlyLinks reactively; canConnect forbids mixer→shipping directly (product must pass a packer)",
@@ -490,86 +366,263 @@ export const schematicNets = example({
 });
 
 export const schematicVariants = example({
-    keywords: ["Schematic", "canvas", "minimal", "readOnly", "static", "layers", "layer", "visibility", "solo", "lock", "opacity", "toggle", "legend", "geometry", "polygon", "polyline", "circle", "arc", "bulge", "footprint", "zone", "CAD", "shape", "color", "tone", "bg", "override", "style"],
-    description: "Schematic variant panel — minimal (items only, no zones or links; readOnly makes it a pure static picture — the connect / move edit tools never render — leaving just pan / zoom / selection), layers (items / zones / links grouped into toggleable layers: a locked + dimmed building shell and a maintenance layer that ships hidden; the canvas layer button opens a panel to show / hide / solo / lock each layer), geometry (polygon & arc-aware polyline zones — rotated hall, curvy service road — plus polygon / circle item footprints: pump, tank, valve), color override (per-entity colour overrides: raw color + bg on item footprints, a category palette independent of status, and a toned, filled area)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="MINIMAL" align="start" />
-                <Schematic
-                        extent={{ width: 12, height: 7 }}
-                        height="440px"
-                        items={SCHEMATIC_MINIMAL_DATA}
-                        item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "warehouse" })}
-                        readOnly={true}
-                    />
-                <Separator label="LAYERS" align="start" />
-                <Schematic
-                        extent={{ width: 24, height: 13 }}
-                        height="420px"
-                        items={SCHEMATIC_LAYERS_DATA}
-                        item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: "gear", layer: e.sys })}
-                        zones={SCHEMATIC_LAYERS_ROOMS_DATA}
-                        zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" })}
-                        links={SCHEMATIC_LAYERS_PIPES_DATA}
-                        link={l => ({ key: l.id, from: l.a, to: l.b, layer: "utilities" })}
-                        layers={[
-                            // Locked + dimmed backdrop (the GATE item + Hall zone read as context).
-                            { key: "shell", label: "Building shell", tone: "muted", locked: true, opacity: 0.45 },
-                            { key: "process", label: "Process", tone: "brand" },
-                            { key: "utilities", label: "Utilities", tone: "success" },
-                            // Ships hidden — SENS-4 is absent until toggled on in the panel.
-                            { key: "maintenance", label: "Maintenance", tone: "warning", visible: false },
-                        ]}
-                        scaleUnit="m"
-                    />
-                <Separator label="GEOMETRY" align="start" />
-                <Schematic
-                        extent={{ width: 26, height: 14 }}
-                        height="440px"
-                        items={SCHEMATIC_GEOMETRY_DATA}
-                        item={e => ({
-                            key: e.id, x: e.x, y: e.y, label: e.id,
-                            sublabel: e.kind, status: e.state, icon: "industry",
-                            footprint: e.round.ifElse(
-                                _$ => Schematic.circle(e.r),
-                                _$ => e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
+    keywords: ["Schematic", "canvas", "minimal", "readOnly", "static", "layers", "layer", "visibility", "solo", "lock", "opacity", "toggle", "legend", "geometry", "polygon", "polyline", "circle", "arc", "bulge", "footprint", "zone", "CAD", "shape", "color", "tone", "bg", "override", "style", "facility", "navigator", "minimap", "zoom", "LOD", "click-to-fly", "large", "generate", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Schematic canvas configurator — a canvas preset axis (minimal / layers / geometry / color / facility) plus a read-only switch driving one live canvas",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The canvas axis is a bare label array — each preset swaps the
+            // WHOLE canvas (data, mappers, chrome), so the axis is a preset
+            // picker rather than a per-prop lookup.
+            const canvases = $.const(["minimal", "layers", "geometry", "color", "facility"], ArrayType(StringType));
+            const canvasBind = $.let(State.bind([StringType], "schematic_canvas", "minimal"));
+            const canvas = $.let(canvasBind.read());
+            const onCanvas = $.const(East.function([StringType], NullType, ($, next) => {
+                $(canvasBind.write(next));
+            }));
+            // readOnly ON makes the shown canvas a pure static picture — the
+            // connect / move edit tools never render, leaving just pan / zoom /
+            // selection (the old MINIMAL row's fixed prop, now a live switch).
+            const roBind = $.let(State.bind([BooleanType], "schematic_readonly", false));
+            const roOn = $.let(roBind.read());
+            const onRo = $.const(East.function([BooleanType], NullType, ($, v) => { $(roBind.write(v)); }));
+            // ---- FACILITY preset (schematicFacility fold-in) — 306 units:
+            // navigator rail, minimap, semantic zoom, click-to-fly from the
+            // navigator; rows generated with East.Array.generate, each carrying
+            // a varied footprint shape/size (circle / square / triangle / diamond).
+            const UnitType = StructType({
+                key: StringType,
+                x: FloatType,
+                y: FloatType,
+                kind: StringType,
+                fill: FloatType,
+                cap: FloatType,
+                metric: StringType,
+                status: OptionType(StatusTokenType),
+                // Footprint discriminator + half-size (world units) — the item
+                // mapper turns these into a circle / square / triangle / diamond.
+                shape: IntegerType,
+                size: FloatType,
+            });
+            const statuses = $.const([
+                some(variant("success", null)),
+                some(variant("success", null)),
+                some(variant("success", null)),
+                some(variant("warning", null)),
+                some(variant("info", null)),
+                some(variant("neutral", null)),
+            ], ArrayType(OptionType(StatusTokenType)));
+            // One generated grid block per zone — geometry and pseudo-random
+            // fill computed with East expressions over the unit index. Blocks
+            // mix row spacing (tight ⇢ sparse) and add hash jitter so the
+            // semantic-zoom declutter has real density variation to chew on.
+            const block = $.const(East.function(
+                [StringType, FloatType, FloatType, IntegerType, IntegerType, FloatType, FloatType],
+                ArrayType(UnitType),
+                (_$, prefix, x0, y0, count, cols, spacing, cap) =>
+                    East.Array.generate(count, UnitType, ($, i) => {
+                        const col = $.let(i.remainder(cols));
+                        const row = $.let(i.subtract(col).divide(cols));
+                        const fill = $.let(i.add(1n).multiply(7919n).remainder(100n).toFloat().divide(100.0).multiply(cap));
+                        const jx = $.let(i.multiply(2654435761n).remainder(97n).toFloat().divide(97.0).subtract(0.5).multiply(spacing.multiply(0.3)));
+                        const jy = $.let(i.multiply(40503n).remainder(89n).toFloat().divide(89.0).subtract(0.5).multiply(spacing.multiply(0.3)));
+                        // Cycle the four footprint shapes (period 4) and three sizes
+                        // (period 3) independently, so consecutive cells vary in both.
+                        const shape = $.let(i.remainder(4n));
+                        const size = $.let(i.remainder(3n).toFloat().multiply(0.3).add(0.55));
+                        return {
+                            key: East.str`${prefix}-${East.print(i.add(1n))}`,
+                            x: x0.add(col.toFloat().multiply(spacing)).add(jx),
+                            y: y0.add(row.toFloat().multiply(spacing)).add(jy),
+                            kind: East.str`${East.Float.printFixed(cap, 0n)} t cell`,
+                            fill,
+                            cap,
+                            metric: East.str`${East.Float.printFixed(fill, 1n)} t`,
+                            status: statuses.get(i.remainder(6n)),
+                            shape,
+                            size,
+                        };
+                    }),
+            ));
+            const units = $.let(
+                block("IN", 3.0, 3.5, 16n, 8n, 3.1, 20.0)
+                    .concat(block("PA", 33.0, 3.5, 84n, 14n, 3.1, 40.0))
+                    .concat(block("PB", 33.0, 27.5, 84n, 21n, 2.0, 40.0))
+                    .concat(block("ST", 3.0, 15.5, 80n, 10n, 1.6, 12.0))
+                    .concat(block("QA", 81.0, 3.5, 30n, 5n, 3.6, 60.0))
+                    .concat(block("OUT", 81.0, 27.5, 12n, 4n, 4.8, 24.0)));
+            const facilityAreas = $.const([
+                { id: "inbound", name: "Inbound", x: 1.0, y: 1.0, w: 28.0, h: 10.0 },
+                { id: "hall-a", name: "Process Hall A", x: 31.0, y: 1.0, w: 46.0, h: 22.0 },
+                { id: "hall-b", name: "Process Hall B", x: 31.0, y: 25.0, w: 46.0, h: 22.0 },
+                { id: "storage", name: "Storage", x: 1.0, y: 13.0, w: 28.0, h: 34.0 },
+                { id: "qa", name: "Quality", x: 79.0, y: 1.0, w: 20.0, h: 22.0 },
+                { id: "outbound", name: "Outbound", x: 79.0, y: 25.0, w: 20.0, h: 22.0 },
+            ]);
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Canvas", canvas,
+                            <SegmentGroup value={canvas} onChange={onCanvas} size="sm"
+                                items={canvases.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
+                        Configurator.Slot("Editing",
+                            <HStack gap="5" align="center">
+                                <Switch checked={roOn} label="Read-only" onChange={onRo} />
+                            </HStack>),
+                    ]}
+                    preview={
+                        canvas.equal("minimal").ifElse(
+                            // Minimal — items only, no zones or links.
+                            _$ => (
+                                <Schematic
+                                    extent={{ width: 12, height: 7 }}
+                                    height="440px"
+                                    items={SCHEMATIC_MINIMAL_DATA}
+                                    item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "warehouse" })}
+                                    readOnly={roOn}
+                                />
                             ),
-                        })}
-                        zones={SCHEMATIC_GEOMETRY_AREAS_DATA}
-                        zone={z => ({
-                            key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
-                            geometry: z.road.ifElse(
-                                _$ => Schematic.polyline(z.pts, { width: 1.4 }),
-                                _$ => Schematic.polygon(z.pts),
+                            _$ => canvas.equal("layers").ifElse(
+                                // Layers — items / zones / links grouped into toggleable
+                                // layers; the canvas layer button opens a panel to
+                                // show / hide / solo / lock each layer.
+                                _$ => (
+                                    <Schematic
+                                        extent={{ width: 24, height: 13 }}
+                                        height="420px"
+                                        items={SCHEMATIC_LAYERS_DATA}
+                                        item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: "gear", layer: e.sys })}
+                                        zones={SCHEMATIC_LAYERS_ROOMS_DATA}
+                                        zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" })}
+                                        links={SCHEMATIC_LAYERS_PIPES_DATA}
+                                        link={l => ({ key: l.id, from: l.a, to: l.b, layer: "utilities" })}
+                                        layers={[
+                                            // Locked + dimmed backdrop (the GATE item + Hall zone read as context).
+                                            { key: "shell", label: "Building shell", tone: "muted", locked: true, opacity: 0.45 },
+                                            { key: "process", label: "Process", tone: "brand" },
+                                            { key: "utilities", label: "Utilities", tone: "success" },
+                                            // Ships hidden — SENS-4 is absent until toggled on in the panel.
+                                            { key: "maintenance", label: "Maintenance", tone: "warning", visible: false },
+                                        ]}
+                                        scaleUnit="m"
+                                        readOnly={roOn}
+                                    />
+                                ),
+                                _$ => canvas.equal("geometry").ifElse(
+                                    // Geometry — polygon & arc-aware polyline zones plus
+                                    // polygon / circle item footprints.
+                                    _$ => (
+                                        <Schematic
+                                            extent={{ width: 26, height: 14 }}
+                                            height="440px"
+                                            items={SCHEMATIC_GEOMETRY_DATA}
+                                            item={e => ({
+                                                key: e.id, x: e.x, y: e.y, label: e.id,
+                                                sublabel: e.kind, status: e.state, icon: "industry",
+                                                footprint: e.round.ifElse(
+                                                    _$ => Schematic.circle(e.r),
+                                                    _$ => e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
+                                                ),
+                                            })}
+                                            zones={SCHEMATIC_GEOMETRY_AREAS_DATA}
+                                            zone={z => ({
+                                                key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
+                                                geometry: z.road.ifElse(
+                                                    _$ => Schematic.polyline(z.pts, { width: 1.4 }),
+                                                    _$ => Schematic.polygon(z.pts),
+                                                ),
+                                            })}
+                                            scaleUnit="m"
+                                            grid={true}
+                                            readOnly={roOn}
+                                        />
+                                    ),
+                                    _$ => canvas.equal("color").ifElse(
+                                        // Color override — per-entity colour overrides: raw
+                                        // color + bg on item footprints, a category palette
+                                        // independent of status, and a toned, filled area.
+                                        _$ => (
+                                            <Schematic
+                                                extent={{ width: 16, height: 8 }}
+                                                height="360px"
+                                                items={SCHEMATIC_COLOR_OVERRIDE_DATA}
+                                                item={e => ({
+                                                    key: e.id, x: e.x, y: e.y, label: e.id,
+                                                    footprint: Schematic.circle(e.r),
+                                                    color: e.fill,        // raw stroke / marker tint
+                                                    bg: e.fill,           // raw footprint fill
+                                                    fillOpacity: 0.18,
+                                                })}
+                                                zones={SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA}
+                                                zone={z => ({
+                                                    key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
+                                                    tone: "brand",        // semantic, theme-resolved
+                                                    bg: "bg.brand.subtle",        // opt-in area fill
+                                                })}
+                                                scaleUnit="m"
+                                                readOnly={roOn}
+                                            />
+                                        ),
+                                        // Facility — the generated 306-unit canvas above.
+                                        _$ => (
+                                            <Schematic
+                                                extent={{ width: 100, height: 48 }}
+                                                height="440px"
+                                                items={units}
+                                                item={u => ({
+                                                    key: u.key, x: u.x, y: u.y, label: u.key,
+                                                    sublabel: u.kind, icon: "cube",
+                                                    status: u.status,
+                                                    meter: { value: u.fill, max: u.cap },
+                                                    metric: u.metric,
+                                                    // Four footprint shapes of varying size, centred on the
+                                                    // unit's (x, y) anchor — polygon vertices are absolute world
+                                                    // coords, so they are offset from the anchor by ±size.
+                                                    footprint: u.shape.equal(0n).ifElse(
+                                                        _$ => Schematic.circle(u.size),
+                                                        _$ => u.shape.equal(1n).ifElse(
+                                                            _$ => Schematic.polygon([                                      // square
+                                                                { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },
+                                                                { x: u.x.add(u.size), y: u.y.subtract(u.size) },
+                                                                { x: u.x.add(u.size), y: u.y.add(u.size) },
+                                                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },
+                                                            ]),
+                                                            _$ => u.shape.equal(2n).ifElse(
+                                                                _$ => Schematic.polygon([                                  // triangle
+                                                                    { x: u.x, y: u.y.subtract(u.size) },
+                                                                    { x: u.x.add(u.size), y: u.y.add(u.size) },
+                                                                    { x: u.x.subtract(u.size), y: u.y.add(u.size) },
+                                                                ]),
+                                                                _$ => Schematic.polygon([                                  // diamond
+                                                                    { x: u.x, y: u.y.subtract(u.size) },
+                                                                    { x: u.x.add(u.size), y: u.y },
+                                                                    { x: u.x, y: u.y.add(u.size) },
+                                                                    { x: u.x.subtract(u.size), y: u.y },
+                                                                ]),
+                                                            ),
+                                                        ),
+                                                    ),
+                                                })}
+                                                zones={facilityAreas}
+                                                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}
+                                                scaleUnit="m"
+                                                grid={true}
+                                                navigator={true}
+                                                minimap={true}
+                                                readOnly={roOn}
+                                            />
+                                        ),
+                                    ),
+                                ),
                             ),
-                        })}
-                        scaleUnit="m"
-                        grid={true}
-                    />
-                <Separator label="COLOR OVERRIDE" align="start" />
-                <Schematic
-                        extent={{ width: 16, height: 8 }}
-                        height="360px"
-                        items={SCHEMATIC_COLOR_OVERRIDE_DATA}
-                        item={e => ({
-                            key: e.id, x: e.x, y: e.y, label: e.id,
-                            footprint: Schematic.circle(e.r),
-                            color: e.fill,        // raw stroke / marker tint
-                            bg: e.fill,           // raw footprint fill
-                            fillOpacity: 0.18,
-                        })}
-                        zones={SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA}
-                        zone={z => ({
-                            key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
-                            tone: "brand",        // semantic, theme-resolved
-                            bg: "bg.brand.subtle",        // opt-in area fill
-                        })}
-                        scaleUnit="m"
-                    />
-            </VStack>
-        );
-    }),
+                        )
+                    }
+                    spec={[
+                        Configurator.Spec("readOnly", roOn.ifElse(_$ => "on", _$ => "off")),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -798,24 +851,20 @@ export const schematicInteractions = example({
                     controls={[
                         Configurator.Control("Tool", tool,
                             <SegmentGroup value={tool} onChange={onToolChange} size="sm"
-                                items={tools.map((_$, t) => SegmentGroup.Item(t, <Text>{t.upperCase()}</Text>))} />,
-                            "each tool remaps selectionMode · camera · readOnlyItems"),
+                                items={tools.map((_$, t) => SegmentGroup.Item(t, <Text>{t.upperCase()}</Text>))} />),
                         // Slots, not Controls: the switches report through the
                         // aside's event log rather than as one value each.
                         Configurator.Slot("Selection",
                             <HStack gap="5" align="center">
                                 <Switch checked={multiOn} label="Multi-select (Shift extends)" onChange={onMulti} />
-                                <Text textStyle="caption" color="fg.subtle">marquee + zone tools</Text>
                             </HStack>),
                         Configurator.Slot("Camera",
                             <HStack gap="5" align="center">
                                 <Switch checked={focusOn} label="Zoom to focus on select" onChange={onFocus} />
-                                <Text textStyle="caption" color="fg.subtle">marquee tool · tap-flies / marquee-fits</Text>
                             </HStack>),
                         Configurator.Slot("Items",
                             <HStack gap="5" align="center">
                                 <Switch checked={mOn} label="Items movable" onChange={onM} />
-                                <Text textStyle="caption" color="fg.subtle">move tool · flips readOnlyItems</Text>
                             </HStack>),
                     ]}
                     preview={

@@ -142,21 +142,17 @@ export const gridVariants = example({
                         controls={[
                             Configurator.Control("Template", tKey,
                                 <SegmentGroup value={tKey} onChange={onTemplate} size="sm"
-                                    items={templates.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "columns · rows · areas · flow per preset"),
+                                    items={templates.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Gaps", gKey,
                                 <SegmentGroup value={gKey} onChange={onGaps} size="sm"
-                                    items={gaps.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "columnGap · rowGap pair"),
+                                    items={gaps.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as
                             // the Span / Cells spec rows below rather than as one
                             // value.
                             Configurator.Slot("Items",
                                 <HStack gap="5" align="center">
                                     <Switch checked={spanOn} label="Span" onChange={onSpan} />
-                                    <Text textStyle="caption" color="fg.subtle">full-width header</Text>
                                     <Switch checked={centered} label="Centered" onChange={onCentered} />
-                                    <Text textStyle="caption" color="fg.subtle">justifyItems · alignItems</Text>
                                 </HStack>),
                         ]}
                         preview={

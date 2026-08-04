@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
+import { East, IntegerType, FloatType, StringType, StructType, ArrayType, BooleanType, NullType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Chart, Reactive, Separator, Table, VStack } from "@elaraai/east-ui";
+import { Box, Button, Chart, Configurator, HStack, Reactive, SegmentGroup, Switch, Table, Text, VStack } from "@elaraai/east-ui";
 
 // Rows for the tooltip-over-sticky-header layering example (below).
 const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
@@ -15,94 +15,12 @@ const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
 }));
 
 // ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
+// Module-scope fixtures — one per configurator cell (consolidation epic #455).
 // ============================================================================
 
-const LINE_MULTI_COLUMNS_DATA = [
-    { month: "Jan", mac: 10n, linux: 120n }, { month: "Feb", mac: 95n, linux: 110n },
-    { month: "Mar", mac: 87n, linux: 125n }, { month: "Apr", mac: 110n, linux: 100n },
-];
-const LINE_BREAKDOWN_DATA = [
-    { month: "Jan", os: "Mac", n: 10n }, { month: "Jan", os: "Linux", n: 120n },
-    { month: "Feb", os: "Mac", n: 95n }, { month: "Feb", os: "Linux", n: 110n },
-    { month: "Mar", os: "Mac", n: 87n }, { month: "Mar", os: "Linux", n: 125n },
-];
 const LINE_CURVE_NATURAL_DATA = [
     { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
     { month: "Mar", sales: 120n }, { month: "Apr", sales: 180n },
-];
-const LINE_STEP_NO_DOTS_DATA = [
-    { month: "Jan", price: 100n }, { month: "Feb", price: 120n },
-    { month: "Mar", price: 115n }, { month: "Apr", price: 140n },
-];
-const LINE_STEP_AFTER_SETPOINT_DATA = [
-    { day: 0n, setpoint: 18.0 }, { day: 2n, setpoint: 22.0 },
-    { day: 5n, setpoint: 20.0 }, { day: 8n, setpoint: 16.0 },
-];
-const LINE_DASHED_TARGET_OVERLAY_DATA = [
-    { month: "Jan", actual: 100n, target: 110n }, { month: "Feb", actual: 150n, target: 130n },
-    { month: "Mar", actual: 120n, target: 140n }, { month: "Apr", actual: 180n, target: 150n },
-];
-const LINE_SAMPLE_FAN_DATA = [
-    { t: 0n, sid: "s0", y: 10.0 }, { t: 1n, sid: "s0", y: 14.0 }, { t: 2n, sid: "s0", y: 13.0 },
-    { t: 0n, sid: "s1", y: 11.0 }, { t: 1n, sid: "s1", y: 9.0 }, { t: 2n, sid: "s1", y: 15.0 },
-    { t: 0n, sid: "s2", y: 9.0 }, { t: 1n, sid: "s2", y: 12.0 }, { t: 2n, sid: "s2", y: 11.0 },
-];
-const LINE_SAMPLE_FAN_MEDIAN_DATA = [
-    { t: 0n, y: 10.0 }, { t: 1n, y: 12.0 }, { t: 2n, y: 13.0 },
-];
-const LINE_TEMPORAL_DATA = [
-    { at: new Date("2025-01-01"), users: 1200n }, { at: new Date("2025-02-01"), users: 1500n },
-    { at: new Date("2025-03-01"), users: 1700n }, { at: new Date("2025-04-01"), users: 1650n },
-];
-const LINE_NUMERIC_X_DATA = [
-    { dose: 0.5, response: 12.0 }, { dose: 1.0, response: 30.0 },
-    { dose: 2.5, response: 55.0 }, { dose: 5.0, response: 70.0 },
-];
-const LINE_INTEGER_DAY_TICKS_DATA = [
-    { day: 0.0, temp: 22.0 }, { day: 2.0, temp: 20.5 },
-    { day: 4.0, temp: 18.0 }, { day: 6.0, temp: 16.5 },
-];
-const LINE_RUNTIME_DOMAIN_DATA = [
-    { day: 0.0, value: 10.0 }, { day: 1.5, value: 22.0 },
-    { day: 3.0, value: 41.0 }, { day: 4.0, value: 52.0 },
-];
-const LINE_RUNTIME_TIME_DOMAIN_DATA = [
-    { at: new Date("2025-01-01"), v: 10.0 },
-    { at: new Date("2025-02-01"), v: 18.0 },
-    { at: new Date("2025-03-01"), v: 26.0 },
-];
-// Axis typography overrides (#315) — `tickStyle` / `titleStyle` on any axis
-// restyle its tick labels and caption over the spec chrome; titleGap pushes
-// the caption out from the ticks. The legibility treatment for dense lanes.
-const AXIS_TEXT_STYLED_DATA = [
-    { at: new Date("2026-03-30T12:00:00Z"), v: 8.0 },
-    { at: new Date("2026-03-31T12:00:00Z"), v: 10.0 },
-    { at: new Date("2026-04-01T12:00:00Z"), v: 14.0 },
-    { at: new Date("2026-04-02T12:00:00Z"), v: 12.0 },
-    { at: new Date("2026-04-03T12:00:00Z"), v: 9.0 },
-];
-const AXIS_FORMATTING_DATA = [
-    { at: new Date("2025-01-01"), revenue: 12000n }, { at: new Date("2025-02-01"), revenue: 18500n },
-    { at: new Date("2025-03-01"), revenue: 21000n },
-];
-// Explicit Date ticks on a `time` axis (#318) — `tickValues` accepts
-// `DateTime[]` positions on a time scale, rendered through the date
-// `tickFormat`; pins ticks to exact instants (e.g. a stacked Planner's
-// day-column starts under a shared AlignedStack gutter).
-const CHART_TIME_TICK_VALUES_DATA = [
-    { at: new Date("2026-03-30T00:00:00Z"), v: 12.0 },
-    { at: new Date("2026-03-31T12:00:00Z"), v: 15.5 },
-    { at: new Date("2026-04-02T00:00:00Z"), v: 14.0 },
-    { at: new Date("2026-04-03T18:00:00Z"), v: 18.5 },
-    { at: new Date("2026-04-05T06:00:00Z"), v: 16.0 },
-];
-const COLUMN_BASIC_DATA = [
-    { q: "Q1", revenue: 186n }, { q: "Q2", revenue: 305n }, { q: "Q3", revenue: 237n }, { q: "Q4", revenue: 273n },
-];
-const COLUMN_PER_CATEGORY_DATA = [
-    { discipline: "RN", share: 42n }, { discipline: "EN", share: 28n }, { discipline: "Physio", share: 16n },
-    { discipline: "OT", share: 9n }, { discipline: "Admin", share: 5n },
 ];
 const COLUMN_GROUPED_DATA = [
     { region: "NA", a: 40n, b: 30n }, { region: "EU", a: 55n, b: 45n }, { region: "APAC", a: 30n, b: 60n },
@@ -114,27 +32,6 @@ const COLUMN_STACKED_DATA = [
 const COLUMN_PERCENT_STACKED_DATA = [
     { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
     { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
-];
-const COLUMN_CUSTOM_COLORS_DATA = [
-    { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
-    { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
-];
-const COLUMN_STACKED_DIVERGING_DATA = [
-    { day: "Mon", grp: "A", kl: 40.0 }, { day: "Mon", grp: "B", kl: 30.0 },
-    { day: "Tue", grp: "A", kl: 55.0 }, { day: "Tue", grp: "B", kl: 20.0 },
-    { day: "Wed", grp: "A", kl: 35.0 }, { day: "Wed", grp: "B", kl: 45.0 },
-];
-const COLUMN_STACKED_DIVERGING_CONSUMED_DATA = [
-    { day: "Mon", grp: "X", kl: 25.0 }, { day: "Mon", grp: "Y", kl: 35.0 },
-    { day: "Tue", grp: "X", kl: 40.0 }, { day: "Tue", grp: "Y", kl: 15.0 },
-    { day: "Wed", grp: "X", kl: 30.0 }, { day: "Wed", grp: "Y", kl: 20.0 },
-];
-const BAR_RANKED_DATA = [
-    { product: "Industrial Conveyor Belts", revenue: 482n },
-    { product: "Hydraulic Press Fittings", revenue: 305n },
-    { product: "Pneumatic Valve Assemblies", revenue: 237n },
-    { product: "Stainless Fastener Kits", revenue: 186n },
-    { product: "Bearing Housings", revenue: 121n },
 ];
 const BAR_GROUPED_DATA = [
     { site: "North", loaded: 42n, empty: 18n }, { site: "South", loaded: 35n, empty: 25n },
@@ -202,382 +99,349 @@ export const lineBasic = example({
 });
 
 // ============================================================================
-// Line — marks, encodings, curves (variant panel)
+// Line — live configurator over the mark + axis dimensions
 // ============================================================================
 
 export const lineVariants = example({
-    keywords: ["Chart", "Line", "multi-series", "columns", "wide", "legend", "breakdown", "by", "split", "curve", "natural", "smooth", "step", "dots", "strokeWidth", "stepAfter", "stepBefore", "setpoint", "held", "dash", "layers", "per-series-style", "opacity", "tooltip", "fan", "sample-path", "overlay", "decoration"],
-    description: "Line mark variant panel — multi columns (wide value columns), breakdown (long-format split), curve natural, step no dots, step after setpoint (held setpoint), dashed target overlay, sample fan (decoration layer kept out of legend + tooltip)",
-    fn: East.function([], UIComponentType, ($) => {
-        const multiColumns = $.const(LINE_MULTI_COLUMNS_DATA, ArrayType(StructType({ month: StringType, mac: IntegerType, linux: IntegerType })));
-        const breakdown = $.const(LINE_BREAKDOWN_DATA, ArrayType(StructType({ month: StringType, os: StringType, n: IntegerType })));
-        const curveNatural = $.const(LINE_CURVE_NATURAL_DATA, ArrayType(StructType({ month: StringType, sales: IntegerType })));
-        const stepNoDots = $.const(LINE_STEP_NO_DOTS_DATA, ArrayType(StructType({ month: StringType, price: IntegerType })));
-        const stepAfter = $.const(LINE_STEP_AFTER_SETPOINT_DATA, ArrayType(StructType({ day: IntegerType, setpoint: FloatType })));
-        const dashedTarget = $.const(LINE_DASHED_TARGET_OVERLAY_DATA, ArrayType(StructType({ month: StringType, actual: IntegerType, target: IntegerType })));
-        const fan = $.const(LINE_SAMPLE_FAN_DATA, ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));
-        const median = $.const(LINE_SAMPLE_FAN_MEDIAN_DATA, ArrayType(StructType({ t: IntegerType, y: FloatType })));
+    keywords: ["Chart", "Line", "multi-series", "columns", "wide", "legend", "breakdown", "by", "split", "curve", "natural", "smooth", "step", "dots", "strokeWidth", "stepAfter", "stepBefore", "setpoint", "held", "dash", "layers", "per-series-style", "opacity", "tooltip", "fan", "sample-path", "overlay", "decoration", "time", "temporal", "DateTime", "format", "linear", "numeric", "domain", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast", "tickStyle", "titleStyle", "titleGap", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "label", "currency", "date", "compact", "pin", "explicit", "#318", "Column", "Reactive", "State", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Line chart configurator — curve and fill axes plus points, grid, tick-format and pinned-range switches driving one live chart; the aside's Q4 column tracks a reactive peak",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="MULTI COLUMNS" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Line(multiColumns, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />
-                </Box>
-                <Separator label="BREAKDOWN" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Line(breakdown, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />
-                </Box>
-                <Separator label="CURVE NATURAL" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Line(curveNatural, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" })} grid />
-                </Box>
-                <Separator label="STEP NO DOTS" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Line(stepNoDots, { x: r => r.month, y: r => r.price }, { curve: "step", width: 2, dots: false, color: "orange.solid" })} grid />
-                </Box>
-                <Separator label="STEP AFTER SETPOINT" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Line(stepAfter, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "fg.default" })} grid />
-                </Box>
-                <Separator label="DASHED TARGET OVERLAY" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={[
-                        Chart.Line(dashedTarget, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
-                        Chart.Line(dashedTarget, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
-                    ]} legend grid />
-                </Box>
-                <Separator label="SAMPLE FAN" align="start" />
-                <Box height="260px" width="100%">
-                    <Chart
-                        layers={[
-                            // Decoration layer: out of the legend AND the tooltip, so hovering
-                            // surfaces only the median rather than one row per sample id.
-                            Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false, dots: false }),
-                            Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: "Median", color: "blue.solid", width: 2, dots: false }),
+            <Reactive>{$ => {
+                const rows = $.const(LINE_CURVE_NATURAL_DATA, ArrayType(StructType({ month: StringType, sales: IntegerType })));
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const curves = $.const([
+                    variant("linear", null), variant("natural", null),
+                    variant("step", null), variant("stepAfter", null),
+                ], ArrayType(Chart.Spec.Types.Curve));
+                const fills = $.const(["line", "area"], ArrayType(StringType));
+
+                const curveBind  = $.let(State.bind([StringType], "chart_curve", "natural"));
+                const fillBind   = $.let(State.bind([StringType], "chart_fill", "line"));
+                const pointsBind = $.let(State.bind([BooleanType], "chart_points", true));
+                const gridBind   = $.let(State.bind([BooleanType], "chart_grid", true));
+                const formatBind = $.let(State.bind([BooleanType], "chart_format", false));
+                const rangeBind  = $.let(State.bind([BooleanType], "chart_range", false));
+                const peak       = $.let(State.bind([IntegerType], "chart_peak", 90n));
+
+                const curveKey   = $.let(curveBind.read());
+                const fillKey    = $.let(fillBind.read());
+                const dots       = $.let(pointsBind.read());
+                const showGrid   = $.let(gridBind.read());
+                const compactFmt = $.let(formatBind.read());
+                const pinned     = $.let(rangeBind.read());
+                const peakVal    = $.let(peak.read());
+
+                const onCurve  = $.const(East.function([StringType], NullType, ($, next) => { $(curveBind.write(next)); }));
+                const onFill   = $.const(East.function([StringType], NullType, ($, next) => { $(fillBind.write(next)); }));
+                const onPoints = $.const(East.function([BooleanType], NullType, ($, next) => { $(pointsBind.write(next)); }));
+                const onGrid   = $.const(East.function([BooleanType], NullType, ($, next) => { $(gridBind.write(next)); }));
+                const onFormat = $.const(East.function([BooleanType], NullType, ($, next) => { $(formatBind.write(next)); }));
+                const onRange  = $.const(East.function([BooleanType], NullType, ($, next) => { $(rangeBind.write(next)); }));
+                const bump     = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(peak.read());
+                    const next = $.let(cur.greater(140n).ifElse(_$ => 60n, _$ => cur.add(15n)));
+                    $(peak.write(next));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const curve = $.let(curves.filter((_$, v) => v.getTag().equal(curveKey)).get(0n));
+                // curve / dots / format are runtime expressions, so one subtree
+                // serves every switch position; `grid` and the y-domain PRESENCE
+                // are build-time, so those switches swap whole <Chart> subtrees.
+                const yFormat = $.let(compactFmt.ifElse(_$ => Chart.format.currency({ compact: true }), _$ => Chart.format.number()));
+                const isArea = $.let(fillKey.equal("area"));
+                const preview = $.let(isArea.ifElse(
+                    _$ => showGrid.ifElse(
+                        _$ => pinned.ifElse(
+                            _$ => <Chart layers={Chart.Area(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", fillOpacity: 0.35 })} y={{ domain: [0, 220], format: yFormat }} grid tooltip />,
+                            _$ => <Chart layers={Chart.Area(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", fillOpacity: 0.35 })} y={{ format: yFormat }} grid tooltip />),
+                        _$ => pinned.ifElse(
+                            _$ => <Chart layers={Chart.Area(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", fillOpacity: 0.35 })} y={{ domain: [0, 220], format: yFormat }} tooltip />,
+                            _$ => <Chart layers={Chart.Area(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", fillOpacity: 0.35 })} y={{ format: yFormat }} tooltip />)),
+                    _$ => showGrid.ifElse(
+                        _$ => pinned.ifElse(
+                            _$ => <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", width: 2 })} y={{ domain: [0, 220], format: yFormat }} grid tooltip />,
+                            _$ => <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", width: 2 })} y={{ format: yFormat }} grid tooltip />),
+                        _$ => pinned.ifElse(
+                            _$ => <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", width: 2 })} y={{ domain: [0, 220], format: yFormat }} tooltip />,
+                            _$ => <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve, dots, color: "teal.solid", width: 2 })} y={{ format: yFormat }} tooltip />))));
+
+                // The aside is the old `interactiveValue` isolate: the Q4 column is
+                // sourced from reactive State (same `chart_peak` key), proving
+                // expression-valued data.
+                const peakRows = $.const([
+                    { q: "Q1", v: 40n }, { q: "Q2", v: 65n }, { q: "Q3", v: 55n }, { q: "Q4", v: peakVal },
+                ], ArrayType(StructType({ q: StringType, v: IntegerType })));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Curve", curveKey,
+                                <SegmentGroup value={curveKey} onChange={onCurve} size="sm"
+                                    items={curves.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Fill", fillKey,
+                                <SegmentGroup value={fillKey} onChange={onFill} size="sm"
+                                    items={fills.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switches report as the spec
+                            // rows below rather than as one value.
+                            Configurator.Slot("Marks",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={dots} label="Points" onChange={onPoints} />
+                                </HStack>),
+                            Configurator.Slot("Axes",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={showGrid} label="Grid" onChange={onGrid} />
+                                    <Switch checked={compactFmt} label="Compact currency" onChange={onFormat} />
+                                    <Switch checked={pinned} label="Pin y" onChange={onRange} />
+                                </HStack>),
                         ]}
-                        x={{ label: "Step", scale: "linear" }}
-                        y={{ label: "Value" }}
-                        legend grid tooltip
-                    />
-                </Box>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Axes — scales, domains, ticks, formats, typography (variant panel)
-// ============================================================================
-
-export const axisVariants = example({
-    keywords: ["Chart", "Line", "time", "temporal", "DateTime", "format", "linear", "numeric", "domain", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast", "tickStyle", "titleStyle", "titleGap", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "label", "currency", "date", "compact", "pin", "explicit", "#318"],
-    description: "Axis variant panel — temporal (DateTime x, date tick format), numeric x (explicit domain), integer day ticks (tickValues pinned to [0..6]), runtime domain (East-expression extent), runtime time domain (DateTime expressions), axis text styled (tickStyle/titleStyle/titleGap, #315), axis formatting (date x + compact-currency y), chart time tick values (#318 Monday tick instants on a time axis)",
-    fn: East.function([], UIComponentType, ($) => {
-        const temporal = $.const(LINE_TEMPORAL_DATA, ArrayType(StructType({ at: DateTimeType, users: IntegerType })));
-        const numericX = $.const(LINE_NUMERIC_X_DATA, ArrayType(StructType({ dose: FloatType, response: FloatType })));
-        const dayTicks = $.const(LINE_INTEGER_DAY_TICKS_DATA, ArrayType(StructType({ day: FloatType, temp: FloatType })));
-        const runtimeDomain = $.const(LINE_RUNTIME_DOMAIN_DATA, ArrayType(StructType({ day: FloatType, value: FloatType })));
-        const runtimeTime = $.const(LINE_RUNTIME_TIME_DOMAIN_DATA, ArrayType(StructType({ at: DateTimeType, v: FloatType })));
-        const axisStyled = $.const(AXIS_TEXT_STYLED_DATA, ArrayType(StructType({ at: DateTimeType, v: FloatType })));
-        const axisFormat = $.const(AXIS_FORMATTING_DATA, ArrayType(StructType({ at: DateTimeType, revenue: IntegerType })));
-        const timeTicks = $.const(CHART_TIME_TICK_VALUES_DATA, ArrayType(StructType({ at: DateTimeType, v: FloatType })));
-        // A data-derived press-ETA: the axis ends exactly where the forecast does,
-        // rather than at a compile-time constant.
-        const decisionDay = $.const(2.0, FloatType);
-        const p95 = $.const(3.5, FloatType);
-        const buffer = $.const(1.0, FloatType);
-        const start = $.const(new Date("2024-12-15"), DateTimeType);
-        const end = $.const(new Date("2025-03-20"), DateTimeType);
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="TEMPORAL" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(temporal, { x: r => r.at, y: r => r.users })}
-                        x={{ format: Chart.format.date("MMM YYYY") }}
-                        y={{ format: Chart.format.compact() }}
-                        grid
-                    />
-                </Box>
-                <Separator label="NUMERIC X" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(numericX, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
-                        x={{ label: "Dose", scale: "linear", domain: [0, 6] }}
-                        y={{ label: "Response" }}
-                        grid
-                    />
-                </Box>
-                <Separator label="INTEGER DAY TICKS" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(dayTicks, { x: r => r.day, y: r => r.temp }, { color: "teal.solid" })}
-                        x={{ label: "Day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
-                        y={{ label: "°C", numTicks: 3 }}
-                        grid
-                    />
-                </Box>
-                <Separator label="RUNTIME DOMAIN" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(runtimeDomain, { x: r => r.day, y: r => r.value }, { color: "teal.solid" })}
-                        x={{ label: "Day", scale: "linear", domain: [0, decisionDay.add(p95).add(buffer)] }}
-                        y={{ label: "Forecast" }}
-                        grid
-                    />
-                </Box>
-                <Separator label="RUNTIME TIME DOMAIN" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(runtimeTime, { x: r => r.at, y: r => r.v })}
-                        x={{ label: "Month", scale: "time", domain: [start, end], format: Chart.format.date("MMM YYYY") }}
-                        y={{ label: "Value" }}
-                        grid
-                    />
-                </Box>
-                <Separator label="AXIS TEXT STYLED" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(axisStyled, { x: r => r.at, y: r => r.v })}
-                        x={{ scale: "time", format: Chart.format.date("ddd DD"), tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } }}
-                        y={{ label: "Clarified kL", titleGap: 6, tickStyle: { fontSize: "12px" }, titleStyle: { fontFamily: "sans", fontWeight: "semibold", color: "fg.default", letterSpacing: "0.02em" } }}
-                        grid
-                    />
-                </Box>
-                <Separator label="AXIS FORMATTING" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Column(axisFormat, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: Chart.format.date("MMM") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />
-                </Box>
-                <Separator label="CHART TIME TICK VALUES — #318 MONDAY TICK INSTANTS" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Line(timeTicks, { x: r => r.at, y: r => r.v }, { color: "teal.solid", dots: true })}
-                        x={{
-                            scale: "time",
-                            domain: [new Date("2026-03-30T00:00:00Z"), new Date("2026-04-06T00:00:00Z")],
-                            tickValues: [
-                                new Date("2026-03-30T00:00:00Z"),
-                                new Date("2026-04-01T00:00:00Z"),
-                                new Date("2026-04-03T00:00:00Z"),
-                                new Date("2026-04-05T00:00:00Z"),
-                            ],
-                            format: Chart.format.date("ddd DD"),
+                        preview={<Box height="260px" width="100%">{preview}</Box>}
+                        aside={{
+                            label: "Peak · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Box height="120px" width="240px">
+                                        <Chart layers={Chart.Column(peakRows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} />
+                                    </Box>
+                                    <Button size="xs" onClick={bump}>Bump Q4</Button>
+                                </HStack>
+                            ),
                         }}
-                        grid
+                        spec={[
+                            Configurator.Spec("Points", dots.ifElse(_$ => "on", _$ => "off")),
+                            Configurator.Spec("Grid", showGrid.ifElse(_$ => "on", _$ => "off")),
+                            Configurator.Spec("Tick format", compactFmt.ifElse(_$ => "compact currency", _$ => "number")),
+                            Configurator.Spec("Y domain", pinned.ifElse(_$ => "0 – 220", _$ => "auto")),
+                        ]}
                     />
-                </Box>
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
 // ============================================================================
-// Column — vertical bars (variant panel)
+// Column + Bar — live configurator; orientation swaps the whole subtree (#249)
 // ============================================================================
 
-export const columnVariants = example({
-    keywords: ["Chart", "Column", "bar", "vertical", "single-series", "currency", "per-category", "colors", "composition", "grouped", "columns", "multi-series", "stacked", "stack", "stackOffset", "expand", "percent", "breakdown", "by", "custom", "palette", "negative", "diverging", "bidirectional", "refLine"],
-    description: "Column variant panel — column basic (compact-currency y), column per category (per-x colours), column grouped, column stacked, column percent stacked (stackOffset expand), column custom colors (explicit per-value colour map), column stacked diverging (negative stack grows down from zero, refLine at zero)",
-    fn: East.function([], UIComponentType, ($) => {
-        const basic = $.const(COLUMN_BASIC_DATA, ArrayType(StructType({ q: StringType, revenue: IntegerType })));
-        const perCategory = $.const(COLUMN_PER_CATEGORY_DATA, ArrayType(StructType({ discipline: StringType, share: IntegerType })));
-        const grouped = $.const(COLUMN_GROUPED_DATA, ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));
-        const stacked = $.const(COLUMN_STACKED_DATA, ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));
-        const percentStacked = $.const(COLUMN_PERCENT_STACKED_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
-        const customColors = $.const(COLUMN_CUSTOM_COLORS_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
-        const freed = $.const(COLUMN_STACKED_DIVERGING_DATA, ArrayType(StructType({ day: StringType, grp: StringType, kl: FloatType })));
-        const consumed = $.const(COLUMN_STACKED_DIVERGING_CONSUMED_DATA, ArrayType(StructType({ day: StringType, grp: StringType, kl: FloatType })));
+export const columnBarVariants = example({
+    keywords: ["Chart", "Column", "bar", "vertical", "single-series", "currency", "per-category", "colors", "composition", "grouped", "columns", "multi-series", "stacked", "stack", "stackOffset", "expand", "percent", "breakdown", "by", "custom", "palette", "negative", "diverging", "bidirectional", "refLine", "Bar", "horizontal", "ranked", "categorical-y", "long-labels", "AlignedStack", "plotGutter", "tooltip", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Column/Bar configurator — an orientation axis swaps the whole Column ↔ Bar subtree (#249 split), plus series (grouped / stacked / percent) and palette (theme / explicit colour map) axes",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="COLUMN BASIC" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Column(basic, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />
-                </Box>
-                <Separator label="COLUMN PER CATEGORY" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart
-                        layers={Chart.Column(perCategory, {
-                            x: r => r.discipline, y: r => r.share,
-                            colors: { RN: "teal.solid", EN: "cyan.solid", Physio: "blue.solid", OT: "purple.solid", Admin: "gray.solid" },
-                        })}
-                        grid
+            <Reactive>{$ => {
+                const colGrouped = $.const(COLUMN_GROUPED_DATA, ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));
+                const colStacked = $.const(COLUMN_STACKED_DATA, ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));
+                const colPercent = $.const(COLUMN_PERCENT_STACKED_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
+                const barGrouped = $.const(BAR_GROUPED_DATA, ArrayType(StructType({ site: StringType, loaded: IntegerType, empty: IntegerType })));
+                const barStacked = $.const(BAR_STACKED_DATA, ArrayType(StructType({ site: StringType, shift: StringType, tonnes: IntegerType })));
+                const barPercent = $.const(BAR_PERCENT_STACKED_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
+
+                const orientations = $.const(["column", "bar"], ArrayType(StringType));
+                const seriesKinds = $.const(["grouped", "stacked", "percent"], ArrayType(StringType));
+                const palettes = $.const(["default", "custom"], ArrayType(StringType));
+
+                const orientationBind = $.let(State.bind([StringType], "chart_orientation", "column"));
+                const seriesBind      = $.let(State.bind([StringType], "chart_series", "grouped"));
+                const paletteBind     = $.let(State.bind([StringType], "chart_palette", "default"));
+
+                const oKey = $.let(orientationBind.read());
+                const sKey = $.let(seriesBind.read());
+                const pKey = $.let(paletteBind.read());
+
+                const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+                const onSeries      = $.const(East.function([StringType], NullType, ($, next) => { $(seriesBind.write(next)); }));
+                const onPalette     = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
+
+                const isColumn = $.let(oKey.equal("column"));
+                const custom = $.let(pKey.equal("custom"));
+
+                // Orientation swaps the WHOLE component subtree — Column and Bar
+                // are separate components since the #249 split — and the encoding
+                // `colors` map is build-time, so the palette axis also swaps
+                // subtrees; the lookup + ifElse picks one fully-built chart per
+                // (orientation, series, palette) cell.
+                const preview = $.let(isColumn.ifElse(
+                    _$ => sKey.equal("grouped").ifElse(
+                        _$ => custom.ifElse(
+                            _$ => <Chart layers={Chart.Column(colGrouped, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b }, colors: { Product: "purple.solid", Service: "orange.solid" } })} legend grid />,
+                            _$ => <Chart layers={Chart.Column(colGrouped, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend grid />),
+                        _$ => sKey.equal("stacked").ifElse(
+                            _$ => custom.ifElse(
+                                _$ => <Chart layers={Chart.Column(colStacked, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop }, colors: { Mobile: "purple.solid", Desktop: "orange.solid" } }, { stack: "traffic" })} legend grid />,
+                                _$ => <Chart layers={Chart.Column(colStacked, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend grid />),
+                            _$ => custom.ifElse(
+                                _$ => <Chart layers={Chart.Column(colPercent, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } }, { stack: "mix" })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />,
+                                _$ => <Chart layers={Chart.Column(colPercent, { x: r => r.week, y: r => r.spend, by: r => r.channel }, { stack: "mix" })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />))),
+                    _$ => sKey.equal("grouped").ifElse(
+                        _$ => custom.ifElse(
+                            _$ => <Chart layers={Chart.Bar(barGrouped, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty }, colors: { Loaded: "purple.solid", Empty: "orange.solid" } })} legend grid />,
+                            _$ => <Chart layers={Chart.Bar(barGrouped, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } })} legend grid />),
+                        _$ => sKey.equal("stacked").ifElse(
+                            _$ => custom.ifElse(
+                                _$ => <Chart layers={Chart.Bar(barStacked, { x: r => r.tonnes, y: r => r.site, by: r => r.shift, colors: { Day: "purple.solid", Night: "orange.solid" } }, { stack: "tonnage" })} legend tooltip grid />,
+                                _$ => <Chart layers={Chart.Bar(barStacked, { x: r => r.tonnes, y: r => r.site, by: r => r.shift }, { stack: "tonnage" })} legend tooltip grid />),
+                            _$ => custom.ifElse(
+                                _$ => <Chart layers={Chart.Bar(barPercent, { x: r => r.spend, y: r => r.week, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } }, { stack: "mix" })} stackOffset="expand" x={{ format: Chart.format.percent() }} legend />,
+                                _$ => <Chart layers={Chart.Bar(barPercent, { x: r => r.spend, y: r => r.week, by: r => r.channel }, { stack: "mix" })} stackOffset="expand" x={{ format: Chart.format.percent() }} legend />)))));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Orientation", oKey,
+                                <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
+                                    items={orientations.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            Configurator.Control("Series", sKey,
+                                <SegmentGroup value={sKey} onChange={onSeries} size="sm"
+                                    items={seriesKinds.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            Configurator.Control("Palette", pKey,
+                                <SegmentGroup value={pKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        ]}
+                        preview={<Box height="260px" width="100%">{preview}</Box>}
+                        spec={[
+                            Configurator.Spec("Component", isColumn.ifElse(_$ => "Chart.Column", _$ => "Chart.Bar")),
+                        ]}
                     />
-                </Box>
-                <Separator label="COLUMN GROUPED" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Column(grouped, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
-                </Box>
-                <Separator label="COLUMN STACKED" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Column(stacked, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
-                </Box>
-                <Separator label="COLUMN PERCENT STACKED" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Column(percentStacked, { x: r => r.week, y: r => r.spend, by: r => r.channel }, { stack: "mix" })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />
-                </Box>
-                <Separator label="COLUMN CUSTOM COLORS" align="start" />
-                <Box height="220px" width="100%">
-                    <Chart layers={Chart.Column(customColors, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
-                </Box>
-                <Separator label="COLUMN STACKED DIVERGING" align="start" />
-                <Box height="280px" width="100%">
-                    <Chart grid legend tooltip layers={[
-                        Chart.Column(freed, { x: r => r.day, y: r => r.kl, by: r => r.grp }, { stack: "freed" }),
-                        Chart.Column(consumed, { x: r => r.day, y: r => r.kl.multiply(-1.0), by: r => r.grp }, { stack: "consumed" }),
-                        Chart.refLine({ y: 0.0 }),
-                    ]} />
-                </Box>
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
 // ============================================================================
-// Bar — horizontal bars (#249) (variant panel)
-// ============================================================================
-
-export const barVariants = example({
-    keywords: ["Chart", "Bar", "horizontal", "ranked", "categorical-y", "long-labels", "AlignedStack", "plotGutter", "currency", "grouped", "columns", "multi-series", "stacked", "stack", "by", "breakdown", "tooltip", "stackOffset", "expand", "percent"],
-    description: "Bar variant panel — bar ranked (long category labels in an AlignedStack left gutter), bar grouped (one sub-bar per column), bar stacked (tooltip matches on the y band), bar percent stacked (stackOffset expand, percent x-axis)",
-    fn: East.function([], UIComponentType, ($) => {
-        const ranked = $.const(BAR_RANKED_DATA, ArrayType(StructType({ product: StringType, revenue: IntegerType })));
-        const grouped = $.const(BAR_GROUPED_DATA, ArrayType(StructType({ site: StringType, loaded: IntegerType, empty: IntegerType })));
-        const stacked = $.const(BAR_STACKED_DATA, ArrayType(StructType({ site: StringType, shift: StringType, tonnes: IntegerType })));
-        const percentStacked = $.const(BAR_PERCENT_STACKED_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="BAR RANKED — ALIGNEDSTACK LABEL GUTTER" align="start" />
-                <AlignedStack gutter={{ left: "170px", right: "12px" }}>
-                    <Box height="240px" width="100%">
-                        <Chart
-                            layers={Chart.Bar(ranked, { x: r => r.revenue, y: r => r.product }, { color: "teal.solid" })}
-                            x={{ format: Chart.format.currency({ compact: true }) }}
-                            grid tooltip
-                        />
-                    </Box>
-                </AlignedStack>
-                <Separator label="BAR GROUPED" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Bar(grouped, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } })} legend grid />
-                </Box>
-                <Separator label="BAR STACKED" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Bar(stacked, { x: r => r.tonnes, y: r => r.site, by: r => r.shift }, { stack: "tonnage" })} legend tooltip grid />
-                </Box>
-                <Separator label="BAR PERCENT STACKED" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart
-                        layers={Chart.Bar(percentStacked, { x: r => r.spend, y: r => r.week, by: r => r.channel }, { stack: "mix" })}
-                        stackOffset="expand"
-                        x={{ format: Chart.format.percent() }}
-                        legend
-                    />
-                </Box>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Area + Scatter (variant panel)
+// Area + Scatter — live configurator; the kind axis swaps the mark subtree
 // ============================================================================
 
 export const areaScatterVariants = example({
-    keywords: ["Chart", "Area", "stacked", "stack", "fillOpacity", "columns", "Band", "area-range", "confidence", "low", "high", "Scatter", "domain", "reference", "refLine", "size", "bubble", "per-point", "area"],
-    description: "Area + Scatter variant panel — area stacked (filled areas sharing a stack), area confidence band (low/high Band behind a line), scatter quadrants (fixed domain, larger markers, quadrant refLines), scatter bubble (per-point marker size from a data field)",
-    fn: East.function([], UIComponentType, ($) => {
-        const stacked = $.const(AREA_STACKED_DATA, ArrayType(StructType({ month: StringType, mobile: IntegerType, desktop: IntegerType })));
-        const band = $.const(AREA_CONFIDENCE_BAND_DATA, ArrayType(StructType({ day: StringType, value: IntegerType, lo: IntegerType, hi: IntegerType })));
-        const quadrants = $.const(SCATTER_QUADRANTS_DATA, ArrayType(StructType({ effort: FloatType, value: FloatType, baseline: FloatType })));
-        const bubble = $.const(SCATTER_BUBBLE_DATA, ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));
+    keywords: ["Chart", "Area", "stacked", "stack", "fillOpacity", "columns", "Band", "area-range", "confidence", "low", "high", "Scatter", "domain", "reference", "refLine", "size", "bubble", "per-point", "area", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Area/Scatter configurator — one face axis: stacked areas, the Band confidence range, quadrant scatter with refLines, or per-point bubble sizes",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="AREA STACKED" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={Chart.Area(stacked, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />
-                </Box>
-                <Separator label="AREA CONFIDENCE BAND" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={[
-                        Chart.Band(band, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "link", fillOpacity: 0.3 }),
-                        Chart.Line(band, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
-                    ]} legend tooltip grid />
-                </Box>
-                <Separator label="SCATTER QUADRANTS" align="start" />
-                <Box height="280px" width="100%">
-                    <Chart
-                        layers={[
-                            Chart.Scatter(quadrants, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
-                            Chart.refLine({ x: 50, dash: "3 3" }),
-                            Chart.refLine({ y: 50, dash: "3 3" }),
+            <Reactive>{$ => {
+                const areaRows = $.const(AREA_STACKED_DATA, ArrayType(StructType({ month: StringType, mobile: IntegerType, desktop: IntegerType })));
+                const bandRows = $.const(AREA_CONFIDENCE_BAND_DATA, ArrayType(StructType({ day: StringType, value: IntegerType, lo: IntegerType, hi: IntegerType })));
+                const quadRows = $.const(SCATTER_QUADRANTS_DATA, ArrayType(StructType({ effort: FloatType, value: FloatType, baseline: FloatType })));
+                const bubbleRows = $.const(SCATTER_BUBBLE_DATA, ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));
+
+                const faces = $.const(["stacked", "band", "quadrants", "bubble"], ArrayType(StringType));
+
+                const faceBind = $.let(State.bind([StringType], "chart_face", "stacked"));
+                const fKey = $.let(faceBind.read());
+                const onFace = $.const(East.function([StringType], NullType, ($, next) => { $(faceBind.write(next)); }));
+
+                // Each face is a complete chart — stacked areas, the Band
+                // confidence range, the quadrant scatter, per-point bubbles.
+                const preview = $.let(fKey.equal("stacked").ifElse(
+                    _$ => <Chart layers={Chart.Area(areaRows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />,
+                    _$ => fKey.equal("band").ifElse(
+                        _$ => <Chart layers={[
+                            Chart.Band(bandRows, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "link", fillOpacity: 0.3 }),
+                            Chart.Line(bandRows, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
+                        ]} legend tooltip grid />,
+                        _$ => fKey.equal("bubble").ifElse(
+                            _$ => <Chart layers={Chart.Scatter(bubbleRows, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />,
+                            _$ => <Chart layers={[
+                                Chart.Scatter(quadRows, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
+                                Chart.refLine({ x: 50, dash: "3 3" }),
+                                Chart.refLine({ y: 50, dash: "3 3" }),
+                            ]} x={{ label: "Effort", scale: "linear", domain: [0, 100] }} y={{ label: "Value", domain: [0, 100] }} legend />))));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Face", fKey,
+                                <SegmentGroup value={fKey} onChange={onFace} size="sm"
+                                    items={faces.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                         ]}
-                        x={{ label: "Effort", scale: "linear", domain: [0, 100] }}
-                        y={{ label: "Value", domain: [0, 100] }}
-                        legend
+                        preview={<Box height="280px" width="100%">{preview}</Box>}
+                        spec={[
+                            Configurator.Spec("Mark", fKey.equal("bubble").or(_$ => fKey.equal("quadrants")).ifElse(_$ => "Chart.Scatter", _$ => fKey.equal("band").ifElse(_$ => "Chart.Band + Line", _$ => "Chart.Area"))),
+                        ]}
                     />
-                </Box>
-                <Separator label="SCATTER BUBBLE" align="start" />
-                <Box height="260px" width="100%">
-                    <Chart layers={Chart.Scatter(bubble, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />
-                </Box>
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
 // ============================================================================
-// Composed — mixed marks, dual-axis, references (variant panel)
+// Composed — live configurator; the preset axis swaps whole layer sets
 // ============================================================================
 
 export const composedVariants = example({
-    keywords: ["Chart", "Composed", "column", "bar", "line", "mixed-marks", "dual-axis", "axis", "y2", "band", "reference", "stack", "refLine", "refBand", "refDot", "annotation"],
-    description: "Composed variant panel — composed column line (revenue columns + profit line), composed dual axis forecast (stacked traffic + confidence band + right-axis trend + refLine), reference annotations (a target refLine, a normal-range refBand, and a highlighted peak refDot, each visible)",
-    fn: East.function([], UIComponentType, ($) => {
-        const columnLine = $.const(COMPOSED_COLUMN_LINE_DATA, ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));
-        const forecast = $.const(COMPOSED_DUAL_AXIS_FORECAST_DATA, ArrayType(StructType({
-            month: StringType, mobile: IntegerType, desktop: IntegerType, lo: IntegerType, hi: IntegerType, trend: IntegerType,
-        })));
-        const annotations = $.const(REFERENCE_ANNOTATIONS_DATA, ArrayType(StructType({ month: StringType, value: IntegerType })));
+    keywords: ["Chart", "Composed", "column", "bar", "line", "mixed-marks", "dual-axis", "axis", "y2", "band", "reference", "stack", "refLine", "refBand", "refDot", "annotation", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Composed chart configurator — a composition preset axis swaps whole layer sets: column + line, dual-axis forecast (Area + Band + right-axis trend), reference annotations",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="COMPOSED COLUMN LINE" align="start" />
-                <Box height="260px" width="100%">
-                    <Chart layers={[
+            <Reactive>{$ => {
+                const columnLine = $.const(COMPOSED_COLUMN_LINE_DATA, ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));
+                const forecast = $.const(COMPOSED_DUAL_AXIS_FORECAST_DATA, ArrayType(StructType({
+                    month: StringType, mobile: IntegerType, desktop: IntegerType, lo: IntegerType, hi: IntegerType, trend: IntegerType,
+                })));
+                const annotations = $.const(REFERENCE_ANNOTATIONS_DATA, ArrayType(StructType({ month: StringType, value: IntegerType })));
+
+                const compositions = $.const(["column-line", "dual-axis", "annotations"], ArrayType(StringType));
+
+                const compositionBind = $.let(State.bind([StringType], "chart_composition", "column-line"));
+                const cKey = $.let(compositionBind.read());
+                const onComposition = $.const(East.function([StringType], NullType, ($, next) => { $(compositionBind.write(next)); }));
+
+                // Each preset is a whole layer set — mixed marks, a dual-axis
+                // forecast, or pure reference annotations — so the axis lookup +
+                // ifElse swaps the entire chart subtree.
+                const preview = $.let(cKey.equal("column-line").ifElse(
+                    _$ => <Chart layers={[
                         Chart.Column(columnLine, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
                         Chart.Line(columnLine, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
-                    ]} legend tooltip grid />
-                </Box>
-                <Separator label="COMPOSED DUAL AXIS FORECAST" align="start" />
-                <Box height="300px" width="100%">
-                    <Chart
-                        layers={[
-                            Chart.Area(forecast, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
-                            Chart.Band(forecast, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "link", fillOpacity: 0.3 }),
-                            Chart.Line(forecast, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
-                            Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+                    ]} legend tooltip grid />,
+                    _$ => cKey.equal("dual-axis").ifElse(
+                        _$ => <Chart
+                            layers={[
+                                Chart.Area(forecast, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
+                                Chart.Band(forecast, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "link", fillOpacity: 0.3 }),
+                                Chart.Line(forecast, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
+                                Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+                            ]}
+                            y={{ label: "Sessions" }}
+                            y2={{ label: "Trend", format: Chart.format.compact() }}
+                            legend
+                            tooltip
+                            grid
+                        />,
+                        _$ => <Chart layers={[
+                            Chart.refBand({ y: [120, 200], label: "Normal" }),
+                            Chart.Line(annotations, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
+                            Chart.refLine({ y: 220, label: "Target", dash: "4 4" }),
+                            Chart.refDot({ x: "Mar", y: 237, label: "Peak" }),
+                        ]} grid />)));
+
+                const layersLabel = $.let(cKey.equal("column-line").ifElse(
+                    _$ => "Column + Line",
+                    _$ => cKey.equal("dual-axis").ifElse(
+                        _$ => "Area + Band + right-axis Line + refLine",
+                        _$ => "refBand + Line + refLine + refDot")));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Composition", cKey,
+                                <SegmentGroup value={cKey} onChange={onComposition} size="sm"
+                                    items={compositions.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                         ]}
-                        y={{ label: "Sessions" }}
-                        y2={{ label: "Trend", format: Chart.format.compact() }}
-                        legend
-                        tooltip
-                        grid
+                        preview={<Box height="300px" width="100%">{preview}</Box>}
+                        spec={[
+                            Configurator.Spec("Layers", layersLabel),
+                        ]}
                     />
-                </Box>
-                <Separator label="REFERENCE ANNOTATIONS" align="start" />
-                <Box height="240px" width="100%">
-                    <Chart layers={[
-                        Chart.refBand({ y: [120, 200], label: "Normal" }),
-                        Chart.Line(annotations, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
-                        Chart.refLine({ y: 220, label: "Target", dash: "4 4" }),
-                        Chart.refDot({ x: "Mar", y: 237, label: "Peak" }),
-                    ]} grid />
-                </Box>
-            </VStack>
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
@@ -605,25 +469,5 @@ export const tooltipOverStickyTable = example({
             </VStack>
         );
     }),
-    inputs: [],
-});
-
-// ============================================================================
-// Interactive — value sourced from reactive State (proves expression-valued data)
-// ============================================================================
-
-export const interactiveValue = example({
-    keywords: ["Chart", "Column", "Reactive", "State", "interactive", "expression"],
-    description: "A column chart whose last value is driven by reactive State",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const peak = $.let(State.bind([IntegerType], "chart_peak", 90n));
-            const peakVal = $.let(peak.read());
-            const rows = $.const([
-                { q: "Q1", v: 40n }, { q: "Q2", v: 65n }, { q: "Q3", v: 55n }, { q: "Q4", v: peakVal },
-            ], ArrayType(StructType({ q: StringType, v: IntegerType })));
-            return <Chart layers={Chart.Column(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} grid />;
-        }}</Reactive>
-    )),
     inputs: [],
 });

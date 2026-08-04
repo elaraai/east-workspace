@@ -99,12 +99,10 @@ export const headingVariants = example({
                         controls={[
                             Configurator.Control("Text style", sKey,
                                 <SegmentGroup value={sKey} onChange={onScale} size="sm"
-                                    items={scales.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "heading scale · display scale"),
+                                    items={scales.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Level", lKey,
                                 <SegmentGroup value={lKey} onChange={onLevel} size="sm"
-                                    items={levels.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "semantic element only — the scale sets the size"),
+                                    items={levels.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
                                     items={inks.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
@@ -116,7 +114,6 @@ export const headingVariants = example({
                             Configurator.Slot("Band",
                                 <HStack gap="5" align="center">
                                     <Switch checked={band} label="Hero band" onChange={onBand} />
-                                    <Text textStyle="caption" color="fg.subtle">coloured background · padded</Text>
                                 </HStack>),
                         ]}
                         preview={

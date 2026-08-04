@@ -12,10 +12,8 @@ import * as ex from "./deck.examples.js";
 describeEast("Deck", (test) => {
     Assert.examples(test, {
         deckBasic: ex.deckBasic,
-        deckCustomFace: ex.deckCustomFace,
         deckSlice: ex.deckSlice,
         deckDetail: ex.deckDetail,
-        deckClickable: ex.deckClickable,
         deckVariants: ex.deckVariants,
     });
 
@@ -25,14 +23,14 @@ describeEast("Deck", (test) => {
     // =========================================================================
 
     test("deckVariants drives its preview from inline option tables", $ => {
-        // Everything the configurator needs — the layout table and the
-        // grouped switch — is declared inside the example body, because the
-        // documentation capture only extracts `fn`. That puts the tables
-        // inside the Reactive body, which TestImpl does not execute, so they
-        // cannot be asserted from here; `Assert.examples` above still
-        // compiles and evaluates the outer function. The per-option coverage
-        // lives in the Deck.Root tests below, which construct each option
-        // directly.
+        // Everything the configurator needs — the layout table, the grouped
+        // and custom-face switches, and the tap-target aside — is declared
+        // inside the example body, because the documentation capture only
+        // extracts `fn`. That puts the tables inside the Reactive body, which
+        // TestImpl does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Deck.Root tests
+        // below, which construct each option directly.
         const panel = $.const(ex.deckVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });

@@ -82,18 +82,15 @@ export const numericVariants = example({
                         controls={[
                             Configurator.Control("Format", fKey,
                                 <SegmentGroup value={fKey} onChange={onFormat} size="sm"
-                                    items={formats.map((_$, o) => SegmentGroup.Item(o.format.getTag(), <Text>{o.format.getTag().upperCase()}</Text>))} />,
-                                "the magnitude follows the format"),
+                                    items={formats.map((_$, o) => SegmentGroup.Item(o.format.getTag(), <Text>{o.format.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Sentiment", sKey,
                                 <SegmentGroup value={sKey} onChange={onSentiment} size="sm"
-                                    items={sentiments.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "colours the figure"),
+                                    items={sentiments.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Sign spec row below rather than as one value.
                             Configurator.Slot("Sign",
                                 <HStack gap="5" align="center">
                                     <Switch checked={signed} label="Signed" onChange={onSign} />
-                                    <Text textStyle="caption" color="fg.subtle">leading +/− beside the figure</Text>
                                 </HStack>),
                         ]}
                         preview={

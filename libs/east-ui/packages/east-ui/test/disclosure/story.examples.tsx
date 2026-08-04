@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Separator, Story, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Button, Card, Chart, Configurator, HStack, MetricChip, Reactive, SegmentGroup, Separator, Story, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -15,11 +15,6 @@ const STORY_RAIL_RIGHT_DATA = [
     { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
     { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
     { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
-];
-const STORY_STEP_LENGTHS_DATA = [
-    { week: "wk 1", actual: 820n }, { week: "wk 2", actual: 860n },
-    { week: "wk 3", actual: 880n }, { week: "wk 4", actual: 930n },
-    { week: "wk 5", actual: 1060n }, { week: "wk 6", actual: 1115n },
 ];
 const STORY_CARD_KEYFRAME_DATA = [
     { region: "NA", half: "wk 1–4", orders: 846n }, { region: "NA", half: "wk 5–8", orders: 1110n },
@@ -118,106 +113,149 @@ export const storyStacked = example({
     inputs: [],
 });
 
-export const storyReactive = example({
-    keywords: ["Story", "Reactive", "State", "bind", "active", "progress", "onStepEnter", "interactive"],
-    description: "Bound narrative position: external surfaces read and drive the active step",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const active = $.let(State.bind([IntegerType], "q4-review.step", 0n));
-            const scrub = $.let(State.bind([FloatType], "q4-review.progress", 0.0));
-            const next = $.const(East.function([], NullType, $ => {
-                $(active.write(active.read().add(1n)));
-            }));
-            const entered = $.let(State.bind([StringType], "q4-review.lastEntered", ""));
-            const onStepEnter = $.const(East.function([StringType], NullType, ($, id) => {
-                $(entered.write(id));
-            }));
-            const orders = $.const([
-                { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
-                { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
-                { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
-            ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));
-            return (
-                <VStack gap="6">
-                    <Story active={active} progress={scrub} title="Q4 demand review" height={440}
-                           onStepEnter={onStepEnter}>
-                        <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
-                                    </Box>}>
-                            <Text>Orders climbed steadily.</Text>
-                        </Story.Step>
-                        <Story.Step id="forecast" eyebrow="Forecast" title="The plan missed the turn"
-                                    stage={<Box height="100%" width="100%">
-                                        <Chart height="fill" layers={[
-                                            Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
-                                            Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
-                                        ]} grid legend />
-                                    </Box>}>
-                            <Text>The forecast missed the turn.</Text>
-                        </Story.Step>
-                    </Story>
-                    <HStack gap="3">
-                        <Text>{East.str`Reviewing beat ${active.read().add(1n)} of 2`}</Text>
-                        <Button onClick={next}>Skip ahead →</Button>
-                    </HStack>
-                    <Story.Progress count={2} active={active} title="Q4 demand review" />
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 // ============================================================================
-// Chrome variants — static enumeration panel (consolidation epic #455).
+// Chrome variants — live configurator over rail side + chrome (epic #455).
 // ============================================================================
 
 export const storyChromeVariants = example({
-    keywords: ["Story", "layout", "rail-right", "mirror", "Chart", "Step", "eyebrow", "title", "body", "beat", "Progress", "chrome", "dots", "counter", "standalone", "stepLength", "compact", "runway", "pacing"],
-    description: "Story chrome variant panel — rail right (mirrored layout: stage left, prose right), step basic (one narrative beat: id, eyebrow, title, and a rail body), progress standalone (title, dots, counter, prev/next), step lengths (compact step runway: less scroll per beat for short, punchy stories)",
-    fn: East.function([], UIComponentType, ($) => {
-        const railRightOrders = $.const(STORY_RAIL_RIGHT_DATA, ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));
-        const stepLengthsOrders = $.const(STORY_STEP_LENGTHS_DATA, ArrayType(StructType({ week: StringType, actual: IntegerType })));
+    keywords: ["Story", "layout", "rail-right", "rail-left", "mirror", "Chart", "Step", "eyebrow", "title", "body", "beat", "Progress", "chrome", "dots", "counter", "standalone", "stepLength", "compact", "runway", "pacing", "Reactive", "State", "bind", "active", "progress", "onStepEnter", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Story chrome configurator — a rail-side axis plus title-chrome / compact-runway switches driving one live scrollytelling story; the aside binds active + progress and drives the beat from outside",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="RAIL RIGHT" align="start" />
-                <Story layout="rail-right" title="Q4 demand review" stageHeight={340} height={440}>
+            <Reactive>{$ => {
+                // The rail axis is just its variants — `getTag()` gives the
+                // segment key AND its label. (`stacked` stays the storyStacked
+                // responsive anchor.)
+                const rails = $.const([
+                    variant("rail-left", null), variant("rail-right", null),
+                ], ArrayType(Story.Types.Layout));
+
+                const railBind    = $.let(State.bind([StringType], "story_rail", "rail-right"));
+                const titleBind   = $.let(State.bind([BooleanType], "story_title", true));
+                const compactBind = $.let(State.bind([BooleanType], "story_compact", false));
+
+                // The bound narrative position — external surfaces read AND
+                // drive the active step (the aside below).
+                const active  = $.let(State.bind([IntegerType], "q4-review.step", 0n));
+                const scrub   = $.let(State.bind([FloatType], "q4-review.progress", 0.0));
+                const entered = $.let(State.bind([StringType], "q4-review.lastEntered", ""));
+
+                const rKey      = $.let(railBind.read());
+                const titleOn   = $.let(titleBind.read());
+                const compactOn = $.let(compactBind.read());
+
+                const onRail    = $.const(East.function([StringType], NullType, ($, next) => { $(railBind.write(next)); }));
+                const onTitle   = $.const(East.function([BooleanType], NullType, ($, next) => { $(titleBind.write(next)); }));
+                const onCompact = $.const(East.function([BooleanType], NullType, ($, next) => { $(compactBind.write(next)); }));
+                const next      = $.const(East.function([], NullType, $ => {
+                    $(active.write(active.read().add(1n)));
+                }));
+                const onStepEnter = $.const(East.function([StringType], NullType, ($, id) => {
+                    $(entered.write(id));
+                }));
+
+                const orders = $.const(STORY_RAIL_RIGHT_DATA, ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));
+
+                // Each selection is a lookup into the same array the control renders.
+                const railSel = $.let(rails.filter((_$, v) => v.getTag().equal(rKey)).get(0n));
+                const lenSel = $.let(
+                    compactOn.ifElse(_$ => variant("compact", null), _$ => variant("default", null)),
+                    Story.Types.StepLength,
+                );
+
+                // The two beats are bound once and shared by both title leaves.
+                const stepOne = $.let(
                     <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot"
                                 stage={<Box height="100%" width="100%">
-                                    <Chart height="fill" layers={Chart.Line(railRightOrders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" })} grid />
+                                    <Chart height="fill" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" })} grid />
                                 </Box>}>
                         <Text>Orders climbed steadily from week 4 and never gave the gain back.</Text>
-                    </Story.Step>
+                    </Story.Step>,
+                    UIComponentType,
+                );
+                const stepTwo = $.let(
                     <Story.Step id="forecast" eyebrow="Forecast" title="The plan missed the turn"
                                 stage={<Box height="100%" width="100%">
                                     <Chart height="fill" layers={[
-                                        Chart.Line(railRightOrders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
-                                        Chart.Line(railRightOrders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
+                                        Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
+                                        Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
                                     ]} grid legend />
                                 </Box>}>
                         <Text>The committed forecast (dashed) kept its old slope after the week-4 turn.</Text>
-                    </Story.Step>
-                </Story>
-                <Separator label="STEP BASIC" align="start" />
-                <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot">
-                    <Text>Orders climbed from week 4 and never gave the gain back.</Text>
-                </Story.Step>
-                <Separator label="PROGRESS STANDALONE" align="start" />
-                <Story.Progress count={4} title="Q4 demand review" />
-                <Separator label="STEP LENGTHS" align="start" />
-                <Story stepLength="compact" stageHeight={320} height={440}>
-                    <Story.Step id="one" eyebrow="01" title="Quick beat"
-                                stage={<Box height="100%" width="100%">
-                                    <Chart height="fill" layers={Chart.Line(stepLengthsOrders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
-                                </Box>}>
-                        <Text>compact = 36vh of runway per step; default = 52vh; long = 72vh.</Text>
-                    </Story.Step>
-                    <Story.Step id="two" eyebrow="02" title="Another quick beat">
-                        <Text>Step length sets pacing — the runway the reader scrolls through per keyframe.</Text>
-                    </Story.Step>
-                </Story>
-            </VStack>
+                    </Story.Step>,
+                    UIComponentType,
+                );
+
+                // `title` presence composes the sticky chrome (title + dots +
+                // counter) at build time, so the switch picks between two
+                // prebuilt stories sharing the same beats and style expressions.
+                const preview = $.const(titleOn.ifElse(
+                    _$ => (
+                        <Story layout={railSel} stepLength={lenSel} title="Q4 demand review" stageHeight={340} height={440}>
+                            {stepOne}{stepTwo}
+                        </Story>
+                    ),
+                    _$ => (
+                        <Story layout={railSel} stepLength={lenSel} stageHeight={340} height={440}>
+                            {stepOne}{stepTwo}
+                        </Story>
+                    ),
+                ));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Rail", rKey,
+                                <SegmentGroup value={rKey} onChange={onRail} size="sm"
+                                    items={rails.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the two switches report as
+                            // the Chrome / Runway spec rows below rather than as
+                            // one value.
+                            Configurator.Slot("Chrome",
+                                <HStack gap="5" align="center">
+                                    <Switch checked={titleOn} label="Title" onChange={onTitle} />
+                                    <Switch checked={compactOn} label="Compact" onChange={onCompact} />
+                                </HStack>),
+                        ]}
+                        preview={preview}
+                        aside={{
+                            label: "Bound · position",
+                            body: (
+                                <VStack gap="6">
+                                    <Story active={active} progress={scrub} title="Q4 demand review" height={440}
+                                           onStepEnter={onStepEnter}>
+                                        <Story.Step id="demand" eyebrow="Demand" title="Demand ran hot"
+                                                    stage={<Box height="100%" width="100%">
+                                                        <Chart height="fill" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: "teal.solid" })} grid />
+                                                    </Box>}>
+                                            <Text>Orders climbed steadily.</Text>
+                                        </Story.Step>
+                                        <Story.Step id="forecast" eyebrow="Forecast" title="The plan missed the turn"
+                                                    stage={<Box height="100%" width="100%">
+                                                        <Chart height="fill" layers={[
+                                                            Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: "actual", color: "teal.solid" }),
+                                                            Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: "forecast", color: "gray.solid", dash: "4 3" }),
+                                                        ]} grid legend />
+                                                    </Box>}>
+                                            <Text>The forecast missed the turn.</Text>
+                                        </Story.Step>
+                                    </Story>
+                                    <HStack gap="3">
+                                        <Text>{East.str`Reviewing beat ${active.read().add(1n)} of 2`}</Text>
+                                        <Button onClick={next}>Skip ahead →</Button>
+                                    </HStack>
+                                    <Story.Progress count={2} active={active} title="Q4 demand review" />
+                                </VStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Chrome", titleOn.ifElse(_$ => "title + progress", _$ => "none")),
+                            Configurator.Spec("Runway", compactOn.ifElse(_$ => "compact · 36vh", _$ => "default · 52vh")),
+                            Configurator.Spec("Entered", entered.read()),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

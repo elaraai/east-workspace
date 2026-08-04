@@ -51,27 +51,6 @@ export const deckBasic = example({
     inputs: [],
 });
 
-export const deckCustomFace = example({
-    keywords: ["Deck", "render", "custom", "face", "compose"],
-    description: "A fully custom card body via `render` — any UI composition beneath the structured face",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Deck
-            data={LINES}
-            card={r => ({ key: r.id, title: r.name })}
-            render={r => (
-                <VStack gap="1" align="stretch">
-                    <HStack gap="2">
-                        <Tag>{r.team}</Tag>
-                        <Tag>{r.state}</Tag>
-                    </HStack>
-                    <Text color="fg.muted">{East.str`load ${East.print(r.load)}`}</Text>
-                </VStack>
-            )}
-        />
-    )),
-    inputs: [],
-});
-
 const SliceLineType = StructType({
     id: StringType,
     name: StringType,
@@ -190,34 +169,9 @@ export const deckDetail = example({
     inputs: [],
 });
 
-export const deckClickable = example({
-    keywords: ["Deck", "onCardClick", "click", "tap", "Reactive", "State"],
-    description: "Cards as tap targets — onCardClick writes the selected key to bound state",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const selectedBind = $.let(State.bind([StringType], "deck_selected", "none yet"));
-            const selected = $.let(selectedBind.read());
-            const onCardClick = $.const(East.function([StringType], NullType, ($, key) => {
-                $(selectedBind.write(key));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Deck
-                        data={LINES}
-                        card={r => ({ key: r.id, title: r.name, sublabel: r.team })}
-                        onCardClick={onCardClick}
-                    />
-                    <Text color="fg.muted">{East.str`selected: ${selected}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 export const deckVariants = example({
-    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "swatch", "layout", "list", "rows", "metric", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Deck configurator — a layout axis plus a grouped switch (group heads carry the registry swatch + hint) driving one live deck of status cards",
+    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "swatch", "layout", "list", "rows", "metric", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "onCardClick", "click", "tap", "Reactive", "State", "render", "custom", "face", "compose"],
+    description: "Deck configurator — a layout axis plus grouped and custom-face switches driving one live deck of status cards; the aside reads the tapped card key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Enumerated axes are just their variants — `getTag()` gives the
@@ -229,21 +183,31 @@ export const deckVariants = example({
 
             const layoutBind = $.let(State.bind([StringType], "deck_layout", "grid"));
             const groupBind  = $.let(State.bind([BooleanType], "deck_group", false));
+            const customBind = $.let(State.bind([BooleanType], "deck_custom", false));
+            // The tap-target readout (folded from the old clickable example —
+            // its State key is preserved): onCardClick writes the selected
+            // key into the aside.
+            const selectedBind = $.let(State.bind([StringType], "deck_selected", "none yet"));
 
             const lKey = $.let(layoutBind.read());
             const grouped = $.let(groupBind.read());
+            const custom = $.let(customBind.read());
+            const selected = $.let(selectedBind.read());
 
             const onLayout = $.const(East.function([StringType], NullType, ($, next) => { $(layoutBind.write(next)); }));
             const onGroup  = $.const(East.function([BooleanType], NullType, ($, next) => { $(groupBind.write(next)); }));
+            const onCustom = $.const(East.function([BooleanType], NullType, ($, next) => { $(customBind.write(next)); }));
+            const onCardClick = $.const(East.function([StringType], NullType, ($, key) => { $(selectedBind.write(key)); }));
 
             // Each selection is a lookup into the same array the control renders.
             const layout = $.let(layouts.filter((_$, v) => v.getTag().equal(lKey)).get(0n));
             const isList = $.let(layout.hasTag("list"));
 
-            // `layout` and `groupBy` are build-time card config — the mapper
-            // callbacks are reified when the deck is constructed — so the two
-            // axes pick between four decks over the same registry + card face.
-            const deck = $.const(grouped.ifElse(
+            // `layout`, `groupBy` and `render` are build-time card config —
+            // the mapper callbacks are reified when the deck is constructed —
+            // so the axes pick between decks over the same registry + card
+            // face (every one a tap target through the shared onCardClick).
+            const structured = $.const(grouped.ifElse(
                 _$ => isList.ifElse(
                     _$ => (
                         <Deck
@@ -262,6 +226,7 @@ export const deckVariants = example({
                                 { key: "team", label: "Team", value: r => r.team },
                             ]}
                             layout="list"
+                            onCardClick={onCardClick}
                         />
                     ),
                     _$ => (
@@ -281,6 +246,7 @@ export const deckVariants = example({
                                 { key: "team", label: "Team", value: r => r.team },
                             ]}
                             layout="grid"
+                            onCardClick={onCardClick}
                         />
                     ),
                 ),
@@ -298,6 +264,7 @@ export const deckVariants = example({
                                 fill: { value: r.load.multiply(100.0), max: 100.0 },
                             })}
                             layout="list"
+                            onCardClick={onCardClick}
                         />
                     ),
                     _$ => (
@@ -313,30 +280,128 @@ export const deckVariants = example({
                                 fill: { value: r.load.multiply(100.0), max: 100.0 },
                             })}
                             layout="grid"
+                            onCardClick={onCardClick}
                         />
                     ),
                 ),
             ));
+
+            // The custom-face switch swaps the structured face for a fully
+            // custom `render` body — a minimal card head with any UI
+            // composition beneath it — while the layout and grouped axes
+            // keep working over the same rows.
+            const customFace = $.const(grouped.ifElse(
+                _$ => isList.ifElse(
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            card={r => ({ key: r.id, title: r.name })}
+                            render={r => (
+                                <VStack gap="1" align="stretch">
+                                    <HStack gap="2">
+                                        <Tag>{r.team}</Tag>
+                                        <Tag>{r.state}</Tag>
+                                    </HStack>
+                                    <Text color="fg.muted">{East.str`load ${East.print(r.load)}`}</Text>
+                                </VStack>
+                            )}
+                            groupBy={[
+                                { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
+                                { key: "team", label: "Team", value: r => r.team },
+                            ]}
+                            layout="list"
+                            onCardClick={onCardClick}
+                        />
+                    ),
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            card={r => ({ key: r.id, title: r.name })}
+                            render={r => (
+                                <VStack gap="1" align="stretch">
+                                    <HStack gap="2">
+                                        <Tag>{r.team}</Tag>
+                                        <Tag>{r.state}</Tag>
+                                    </HStack>
+                                    <Text color="fg.muted">{East.str`load ${East.print(r.load)}`}</Text>
+                                </VStack>
+                            )}
+                            groupBy={[
+                                { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
+                                { key: "team", label: "Team", value: r => r.team },
+                            ]}
+                            layout="grid"
+                            onCardClick={onCardClick}
+                        />
+                    ),
+                ),
+                _$ => isList.ifElse(
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            card={r => ({ key: r.id, title: r.name })}
+                            render={r => (
+                                <VStack gap="1" align="stretch">
+                                    <HStack gap="2">
+                                        <Tag>{r.team}</Tag>
+                                        <Tag>{r.state}</Tag>
+                                    </HStack>
+                                    <Text color="fg.muted">{East.str`load ${East.print(r.load)}`}</Text>
+                                </VStack>
+                            )}
+                            layout="list"
+                            onCardClick={onCardClick}
+                        />
+                    ),
+                    _$ => (
+                        <Deck
+                            data={LINES}
+                            card={r => ({ key: r.id, title: r.name })}
+                            render={r => (
+                                <VStack gap="1" align="stretch">
+                                    <HStack gap="2">
+                                        <Tag>{r.team}</Tag>
+                                        <Tag>{r.state}</Tag>
+                                    </HStack>
+                                    <Text color="fg.muted">{East.str`load ${East.print(r.load)}`}</Text>
+                                </VStack>
+                            )}
+                            layout="grid"
+                            onCardClick={onCardClick}
+                        />
+                    ),
+                ),
+            ));
+
+            const deck = $.const(custom.ifElse(_$ => customFace, _$ => structured));
 
             return (
                 <Configurator
                     controls={[
                         Configurator.Control("Layout", lKey,
                             <SegmentGroup value={lKey} onChange={onLayout} size="sm"
-                                items={layouts.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                            "list renders full-width card rows"),
-                        // A Slot, not a Control: the switch reports as the
-                        // Grouping spec row below rather than as one value.
+                                items={layouts.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        // Slots, not Controls: the switches report as the
+                        // Grouping / Face spec rows below rather than as one
+                        // value each.
                         Configurator.Slot("Grouping",
                             <HStack gap="5" align="center">
                                 <Switch checked={grouped} label="Grouped" onChange={onGroup} />
-                                <Text textStyle="caption" color="fg.subtle">status heads carry the registry swatch + hint</Text>
+                            </HStack>),
+                        Configurator.Slot("Face",
+                            <HStack gap="5" align="center">
+                                <Switch checked={custom} label="Custom render" onChange={onCustom} />
                             </HStack>),
                     ]}
                     preview={deck}
+                    aside={{
+                        label: "Tap target · Reactive",
+                        body: <Text color="fg.muted">{East.str`selected: ${selected}`}</Text>,
+                    }}
                     spec={[
                         Configurator.Spec("Cards", `${LINES.length}`),
                         Configurator.Spec("Grouping", grouped.ifElse(_$ => "status · team options", _$ => "flat")),
+                        Configurator.Spec("Face", custom.ifElse(_$ => "custom render", _$ => "structured")),
                     ]}
                 />
             );

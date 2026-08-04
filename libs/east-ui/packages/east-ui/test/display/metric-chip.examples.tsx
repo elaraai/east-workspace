@@ -142,27 +142,22 @@ export const metricChipVariants = example({
                         controls={[
                             Configurator.Control("Tone", tKey,
                                 <SegmentGroup value={tKey} onChange={onTone} size="sm"
-                                    items={tones.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "drives the default palette"),
+                                    items={tones.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Emphasis", eKey,
                                 <SegmentGroup value={eKey} onChange={onEmphasis} size="sm"
                                     items={emphases.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
-                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "shared cascade with ChipRail / Trace"),
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "padding + font scale"),
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Unit", uKey,
                                 <SegmentGroup value={uKey} onChange={onUnit} size="sm"
-                                    items={units.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
-                                "NONE renders no suffix"),
+                                    items={units.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "escape hatches over the tone recipe"),
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                         ]}
                         preview={chip}
                         aside={{
@@ -174,7 +169,6 @@ export const metricChipVariants = example({
                                         <Text>{readingText}</Text>
                                     </MetricChip>
                                     <Button size="xs" onClick={up}>+5</Button>
-                                    <Text textStyle="caption" color="fg.subtle">tone follows the sign</Text>
                                 </HStack>
                             ),
                         }}

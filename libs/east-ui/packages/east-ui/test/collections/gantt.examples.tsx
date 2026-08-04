@@ -3,77 +3,78 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { BooleanType, East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, DateTimeType, FloatType, NullType, OptionType, StringType, StructType, none, some, variant, example } from "@elaraai/east";
 import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Gantt, Library, Reactive, Separator, Table, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, Gantt, HStack, Library, Reactive, SegmentGroup, Switch, Table, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
+// Module-scope fixtures (consolidation epic #455, pass 4).
 // ============================================================================
 
-const GANTT_AXIS_WINDOW_DATA = [
-    { task: "Discovery", start: new Date("2024-02-01"), end: new Date("2024-03-15") },
-    { task: "Build", start: new Date("2024-03-10"), end: new Date("2024-06-30") },
-    { task: "Rollout", start: new Date("2024-07-01"), end: new Date("2024-09-30") },
+/** One row shape for every configurator preset — tasks, lifecycle states,
+ *  risk statuses, milestones and styled labels all travel as plain data so
+ *  ONE rowSpec serves every preset. `state` is the lifecycle tag; `status`
+ *  is "" for none; a `some` milestone renders its diamond. */
+const GANTT_ROW = StructType({
+    name: StringType,
+    start: DateTimeType,
+    end: DateTimeType,
+    progress: FloatType,
+    state: StringType,
+    status: StringType,
+    styled: BooleanType,
+    milestone: OptionType(StructType({ date: DateTimeType, label: StringType, release: BooleanType })),
+});
+
+const GANTT_QUARTER_ROWS = [
+    { name: "Platform", start: new Date("2024-01-01"), end: new Date("2024-09-30"), progress: 60.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Mobile", start: new Date("2024-06-01"), end: new Date("2025-03-31"), progress: 35.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Analytics", start: new Date("2025-01-01"), end: new Date("2025-12-31"), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
 ];
-const GANTT_AXIS_QUARTER_TIER_DATA = [
-    { epic: "Platform", start: new Date("2024-01-01"), end: new Date("2024-09-30") },
-    { epic: "Mobile", start: new Date("2024-06-01"), end: new Date("2025-03-31") },
-    { epic: "Analytics", start: new Date("2025-01-01"), end: new Date("2025-12-31") },
+const GANTT_WEEK_ROWS = [
+    { name: "Spec", start: new Date("2024-04-01"), end: new Date("2024-04-05"), progress: 100.0, state: "committed", status: "", styled: false, milestone: none },
+    { name: "Implement", start: new Date("2024-04-04"), end: new Date("2024-04-18"), progress: 55.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Review", start: new Date("2024-04-17"), end: new Date("2024-04-24"), progress: 0.0, state: "added", status: "", styled: false, milestone: none },
 ];
-const GANTT_AXIS_WEEK_TIER_DATA = [
-    { task: "Spec", start: new Date("2024-04-01"), end: new Date("2024-04-05") },
-    { task: "Implement", start: new Date("2024-04-04"), end: new Date("2024-04-18") },
-    { task: "Review", start: new Date("2024-04-17"), end: new Date("2024-04-24") },
+const GANTT_MILESTONE_ROWS = [
+    { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), progress: 100.0, state: "committed", status: "", styled: false, milestone: some({ date: new Date("2024-01-14"), label: "Checkpoint", release: false }) },
+    { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), progress: 70.0, state: "added", status: "", styled: false, milestone: some({ date: new Date("2024-01-28"), label: "Checkpoint", release: false }) },
+    { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), progress: 20.0, state: "added", status: "", styled: false, milestone: some({ date: new Date("2024-02-11"), label: "Release", release: true }) },
 ];
-const GANTT_WITH_MILESTONES_DATA = [
-    { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), checkpoint: new Date("2024-01-14"), kind: "interim" },
-    { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), checkpoint: new Date("2024-01-28"), kind: "interim" },
-    { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), checkpoint: new Date("2024-02-11"), kind: "release" },
+const GANTT_PROGRESS_ROWS = [
+    { name: "Backend API", start: new Date("2024-01-01"), end: new Date("2024-02-15"), progress: 100.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Frontend UI", start: new Date("2024-01-15"), end: new Date("2024-03-01"), progress: 75.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Integration", start: new Date("2024-02-01"), end: new Date("2024-03-15"), progress: 40.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
 ];
-const GANTT_WITH_PROGRESS_DATA = [
-    { task: "Backend API", start: new Date("2024-01-01"), end: new Date("2024-02-15"), progress: 100 },
-    { task: "Frontend UI", start: new Date("2024-01-15"), end: new Date("2024-03-01"), progress: 75 },
-    { task: "Integration", start: new Date("2024-02-01"), end: new Date("2024-03-15"), progress: 40 },
-    { task: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10 },
+const GANTT_LABEL_ROWS = [
+    { name: "Plain label", start: new Date("2024-01-01"), end: new Date("2024-01-15"), progress: 0.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Styled label", start: new Date("2024-01-20"), end: new Date("2024-02-05"), progress: 0.0, state: "added", status: "", styled: true, milestone: none },
 ];
-const GANTT_RICH_LABEL_DATA = [{ row: "demo" }];
-const GANTT_ROW_HEIGHT_DATA = [
-    { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
-    { task: "Design", owner: "Bob", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
-    { task: "Development", owner: "Charlie", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+const GANTT_LIFECYCLE_ROWS = [
+    { name: "Baseline build", start: new Date("2024-01-01"), end: new Date("2024-01-24"), progress: 100.0, state: "committed", status: "", styled: false, milestone: none },
+    { name: "Operator draft", start: new Date("2024-01-08"), end: new Date("2024-02-02"), progress: 40.0, state: "added", status: "", styled: false, milestone: none },
+    { name: "Model suggestion", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 0.0, state: "model", status: "", styled: false, milestone: none },
+    { name: "Proposed cut", start: new Date("2024-01-05"), end: new Date("2024-01-30"), progress: 60.0, state: "removed", status: "", styled: false, milestone: none },
+    { name: "Declined plan", start: new Date("2024-01-20"), end: new Date("2024-02-14"), progress: 20.0, state: "rejected", status: "", styled: false, milestone: none },
 ];
-const GANTT_CUSTOM_HEADERS_DATA = [
-    { phase: "Research", team: "R&D", start: new Date("2024-02-01"), end: new Date("2024-02-28") },
-    { phase: "Prototype", team: "Engineering", start: new Date("2024-02-15"), end: new Date("2024-03-31") },
-    { phase: "Launch", team: "Marketing", start: new Date("2024-03-15"), end: new Date("2024-04-15") },
+// The #262 two-axis grammar: lifecycle state + an orthogonal risk tint.
+const GANTT_STATUS_ROWS = [
+    { name: "User Auth", start: new Date("2024-01-01"), end: new Date("2024-01-20"), progress: 100.0, state: "committed", status: "success", styled: false, milestone: none },
+    { name: "Login Issue", start: new Date("2024-01-10"), end: new Date("2024-01-15"), progress: 20.0, state: "added", status: "danger", styled: false, milestone: none },
+    { name: "Performance", start: new Date("2024-01-15"), end: new Date("2024-02-01"), progress: 55.0, state: "added", status: "info", styled: false, milestone: none },
+    { name: "Dashboard", start: new Date("2024-01-20"), end: new Date("2024-02-15"), progress: 90.0, state: "committed", status: "success", styled: false, milestone: none },
 ];
-const GANTT_COMPLEX_COLUMNS_DATA = [
-    { task: "Platform v2", owner: "Alice", tags: ["backend", "api", "priority"], start: new Date("2024-01-01"), end: new Date("2024-03-31") },
-    { task: "UI Refresh", owner: "Bob", tags: ["frontend", "design"], start: new Date("2024-01-15"), end: new Date("2024-02-28") },
-    { task: "CI/CD", owner: "Charlie", tags: ["devops"], start: new Date("2024-02-01"), end: new Date("2024-02-28") },
-];
-const GANTT_FROZEN_COLUMNS_DATA = [
-    { id: "#1", task: "Planning", owner: "Alice", dept: "PM", priority: "High", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
-    { id: "#2", task: "Design", owner: "Bob", dept: "Design", priority: "Medium", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
-    { id: "#3", task: "Development", owner: "Charlie", dept: "Engineering", priority: "High", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
-    { id: "#4", task: "Testing", owner: "Diana", dept: "QA", priority: "Low", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
-    { id: "#5", task: "Deployment", owner: "Eve", dept: "DevOps", priority: "Medium", start: new Date("2024-03-20"), end: new Date("2024-04-15") },
-];
-const GANTT_ROW_STATUS_DATA = [
-    { task: "Planning", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
-    { task: "Design", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
-    { task: "Development", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
-];
-const GANTT_INTERACTIVE_CALLBACKS_DATA = [
-    { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
-    { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
-    { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
-];
-const GANTT_TASK_POPOVER_DATA = [
-    { task: "Sprint 1", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-14") },
-    { task: "Sprint 2", owner: "Bob", start: new Date("2024-01-15"), end: new Date("2024-01-28") },
-];
+const GANTT_STRESS_ROWS = East.Array.range(0n, 200n).map((_$, i) => ({
+    name: East.str`Task ${i}`,
+    start: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n)),
+    end: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n).add(14n)),
+    progress: i.remainder(100n).toFloat(),
+    state: "added",
+    status: "",
+    styled: false,
+    milestone: East.value(none, OptionType(StructType({ date: DateTimeType, label: StringType, release: BooleanType }))),
+}));
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -96,425 +97,317 @@ export const ganttBasic = example({
 });
 
 /**
- * Axis variant panel — pinned window, quarter-grained roadmap header, and the
- * weekly sprint header with the now-line on.
+ * THE Gantt configurator (pass 4) — one preset axis spans the surface: the
+ * now-centred window, the quarter roadmap and week sprint windows, milestone
+ * diamonds, progress fills, styled labels, the five lifecycle treatments,
+ * the #262 state + status grammar, a 200-row stress window and the #320 fill
+ * contract. Every preset is DATA ({window, tier, format, header, rows}
+ * through one expression-fed axis + ONE rowSpec over the superset row), so
+ * only row-height presence (auto vs pixel) and the bounded-fill Box are
+ * prebuilt arms. Variant / density / striped / today compose across every
+ * preset; all eleven callbacks (and the ONE onDrag grammar funnel) log to
+ * the aside.
  */
-export const ganttAxisVariants = example({
-    keywords: ["Gantt", "axis", "range", "window", "domain", "month", "tier", "quarter", "format", "roadmap", "week", "sprint", "showToday"],
-    description: "Axis variant panel — axis window (a pinned full-year range with a month-grained header instead of fitting to the task dates), axis quarter tier (multi-year roadmap, tier 'quarter' with 'MMM YYYY' format), axis week tier (day-precise plan, tier 'week' with 'MMM DD' format and the now-line on)",
+export const ganttVariants = example({
+    keywords: ["Gantt", "Task", "Milestone", "kind", "interim", "release", "progress", "label", "LabelInput", "align", "fontWeight", "fontStyle", "state", "status", "committed", "added", "model", "removed", "rejected", "lifecycle", "risk", "tint", "variant", "line", "outline", "striped", "showToday", "density", "rowHeight", "axis", "window", "tier", "quarter", "week", "month", "format", "roadmap", "sprint", "stress", "fill", "height", "#320", "virtual", "popover", "click", "Reactive", "State", "onTaskClick", "onTaskDrag", "onMilestoneClick", "onDrag", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Gantt configurator — a preset axis over window, milestone, progress, label, lifecycle, status, stress and fill demos plus variant, density, row-height, striped and today controls; every callback logs to the aside",
     fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="AXIS WINDOW" align="start" />
-                <Gantt
-                    axis={{ range: { min: new Date("2024-01-01"), max: new Date("2024-12-31") }, tier: "month", format: "MMM" }}
-                    data={GANTT_AXIS_WINDOW_DATA}
-                    columns={{ task: { header: "Workstream" } }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="AXIS QUARTER TIER" align="start" />
-                <Gantt
-                    axis={{ tier: "quarter", format: "MMM YYYY" }}
-                    data={GANTT_AXIS_QUARTER_TIER_DATA}
-                    columns={{ epic: { header: "Epic" } }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="AXIS WEEK TIER" align="start" />
-                <Gantt
-                    axis={{ tier: "week", format: "MMM DD" }}
-                    showToday={true}
-                    data={GANTT_AXIS_WEEK_TIER_DATA}
-                    columns={{ task: { header: "Task" } }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Task variant panel — milestone markers, progress fills, and the rich task
- * label overrides.
- */
-export const ganttTaskVariants = example({
-    keywords: ["Gantt", "Task", "Milestone", "kind", "interim", "release", "progress", "label", "LabelInput", "align", "verticalAlign", "fontWeight", "fontStyle", "fontSize", "color"],
-    description: "Task variant panel — with milestones (kind drives the diamond fill: interim = amber, release = brand teal), with progress (per-task progress indicators), rich label (a plain LabelInput vs one with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="WITH MILESTONES" align="start" />
-                <Gantt
-                    data={GANTT_WITH_MILESTONES_DATA}
-                    columns={{ name: { header: "Sprint" } }}
-                    rowSpec={row => ({
-                        tasks: [Gantt.Task({ start: row.start, end: row.end })],
-                        milestones: [Gantt.Milestone({
-                            date: row.checkpoint,
-                            label: "Checkpoint",
-                            kind: row.kind.equal("release").ifElse(
-                                _$ => variant("release", null),
-                                _$ => variant("interim", null),
-                            ),
-                        })],
-                    })}
-                />
-                <Separator label="WITH PROGRESS" align="start" />
-                <Gantt
-                    data={GANTT_WITH_PROGRESS_DATA}
-                    columns={{ task: { header: "Task" } }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, progress: row.progress })] })}
-                />
-                <Separator label="RICH LABEL" align="start" />
-                <Gantt
-                    data={GANTT_RICH_LABEL_DATA}
-                    columns={["row"]}
-                    rowSpec={(_row) => ({
-                        tasks: [
-                            Gantt.Task({
-                                start: new Date("2024-01-01"),
-                                end: new Date("2024-01-15"),
-                                label: { value: "Plain label" },
-                            }),
-                            Gantt.Task({
-                                start: new Date("2024-01-20"),
-                                end: new Date("2024-02-05"),
-                                label: {
-                                    value: "Styled label",
-                                    align: "center",
-                                    verticalAlign: "center",
-                                    color: "fg.warning",
-                                    fontWeight: "bold",
-                                    fontStyle: "italic",
-                                    fontSize: "lg",
-                                },
-                            }),
-                        ],
-                    })}
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Style variant panel — combined style options, pixel rowHeight, custom
- * headers, complex columns, frozen columns, and the rowStatus tint.
- */
-export const ganttStyleVariants = example({
-    keywords: ["Gantt", "variant", "line", "striped", "showToday", "density", "compact", "Root", "rowHeight", "pixel", "override", "header", "width", "minWidth", "maxWidth", "value", "render", "CellRenderContext", "row access", "complex", "frozen", "pin", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
-    description: "Style variant panel — styled (variant line + striped + showToday + density compact), row height (explicit 44px rows override the density preset), custom headers (object config with widths), complex columns (value to sort an array field + a render closing over row data), frozen columns (pinned left during timeline scroll), row status (rowStatus paints each row with a semantic success / warning / danger tint)",
-    fn: East.function([], UIComponentType, ($) => {
-        // STYLED — dates span around the present so the `showToday` now-line is
-        // visible (it only renders when today falls within the timeline range).
         const day = 24 * 60 * 60 * 1000;
-        // COMPLEX COLUMNS — the render closes over `rows` to read a sibling
-        // field (owner) for the same row.
-        const rows = $.let(GANTT_COMPLEX_COLUMNS_DATA);
-        // ROW STATUS — a semantic token per row index.
-        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
-            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
-            return bucket.equals(0n).ifElse(
-                $ => Style.StatusToken("success"),
-                $ => bucket.equals(1n).ifElse(
-                    $ => Style.StatusToken("warning"),
-                    $ => Style.StatusToken("danger"),
-                ),
-            );
-        }));
         return (
-            <VStack gap="4" align="stretch">
-                <Separator label="STYLED" align="start" />
-                <Gantt
-                    variant="line"
-                    striped={true}
-                    showToday={true}
-                    density="compact"
-                    data={[
-                        { dept: "Engineering", project: "Platform v2", start: new Date(Date.now() - 60 * day), end: new Date(Date.now() + 60 * day) },
-                        { dept: "Design", project: "UI Refresh", start: new Date(Date.now() - 45 * day), end: new Date(Date.now() + 15 * day) },
-                        { dept: "DevOps", project: "CI/CD Pipeline", start: new Date(Date.now() - 20 * day), end: new Date(Date.now() + 30 * day) },
-                        { dept: "QA", project: "Test Automation", start: new Date(Date.now() - 10 * day), end: new Date(Date.now() + 75 * day) },
-                    ]}
-                    columns={{
-                        dept: { header: "Department" },
-                        project: { header: "Project" },
-                    }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="ROW HEIGHT" align="start" />
-                <Gantt
-                    rowHeight={44n}
-                    data={GANTT_ROW_HEIGHT_DATA}
-                    columns={["task", "owner"]}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="CUSTOM HEADERS" align="start" />
-                <Gantt
-                    data={GANTT_CUSTOM_HEADERS_DATA}
-                    columns={{
-                        phase: { header: "Phase", width: "300px", minWidth: "80px" },
-                        team: { header: "Team", width: "150px", maxWidth: "200px" },
-                    }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="COMPLEX COLUMNS" align="start" />
-                <Gantt
-                    variant="line"
-                    striped={true}
-                    data={rows}
-                    columns={{
-                        task: {
-                            header: "Project",
-                            // render closes over `rows` to read a sibling field (owner) for the same row
-                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                const row = $.let(rows.get(ctx.rowIndex));
-                                return <Text>{East.str`${row.task} · ${row.owner}`}</Text>;
-                            }),
-                        },
-                        tags: {
-                            header: "Tags",
-                            value: (tags) => tags.size(),
-                            render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                                <Text>{ctx.cellValue.match({ Integer: (_$2, v) => East.str`${v} tags` }, _$2 => "")}</Text>
-                            )),
-                        },
-                    }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="FROZEN COLUMNS" align="start" />
-                <Gantt
-                    frozen={["id", "task"]}
-                    variant="line"
-                    striped={true}
-                    height="300px"
-                    data={GANTT_FROZEN_COLUMNS_DATA}
-                    columns={{
-                        id: { header: "ID", width: "80px" },
-                        task: { header: "Task", width: "150px" },
-                        owner: { header: "Owner", width: "120px" },
-                        dept: { header: "Department", width: "150px" },
-                        priority: { header: "Priority", width: "120px" },
-                    }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-                <Separator label="ROW STATUS" align="start" />
-                <Gantt
-                    rowStatus={rowStatus}
-                    variant="line"
-                    data={GANTT_ROW_STATUS_DATA}
-                    columns={{ task: { header: "Task" } }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
+        <Reactive>{$ => {
+            const presetKeys = $.const([
+                "today", "quarter", "week", "milestones", "progress",
+                "labels", "lifecycle", "status", "stress", "fill",
+            ], ArrayType(StringType));
+            const variants = $.const([variant("line", null), variant("outline", null)], ArrayType(Table.Types.Variant));
+            const densities = $.const([
+                variant("condensed", null), variant("compact", null), variant("comfortable", null),
+            ], ArrayType(Style.Types.Density));
+            const rowHeights = $.const(["auto", "36", "44"], ArrayType(StringType));
 
-export const ganttStateAndStatus = example({
-    keywords: ["Gantt", "Task", "state", "status", "committed", "added", "danger", "risk", "lifecycle", "ifElse", "per-row"],
-    description: "Two-axis task grammar (#262) — the shared lifecycle `state` (committed vs proposed) derived per row, with the orthogonal risk `status` tint (the old at-risk) on the blocked row",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Gantt
-                data={[
-                    { stage: "Locked", name: "User Auth", start: new Date("2024-01-01"), end: new Date("2024-01-20"), progress: 100 },
-                    { stage: "Blocked", name: "Login Issue", start: new Date("2024-01-10"), end: new Date("2024-01-15"), progress: 20 },
-                    { stage: "Planned", name: "Performance", start: new Date("2024-01-15"), end: new Date("2024-02-01"), progress: 55 },
-                    { stage: "Locked", name: "Dashboard", start: new Date("2024-01-20"), end: new Date("2024-02-15"), progress: 90 },
-                ]}
-                columns={{
-                    stage: { header: "Stage" },
-                    name: { header: "Name" },
-                }}
-                rowSpec={row => ({
-                    tasks: [Gantt.Task({
-                        start: row.start,
-                        end: row.end,
-                        label: row.name,
-                        // Progress fills the bar in the state/status colour so each
-                        // treatment reads at a glance.
-                        progress: row.progress,
-                        // Audit axis — the shared event lifecycle: locked stages are
-                        // committed history; everything else is a proposed(added) draft.
-                        state: East.value(row.stage.equal("Locked").ifElse(
-                            _$ => variant("committed", null),
-                            _$ => variant("proposed", variant("added", null)),
-                        ), Gantt.Types.State),
-                        // Risk axis (the old `atRisk`) — an orthogonal tint over the
-                        // state treatment: blocked ⇒ danger, locked ⇒ success, else info.
-                        status: East.value(row.stage.equal("Blocked").ifElse(
-                            _$ => variant("danger", null),
-                            _$ => row.stage.equal("Locked").ifElse(
-                                _$ => variant("success", null),
-                                _$ => variant("info", null),
+            // The now-centred rows keep `Date.now()` in-body (the
+            // no-build-time-clock rule).
+            const todayRows = $.const([
+                { name: "Platform v2", start: new Date(Date.now() - 60 * day), end: new Date(Date.now() + 60 * day), progress: 50.0, state: "added", status: "", styled: false, milestone: some({ date: new Date(Date.now() + 60 * day), label: "Release", release: true }) },
+                { name: "UI Refresh", start: new Date(Date.now() - 45 * day), end: new Date(Date.now() + 15 * day), progress: 70.0, state: "added", status: "", styled: false, milestone: none },
+                { name: "CI/CD Pipeline", start: new Date(Date.now() - 20 * day), end: new Date(Date.now() + 30 * day), progress: 30.0, state: "added", status: "", styled: false, milestone: none },
+                { name: "Test Automation", start: new Date(Date.now() - 10 * day), end: new Date(Date.now() + 75 * day), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
+            ], ArrayType(GANTT_ROW));
+
+            const stressRows = $.const(GANTT_STRESS_ROWS, ArrayType(GANTT_ROW));
+
+            // Every preset is data: window + tier + format + header + rows.
+            const presets = $.const([
+                { key: "today", min: new Date(Date.now() - 75 * day), max: new Date(Date.now() + 90 * day), tier: variant("month", null), format: "MMM", header: "Project", rows: todayRows },
+                { key: "quarter", min: new Date("2024-01-01"), max: new Date("2025-12-31"), tier: variant("quarter", null), format: "MMM YYYY", header: "Epic", rows: GANTT_QUARTER_ROWS },
+                { key: "week", min: new Date("2024-04-01"), max: new Date("2024-04-26"), tier: variant("week", null), format: "MMM DD", header: "Task", rows: GANTT_WEEK_ROWS },
+                { key: "milestones", min: new Date("2023-12-28"), max: new Date("2024-02-18"), tier: variant("week", null), format: "MMM DD", header: "Sprint", rows: GANTT_MILESTONE_ROWS },
+                { key: "progress", min: new Date("2023-12-28"), max: new Date("2024-04-08"), tier: variant("month", null), format: "MMM", header: "Task", rows: GANTT_PROGRESS_ROWS },
+                { key: "labels", min: new Date("2023-12-28"), max: new Date("2024-02-12"), tier: variant("week", null), format: "MMM DD", header: "Row", rows: GANTT_LABEL_ROWS },
+                { key: "lifecycle", min: new Date("2023-12-28"), max: new Date("2024-02-21"), tier: variant("week", null), format: "MMM DD", header: "State", rows: GANTT_LIFECYCLE_ROWS },
+                { key: "status", min: new Date("2023-12-28"), max: new Date("2024-02-21"), tier: variant("week", null), format: "MMM DD", header: "Name", rows: GANTT_STATUS_ROWS },
+                { key: "stress", min: new Date("2023-12-01"), max: new Date("2025-10-01"), tier: variant("quarter", null), format: "MMM YYYY", header: "Task", rows: stressRows },
+                { key: "fill", min: new Date("2023-12-01"), max: new Date("2025-10-01"), tier: variant("quarter", null), format: "MMM YYYY", header: "Task", rows: stressRows },
+            ], ArrayType(StructType({ key: StringType, min: DateTimeType, max: DateTimeType, tier: Gantt.Types.Tier, format: StringType, header: StringType, rows: ArrayType(GANTT_ROW) })));
+
+            const presetBind = $.let(State.bind([StringType], "gantt_preset", "today"));
+            const variantBind = $.let(State.bind([StringType], "gantt_variant", "line"));
+            const densityBind = $.let(State.bind([StringType], "gantt_density", "compact"));
+            const rhBind = $.let(State.bind([StringType], "gantt_rowheight", "auto"));
+            const stripedBind = $.let(State.bind([BooleanType], "gantt_striped", true));
+            const todayBind = $.let(State.bind([BooleanType], "gantt_showtoday", true));
+            const lastEventBind = $.let(State.bind([StringType], "gantt_last_event", ""));
+
+            const pKey = $.let(presetBind.read());
+            const vKey = $.let(variantBind.read());
+            const dKey = $.let(densityBind.read());
+            const rhKey = $.let(rhBind.read());
+            const stripedOn = $.let(stripedBind.read());
+            const todayOn = $.let(todayBind.read());
+            const lastEvent = $.let(lastEventBind.read());
+
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
+            const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+            const onRowHeight = $.const(East.function([StringType], NullType, ($, next) => { $(rhBind.write(next)); }));
+            const onStriped = $.const(East.function([BooleanType], NullType, ($, next) => { $(stripedBind.write(next)); }));
+            const onToday = $.const(East.function([BooleanType], NullType, ($, next) => { $(todayBind.write(next)); }));
+
+            // The interactive surface — every callback writes the event line
+            // the aside shows.
+            const onRowClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));
+            }));
+            const onRowDoubleClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));
+            }));
+            const onCellClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
+            }));
+            const onCellDoubleClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
+            }));
+            const onSortChange = $.const(East.function([Table.Types.SortEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
+            }));
+            const onTaskClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));
+            }));
+            const onTaskDoubleClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
+            }));
+            // ONE grammar funnel (#268): task-body drags arrive as `move`,
+            // edge drags as `resize`, Library drops as `add`.
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    move: ($, mv) => { $(lastEventBind.write(East.str`onDrag move: ${mv.from.row}/${mv.from.event.getTag()} → ${mv.to.slot}`)); },
+                    resize: ($, rz) => { $(lastEventBind.write(East.str`onDrag resize: ${rz.event.row} ${rz.edge.getTag()} edge → ${rz.event.slot}`)); },
+                    add: ($, add) => { $(lastEventBind.write(East.str`onDrag add: ${add.from.key} → row ${add.into.row}`)); },
+                    remove: ($, rm) => { $(lastEventBind.write(East.str`onDrag remove: ${rm.from.row}`)); },
+                });
+            }));
+            const onTaskProgressChange = $.const(East.function([Gantt.Types.TaskProgressChangeEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
+            }));
+            const onMilestoneClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
+            }));
+            const onMilestoneDoubleClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
+            }));
+
+            const sel = $.let(presets.filter((_$, o) => o.key.equal(pKey)).get(0n, _$ => presets.get(0n)));
+            const variantSel = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+            const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+            const rhPx = $.let(rhKey.equal("36").ifElse(_$ => 36n, _$ => 44n));
+
+            // ONE rowSpec over the superset row: lifecycle state, risk status,
+            // milestone diamonds and the styled label all come off row fields.
+            const stateOf = $.const(East.function([StringType], Gantt.Types.State, (_$, tag) =>
+                tag.equal("committed").ifElse(
+                    _$ => variant("committed", null),
+                    _$ => tag.equal("rejected").ifElse(
+                        _$ => variant("rejected", null),
+                        _$ => tag.equal("model").ifElse(
+                            _$ => variant("proposed", variant("model", null)),
+                            _$ => tag.equal("removed").ifElse(
+                                _$ => variant("proposed", variant("removed", null)),
+                                _$ => variant("proposed", variant("added", null)),
                             ),
-                        ), Gantt.Types.Status),
-                    })],
-                })}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * All five lifecycle treatments (#262) — the shared `PlannerStateType`
- * grammar on Gantt bars: committed (solid), proposed-added (dashed),
- * proposed-model (dashed ghost, italic label), proposed-removed (struck
- * ghost), rejected (greyed strike). One row per arm, mapped from a data
- * field with nested East ifElse.
- */
-export const ganttLifecycleArms = example({
-    keywords: ["Gantt", "state", "lifecycle", "committed", "added", "model", "removed", "rejected", "ghost", "dashed", "treatment"],
-    description: "The five shared-lifecycle treatments on task bars — committed, proposed(added), proposed(model), proposed(removed), rejected",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Gantt
-                data={[
-                    { kind: "committed", name: "Baseline build", start: new Date("2024-01-01"), end: new Date("2024-01-24"), progress: 100 },
-                    { kind: "added", name: "Operator draft", start: new Date("2024-01-08"), end: new Date("2024-02-02"), progress: 40 },
-                    { kind: "model", name: "Model suggestion", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 0 },
-                    { kind: "removed", name: "Proposed cut", start: new Date("2024-01-05"), end: new Date("2024-01-30"), progress: 60 },
-                    { kind: "rejected", name: "Declined plan", start: new Date("2024-01-20"), end: new Date("2024-02-14"), progress: 20 },
-                ]}
-                columns={{ kind: { header: "State" }, name: { header: "Task" } }}
-                rowSpec={row => ({
-                    tasks: [Gantt.Task({
-                        start: row.start,
-                        end: row.end,
-                        label: row.name,
-                        progress: row.progress,
-                        state: East.value(row.kind.equal("committed").ifElse(
-                            _$ => variant("committed", null),
-                            _$ => row.kind.equal("rejected").ifElse(
-                                _$ => variant("rejected", null),
-                                _$ => row.kind.equal("model").ifElse(
-                                    _$ => variant("proposed", variant("model", null)),
-                                    _$ => row.kind.equal("removed").ifElse(
-                                        _$ => variant("proposed", variant("removed", null)),
-                                        _$ => variant("proposed", variant("added", null)),
-                                    ),
-                                ),
-                            ),
-                        ), Gantt.Types.State),
-                    })],
-                })}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Interactive pair — the full callback surface behind a live event badge, and
- * the per-task click popover.
- */
-export const ganttInteractiveCallbacks = example({
-    keywords: ["Gantt", "Reactive", "State", "onTaskClick", "onTaskDrag", "onMilestoneClick", "interactive", "Task", "popover", "click", "rich"],
-    description: "Interactive pair — interactive callbacks (click rows, cells, tasks, milestones or drag to see events through the ONE onDrag grammar funnel) and task popover (pass a UIComponent into `popover` for rich edit forms / details)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <VStack gap="4" align="stretch">
-            <Separator label="INTERACTIVE CALLBACKS" align="start" />
-            <Reactive>{$ => {
-                const lastEventBind = $.let(State.bind([StringType], "gantt_last_event", ""));
-                const lastEvent = $.let(lastEventBind.read());
-
-                const onRowClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));
-                }));
-                const onRowDoubleClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));
-                }));
-                const onCellClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
-                }));
-                const onCellDoubleClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
-                }));
-                const onSortChange = $.const(East.function([Table.Types.SortEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
-                }));
-                const onTaskClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));
-                }));
-                const onTaskDoubleClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
-                }));
-                // ONE grammar funnel (#268): task-body drags arrive as `move`,
-                // edge drags as `resize`, Library drops as `add` — the bespoke
-                // per-gesture callbacks are gone.
-                const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                    $.match(event, {
-                        move: ($, mv) => { $(lastEventBind.write(East.str`onDrag move: ${mv.from.row}/${mv.from.event.getTag()} → ${mv.to.slot}`)); },
-                        resize: ($, rz) => { $(lastEventBind.write(East.str`onDrag resize: ${rz.event.row} ${rz.edge.getTag()} edge → ${rz.event.slot}`)); },
-                        add: ($, add) => { $(lastEventBind.write(East.str`onDrag add: ${add.from.key} → row ${add.into.row}`)); },
-                        remove: ($, rm) => { $(lastEventBind.write(East.str`onDrag remove: ${rm.from.row}`)); },
-                    });
-                }));
-                const onTaskProgressChange = $.const(East.function([Gantt.Types.TaskProgressChangeEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
-                }));
-                const onMilestoneClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
-                }));
-                const onMilestoneDoubleClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
-                    $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
-                }));
-
-                return (
-                    <VStack gap="3" align="stretch">
-                        <Gantt
-                            striped={true}
-                            showToday={true}
-                            onRowClick={onRowClick}
-                            onRowDoubleClick={onRowDoubleClick}
-                            onCellClick={onCellClick}
-                            onCellDoubleClick={onCellDoubleClick}
-                            onSortChange={onSortChange}
-                            onTaskClick={onTaskClick}
-                            onTaskDoubleClick={onTaskDoubleClick}
-                            id="gantt-live"
-                            onDrag={onDrag}
-                            onTaskProgressChange={onTaskProgressChange}
-                            onMilestoneClick={onMilestoneClick}
-                            onMilestoneDoubleClick={onMilestoneDoubleClick}
-                            data={GANTT_INTERACTIVE_CALLBACKS_DATA}
-                            columns={{ name: { header: "Sprint" } }}
-                            rowSpec={row => ({
-                                // `proposed` (not committed) so the bars are editable —
-                                // committed bars are read-only / resize-locked per spec.
-                                tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, state: "added" })],
-                                milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
-                            })}
-                        />
-                        <Badge colorPalette="brand" variant="outline">
-                            {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the Gantt chart", _$ => lastEvent)}
-                        </Badge>
-                    </VStack>
-                );
-            }}</Reactive>
-            <Separator label="TASK POPOVER" align="start" />
-            <Gantt
-                data={GANTT_TASK_POPOVER_DATA}
-                columns={{ task: { header: "Sprint" } }}
-                rowSpec={row => ({ tasks: [Gantt.Task({
-                    start: row.start,
-                    end: row.end,
-                    label: row.task,
-                    popover: (
-                        <VStack gap="2">
-                            <Text fontWeight="bold">{East.str`Sprint: ${row.task}`}</Text>
-                            <Text>{East.str`Owner: ${row.owner}`}</Text>
-                            <Text>{East.str`From ${row.start} to ${row.end}`}</Text>
-                        </VStack>
+                        ),
                     ),
-                })] })}
-            />
-        </VStack>
-    )),
+                )));
+            const statusOf = $.const(East.function([StringType], Gantt.Types.Status, (_$, tag) =>
+                tag.equal("success").ifElse(
+                    _$ => East.value(variant("success", null), Gantt.Types.Status),
+                    _$ => tag.equal("danger").ifElse(
+                        _$ => East.value(variant("danger", null), Gantt.Types.Status),
+                        _$ => East.value(variant("info", null), Gantt.Types.Status),
+                    ),
+                )));
+
+            const noMilestones = $.const([], ArrayType(Gantt.Types.Milestone));
+
+            const armAuto = $.const(
+                <Gantt
+                    id="gantt-live"
+                    variant={variantSel}
+                    striped={stripedOn}
+                    showToday={todayOn}
+                    density={densitySel}
+                    axis={{ range: { min: sel.min, max: sel.max }, tier: sel.tier, format: sel.format }}
+                    onRowClick={onRowClick}
+                    onRowDoubleClick={onRowDoubleClick}
+                    onCellClick={onCellClick}
+                    onCellDoubleClick={onCellDoubleClick}
+                    onSortChange={onSortChange}
+                    onTaskClick={onTaskClick}
+                    onTaskDoubleClick={onTaskDoubleClick}
+                    onDrag={onDrag}
+                    onTaskProgressChange={onTaskProgressChange}
+                    onMilestoneClick={onMilestoneClick}
+                    onMilestoneDoubleClick={onMilestoneDoubleClick}
+                    data={sel.rows}
+                    columns={{ name: { header: sel.header, width: "180px" } }}
+                    rowSpec={row => ({
+                        tasks: row.styled.ifElse(
+                            _$ => [Gantt.Task({
+                                start: row.start, end: row.end,
+                                label: { value: row.name, align: "center", verticalAlign: "center", color: "fg.warning", fontWeight: "bold", fontStyle: "italic" },
+                                progress: row.progress, state: stateOf(row.state),
+                            })],
+                            _$ => row.status.equal("").ifElse(
+                                _$ => [Gantt.Task({
+                                    start: row.start, end: row.end, label: row.name,
+                                    progress: row.progress, state: stateOf(row.state),
+                                    popover: (
+                                        <VStack gap="2">
+                                            <Text fontWeight="bold">{row.name}</Text>
+                                            <Text>{East.str`From ${row.start} to ${row.end}`}</Text>
+                                        </VStack>
+                                    ),
+                                })],
+                                _$ => [Gantt.Task({
+                                    start: row.start, end: row.end, label: row.name,
+                                    progress: row.progress, state: stateOf(row.state), status: statusOf(row.status),
+                                })],
+                            ),
+                        ),
+                        milestones: row.milestone.match({
+                            some: (_$, m) => [Gantt.Milestone({
+                                date: m.date, label: m.label,
+                                kind: m.release.ifElse(_$ => variant("release", null), _$ => variant("interim", null)),
+                            })],
+                            none: (_$) => noMilestones,
+                        }),
+                    })}
+                />,
+            );
+            const armPx = $.const(
+                <Gantt
+                    id="gantt-live"
+                    variant={variantSel}
+                    striped={stripedOn}
+                    showToday={todayOn}
+                    density={densitySel}
+                    rowHeight={rhPx}
+                    axis={{ range: { min: sel.min, max: sel.max }, tier: sel.tier, format: sel.format }}
+                    onRowClick={onRowClick}
+                    onRowDoubleClick={onRowDoubleClick}
+                    onCellClick={onCellClick}
+                    onCellDoubleClick={onCellDoubleClick}
+                    onSortChange={onSortChange}
+                    onTaskClick={onTaskClick}
+                    onTaskDoubleClick={onTaskDoubleClick}
+                    onDrag={onDrag}
+                    onTaskProgressChange={onTaskProgressChange}
+                    onMilestoneClick={onMilestoneClick}
+                    onMilestoneDoubleClick={onMilestoneDoubleClick}
+                    data={sel.rows}
+                    columns={{ name: { header: sel.header, width: "180px" } }}
+                    rowSpec={row => ({
+                        tasks: row.status.equal("").ifElse(
+                            _$ => [Gantt.Task({
+                                start: row.start, end: row.end, label: row.name,
+                                progress: row.progress, state: stateOf(row.state),
+                            })],
+                            _$ => [Gantt.Task({
+                                start: row.start, end: row.end, label: row.name,
+                                progress: row.progress, state: stateOf(row.state), status: statusOf(row.status),
+                            })],
+                        ),
+                        milestones: row.milestone.match({
+                            some: (_$, m) => [Gantt.Milestone({
+                                date: m.date, label: m.label,
+                                kind: m.release.ifElse(_$ => variant("release", null), _$ => variant("interim", null)),
+                            })],
+                            none: (_$) => noMilestones,
+                        }),
+                    })}
+                />,
+            );
+            // FILL (#320) — height="fill" resolves against the bounded Box and
+            // virtualizes the 200 rows.
+            const armFill = $.const(
+                <Box height="220px">
+                    <Gantt
+                        variant={variantSel}
+                        striped={stripedOn}
+                        density={densitySel}
+                        height="fill"
+                        axis={{ range: { min: sel.min, max: sel.max }, tier: sel.tier, format: sel.format }}
+                        data={sel.rows}
+                        columns={{ name: { header: sel.header, width: "150px" } }}
+                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                    />
+                </Box>,
+            );
+
+            const preview = $.const(pKey.equal("fill").ifElse(
+                _$ => armFill,
+                _$ => rhKey.equal("auto").ifElse(_$ => armAuto, _$ => armPx),
+            ), UIComponentType);
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Preset", pKey,
+                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        Configurator.Control("Variant", vKey,
+                            <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Density", dKey,
+                            <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Row height", rhKey,
+                            <SegmentGroup value={rhKey} onChange={onRowHeight} size="sm"
+                                items={rowHeights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        Configurator.Slot("Chrome",
+                            <HStack gap="5" align="center">
+                                <Switch checked={stripedOn} label="Striped" onChange={onStriped} />
+                                <Switch checked={todayOn} label="Today" onChange={onToday} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "Events · Reactive",
+                        body: (
+                            <Badge colorPalette="brand" variant="outline">
+                                {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the Gantt chart", _$ => lastEvent)}
+                            </Badge>
+                        ),
+                    }}
+                    spec={[
+                        Configurator.Spec("Tier", sel.tier.getTag()),
+                        Configurator.Spec("Rows", East.print(sel.rows.size())),
+                        Configurator.Spec("Row height", rhKey.equal("auto").ifElse(_$ => "density", _$ => East.str`${rhKey}px`)),
+                    ]}
+                />
+            );
+        }}</Reactive>
+        );
+    }),
     inputs: [],
 });
 
@@ -622,7 +515,7 @@ export const ganttReview = example({
  */
 export const ganttLibraryDnd = example({
     keywords: ["Gantt", "Library", "DnD", "drag", "add", "move", "resize", "onDrag", "canDrop", "target", "proposed", "grammar"],
-    description: "Library + Gantt DnD — drag a crew card onto the timeline (proposed(added) bar at the snapped instant, canDrop ⊘ on the committed row); dragging/resizing the proposed bars reports grammar move/resize through the same onDrag",
+    description: "Library + Gantt DnD — drag a crew card onto the timeline (proposed(added) bar at the snapped instant, canDrop ⊘ on the committed row); move/resize report through the same onDrag",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const lastBind = $.let(State.bind([StringType], "gantt_last_drop", "none yet"));
@@ -682,33 +575,5 @@ export const ganttLibraryDnd = example({
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-export const ganttFill = example({
-    keywords: ["Gantt", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the gantt fills a fixed 220px Box and scrolls within it; two hundred rows overflow the box so only the visible rows mount, with the header pinned",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Box height="220px">
-                <Gantt
-                    variant="line"
-                    striped={true}
-                    height="fill"
-                    data={East.Array.range(0n, 200n).map((_$, i) => ({
-                        id: East.str`#${i}`,
-                        task: East.str`Task ${i}`,
-                        start: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n)),
-                        end: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n).add(14n)),
-                    }))}
-                    columns={{
-                        id: { header: "ID", width: "80px" },
-                        task: { header: "Task", width: "150px" },
-                    }}
-                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                />
-            </Box>
-        );
-    }),
     inputs: [],
 });

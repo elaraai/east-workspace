@@ -12,23 +12,22 @@ import * as ex from "./banner.examples.js";
 describeEast("Banner", (test) => {
     Assert.examples(test, {
         bannerStatusVariants: ex.bannerStatusVariants,
-        bannerDismissible: ex.bannerDismissible,
     });
 
     // =========================================================================
-    // Panels — every merged example stays mounted as a captioned row (#463).
+    // Panels — the status grammar is a live configurator (#463 → epic #455).
     // =========================================================================
 
-    test("bannerStatusVariants panel mounts one captioned row per merged example", $ => {
+    test("bannerStatusVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the status/icon/copy/action table
+        // — is declared inside the example body, because the documentation
+        // capture only extracts `fn`. That puts the table inside the Reactive
+        // body, which TestImpl does not execute, so it cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-status coverage lives in the Banner.Root tests
+        // below, which construct each status directly.
         const panel = $.const(ex.bannerStatusVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STALE DATA"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FROZEN SCENARIO"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "RUN WARNINGS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SCENARIO SAVED"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COMMIT LANDED"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SYNC PROGRESS"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates banner with string title + status (coerced)", $ => {

@@ -4,17 +4,27 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, none, variant } from "@elaraai/east";
+import { BooleanType, East, none, variant, type ExprType } from "@elaraai/east";
 import { Blend, DragEventType } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./blend.examples.js";
 
 describeEast("Blend", (test) => {
     Assert.examples(test, {
         blendSingle: ex.blendSingle,
-        blendCanDrop: ex.blendCanDrop,
-        blendCompare: ex.blendCompare,
-        blendPortfolio: ex.blendPortfolio,
+        blendModes: ex.blendModes,
         blendLibraryDnd: ex.blendLibraryDnd,
+    });
+
+    test("blendModes drives its preview from inline option tables", $ => {
+        // The mode-preset axis is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts it inside
+        // the Reactive body, which TestImpl does not execute, so it cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. Per-mode prop coverage lives in the
+        // Blend.Root tests below.
+        const panel = $.const(ex.blendModes.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("canDrop encodes and vetoes candidate events (#261)", $ => {

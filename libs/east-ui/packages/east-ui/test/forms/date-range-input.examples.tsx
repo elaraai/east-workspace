@@ -133,24 +133,20 @@ export const dateRangeInputVariants = example({
                         controls={[
                             Configurator.Control("Precision", pKey,
                                 <SegmentGroup value={pKey} onChange={onPrecision} size="sm"
-                                    items={precisions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "DATETIME exposes time-of-day"),
+                                    items={precisions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "escape hatches over the input recipe"),
+                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switches report as the
                             // Disabled / Presets spec rows below rather than as
                             // one value each.
                             Configurator.Slot("Flags",
                                 <HStack gap="5" align="center">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
-                                    <Text textStyle="caption" color="fg.subtle">both inputs read-only</Text>
                                     <Switch checked={presetsOn} label="Presets" onChange={onPresets} />
-                                    <Text textStyle="caption" color="fg.subtle">five canonical ranges</Text>
                                 </HStack>),
                         ]}
                         preview={range}

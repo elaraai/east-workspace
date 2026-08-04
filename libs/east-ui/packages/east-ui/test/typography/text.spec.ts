@@ -13,8 +13,6 @@ describeEast("Text", (test) => {
     Assert.examples(test, {
         textBasic: ex.textBasic,
         textVariants: ex.textVariants,
-        textStyleScale: ex.textStyleScale,
-        textNumericStyles: ex.textNumericStyles,
     });
 
     // =========================================================================
@@ -24,23 +22,15 @@ describeEast("Text", (test) => {
 
     test("textVariants drives its preview from inline option tables", $ => {
         // Everything the configurator needs — the ink / weight / emphasis /
-        // treatment / spacing / opacity / box tables — is declared inside the
-        // example body, because the documentation capture only extracts `fn`.
-        // That puts the tables inside the Reactive body, which TestImpl does
-        // not execute, so they cannot be asserted from here; `Assert.examples`
-        // above still compiles and evaluates the outer function. The per-prop
-        // coverage lives in the Text.Root tests below, which construct each
-        // style directly.
+        // treatment / spacing / opacity / box / scale / numeric tables — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-prop coverage lives in the Text.Root tests below,
+        // which construct each style directly.
         const panel = $.const(ex.textVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("textNumericStyles panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.textNumericStyles.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MONO KPI"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "TABULAR NUMS"));
     });
 
     // =========================================================================

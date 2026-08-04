@@ -80,25 +80,45 @@ const ALIGNED_STACK_AUTO_DATA = [
 // ============================================================================
 
 /**
- * The kitchen-sink — ONE `<AlignedStack gutter>` lines up **seven** stacked lane
- * components on a single shared day axis: a `<Chart>` trajectory over a `<Trace>`
- * heat-strip, a `<Matrix>` utilisation grid, a `<Planner>` activity timeline, a
- * `<Calendar>` week band, a `<Table>` of per-day metrics, and a `<Gantt>` phase
- * timeline. Every component inherits the same `{ left, right }` gutter from
- * context — the frozen label columns / row headers / week labels all fill `left`,
- * and each data lane fills `[left, W−right]`, so the day columns line up top to
- * bottom without the consumer hand-matching a single number. (#147)
+ * The kitchen-sink panel — the flagship all-seven stack plus every merged
+ * AlignedStack variant as captioned groups (epic #455). The flagship: ONE
+ * `<AlignedStack gutter>` lines up **seven** stacked lane components on a
+ * single shared day axis: a `<Chart>` trajectory over a `<Trace>` heat-strip, a
+ * `<Matrix>` utilisation grid, a `<Planner>` activity timeline, a `<Calendar>`
+ * week band, a `<Table>` of per-day metrics, and a `<Gantt>` phase timeline.
+ * Every component inherits the same `{ left, right }` gutter from context —
+ * the frozen label columns / row headers / week labels all fill `left`, and
+ * each data lane fills `[left, W−right]`, so the day columns line up top to
+ * bottom without the consumer hand-matching a single number. (#147) The
+ * remaining groups keep the chart-over-lane pairs, the density presets, and
+ * the axis-title / date-axis / auto-gutter variants mounted.
  */
 export const alignedStackAll = example({
-    keywords: ["AlignedStack", "plotGutter", "gutter", "Chart", "Trace", "Matrix", "Planner", "Calendar", "Table", "Gantt", "align", "stack", "dashboard", "all", "shared"],
-    description: "One AlignedStack gutter lines up seven stacked lane components — Chart, Trace, Matrix, Planner, Calendar, Table and Gantt — on a common day axis",
+    keywords: ["AlignedStack", "plotGutter", "gutter", "Chart", "Trace", "Matrix", "Planner", "Calendar", "Table", "Gantt", "align", "stack", "dashboard", "all", "shared", "axis", "lane", "day", "week", "grid", "frozen", "categories", "timeline", "splitter", "time", "density", "compact", "condensed", "title", "label", "titleGap", "margin", "date", "resolution", "format", "ddd", "tick", "instants", "auto", "measure"],
+    description: "AlignedStack panel — the all-seven flagship stack plus chart-over-lane pairs (Trace, Calendar, Matrix, Table, Planner, Gantt), density presets (compact, condensed) and axis variants (titles, formatted date axis, auto gutter)",
     fn: East.function([], UIComponentType, ($) => {
         const trend = $.const([
             { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
             { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
         ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const chartsTemp = $.const(ALIGNED_STACK_CHARTS_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const chartsRate = $.const(ALIGNED_STACK_CHARTS_RATE_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const traceTemp = $.const(ALIGNED_STACK_CHART_TRACE_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const calendarLoad = $.const(ALIGNED_STACK_CHART_CALENDAR_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const calendarGrid = $.const(ALIGNED_STACK_CHART_CALENDAR_GRID_DATA, ArrayType(StructType({ week: StringType, day: StringType, demand: FloatType })));
+        const matrixLoad = $.const(ALIGNED_STACK_CHART_MATRIX_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const tableLoad = $.const(ALIGNED_STACK_CHART_TABLE_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const plannerTemp = $.const(ALIGNED_STACK_CHART_PLANNER_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const ganttLoad = $.const(ALIGNED_STACK_CHART_GANTT_DATA, ArrayType(StructType({ d: FloatType, v: FloatType })));
+        const compactTrend = $.const(ALIGNED_STACK_ALL_COMPACT_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const condensedTrend = $.const(ALIGNED_STACK_ALL_CONDENSED_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const titlesTemp = $.const(ALIGNED_STACK_CHART_TITLES_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const dateRuns = $.const(ALIGNED_STACK_DATE_AXIS_DATA, ArrayType(StructType({ at: DateTimeType, kl: FloatType })));
+        const autoRows = $.const(ALIGNED_STACK_AUTO_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
         return (
-            <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="10px">
+            <VStack gap="4" align="stretch">
+                <Separator label="STACK ALL" align="start" />
+                <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="10px">
                 {/* 1 — Chart: the metric trajectory, the reference axis. */}
                 <Box height="140px" width="100%">
                     <Chart
@@ -183,31 +203,7 @@ export const alignedStackAll = example({
                     columns={["phase", "owner"]}
                     rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
                 />
-            </AlignedStack>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// AlignedStack — Chart-over-lane pairs (variant panel)
-// ============================================================================
-
-export const alignedStackPairs = example({
-    keywords: ["AlignedStack", "plotGutter", "gutter", "align", "Chart", "stack", "axis", "shared", "Trace", "lane", "day", "Calendar", "week", "Matrix", "grid", "Table", "frozen", "categories", "Planner", "timeline", "Gantt", "splitter", "time"],
-    description: "Pair panel — stack charts (two stacked charts share one plot gutter on a common day axis), stack chart trace (the Trace's step lane lines up under the chart's day axis), stack chart calendar (the Calendar's day band lines up under the chart's day axis), stack chart matrix (the Matrix value-grid lines up column-for-column under the chart's day axis), stack chart table (the frozen column fills left and the data columns line up under the chart's day axis), stack chart planner (the frozen channel fills left and the day-slot timeline lines up under the chart's day axis), stack chart gantt (the frozen table panel fills left and the timeline lines up under the chart's plot)",
-    fn: East.function([], UIComponentType, ($) => {
-        const chartsTemp = $.const(ALIGNED_STACK_CHARTS_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const chartsRate = $.const(ALIGNED_STACK_CHARTS_RATE_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const traceTemp = $.const(ALIGNED_STACK_CHART_TRACE_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const calendarLoad = $.const(ALIGNED_STACK_CHART_CALENDAR_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const calendarGrid = $.const(ALIGNED_STACK_CHART_CALENDAR_GRID_DATA, ArrayType(StructType({ week: StringType, day: StringType, demand: FloatType })));
-        const matrixLoad = $.const(ALIGNED_STACK_CHART_MATRIX_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const tableLoad = $.const(ALIGNED_STACK_CHART_TABLE_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const plannerTemp = $.const(ALIGNED_STACK_CHART_PLANNER_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const ganttLoad = $.const(ALIGNED_STACK_CHART_GANTT_DATA, ArrayType(StructType({ d: FloatType, v: FloatType })));
-        return (
-            <VStack gap="4" align="stretch">
+                </AlignedStack>
                 <Separator label="STACK CHARTS" align="start" />
                 <AlignedStack gutter={{ left: "48px", right: "16px" }} gap="8px">
                     <Box height="180px" width="100%">
@@ -366,24 +362,6 @@ export const alignedStackPairs = example({
                         rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
                     />
                 </AlignedStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// AlignedStack — density presets over the all-seven stack (variant panel)
-// ============================================================================
-
-export const alignedStackDensity = example({
-    keywords: ["AlignedStack", "plotGutter", "density", "compact", "Chart", "Trace", "Matrix", "Planner", "Calendar", "Table", "Gantt", "stack", "all", "condensed"],
-    description: "Density pair — stack all compact (the all-seven AlignedStack at density='compact', one density prop tightens every lane child) and stack all condensed (the tightest preset, cascaded from one prop)",
-    fn: East.function([], UIComponentType, ($) => {
-        const compactTrend = $.const(ALIGNED_STACK_ALL_COMPACT_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const condensedTrend = $.const(ALIGNED_STACK_ALL_CONDENSED_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        return (
-            <VStack gap="4" align="stretch">
                 <Separator label="STACK ALL COMPACT" align="start" />
                 <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="8px" density="compact">
                     <Box height="130px" width="100%">
@@ -542,25 +520,6 @@ export const alignedStackDensity = example({
                         rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
                     />
                 </AlignedStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// AlignedStack — axis titles, formatted date axis, auto gutter (variant panel)
-// ============================================================================
-
-export const alignedStackAxis = example({
-    keywords: ["AlignedStack", "Chart", "Planner", "axis", "title", "label", "titleGap", "margin", "align", "gutter", "plotGutter", "time", "date", "resolution", "day", "format", "ddd", "tick", "instants", "auto", "measure"],
-    description: "Axis panel — stack chart titles (#327: x + y axis titles nudged out with titleGap push into their own bands while the day ticks stay aligned with the Planner columns), stack date axis (a Chart and a day-resolution Planner share one gutter and one formatted date axis, the same half-open window and 'ddd DD' tokens on both lanes), stack auto (gutter='auto' measure-the-max mode)",
-    fn: East.function([], UIComponentType, ($) => {
-        const titlesTemp = $.const(ALIGNED_STACK_CHART_TITLES_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        const dateRuns = $.const(ALIGNED_STACK_DATE_AXIS_DATA, ArrayType(StructType({ at: DateTimeType, kl: FloatType })));
-        const autoRows = $.const(ALIGNED_STACK_AUTO_DATA, ArrayType(StructType({ day: FloatType, v: FloatType })));
-        return (
-            <VStack gap="4" align="stretch">
                 <Separator label="STACK CHART TITLES" align="start" />
                 <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
                     <Box height="170px" width="100%">

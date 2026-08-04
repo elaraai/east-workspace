@@ -111,30 +111,24 @@ export const progressVariants = example({
                         controls={[
                             Configurator.Control("Tone", tKey,
                                 <SegmentGroup value={tKey} onChange={onTone} size="sm"
-                                    items={tones.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "bsys .bar restricts fill to brand / pos / neg"),
+                                    items={tones.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "no lg per spec"),
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Value", vKey,
                                 <SegmentGroup value={vKey} onChange={onValue} size="sm"
-                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "eta derives a countdown from estimatedDuration + startedAt"),
+                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as the
                             // Striped / Animated spec rows below rather than as one
                             // value.
                             Configurator.Slot("Stripes",
                                 <HStack gap="5" align="center">
                                     <Switch checked={striped} label="Striped" onChange={onStriped} />
-                                    <Text textStyle="caption" color="fg.subtle">cosmetic fill stripes</Text>
                                     <Switch checked={animated} label="Animated" onChange={onAnimated} />
-                                    <Text textStyle="caption" color="fg.subtle">stripes crawl</Text>
                                 </HStack>),
                             Configurator.Control("Label", labelSpec,
                                 <HStack gap="5" align="center">
                                     <Switch checked={labelOn} label="Label" onChange={onLabel} />
-                                    <Text textStyle="caption" color="fg.subtle">mono label + valueText above the track</Text>
                                 </HStack>),
                         ]}
                         preview={bar}

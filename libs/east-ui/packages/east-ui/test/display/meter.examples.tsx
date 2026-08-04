@@ -147,7 +147,6 @@ export const meterVariants = example({
                             Configurator.Control("Percent", showPercent.ifElse(_$ => "shown", _$ => "hidden"),
                                 <HStack gap="5" align="center">
                                     <Switch checked={showPercent} label="Show percent" onChange={onPercent} />
-                                    <Text textStyle="caption" color="fg.subtle">trailing mono readout</Text>
                                 </HStack>),
                         ]}
                         preview={

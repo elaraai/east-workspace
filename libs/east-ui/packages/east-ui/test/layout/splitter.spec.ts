@@ -13,32 +13,24 @@ describeEast("Splitter", (test) => {
     Assert.examples(test, {
         splitterBasic: ex.splitterBasic,
         splitterVariants: ex.splitterVariants,
-        splitterResizeEvents: ex.splitterResizeEvents,
         splitterCollapseBelow: ex.splitterCollapseBelow,
     });
 
     // =========================================================================
-    // Panels — every merged example stays mounted as a captioned row (#460).
-    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // Panels — the variant space is a live configurator (#460 → epic #455).
     // =========================================================================
 
-    test("splitterVariants panel mounts one captioned row per merged example", $ => {
+    test("splitterVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation axis, the
+        // panel-size preset table and the collapse-mode expressions — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Splitter.Root tests
+        // below, which construct each form directly.
         const panel = $.const(ex.splitterVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 10n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "VERTICAL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "THREE PANEL"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CONSTRAINED"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ASYMMETRIC"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "EDITOR"));
-    });
-
-    test("splitterResizeEvents panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.splitterResizeEvents.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ON RESIZE START END"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INTERACTIVE"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // Helper to create a simple text component (already returns UIComponentType)

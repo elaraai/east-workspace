@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
+import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Configurator, Library, Reactive, SegmentGroup, Separator, Slice, Text, VStack } from "@elaraai/east-ui";
 
@@ -49,6 +49,23 @@ const CrewType = StructType({
     depot: StringType,
     hours: FloatType,
     skills: ArrayType(StringType),
+});
+
+/** Row shapes for the two small folded-in datasets (the old variant panel's
+ *  asset and flat-room palettes) — each gets its own Slice config so the
+ *  sliced mode composes across every dataset. */
+const AssetType = StructType({
+    id: StringType,
+    cls: StringType,
+    depot: StringType,
+    cap: StringType,
+    range: StringType,
+    cert: StringType,
+    inService: BooleanType,
+});
+const RoomType = StructType({
+    id: StringType,
+    name: StringType,
 });
 
 // The ONE shared 400-card crew generator all three libraryLarge configurator
@@ -113,69 +130,52 @@ export const libraryPeople = example({
     inputs: [],
 });
 
-export const libraryVariants = example({
-    keywords: ["Library", "card", "chips", "group", "assets", "vehicles", "flat", "minimal"],
-    description: "Library variant panel — assets (asset palette: same chassis, different secondary dimensions), flat (minimal flat palette: identity cards only, no toolbar)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="ASSETS" align="start" />
-                <Library
-                    id="vehicles"
-                    data={LIBRARY_ASSETS_DATA}
-                    item={t => ({
-                        key: t.id,
-                        label: t.id,
-                        sublabel: t.cls,
-                        icon: "truck",
-                        status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
-                        draggable: t.inService.not(),
-                    })}
-                    dimensions={[
-                        { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
-                        { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
-                    ]}
-                    groupBy={[
-                        { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
-                        { key: "depot", label: "Depot", value: t => t.depot },
-                    ]}
-                />
-                <Separator label="FLAT" align="start" />
-                <Library
-                    id="rooms"
-                    data={LIBRARY_FLAT_DATA}
-                    item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
 export const libraryLarge = example({
-    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Large-library configurator — a mode axis (grouped / flat / sliced) flipping one shared 400-card generated crew palette; sliced mounts Slice chrome with rows fed via Slice.rows",
+    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "card", "chips", "assets", "vehicles", "minimal"],
+    description: "Large-library configurator — dataset (crew / assets / rooms) and mode (grouped / flat / sliced) axes over one live palette; sliced mounts Slice chrome with rows via Slice.rows",
     fn: East.function([], UIComponentType, (_$) => {
         const cfg = Slice.config(CrewType, {
             fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
             searchFieldIds: ["name", "role", "depot"],
         });
+        const cfgAssets = Slice.config(AssetType, {
+            fields: { cls: { label: "Class" }, depot: { label: "Depot" } },
+            searchFieldIds: ["cls", "depot"],
+        });
+        const cfgRooms = Slice.config(RoomType, {
+            fields: { name: { label: "Name" } },
+            searchFieldIds: ["name"],
+        });
         return (
             <Reactive>{$ => {
-                // The mode axis is a bare label array — the control, the
-                // routing and the spec all read the same three keys.
+                // Both axes are bare label arrays — the controls, the routing
+                // and the spec all read the same keys. The dataset picks the
+                // card set; the mode stays the grouping axis.
+                const datasets = $.const(["crew", "assets", "rooms"], ArrayType(StringType));
                 const modes = $.const(["grouped", "flat", "sliced"], ArrayType(StringType));
 
+                const datasetBind = $.let(State.bind([StringType], "library_large_dataset", "crew"));
                 const modeBind = $.let(State.bind([StringType], "library_large_mode", "grouped"));
+                const dataset = $.let(datasetBind.read());
                 const mode = $.let(modeBind.read());
+                const onDatasetChange = $.const(East.function([StringType], NullType, ($, next) => {
+                    $(datasetBind.write(next));
+                }));
                 const onModeChange = $.const(East.function([StringType], NullType, ($, next) => {
                     $(modeBind.write(next));
                 }));
                 const crew = $.const(LIBRARY_LARGE_CARDS);
-                // The slice binding is created UNCONDITIONALLY (bindings must
-                // never be conditional) and only consumed by the sliced branch.
+                const assets = $.const(LIBRARY_ASSETS_DATA, ArrayType(AssetType));
+                const rooms = $.const(LIBRARY_FLAT_DATA, ArrayType(RoomType));
+                // The slice bindings are created UNCONDITIONALLY (bindings
+                // must never be conditional) and only consumed by the sliced
+                // branches — one per dataset, since a Slice is typed by row.
                 const slice = $.let(Slice.bind([CrewType], "ex.library.large.slice", cfg, Slice.state({}), crew, none));
                 const narrowed = $.let(Slice.rows([CrewType], slice));
+                const sliceAssets = $.let(Slice.bind([AssetType], "ex.library.large.slice.assets", cfgAssets, Slice.state({}), assets, none));
+                const narrowedAssets = $.let(Slice.rows([AssetType], sliceAssets));
+                const sliceRooms = $.let(Slice.bind([RoomType], "ex.library.large.slice.rooms", cfgRooms, Slice.state({}), rooms, none));
+                const narrowedRooms = $.let(Slice.rows([RoomType], sliceRooms));
                 const grouped = $.const(
                     <Library
                         id="crew"
@@ -224,22 +224,122 @@ export const libraryLarge = example({
                         style={{ height: "480px" }}
                     />,
                 );
-                const body = $.const(mode.equal("flat").ifElse(
+                // The asset palette (folded from the old variant panel): same
+                // chassis, different secondary dimensions, grouped by class
+                // and depot.
+                const assetsGrouped = $.const(
+                    <Library
+                        id="vehicles"
+                        data={assets}
+                        item={t => ({
+                            key: t.id,
+                            label: t.id,
+                            sublabel: t.cls,
+                            icon: "truck",
+                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
+                            draggable: t.inService.not(),
+                        })}
+                        dimensions={[
+                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
+                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
+                        ]}
+                        groupBy={[
+                            { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
+                            { key: "depot", label: "Depot", value: t => t.depot },
+                        ]}
+                    />,
+                );
+                const assetsFlat = $.const(
+                    <Library
+                        id="vehicles-flat"
+                        data={assets}
+                        item={t => ({
+                            key: t.id,
+                            label: t.id,
+                            sublabel: t.cls,
+                            icon: "truck",
+                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
+                            draggable: t.inService.not(),
+                        })}
+                        dimensions={[
+                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
+                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
+                        ]}
+                    />,
+                );
+                const assetsSliced = $.const(
+                    <Library
+                        id="vehicles-sliced"
+                        data={narrowedAssets}
+                        item={t => ({
+                            key: t.id,
+                            label: t.id,
+                            sublabel: t.cls,
+                            icon: "truck",
+                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
+                            draggable: t.inService.not(),
+                        })}
+                        dimensions={[
+                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
+                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
+                        ]}
+                        groupBy={[
+                            { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
+                        ]}
+                        slice={sliceAssets}
+                        affordances={["filter", "search"]}
+                    />,
+                );
+                // The minimal flat palette (folded from the old variant
+                // panel): identity cards only, no toolbar.
+                const roomsFlat = $.const(
+                    <Library
+                        id="rooms"
+                        data={rooms}
+                        item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
+                    />,
+                );
+                const roomsSliced = $.const(
+                    <Library
+                        id="rooms-sliced"
+                        data={narrowedRooms}
+                        item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
+                        slice={sliceRooms}
+                        affordances={["filter", "search"]}
+                    />,
+                );
+                const crewBody = $.const(mode.equal("flat").ifElse(
                     _$ => flat,
                     _$ => mode.equal("sliced").ifElse(_$ => sliced, _$ => grouped),
+                ), UIComponentType);
+                const assetsBody = $.const(mode.equal("flat").ifElse(
+                    _$ => assetsFlat,
+                    _$ => mode.equal("sliced").ifElse(_$ => assetsSliced, _$ => assetsGrouped),
+                ), UIComponentType);
+                // Rooms are identity-only cards with no grouping dimension,
+                // so grouped falls back to the flat minimal palette.
+                const roomsBody = $.const(mode.equal("sliced").ifElse(
+                    _$ => roomsSliced,
+                    _$ => roomsFlat,
+                ), UIComponentType);
+                const body = $.const(dataset.equal("assets").ifElse(
+                    _$ => assetsBody,
+                    _$ => dataset.equal("rooms").ifElse(_$ => roomsBody, _$ => crewBody),
                 ), UIComponentType);
                 return (
                     <Configurator
                         controls={[
+                            Configurator.Control("Dataset", dataset,
+                                <SegmentGroup value={dataset} onChange={onDatasetChange} size="sm"
+                                    items={datasets.map((_$, d) => SegmentGroup.Item(d, <Text>{d.upperCase()}</Text>))} />),
                             Configurator.Control("Mode", mode,
                                 <SegmentGroup value={mode} onChange={onModeChange} size="sm"
-                                    items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />,
-                                "sliced mounts Slice chrome · rows via Slice.rows"),
+                                    items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
                         ]}
                         preview={body}
                         spec={[
-                            Configurator.Spec("Cards", East.print(crew.size())),
-                            Configurator.Spec("Viewport", "480px · virtualized"),
+                            Configurator.Spec("Cards", dataset.equal("crew").ifElse(_$ => East.print(crew.size()), _$ => "3")),
+                            Configurator.Spec("Viewport", dataset.equal("crew").ifElse(_$ => "480px · virtualized", _$ => "auto")),
                         ]}
                     />
                 );

@@ -155,16 +155,13 @@ export const commandPaletteVariants = example({
                         controls={[
                             Configurator.Control("Commands", sKey,
                                 <SegmentGroup value={sKey} onChange={onCommands} size="sm"
-                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "keywords adds synonym search targets"),
+                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Trigger", kKey,
                                 <SegmentGroup value={kKey} onChange={onTrigger} size="sm"
-                                    items={chords.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
-                                "triggerKey combo that opens the palette"),
+                                    items={chords.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "dialog · input · selection · group-label slots"),
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                         ]}
                         preview={commandSet.palette}
                         spec={[

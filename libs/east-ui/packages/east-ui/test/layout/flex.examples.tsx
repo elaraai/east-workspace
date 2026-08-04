@@ -123,8 +123,7 @@ export const flexVariants = example({
                         controls={[
                             Configurator.Control("Direction", dKey,
                                 <SegmentGroup value={dKey} onChange={onDirection} size="sm"
-                                    items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "row-reverse flips visual order"),
+                                    items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Justify", jKey,
                                 <SegmentGroup value={jKey} onChange={onJustify} size="sm"
                                     items={justifies.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -133,14 +132,12 @@ export const flexVariants = example({
                                     items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Content", cKey,
                                 <SegmentGroup value={cKey} onChange={onContent} size="sm"
-                                    items={contents.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "centered brings a 100px canvas · nested puts flex inside flex"),
+                                    items={contents.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Width spec row below rather than as one value.
                             Configurator.Slot("Wrap",
                                 <HStack gap="5" align="center">
                                     <Switch checked={wrapOn} label="Wrap" onChange={onWrap} />
-                                    <Text textStyle="caption" color="fg.subtle">200px canvas — items wrap to the next line</Text>
                                 </HStack>),
                         ]}
                         preview={

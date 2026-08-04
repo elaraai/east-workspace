@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, OptionType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Configurator, HStack, Reactive, SegmentGroup, Separator, Switch, Text, TreeView, VStack } from "@elaraai/east-ui";
+import { Badge, Configurator, HStack, Reactive, SegmentGroup, Switch, Text, TreeView } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -60,39 +60,6 @@ const TREE_VIEW_SOLID_DATA = [
         TreeView.Item("cat2-womens", "Women's", { prefix: "fas", name: "person-dress" }),
     ], { prefix: "fas", name: "shirt", color: "accent.purple" }),
 ];
-const TREE_VIEW_INTERACTIVE_SELECTION_DATA = [
-    TreeView.Branch("fruits", "Fruits", [
-        TreeView.Item("apple", "Apple"),
-        TreeView.Item("banana", "Banana"),
-        TreeView.Item("cherry", "Cherry"),
-    ]),
-    TreeView.Branch("vegetables", "Vegetables", [
-        TreeView.Item("carrot", "Carrot"),
-        TreeView.Item("broccoli", "Broccoli"),
-    ]),
-];
-const TREE_VIEW_INTERACTIVE_EXPAND_DATA = [
-    TreeView.Branch("level1", "Level 1", [
-        TreeView.Branch("level1a", "Level 1.A", [
-            TreeView.Item("item1", "Item 1"),
-            TreeView.Item("item2", "Item 2"),
-        ]),
-        TreeView.Branch("level1b", "Level 1.B", [
-            TreeView.Item("item3", "Item 3"),
-        ]),
-    ]),
-    TreeView.Branch("level2", "Level 2", [
-        TreeView.Item("item4", "Item 4"),
-    ]),
-];
-const TREE_VIEW_ON_FOCUS_CHANGE_DATA = [
-    TreeView.Branch("group", "Group", [
-        TreeView.Item("a", "Item A"),
-        TreeView.Item("b", "Item B"),
-        TreeView.Item("c", "Item C"),
-    ]),
-];
-
 export const treeViewBasic = example({
     keywords: ["TreeView", "Root", "Branch", "Item", "file", "tree", "basic"],
     description: "Basic hierarchical file structure",
@@ -121,8 +88,8 @@ export const treeViewBasic = example({
 });
 
 export const treeViewVariants = example({
-    keywords: ["TreeView", "Root", "Branch", "Item", "icon", "prefix", "color", "organization", "hierarchy", "user", "icons", "size", "sm", "compact", "variant", "solid", "defaultExpandedValue", "settings", "colour", "override", "itemColor", "selectedBackground", "caretColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "TreeView configurator — tree-preset, size, variant and colour axes plus a default-expanded switch driving one live tree",
+    keywords: ["TreeView", "Root", "Branch", "Item", "icon", "prefix", "color", "organization", "hierarchy", "user", "icons", "size", "sm", "compact", "variant", "solid", "defaultExpandedValue", "settings", "colour", "override", "itemColor", "selectedBackground", "caretColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelectionChange", "selectionMode", "multiple", "onExpandedChange", "expand", "onFocusChange", "interactive"],
+    description: "TreeView configurator — tree-preset, size, variant and colour axes plus a default-expanded switch driving one live tree; the aside logs selection, expand and focus events",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -158,18 +125,30 @@ export const treeViewVariants = example({
                 const variantBind  = $.let(State.bind([StringType], "treeview_variant", "subtle"));
                 const colorBind    = $.let(State.bind([StringType], "treeview_color", "recipe"));
                 const expandedBind = $.let(State.bind([BooleanType], "treeview_expanded", true));
+                // The event log (folded from the old events panel — its State
+                // keys are preserved): the live tree reports selection, expand
+                // and focus into the aside.
+                const eventSelectionBind = $.let(State.bind([ArrayType(StringType)], "tree_selected", []));
+                const eventExpandBind    = $.let(State.bind([ArrayType(StringType)], "tree_expanded", []));
+                const eventFocusBind     = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
 
                 const tKey = $.let(treeBind.read());
                 const sKey = $.let(sizeBind.read());
                 const vKey = $.let(variantBind.read());
                 const cKey = $.let(colorBind.read());
                 const expandedOn = $.let(expandedBind.read());
+                const selectedLog = $.let(eventSelectionBind.read());
+                const expandedLog = $.let(eventExpandBind.read());
+                const focusedLog  = $.let(eventFocusBind.read());
 
                 const onTree     = $.const(East.function([StringType], NullType, ($, next) => { $(treeBind.write(next)); }));
                 const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
                 const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onColor    = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
                 const onExpanded = $.const(East.function([BooleanType], NullType, ($, next) => { $(expandedBind.write(next)); }));
+                const onSelectionChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(eventSelectionBind.write(next)); }));
+                const onExpandedChange  = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(eventExpandBind.write(next)); }));
+                const onFocusChange     = $.const(East.function([OptionType(StringType)], NullType, ($, next) => { $(eventFocusBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const tree = $.let(trees.filter((_$, o) => o.label.equal(tKey)).get(0n));
@@ -185,25 +164,21 @@ export const treeViewVariants = example({
                         controls={[
                             Configurator.Control("Tree", tKey,
                                 <SegmentGroup value={tKey} onChange={onTree} size="sm"
-                                    items={trees.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "each preset carries its indicator icons"),
+                                    items={trees.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "solid fills the selected row"),
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "item · hover · selection · caret · connector slots"),
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Expanded spec row below rather than as one value.
                             Configurator.Slot("State",
                                 <HStack gap="5" align="center">
                                     <Switch checked={expandedOn} label="Default expanded" onChange={onExpanded} />
-                                    <Text textStyle="caption" color="fg.subtle">defaultExpandedValue pre-opens the preset's branches</Text>
                                 </HStack>),
                         ]}
                         preview={
@@ -217,9 +192,23 @@ export const treeViewVariants = example({
                                 caretColor={color.caret}
                                 connectorColor={color.connector}
                                 defaultExpandedValue={expanded}
+                                selectionMode="multiple"
+                                onSelectionChange={onSelectionChange}
+                                onExpandedChange={onExpandedChange}
+                                onFocusChange={onFocusChange}
                                 nodes={tree.nodes}
                             />
                         }
+                        aside={{
+                            label: "Events · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Badge colorPalette="brand" variant="solid">{East.str`Selected: ${selectedLog.size()}`}</Badge>
+                                    <Badge colorPalette="success" variant="solid">{East.str`Expanded: ${expandedLog.size()}`}</Badge>
+                                    <Text>{East.str`Focused: ${focusedLog.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
+                                </HStack>
+                            ),
+                        }}
                         spec={[
                             Configurator.Spec("Roots", East.print(tree.nodes.size())),
                             Configurator.Spec("Expanded", expandedOn.ifElse(_$ => East.print(tree.expanded.size()), _$ => "collapsed")),
@@ -227,67 +216,6 @@ export const treeViewVariants = example({
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-export const treeViewEvents = example({
-    keywords: ["TreeView", "Reactive", "State", "onSelectionChange", "selectionMode", "multiple", "onExpandedChange", "expand", "onFocusChange", "interactive"],
-    description: "TreeView event panel — view interactive selection (click items to see the onSelectionChange callback), view interactive expand (expand/collapse to see the onExpandedChange callback), view on focus change (onFocusChange records the currently focused id)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="VIEW INTERACTIVE SELECTION" align="start" />
-                <Reactive>{$ => {
-                    const selectedBind = $.let(State.bind([ArrayType(StringType)], "tree_selected", []));
-                    const selected = $.let(selectedBind.read());
-                    const onSelectionChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newSelection) => {
-                        $(selectedBind.write(newSelection));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <TreeView
-                                selectionMode="multiple"
-                                defaultExpandedValue={["fruits", "vegetables"]}
-                                onSelectionChange={onSelectionChange}
-                                nodes={TREE_VIEW_INTERACTIVE_SELECTION_DATA}
-                            />
-                            <Badge colorPalette="brand" variant="solid">{East.str`Selected: ${selected.size()}`}</Badge>
-                            <Text>{East.str`Items selected: ${selected.size()}`}</Text>
-                        </VStack>
-                    );
-                }}</Reactive>
-                <Separator label="VIEW INTERACTIVE EXPAND" align="start" />
-                <Reactive>{$ => {
-                    const expandedBind = $.let(State.bind([ArrayType(StringType)], "tree_expanded", []));
-                    const expanded = $.let(expandedBind.read());
-                    const onExpandedChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newExpanded) => {
-                        $(expandedBind.write(newExpanded));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <TreeView onExpandedChange={onExpandedChange} nodes={TREE_VIEW_INTERACTIVE_EXPAND_DATA} />
-                            <Badge colorPalette="success" variant="solid">{East.str`Expanded: ${expanded.size()}`}</Badge>
-                            <Text>{East.str`Nodes expanded: ${expanded.size()}`}</Text>
-                        </VStack>
-                    );
-                }}</Reactive>
-                <Separator label="VIEW ON FOCUS CHANGE" align="start" />
-                <Reactive>{$ => {
-                    const focusBind = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
-                    const focused = $.let(focusBind.read());
-                    const onFocusChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
-                        $(focusBind.write(val));
-                    }));
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <TreeView onFocusChange={onFocusChange} nodes={TREE_VIEW_ON_FOCUS_CHANGE_DATA} />
-                            <Text>{East.str`Focused: ${focused.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
-                        </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
         );
     }),
     inputs: [],

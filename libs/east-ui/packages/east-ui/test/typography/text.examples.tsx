@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, SegmentGroup, Separator, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, SegmentGroup, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -25,8 +25,8 @@ export const textBasic = example({
 // ============================================================================
 
 export const textVariants = example({
-    keywords: ["Text", "Root", "color", "blue", "fontWeight", "bold", "fontStyle", "italic", "weights", "light", "normal", "medium", "semibold", "textTransform", "uppercase", "lowercase", "capitalize", "background", "highlight", "border", "borderWidth", "borderStyle", "borderColor", "palette", "red", "orange", "green", "teal", "purple", "combined", "textDecoration", "underline", "line-through", "overline", "letterSpacing", "lineHeight", "spacing", "opacity", "transparency", "padding", "margin", "overflow", "width", "height", "textOverflow", "ellipsis", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Text configurator — ink, weight, emphasis, treatment, spacing, opacity and box axes plus a clip switch driving one live text run; the aside increments a reactive count",
+    keywords: ["Text", "Root", "color", "blue", "fontWeight", "bold", "fontStyle", "italic", "weights", "light", "normal", "medium", "semibold", "textTransform", "uppercase", "lowercase", "capitalize", "background", "highlight", "border", "borderWidth", "borderStyle", "borderColor", "palette", "red", "orange", "green", "teal", "purple", "combined", "textDecoration", "underline", "line-through", "overline", "letterSpacing", "lineHeight", "spacing", "opacity", "transparency", "padding", "margin", "overflow", "width", "height", "textOverflow", "ellipsis", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "textStyle", "scale", "typography", "mono-kpi", "KPI", "fontVariantNumeric", "tabular-nums", "align"],
+    description: "Text configurator — ink, weight, emphasis, treatment, spacing, opacity, box, style-scale and numeric axes plus a clip switch; the scale and numeric axes render their own specimens beneath the live run",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -87,6 +87,23 @@ export const textVariants = example({
                     { label: "spaced", pad: "2", marg: "4" },
                 ], ArrayType(StructType({ label: StringType, pad: StringType, marg: StringType })));
 
+                // The full textStyle token ramp — the selected token renders its
+                // own specimen beneath the live run, so every step of the scale
+                // stays reachable.
+                const scales = $.const([
+                    variant("display-lg", null), variant("display-md", null), variant("display-sm", null),
+                    variant("heading-lg", null), variant("heading-md", null), variant("heading-sm", null),
+                    variant("heading-xs", null), variant("body-lg", null), variant("body-md", null),
+                    variant("body-sm", null), variant("label-md", null), variant("label-sm", null),
+                    variant("caption", null), variant("overline", null), variant("code-sm", null),
+                    variant("code-md", null), variant("mono-kpi", null),
+                ], ArrayType(Style.Types.TextStyle));
+
+                // The tabular-nums contract — each numeric style renders its own
+                // specimen (a mono KPI figure, or a right-aligned column whose
+                // digits stay in register).
+                const numerics = $.const(["mono-kpi", "tabular-nums"], ArrayType(StringType));
+
                 const inkBind       = $.let(State.bind([StringType], "text_ink", "default"));
                 const weightBind    = $.let(State.bind([StringType], "text_weight", "normal"));
                 const faceBind      = $.let(State.bind([StringType], "text_emphasis", "none"));
@@ -94,6 +111,8 @@ export const textVariants = example({
                 const spacingBind   = $.let(State.bind([StringType], "text_spacing", "normal"));
                 const opacityBind   = $.let(State.bind([StringType], "text_opacity", "100"));
                 const boxBind       = $.let(State.bind([StringType], "text_box", "none"));
+                const scaleBind     = $.let(State.bind([StringType], "text_scale", "body-md"));
+                const numericBind   = $.let(State.bind([StringType], "text_numeric", "mono-kpi"));
                 const clipBind      = $.let(State.bind([BooleanType], "text_clip", false));
                 const counter       = $.let(State.bind([IntegerType], "text_counter", 0n));
 
@@ -104,6 +123,8 @@ export const textVariants = example({
                 const sKey  = $.let(spacingBind.read());
                 const oKey  = $.let(opacityBind.read());
                 const bKey  = $.let(boxBind.read());
+                const scKey = $.let(scaleBind.read());
+                const nKey  = $.let(numericBind.read());
                 const clip  = $.let(clipBind.read());
                 const count = $.let(counter.read());
 
@@ -114,6 +135,8 @@ export const textVariants = example({
                 const onSpacing   = $.const(East.function([StringType], NullType, ($, next) => { $(spacingBind.write(next)); }));
                 const onOpacity   = $.const(East.function([StringType], NullType, ($, next) => { $(opacityBind.write(next)); }));
                 const onBox       = $.const(East.function([StringType], NullType, ($, next) => { $(boxBind.write(next)); }));
+                const onScale     = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
+                const onNumeric   = $.const(East.function([StringType], NullType, ($, next) => { $(numericBind.write(next)); }));
                 const onClip      = $.const(East.function([BooleanType], NullType, ($, next) => { $(clipBind.write(next)); }));
                 const inc         = $.const(East.function([], NullType, $ => {
                     const cur = $.let(counter.read());
@@ -128,6 +151,33 @@ export const textVariants = example({
                 const spacing = $.let(spacings.filter((_$, o) => o.label.equal(sKey)).get(0n));
                 const opacityPct = $.let(opacities.filter((_$, p) => East.print(p).equal(oKey)).get(0n));
                 const box = $.let(boxes.filter((_$, o) => o.label.equal(bKey)).get(0n));
+                const scale = $.let(scales.filter((_$, v) => v.getTag().equal(scKey)).get(0n));
+
+                // Each numeric style renders its own specimen — the mono KPI
+                // figure, or the right-aligned column whose digits stay in
+                // register under tabular-nums.
+                const kpiSpecimen = $.let(<Text textStyle="mono-kpi">$1,842,500</Text>, UIComponentType);
+                const tabularSpecimen = $.let((
+                    <VStack gap="1" align="stretch">
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q1</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q2</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q3</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q4</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
+                        </HStack>
+                    </VStack>
+                ), UIComponentType);
+                const numericSpecimen = $.let(nKey.equal("mono-kpi").ifElse(_$ => kpiSpecimen, _$ => tabularSpecimen));
 
                 return (
                     <Configurator
@@ -140,56 +190,65 @@ export const textVariants = example({
                                     items={weights.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Emphasis", fKey,
                                 <SegmentGroup value={fKey} onChange={onEmphasis} size="sm"
-                                    items={faces.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "fontStyle · textDecoration · textTransform"),
+                                    items={faces.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Treatment", tKey,
                                 <SegmentGroup value={tKey} onChange={onTreatment} size="sm"
-                                    items={treatments.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "background · border pair"),
+                                    items={treatments.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Spacing", sKey,
                                 <SegmentGroup value={sKey} onChange={onSpacing} size="sm"
-                                    items={spacings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "letterSpacing · lineHeight pair"),
+                                    items={spacings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Opacity", East.str`${oKey}%`,
                                 <SegmentGroup value={oKey} onChange={onOpacity} size="sm"
                                     items={opacities.map((_$, p) => SegmentGroup.Item(East.print(p), <Text>{East.str`${East.print(p)}%`}</Text>))} />),
                             Configurator.Control("Box", bKey,
                                 <SegmentGroup value={bKey} onChange={onBox} size="sm"
-                                    items={boxes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "padding · margin pair"),
+                                    items={boxes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("Scale", scKey,
+                                <SegmentGroup value={scKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Numeric", nKey,
+                                <SegmentGroup value={nKey} onChange={onNumeric} size="sm"
+                                    items={numerics.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Width / Overflow spec rows below rather than as one value.
                             Configurator.Slot("Clip",
                                 <HStack gap="5" align="center">
                                     <Switch checked={clip} label="Constrain" onChange={onClip} />
-                                    <Text textStyle="caption" color="fg.subtle">200px · nowrap · ellipsis</Text>
                                 </HStack>),
                         ]}
                         preview={
-                            <Text
-                                color={ink.ink}
-                                fontWeight={weight}
-                                fontStyle={face.fontStyle}
-                                textDecoration={face.decoration}
-                                textTransform={face.transform}
-                                background={treatment.bg}
-                                borderWidth={treatment.borderWidth}
-                                borderStyle={treatment.borderStyle}
-                                borderColor={treatment.borderColor}
-                                letterSpacing={spacing.tracking}
-                                lineHeight={spacing.leading}
-                                opacity={opacityPct.toFloat().divide(100.0)}
-                                padding={{ top: some(box.pad), right: some(box.pad), bottom: some(box.pad), left: some(box.pad) }}
-                                margin={{ top: some(box.marg), right: some(box.marg), bottom: some(box.marg), left: some(box.marg) }}
-                                maxWidth="260px"
-                                width={clip.ifElse(_$ => "200px", _$ => "auto")}
-                                height={clip.ifElse(_$ => "40px", _$ => "auto")}
-                                overflow={clip.ifElse(_$ => variant("hidden", null), _$ => variant("visible", null))}
-                                textOverflow={clip.ifElse(_$ => variant("ellipsis", null), _$ => variant("clip", null))}
-                                whiteSpace={clip.ifElse(_$ => variant("nowrap", null), _$ => variant("normal", null))}
-                            >
-                                The quick brown fox jumps over the lazy dog
-                            </Text>
+                            <VStack gap="4" align="flex-start">
+                                <Text
+                                    color={ink.ink}
+                                    fontWeight={weight}
+                                    fontStyle={face.fontStyle}
+                                    textDecoration={face.decoration}
+                                    textTransform={face.transform}
+                                    background={treatment.bg}
+                                    borderWidth={treatment.borderWidth}
+                                    borderStyle={treatment.borderStyle}
+                                    borderColor={treatment.borderColor}
+                                    letterSpacing={spacing.tracking}
+                                    lineHeight={spacing.leading}
+                                    opacity={opacityPct.toFloat().divide(100.0)}
+                                    padding={{ top: some(box.pad), right: some(box.pad), bottom: some(box.pad), left: some(box.pad) }}
+                                    margin={{ top: some(box.marg), right: some(box.marg), bottom: some(box.marg), left: some(box.marg) }}
+                                    maxWidth="260px"
+                                    width={clip.ifElse(_$ => "200px", _$ => "auto")}
+                                    height={clip.ifElse(_$ => "40px", _$ => "auto")}
+                                    overflow={clip.ifElse(_$ => variant("hidden", null), _$ => variant("visible", null))}
+                                    textOverflow={clip.ifElse(_$ => variant("ellipsis", null), _$ => variant("clip", null))}
+                                    whiteSpace={clip.ifElse(_$ => variant("nowrap", null), _$ => variant("normal", null))}
+                                >
+                                    The quick brown fox jumps over the lazy dog
+                                </Text>
+                                {/* Scale specimen — the selected textStyle token at its own size. */}
+                                <HStack gap="3" align="baseline">
+                                    <Text textStyle={scale}>{scKey}</Text>
+                                    <Text textStyle="caption" color="fg.muted">{scKey}</Text>
+                                </HStack>
+                                {numericSpecimen}
+                            </VStack>
                         }
                         aside={{
                             label: "Count · Reactive",
@@ -207,127 +266,6 @@ export const textVariants = example({
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Style scale — the full textStyle token ramp (visual-guard for the type system)
-// ============================================================================
-
-export const textStyleScale = example({
-    keywords: ["Text", "Root", "textStyle", "scale", "typography"],
-    description: "Every textStyle token rendered as a row of its own",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="stretch">
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="display-lg">Display LG</Text>
-                    <Text textStyle="caption" color="fg.muted">display-lg</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="display-md">Display MD</Text>
-                    <Text textStyle="caption" color="fg.muted">display-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="display-sm">Display SM</Text>
-                    <Text textStyle="caption" color="fg.muted">display-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-lg">Heading LG</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-lg</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-md">Heading MD</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-sm">Heading SM</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-xs">Heading XS</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-xs</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="body-lg">Body LG</Text>
-                    <Text textStyle="caption" color="fg.muted">body-lg</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="body-md">Body MD</Text>
-                    <Text textStyle="caption" color="fg.muted">body-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="body-sm">Body SM</Text>
-                    <Text textStyle="caption" color="fg.muted">body-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="label-md">Label MD</Text>
-                    <Text textStyle="caption" color="fg.muted">label-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="label-sm">Label SM</Text>
-                    <Text textStyle="caption" color="fg.muted">label-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="caption">Caption</Text>
-                    <Text textStyle="caption" color="fg.muted">caption</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="overline">Overline</Text>
-                    <Text textStyle="caption" color="fg.muted">overline</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="code-sm">Code SM</Text>
-                    <Text textStyle="caption" color="fg.muted">code-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="code-md">Code MD</Text>
-                    <Text textStyle="caption" color="fg.muted">code-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="mono-kpi">$1,234,567.89</Text>
-                    <Text textStyle="caption" color="fg.muted">mono-kpi</Text>
-                </HStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Numeric styles — the tabular-nums contract (variant panel)
-// ============================================================================
-
-export const textNumericStyles = example({
-    keywords: ["Text", "Root", "textStyle", "mono-kpi", "KPI", "fontVariantNumeric", "tabular-nums", "align"],
-    description: "Text numeric-styles panel — mono kpi (big mono number with tabular-nums), tabular nums (column of right-aligned numbers with tabular-nums keeps digits aligned)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="MONO KPI" align="start" />
-                <Text textStyle="mono-kpi">$1,842,500</Text>
-                <Separator label="TABULAR NUMS" align="start" />
-                <VStack gap="1" align="stretch">
-                    <HStack gap="4" align="baseline">
-                        <Text textStyle="body-sm" color="fg.muted">Q1</Text>
-                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
-                    </HStack>
-                    <HStack gap="4" align="baseline">
-                        <Text textStyle="body-sm" color="fg.muted">Q2</Text>
-                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
-                    </HStack>
-                    <HStack gap="4" align="baseline">
-                        <Text textStyle="body-sm" color="fg.muted">Q3</Text>
-                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
-                    </HStack>
-                    <HStack gap="4" align="baseline">
-                        <Text textStyle="body-sm" color="fg.muted">Q4</Text>
-                        <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
-                    </HStack>
-                </VStack>
-            </VStack>
         );
     }),
     inputs: [],

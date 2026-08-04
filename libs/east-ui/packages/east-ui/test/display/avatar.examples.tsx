@@ -131,7 +131,6 @@ export const avatarVariants = example({
                             Configurator.Slot("Name",
                                 <HStack gap="5" align="center">
                                     <Switch checked={full} label="Full name" onChange={onFull} />
-                                    <Text textStyle="caption" color="fg.subtle">two initials vs one</Text>
                                 </HStack>),
                         ]}
                         preview={

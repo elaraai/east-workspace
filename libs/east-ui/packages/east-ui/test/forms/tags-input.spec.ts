@@ -12,21 +12,22 @@ describeEast("TagsInput", (test) => {
     Assert.examples(test, {
         tagsInputBasic: ex.tagsInputBasic,
         tagsInputSuggestions: ex.tagsInputSuggestions,
-        tagsInputEvents: ex.tagsInputEvents,
     });
 
     // =========================================================================
-    // Panels — every merged example stays mounted as a captioned row (#462).
-    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // Behavioral — suggestions + the event contract live on one bound input
+    // (#462 → epic #455).
     // =========================================================================
 
-    test("tagsInputEvents panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.tagsInputEvents.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 6n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INPUT INTERACTIVE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INPUT ON INPUT CHANGE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "INPUT ON HIGHLIGHT CHANGE"));
+    test("tagsInputSuggestions binds its event contract inside one Reactive root", $ => {
+        // The suggestions input and its onChange / onInputChange /
+        // onHighlightChange logs live inside the Reactive body, which TestImpl
+        // does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the TagsInput.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.tagsInputSuggestions.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

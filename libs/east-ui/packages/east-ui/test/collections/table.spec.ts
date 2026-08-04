@@ -14,10 +14,7 @@ describeEast("Table", (test) => {
         tableColumnsVariants: ex.tableColumnsVariants,
         tableStyleVariants: ex.tableStyleVariants,
         tableSelection: ex.tableSelection,
-        tableInteractiveCallbacks: ex.tableInteractiveCallbacks,
-        tableReactivePagination: ex.tableReactivePagination,
         tableReview: ex.tableReview,
-        tableReviewPaginated: ex.tableReviewPaginated,
         tableExpandedRichDetail: ex.tableExpandedRichDetail,
         tableFill: ex.tableFill,
         tablePnlGrouped: ex.tablePnlGrouped,
@@ -29,27 +26,38 @@ describeEast("Table", (test) => {
     // (probe-collections selects panel rows through them).
     // =========================================================================
 
-    test("tableColumnsVariants panel mounts one captioned row per merged example", $ => {
+    test("tableColumnsVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the column-preset axis and the
+        // frozen / groups / footer structure switches — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. Column /
+        // group / footer shape coverage lives in the Table.Root tests below,
+        // which construct each configuration directly.
         const panel = $.const(ex.tableColumnsVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 12n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CUSTOM HEADERS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "COMPLEX COLUMNS"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WRAPPING TAGS"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FROZEN COLUMNS"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "NESTED COLUMN GROUPS"));
-        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "MULTI ROW FOOTER"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("tableStyleVariants panel mounts one captioned row per merged example", $ => {
+    test("tableStyleVariants drives its preview from inline option tables", $ => {
+        // The density / badge / row-height tables and the striped / paginated /
+        // row-status switches are declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still compiles
+        // and evaluates the outer function. Style / pagination / rowStatus
+        // shape coverage lives in the Table.Root tests below, which construct
+        // each configuration directly.
         const panel = $.const(ex.tableStyleVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+    test("tableReview mounts the review + paginated-review rows", $ => {
+        const panel = $.const(ex.tableReview.fn() as ExprType<UIComponentType>);
         const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 10n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "STRIPED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "WITH BADGE"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DENSITY COMPACT"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROW HEIGHT"));
-        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROW STATUS"));
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REVIEW"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REVIEW PAGINATED"));
     });
 
     test("tableSelection drives its preview from inline option tables", $ => {

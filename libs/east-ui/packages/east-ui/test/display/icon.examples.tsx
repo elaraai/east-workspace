@@ -156,7 +156,6 @@ export const iconStyles = example({
                                 <HStack gap="2" align="center">
                                     <Text>Reads inline with body copy</Text>
                                     {glyph.icon}
-                                    <Text textStyle="caption" color="fg.subtle">same size · tint · tile as the preview</Text>
                                     {toggled}
                                     <Button size="xs" onClick={inc}>Toggle icon</Button>
                                 </HStack>

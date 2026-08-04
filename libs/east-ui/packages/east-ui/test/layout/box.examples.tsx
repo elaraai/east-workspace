@@ -156,12 +156,10 @@ export const boxVariants = example({
                         controls={[
                             Configurator.Control("Surface", sKey,
                                 <SegmentGroup value={sKey} onChange={onSurface} size="sm"
-                                    items={surfaces.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "background · border · shadow preset"),
+                                    items={surfaces.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Layout", lKey,
                                 <SegmentGroup value={lKey} onChange={onLayout} size="sm"
-                                    items={layouts.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "sticky keeps its scroll container"),
+                                    items={layouts.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Animation", aKey,
                                 <SegmentGroup value={aKey} onChange={onAnim} size="sm"
                                     items={animations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -173,7 +171,6 @@ export const boxVariants = example({
                             Configurator.Slot("Typography",
                                 <HStack gap="5" align="center">
                                     <Switch checked={mono} label="Mono" onChange={onMono} />
-                                    <Text textStyle="caption" color="fg.subtle">mono · tabular-nums KPI digits</Text>
                                 </HStack>),
                         ]}
                         preview={

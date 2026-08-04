@@ -13,7 +13,6 @@ describeEast("Roster", (test) => {
     Assert.examples(test, {
         rosterModes: ex.rosterModes,
         rosterInteractive: ex.rosterInteractive,
-        rosterCanDrop: ex.rosterCanDrop,
         rosterReview: ex.rosterReview,
         rosterLibraryDnd: ex.rosterLibraryDnd,
         rosterFill: ex.rosterFill,
@@ -24,12 +23,15 @@ describeEast("Roster", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("rosterModes panel mounts one captioned row per merged example", $ => {
+    test("rosterModes drives its preview from inline option tables", $ => {
+        // The mode-preset axis is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts it inside
+        // the Reactive body, which TestImpl does not execute, so it cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. Per-mode prop coverage lives in the
+        // Roster.Root tests below.
         const panel = $.const(ex.rosterModes.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "EDIT"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PUBLISHED"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("rosterFill panel mounts one captioned row per merged example", $ => {

@@ -12,7 +12,6 @@ import * as ex from "./library.examples.js";
 describeEast("Library", (test) => {
     Assert.examples(test, {
         libraryPeople: ex.libraryPeople,
-        libraryVariants: ex.libraryVariants,
         libraryLarge: ex.libraryLarge,
         libraryFill: ex.libraryFill,
     });
@@ -23,24 +22,17 @@ describeEast("Library", (test) => {
     // =========================================================================
 
     test("libraryLarge drives its preview from inline option tables", $ => {
-        // Everything the configurator needs — the mode axis and the three
-        // 400-card branch palettes — is declared inside the example body,
-        // because the documentation capture only extracts `fn`. That puts the
-        // tables inside the Reactive body, which TestImpl does not execute, so
-        // they cannot be asserted from here; `Assert.examples` above still
+        // Everything the configurator needs — the dataset / mode axes and the
+        // branch palettes (400 generated crew, the folded-in asset and
+        // flat-room sets) — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
         // compiles and evaluates the outer function. The 400-card generation
         // coverage lives in the generator test below, which constructs the
         // same fixture shape directly.
         const panel = $.const(ex.libraryLarge.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("libraryVariants panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.libraryVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ASSETS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FLAT"));
     });
 
     test("libraryFill panel mounts one captioned row per merged example", $ => {

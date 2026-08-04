@@ -91,17 +91,14 @@ export const accordionVariants = example({
                         controls={[
                             Configurator.Control("Content", cKey,
                                 <SegmentGroup value={cKey} onChange={onContent} size="sm"
-                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "grid carries a trailing meta per trigger"),
+                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as the
                             // Multiple / Collapsible spec rows below rather than as
                             // one value.
                             Configurator.Slot("Behaviour",
                                 <HStack gap="5" align="center">
                                     <Switch checked={multiple} label="Multiple" onChange={onMultiple} />
-                                    <Text textStyle="caption" color="fg.subtle">several panels open at once</Text>
                                     <Switch checked={collapsible} label="Collapsible" onChange={onCollapsible} />
-                                    <Text textStyle="caption" color="fg.subtle">every panel can close</Text>
                                 </HStack>),
                         ]}
                         preview={

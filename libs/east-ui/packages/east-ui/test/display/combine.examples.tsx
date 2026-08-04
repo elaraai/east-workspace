@@ -60,8 +60,7 @@ export const combineDensities = example({
                         controls={[
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
-                                    items={densities.map((_$, o) => SegmentGroup.Item(o.density.getTag(), <Text>{o.density.getTag().upperCase()}</Text>))} />,
-                                "one Table prop — every cell component follows"),
+                                    items={densities.map((_$, o) => SegmentGroup.Item(o.density.getTag(), <Text>{o.density.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                     items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -70,7 +69,6 @@ export const combineDensities = example({
                             Configurator.Slot("Rows",
                                 <HStack gap="5" align="center">
                                     <Switch checked={striped} label="Striped" onChange={onStriped} />
-                                    <Text textStyle="caption" color="fg.subtle">zebra rows beneath the cell components</Text>
                                 </HStack>),
                         ]}
                         preview={

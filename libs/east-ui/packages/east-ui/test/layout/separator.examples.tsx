@@ -126,19 +126,16 @@ export const separatorVariants = example({
                         controls={[
                             Configurator.Control("Orientation", oKey,
                                 <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
-                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "vertical divides a 40px row"),
+                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                     items={hairlines.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Label", lKey,
                                 <SegmentGroup value={lKey} onChange={onLabel} size="sm"
-                                    items={labels.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "suppressed when vertical"),
+                                    items={labels.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Align", aKey,
                                 <SegmentGroup value={aKey} onChange={onAlign} size="sm"
-                                    items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "label placement between the hairlines"),
+                                    items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         ]}
                         preview={divider}
                         aside={{

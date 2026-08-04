@@ -167,12 +167,10 @@ export const drawerVariants = example({
                         controls={[
                             Configurator.Control("Placement", pKey,
                                 <SegmentGroup value={pKey} onChange={onPlacement} size="sm"
-                                    items={placements.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "start slides in from the left edge"),
+                                    items={placements.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Body", bKey,
                                 <SegmentGroup value={bKey} onChange={onBody} size="sm"
-                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "flush + fillBody · custom bodyPadding inset"),
+                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                         ]}
                         preview={
                             <Drawer

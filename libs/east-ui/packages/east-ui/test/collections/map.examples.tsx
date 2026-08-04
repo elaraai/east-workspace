@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { Button, HStack, Map, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, Map, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -68,89 +68,38 @@ export const mapBasic = example({
     inputs: [],
 });
 
-export const mapOverlayHud = example({
-    keywords: ["Map", "overlay", "HUD", "Button", "approve", "reject"],
-    description: "Map with an ELARA HUD overlay carrying Approve / Reject buttons",
-    fn: East.function([], UIComponentType, ($) => {
-        const approve = $.const(East.function([], NullType, _$ => null));
-        const reject = $.const(East.function([], NullType, _$ => null));
-        return (
-            <Map
-                center={Map.at(-34.881, 138.6)}
-                zoom={12n}
-                markers={[]}
-                overlays={[
-                    Map.overlay(
-                        <VStack align="stretch" gap="2">
-                            <Text fontFamily="mono" color="brand.solid">ELARA · AUTO-DETECTED</Text>
-                            <Text fontWeight="semibold">Idle EN capacity one cluster south.</Text>
-                            <HStack gap="2">
-                                <Button colorPalette="brand" onClick={approve}>Approve swap</Button>
-                                <Button variant="outline" onClick={reject}>Reject</Button>
-                            </HStack>
-                        </VStack>,
-                        { align: "start", verticalAlign: "start", key: "elara-hud" },
-                    ),
-                ]}
-                height="420px"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const mapInteractive = example({
-    keywords: ["Map", "Reactive", "State", "onAreaClick", "interactive", "select"],
-    description: "Reactive map that records the clicked area key in State and shows it in an overlay",
+export const mapOverlayVariants = example({
+    keywords: ["Map", "area", "hexDisk", "label", "flyTo", "tone", "hex", "lattice", "lodZoom", "detailLabel", "LOD", "status", "pulse", "success", "danger", "cells", "H3", "hexagon", "adjacent", "regions", "irregular", "overlay", "HUD", "Button", "approve", "reject", "Reactive", "State", "onAreaClick", "interactive", "select", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Map configurator — an overlay-preset axis (filled areas, hex-lattice LOD, status pulse, H3 region unions, ELARA HUD) driving one live canvas; the aside reads the clicked area key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const selected = $.let(State.bind([StringType], "selectedArea", ""));
-            const value = $.let(selected.read());
-            const onArea = $.const(East.function([StringType], NullType, ($, key) => {
-                $(selected.write(key));
-            }));
-            return (
-                <Map
-                    center={Map.at(-34.881, 138.6)}
-                    zoom={12n}
-                    markers={[]}
-                    areas={[
-                        { id: "5000", lat: -34.9258, lng: 138.5994, name: "5000 · CBD" },
-                        { id: "5100", lat: -34.836, lng: 138.6, name: "5100 · Prospect" },
-                    ]}
-                    area={a => ({
-                        key: a.id,
-                        label: a.name,
-                        shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
-                    })}
-                    overlays={[
-                        Map.overlay(
-                            <Text fontFamily="mono">{East.str`selected: ${value}`}</Text>,
-                            { align: "start", verticalAlign: "end", key: "sel" },
-                        ),
-                    ]}
-                    onAreaClick={onArea}
-                    height="420px"
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
+            const idle = $.const(MAP_REGIONS_DATA, ArrayType(StringType));
+            const short = $.const(MAP_REGIONS_SHORT_DATA, ArrayType(StringType));
+            const regionAreas = $.const([
+                { id: "5000", name: "5000 · idle EN +4", shape: Map.cells(idle), st: some(variant("success", null)) },
+                { id: "5100", name: "5100 · short −3", shape: Map.cells(short), st: some(variant("danger", null)) },
+            ], ArrayType(StructType({ id: StringType, name: StringType, shape: Map.Types.AreaShape, st: OptionType(StatusTokenType) })));
 
-export const mapOverlayVariants = example({
-    keywords: ["Map", "area", "hexDisk", "label", "flyTo", "tone", "hex", "lattice", "lodZoom", "detailLabel", "LOD", "status", "pulse", "success", "danger", "cells", "H3", "hexagon", "adjacent", "regions", "irregular"],
-    description: "Map overlay variant panel — areas (two filled postcode areas with permanent labels and a click-to-fly target), hex lod (a faint res-8 hex lattice with an area detail label revealed at LOD), pulse (a faint res-8 hex lattice over the map with two pulsing areas standing out — idle teal and short red), regions (two adjacent irregular regions built from real H3 cell unions, abutting along a jagged hex border — idle teal vs short red)",
-    fn: East.function([], UIComponentType, ($) => {
-        const idle = $.const(MAP_REGIONS_DATA, ArrayType(StringType));
-        const short = $.const(MAP_REGIONS_SHORT_DATA, ArrayType(StringType));
-        const areas = $.const([
-            { id: "5000", name: "5000 · idle EN +4", shape: Map.cells(idle), st: some(variant("success", null)) },
-            { id: "5100", name: "5100 · short −3", shape: Map.cells(short), st: some(variant("danger", null)) },
-        ], ArrayType(StructType({ id: StringType, name: StringType, shape: Map.Types.AreaShape, st: OptionType(StatusTokenType) })));
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="AREAS" align="start" />
+            // Each preset is its own build-time canvas config (area mappers,
+            // hex lattices, overlay slots), so the axis routes between five
+            // maps over the shared click handler.
+            const presets = $.const(["areas", "hex lod", "pulse", "regions", "hud"], ArrayType(StringType));
+
+            const presetBind = $.let(State.bind([StringType], "map_preset", "areas"));
+            // The click readout (folded from the old interactive example —
+            // its State key is preserved): onAreaClick writes the clicked
+            // area key into the aside.
+            const selectedBind = $.let(State.bind([StringType], "selectedArea", ""));
+
+            const pKey = $.let(presetBind.read());
+            const selected = $.let(selectedBind.read());
+
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
+            const onArea = $.const(East.function([StringType], NullType, ($, key) => { $(selectedBind.write(key)); }));
+            const approve = $.const(East.function([], NullType, _$ => null));
+            const reject = $.const(East.function([], NullType, _$ => null));
+
+            const areasMap = $.const(
                 <Map
                     center={Map.at(-34.881, 138.6)}
                     zoom={12n}
@@ -164,9 +113,11 @@ export const mapOverlayVariants = example({
                         tone: "brand",
                         flyTo: Map.point(Map.at(a.lat, a.lng), 14n),
                     })}
+                    onAreaClick={onArea}
                     height="420px"
-                />
-                <Separator label="HEX LOD" align="start" />
+                />,
+            );
+            const hexLod = $.const(
                 <Map
                     center={Map.at(-34.881, 138.6)}
                     zoom={12n}
@@ -183,9 +134,11 @@ export const mapOverlayVariants = example({
                         detailLabel: East.str`${a.name} · EN mornings short 3`,
                         shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),
                     })}
+                    onAreaClick={onArea}
                     height="420px"
-                />
-                <Separator label="PULSE" align="start" />
+                />,
+            );
+            const pulse = $.const(
                 <Map
                     center={Map.at(-34.881, 138.6)}
                     zoom={12n}
@@ -206,19 +159,72 @@ export const mapOverlayVariants = example({
                         style: Map.dashed({ tone: "brand" }),
                         arrow: true,
                     })}
+                    onAreaClick={onArea}
                     height="420px"
-                />
-                <Separator label="REGIONS" align="start" />
+                />,
+            );
+            const regions = $.const(
                 <Map
                     center={Map.at(-34.878, 138.600)}
                     zoom={13n}
                     markers={[]}
-                    areas={areas}
+                    areas={regionAreas}
                     area={a => ({ key: a.id, label: a.name, shape: a.shape, status: a.st })}
+                    onAreaClick={onArea}
                     height="420px"
+                />,
+            );
+            const hud = $.const(
+                <Map
+                    center={Map.at(-34.881, 138.6)}
+                    zoom={12n}
+                    markers={[]}
+                    overlays={[
+                        Map.overlay(
+                            <VStack align="stretch" gap="2">
+                                <Text fontFamily="mono" color="brand.solid">ELARA · AUTO-DETECTED</Text>
+                                <Text fontWeight="semibold">Idle EN capacity one cluster south.</Text>
+                                <HStack gap="2">
+                                    <Button colorPalette="brand" onClick={approve}>Approve swap</Button>
+                                    <Button variant="outline" onClick={reject}>Reject</Button>
+                                </HStack>
+                            </VStack>,
+                            { align: "start", verticalAlign: "start", key: "elara-hud" },
+                        ),
+                    ]}
+                    height="420px"
+                />,
+            );
+            const canvas = $.const(pKey.equal("hex lod").ifElse(
+                _$ => hexLod,
+                _$ => pKey.equal("pulse").ifElse(
+                    _$ => pulse,
+                    _$ => pKey.equal("regions").ifElse(
+                        _$ => regions,
+                        _$ => pKey.equal("hud").ifElse(_$ => hud, _$ => areasMap),
+                    ),
+                ),
+            ), UIComponentType);
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Overlay", pKey,
+                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
+                                items={presets.map((_$, p) => SegmentGroup.Item(p, <Text>{p.upperCase()}</Text>))} />),
+                    ]}
+                    preview={canvas}
+                    aside={{
+                        label: "Area click · Reactive",
+                        body: <Text fontFamily="mono">{East.str`selected: ${selected}`}</Text>,
+                    }}
+                    spec={[
+                        Configurator.Spec("Preset", pKey),
+                        Configurator.Spec("Canvas", "420px"),
+                    ]}
                 />
-            </VStack>
-        );
-    }),
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });

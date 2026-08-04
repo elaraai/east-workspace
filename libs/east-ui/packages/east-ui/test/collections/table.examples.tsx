@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, HStack, Reactive, SegmentGroup, Separator, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, HStack, Reactive, SegmentGroup, Separator, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -55,28 +55,10 @@ const TABLE_MULTI_ROW_FOOTER_DATA = [
     { item: "Soda", category: "Drink", price: 3.50 },
     { item: "Coffee", category: "Drink", price: 4.50 },
 ];
-const TABLE_STRIPED_DATA = [
-    { product: "Widget A", price: "$29.99", stock: 150n },
-    { product: "Widget B", price: "$49.99", stock: 75n },
-    { product: "Widget C", price: "$19.99", stock: 200n },
-    { product: "Widget D", price: "$39.99", stock: 50n },
-];
 const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({
     name: East.str`User ${i}`,
     email: East.str`user${i}@example.com`,
     status: "Active",
-}));
-const TABLE_DENSITY_COMPACT_DATA = East.Array.range(0n, 6n).map((_$, i) => ({
-    name: East.str`Row ${i}`,
-    status: "Active",
-}));
-const TABLE_ROW_HEIGHT_DATA = East.Array.range(0n, 6n).map((_$, i) => ({
-    name: East.str`Row ${i}`,
-    status: "Active",
-}));
-const TABLE_ROW_STATUS_DATA = East.Array.range(0n, 9n).map((_$, i) => ({
-    name: East.str`Row ${i}`,
-    score: i.multiply(11n),
 }));
 const TABLE_SELECTION_DATA = [
     { name: "Alice", role: "Admin" },
@@ -105,221 +87,457 @@ export const tableBasic = example({
 });
 
 /**
- * Column-system variant panel — custom headers, complex columns (full-row
- * closure access), dict-as-tags, frozen columns, nested column groups, and
- * the multi-row footer.
+ * Column-system configurator (pass 3, name kept) — the columns axis picks a
+ * column preset (custom-header widths, complex columns with the FULL-row
+ * render trick, dict-as-wrapping-tags), and the frozen / groups / footer
+ * switches preview the structural column mechanics. Column sets are composed
+ * at build time, so each axis arm is a prebuilt table (the cardVariants leaf
+ * precedent) and the structure switches preview one at a time.
  */
 export const tableColumnsVariants = example({
-    keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap", "frozen", "pin", "scroll", "columnGroups", "nested", "category", "header row", "footerRows", "subtotal", "grand total", "multi-row"],
-    description: "Column-system variant panel — custom headers (object config with widths), complex columns (value functions for sorting; render reaches the FULL row by capturing the data array and indexing ctx.rowIndex), wrapping tags (dict column rendered as tags wrapping in a fixed width), frozen columns (pinned left during horizontal scroll in a 600px container), nested column groups (Identity / Q1-Q2 / Q3-Q4 header groupings), multi row footer (footerRows with subtotal + bold grand-total rows and colSpan-spanned labels)",
-    fn: East.function([], UIComponentType, ($) => {
-        const complexData = $.let(TABLE_COMPLEX_COLUMNS_DATA);
-        const metricsData = $.let(TABLE_WRAPPING_TAGS_DATA);
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="CUSTOM HEADERS" align="start" />
-                <Table
-                    data={TABLE_CUSTOM_HEADERS_DATA}
-                    columns={{
-                        firstName: { header: "First Name", width: "300px", minWidth: "80px" },
-                        lastName: { header: "Last Name", width: "150px" },
-                        dept: { header: "Department", minWidth: "100px", maxWidth: "200px" },
-                    }}
-                />
-                <Separator label="COMPLEX COLUMNS" align="start" />
-                <Table
-                    variant="line"
-                    striped={true}
-                    data={complexData}
-                    columns={{
-                        name: { header: "Name" },
-                        skills: {
-                            header: "Skills",
-                            value: (skills) => skills.size(),
-                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                // The render context carries only {rowIndex, columnKey, cellValue} —
-                                // CAPTURE the data array and index ctx.rowIndex for full-row access.
-                                // Captures must be data or bind-handles, never a UIComponentType value.
-                                const row = $.let(complexData.get(ctx.rowIndex));
-                                return (
-                                    <HStack gap="1" wrap="wrap">
-                                        {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="brand">{s}</Badge>)}
-                                    </HStack>
-                                );
-                            }),
-                        },
-                        metadata: {
-                            header: "Experience",
-                            value: (meta) => meta.years,
-                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                const row = $.let(complexData.get(ctx.rowIndex));
-                                return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;
-                            }),
-                        },
-                    }}
-                />
-                <Separator label="WRAPPING TAGS" align="start" />
-                <Table
-                    variant="line"
-                    data={metricsData}
-                    columns={{
-                        name: { header: "Server", width: "120px" },
-                        metrics: {
-                            header: "Metrics",
-                            width: "400px",
-                            maxWidth: "400px",
-                            value: (val) => val.map((_$, value) => value).mean(),
-                            render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
-                                const row = $.let(metricsData.get(ctx.rowIndex));
-                                return (
-                                    <HStack wrap="wrap" gap="1">
-                                        {row.metrics.map((_$, value, key) => <Tag>{East.str`${key}: ${value}`}</Tag>).toArray()}
-                                    </HStack>
-                                );
-                            }),
-                        },
-                    }}
-                />
-                <Separator label="FROZEN COLUMNS" align="start" />
-                <Box width="600px" overflow="hidden">
-                    <Table
-                        frozen={["id", "name"]}
-                        variant="line"
-                        striped={true}
-                        height="400px"
-                        data={TABLE_FROZEN_COLUMNS_DATA}
-                        columns={{
-                            id: { header: "ID", width: "80px" },
-                            name: { header: "Name", width: "150px" },
-                            email: { header: "Email", width: "250px" },
-                            dept: { header: "Department", width: "150px" },
-                            role: { header: "Role", width: "150px" },
-                            location: { header: "Location", width: "150px" },
-                            status: { header: "Status", width: "120px" },
-                            score: { header: "Score", width: "100px" },
-                        }}
-                    />
-                </Box>
-                <Separator label="NESTED COLUMN GROUPS" align="start" />
-                <Table
-                    variant="outline"
-                    showColumnBorder={true}
-                    columnGroups={[
-                        { label: "Identity", columnKeys: ["dept", "region"] },
-                        { label: "First half", columnKeys: ["q1", "q2"] },
-                        { label: "Second half", columnKeys: ["q3", "q4"] },
+    keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap", "frozen", "pin", "scroll", "columnGroups", "nested", "category", "header row", "footerRows", "subtotal", "grand total", "multi-row", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Column-system configurator — columns axis (widths / complex full-row render / wrapping tags) plus frozen / groups / footer switches on one live table; one structure previews at a time",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const complexData = $.let(TABLE_COMPLEX_COLUMNS_DATA);
+            const metricsData = $.let(TABLE_WRAPPING_TAGS_DATA);
+            const columnSets = $.const(["widths", "complex", "tags"], ArrayType(StringType));
+
+            const presetBind = $.let(State.bind([StringType], "table_columns_preset", "widths"));
+            const frozenBind = $.let(State.bind([BooleanType], "table_columns_frozen", false));
+            const groupsBind = $.let(State.bind([BooleanType], "table_columns_groups", false));
+            const footerBind = $.let(State.bind([BooleanType], "table_columns_footer", false));
+
+            const cKey = $.let(presetBind.read());
+            const frozenOn = $.let(frozenBind.read());
+            const groupsOn = $.let(groupsBind.read());
+            const footerOn = $.let(footerBind.read());
+
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
+            const onFrozen = $.const(East.function([BooleanType], NullType, ($, next) => { $(frozenBind.write(next)); }));
+            const onGroups = $.const(East.function([BooleanType], NullType, ($, next) => { $(groupsBind.write(next)); }));
+            const onFooter = $.const(East.function([BooleanType], NullType, ($, next) => { $(footerBind.write(next)); }));
+
+            // One prebuilt table per column mechanic — the structure switches
+            // take priority (frozen > groups > footer), then the columns axis
+            // picks among the header-config presets.
+            const preview = $.const(frozenOn.ifElse(
+                _$ => (
+                    <Box width="600px" overflow="hidden">
+                        <Table
+                            frozen={["id", "name"]}
+                            variant="line"
+                            striped={true}
+                            height="400px"
+                            data={TABLE_FROZEN_COLUMNS_DATA}
+                            columns={{
+                                id: { header: "ID", width: "80px" },
+                                name: { header: "Name", width: "150px" },
+                                email: { header: "Email", width: "250px" },
+                                dept: { header: "Department", width: "150px" },
+                                role: { header: "Role", width: "150px" },
+                                location: { header: "Location", width: "150px" },
+                                status: { header: "Status", width: "120px" },
+                                score: { header: "Score", width: "100px" },
+                            }}
+                        />
+                    </Box>
+                ),
+                _$ => groupsOn.ifElse(
+                    _$ => (
+                        <Table
+                            variant="outline"
+                            showColumnBorder={true}
+                            columnGroups={[
+                                { label: "Identity", columnKeys: ["dept", "region"] },
+                                { label: "First half", columnKeys: ["q1", "q2"] },
+                                { label: "Second half", columnKeys: ["q3", "q4"] },
+                            ]}
+                            data={TABLE_NESTED_COLUMN_GROUPS_DATA}
+                            columns={{
+                                dept: { header: "Department" },
+                                region: { header: "Region" },
+                                q1: { header: "Q1" },
+                                q2: { header: "Q2" },
+                                q3: { header: "Q3" },
+                                q4: { header: "Q4" },
+                            }}
+                        />
+                    ),
+                    _$ => footerOn.ifElse(
+                        _$ => (
+                            <Table
+                                variant="line"
+                                footerBackground="bg.subtle"
+                                footerRows={[
+                                    {
+                                        item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
+                                        price: { content: <Text>$21.50</Text> },
+                                    },
+                                    {
+                                        item: { content: <Text fontWeight="medium">Drink subtotal</Text>, colSpan: 2n },
+                                        price: { content: <Text>$8.00</Text> },
+                                    },
+                                    {
+                                        item: { content: <Text fontWeight="bold">Grand total</Text>, colSpan: 2n },
+                                        price: { content: <Text fontWeight="bold">$29.50</Text> },
+                                    },
+                                ]}
+                                data={TABLE_MULTI_ROW_FOOTER_DATA}
+                                columns={{
+                                    item: { header: "Item" },
+                                    category: { header: "Category" },
+                                    price: { header: "Price ($)" },
+                                }}
+                            />
+                        ),
+                        _$ => cKey.equal("widths").ifElse(
+                            _$ => (
+                                <Table
+                                    data={TABLE_CUSTOM_HEADERS_DATA}
+                                    columns={{
+                                        firstName: { header: "First Name", width: "300px", minWidth: "80px" },
+                                        lastName: { header: "Last Name", width: "150px" },
+                                        dept: { header: "Department", minWidth: "100px", maxWidth: "200px" },
+                                    }}
+                                />
+                            ),
+                            _$ => cKey.equal("complex").ifElse(
+                                _$ => (
+                                    <Table
+                                        variant="line"
+                                        striped={true}
+                                        data={complexData}
+                                        columns={{
+                                            name: { header: "Name" },
+                                            skills: {
+                                                header: "Skills",
+                                                value: (skills) => skills.size(),
+                                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                                    // The render context carries only {rowIndex, columnKey, cellValue} —
+                                                    // CAPTURE the data array and index ctx.rowIndex for full-row access.
+                                                    // Captures must be data or bind-handles, never a UIComponentType value.
+                                                    const row = $.let(complexData.get(ctx.rowIndex));
+                                                    return (
+                                                        <HStack gap="1" wrap="wrap">
+                                                            {row.skills.map((_$, s) => <Badge variant="subtle" colorPalette="brand">{s}</Badge>)}
+                                                        </HStack>
+                                                    );
+                                                }),
+                                            },
+                                            metadata: {
+                                                header: "Experience",
+                                                value: (meta) => meta.years,
+                                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                                    const row = $.let(complexData.get(ctx.rowIndex));
+                                                    return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;
+                                                }),
+                                            },
+                                        }}
+                                    />
+                                ),
+                                _$ => (
+                                    <Table
+                                        variant="line"
+                                        data={metricsData}
+                                        columns={{
+                                            name: { header: "Server", width: "120px" },
+                                            metrics: {
+                                                header: "Metrics",
+                                                width: "400px",
+                                                maxWidth: "400px",
+                                                value: (val) => val.map((_$, value) => value).mean(),
+                                                render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                                                    const row = $.let(metricsData.get(ctx.rowIndex));
+                                                    return (
+                                                        <HStack wrap="wrap" gap="1">
+                                                            {row.metrics.map((_$, value, key) => <Tag>{East.str`${key}: ${value}`}</Tag>).toArray()}
+                                                        </HStack>
+                                                    );
+                                                }),
+                                            },
+                                        }}
+                                    />
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Columns", cKey,
+                            <SegmentGroup value={cKey} onChange={onPreset} size="sm"
+                                items={columnSets.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        // A Slot, not a Control: the three switches report as
+                        // the Structure spec row below rather than as one value.
+                        Configurator.Slot("Structure",
+                            <HStack gap="5" align="center">
+                                <Switch checked={frozenOn} label="Frozen" onChange={onFrozen} />
+                                <Switch checked={groupsOn} label="Groups" onChange={onGroups} />
+                                <Switch checked={footerOn} label="Footer" onChange={onFooter} />
+                            </HStack>),
                     ]}
-                    data={TABLE_NESTED_COLUMN_GROUPS_DATA}
-                    columns={{
-                        dept: { header: "Department" },
-                        region: { header: "Region" },
-                        q1: { header: "Q1" },
-                        q2: { header: "Q2" },
-                        q3: { header: "Q3" },
-                        q4: { header: "Q4" },
-                    }}
-                />
-                <Separator label="MULTI ROW FOOTER" align="start" />
-                <Table
-                    variant="line"
-                    footerBackground="bg.subtle"
-                    footerRows={[
-                        {
-                            item: { content: <Text fontWeight="medium">Food subtotal</Text>, colSpan: 2n },
-                            price: { content: <Text>$21.50</Text> },
-                        },
-                        {
-                            item: { content: <Text fontWeight="medium">Drink subtotal</Text>, colSpan: 2n },
-                            price: { content: <Text>$8.00</Text> },
-                        },
-                        {
-                            item: { content: <Text fontWeight="bold">Grand total</Text>, colSpan: 2n },
-                            price: { content: <Text fontWeight="bold">$29.50</Text> },
-                        },
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Structure", frozenOn.ifElse(
+                            _$ => "frozen columns",
+                            _$ => groupsOn.ifElse(
+                                _$ => "column groups",
+                                _$ => footerOn.ifElse(_$ => "footer rows", _$ => "column preset")))),
+                        Configurator.Spec("Columns", cKey),
                     ]}
-                    data={TABLE_MULTI_ROW_FOOTER_DATA}
-                    columns={{
-                        item: { header: "Item" },
-                        category: { header: "Category" },
-                        price: { header: "Price ($)" },
-                    }}
                 />
-            </VStack>
-        );
-    }),
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
 /**
- * Style variant panel — striped rows, Badge cell renders over a virtualized
- * list, compact density, pixel rowHeight, and the rowStatus tint.
+ * Style configurator (pass 3, name kept) — density, badge and row-height axes
+ * plus striped / paginated / row-status switches over one live 1000-row
+ * table. The absorbed interactive surface logs every callback to the reactive
+ * aside; the paginated switch carries the embedded-pagination contract
+ * (`pagination: { pageSize, page, onPageChange }` on the main struct) with
+ * its page in State. rowStatus / pagination presence is host-side, so those
+ * switches preview prebuilt arms one at a time (priority: paginated > row
+ * status > explicit row height > virtualized base).
  */
 export const tableStyleVariants = example({
-    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
-    description: "Style variant panel — striped (alternating row colors), with badge (Badge render for a status column over a 1000-row virtualized list), density compact (the density token tightens row height), row height (explicit 48px rows fed to the virtualizer), row status (rowStatus paints each row with a semantic success / warning / danger tint)",
-    fn: East.function([], UIComponentType, ($) => {
-        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
-            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
-            return bucket.equals(0n).ifElse(
-                $ => Style.StatusToken("success"),
-                $ => bucket.equals(1n).ifElse(
-                    $ => Style.StatusToken("warning"),
-                    $ => Style.StatusToken("danger"),
+    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "pagination", "page", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Table style configurator — density, badge and row-height axes plus striped / paginated / row-status switches over one live 1000-row table; every callback logs to the aside",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Bound ONCE — every preview arm maps over the same 1000-row array.
+            const badgeData = $.let(TABLE_WITH_BADGE_DATA);
+            // Enumerated axes are just their variants — `getTag()` gives the
+            // segment key AND its label.
+            const densities = $.const([
+                variant("condensed", null), variant("compact", null), variant("comfortable", null),
+            ], ArrayType(Style.Types.Density));
+            const badgeVariants = $.const([
+                variant("solid", null), variant("subtle", null), variant("outline", null),
+            ], ArrayType(Style.Types.StyleVariant));
+            const rowHeights = $.const(["auto", "48", "64"], ArrayType(StringType));
+
+            const stripedBind = $.let(State.bind([BooleanType], "table_striped", true));
+            const densityBind = $.let(State.bind([StringType], "table_density", "compact"));
+            const badgeBind = $.let(State.bind([StringType], "table_badge", "solid"));
+            const rhBind = $.let(State.bind([StringType], "table_rowheight", "auto"));
+            const paginatedBind = $.let(State.bind([BooleanType], "table_paginated", false));
+            const statusBind = $.let(State.bind([BooleanType], "table_rowstatus", false));
+            const pageBind = $.let(State.bind([IntegerType], "table_page", 0n));
+            const lastEventBind = $.let(State.bind([StringType], "table_last_event", ""));
+
+            const stripedOn = $.let(stripedBind.read());
+            const dKey = $.let(densityBind.read());
+            const bKey = $.let(badgeBind.read());
+            const rhKey = $.let(rhBind.read());
+            const pagOn = $.let(paginatedBind.read());
+            const statusOn = $.let(statusBind.read());
+            const page = $.let(pageBind.read());
+            const lastEvent = $.let(lastEventBind.read());
+
+            const onStriped = $.const(East.function([BooleanType], NullType, ($, next) => { $(stripedBind.write(next)); }));
+            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+            const onBadge = $.const(East.function([StringType], NullType, ($, next) => { $(badgeBind.write(next)); }));
+            const onRowHeight = $.const(East.function([StringType], NullType, ($, next) => { $(rhBind.write(next)); }));
+            const onPaginated = $.const(East.function([BooleanType], NullType, ($, next) => { $(paginatedBind.write(next)); }));
+            const onRowStatus = $.const(East.function([BooleanType], NullType, ($, next) => { $(statusBind.write(next)); }));
+            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                $(pageBind.write(next));
+            }));
+
+            // The absorbed interactive surface — every callback writes the
+            // event line the aside shows.
+            const onRowClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));
+            }));
+            const onRowDoubleClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));
+            }));
+            const onCellClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
+            }));
+            const onCellDoubleClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
+            }));
+            const onRowSelectionChange = $.const(East.function([Table.Types.RowSelectionEvent], NullType, ($, event) => {
+                $(lastEventBind.write(
+                    event.selected.ifElse(
+                        _$ => East.str`onRowSelectionChange: selected row ${event.rowIndex}`,
+                        _$ => East.str`onRowSelectionChange: deselected row ${event.rowIndex}`,
+                    ),
+                ));
+            }));
+            const onSortChange = $.const(East.function([Table.Types.SortEvent], NullType, ($, event) => {
+                $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
+            }));
+
+            // ROW STATUS — a semantic token per row index (theme-agnostic tint).
+            const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
+                const bucket = $.let(rowIndex.modulo(3n), IntegerType);
+                return bucket.equals(0n).ifElse(
+                    $ => Style.StatusToken("success"),
+                    $ => bucket.equals(1n).ifElse(
+                        $ => Style.StatusToken("warning"),
+                        $ => Style.StatusToken("danger"),
+                    ),
+                );
+            }));
+
+            // Each selection is a lookup into the same array the control renders.
+            const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+            const badgeSel = $.let(badgeVariants.filter((_$, v) => v.getTag().equal(bKey)).get(0n));
+            const rhPx = $.let(rhKey.equal("48").ifElse(_$ => 48n, _$ => 64n));
+
+            // The badge axis drives the status column's render live — the
+            // render captures only data (the selected variant value).
+            const badgeRender = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+                <Badge variant={badgeSel} colorPalette="brand">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
+            )));
+
+            // rowStatus / pagination / rowHeight presence is host-side, so the
+            // switches pick between prebuilt tables (the cardVariants leaf
+            // precedent); striped / density / badge stay live in every arm.
+            const preview = $.const(pagOn.ifElse(
+                _$ => (
+                    <Table
+                        variant="line"
+                        interactive={true}
+                        striped={stripedOn}
+                        density={densitySel}
+                        pagination={{ pageSize: 20n, page, onPageChange }}
+                        onRowClick={onRowClick}
+                        onRowDoubleClick={onRowDoubleClick}
+                        onCellClick={onCellClick}
+                        onCellDoubleClick={onCellDoubleClick}
+                        onRowSelectionChange={onRowSelectionChange}
+                        onSortChange={onSortChange}
+                        data={badgeData}
+                        columns={{
+                            name: { header: "Name" },
+                            email: { header: "Email" },
+                            status: { header: "Status", render: badgeRender },
+                        }}
+                    />
                 ),
+                _$ => statusOn.ifElse(
+                    _$ => (
+                        <Table
+                            variant="line"
+                            interactive={true}
+                            striped={stripedOn}
+                            density={densitySel}
+                            rowStatus={rowStatus}
+                            height="400px"
+                            onRowClick={onRowClick}
+                            onRowDoubleClick={onRowDoubleClick}
+                            onCellClick={onCellClick}
+                            onCellDoubleClick={onCellDoubleClick}
+                            onRowSelectionChange={onRowSelectionChange}
+                            onSortChange={onSortChange}
+                            data={badgeData}
+                            columns={{
+                                name: { header: "Name" },
+                                email: { header: "Email" },
+                                status: { header: "Status", render: badgeRender },
+                            }}
+                        />
+                    ),
+                    _$ => rhKey.equal("auto").ifElse(
+                        _$ => (
+                            <Table
+                                variant="line"
+                                interactive={true}
+                                striped={stripedOn}
+                                density={densitySel}
+                                height="400px"
+                                onRowClick={onRowClick}
+                                onRowDoubleClick={onRowDoubleClick}
+                                onCellClick={onCellClick}
+                                onCellDoubleClick={onCellDoubleClick}
+                                onRowSelectionChange={onRowSelectionChange}
+                                onSortChange={onSortChange}
+                                data={badgeData}
+                                columns={{
+                                    name: { header: "Name" },
+                                    email: { header: "Email" },
+                                    status: { header: "Status", render: badgeRender },
+                                }}
+                            />
+                        ),
+                        _$ => (
+                            <Table
+                                variant="line"
+                                interactive={true}
+                                striped={stripedOn}
+                                density={densitySel}
+                                rowHeight={rhPx}
+                                height="400px"
+                                onRowClick={onRowClick}
+                                onRowDoubleClick={onRowDoubleClick}
+                                onCellClick={onCellClick}
+                                onCellDoubleClick={onCellDoubleClick}
+                                onRowSelectionChange={onRowSelectionChange}
+                                onSortChange={onSortChange}
+                                data={badgeData}
+                                columns={{
+                                    name: { header: "Name" },
+                                    email: { header: "Email" },
+                                    status: { header: "Status", render: badgeRender },
+                                }}
+                            />
+                        ),
+                    ),
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Density", dKey,
+                            <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Badge", bKey,
+                            <SegmentGroup value={bKey} onChange={onBadge} size="sm"
+                                items={badgeVariants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Row height", rhKey,
+                            <SegmentGroup value={rhKey} onChange={onRowHeight} size="sm"
+                                items={rowHeights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        // A Slot, not a Control: the three switches report as
+                        // the Preview spec row below rather than as one value.
+                        Configurator.Slot("Rows",
+                            <HStack gap="5" align="center">
+                                <Switch checked={stripedOn} label="Striped" onChange={onStriped} />
+                                <Switch checked={pagOn} label="Paginated" onChange={onPaginated} />
+                                <Switch checked={statusOn} label="Row status" onChange={onRowStatus} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "Events · Reactive",
+                        body: (
+                            <Badge colorPalette="brand" variant="outline">
+                                {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the table", _$ => lastEvent)}
+                            </Badge>
+                        ),
+                    }}
+                    spec={[
+                        Configurator.Spec("Preview", pagOn.ifElse(
+                            _$ => "paginated",
+                            _$ => statusOn.ifElse(
+                                _$ => "row status",
+                                _$ => rhKey.equal("auto").ifElse(_$ => "virtualized", _$ => "row height")))),
+                        Configurator.Spec("Rows", pagOn.ifElse(_$ => "1000 · paged 20", _$ => "1000 · virtualized")),
+                    ]}
+                />
             );
-        }));
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="STRIPED" align="start" />
-                <Table
-                    striped={true}
-                    data={TABLE_STRIPED_DATA}
-                    columns={{
-                        product: { header: "Product" },
-                        price: { header: "Price" },
-                        stock: { header: "In Stock" },
-                    }}
-                />
-                <Separator label="WITH BADGE" align="start" />
-                <Table
-                    variant="line"
-                    height="400px"
-                    data={TABLE_WITH_BADGE_DATA}
-                    columns={{
-                        name: { header: "Name" },
-                        email: { header: "Email" },
-                        status: {
-                            header: "Status",
-                            render: East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                                <Badge variant="solid" colorPalette="brand">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
-                            )),
-                        },
-                    }}
-                />
-                <Separator label="DENSITY COMPACT" align="start" />
-                <Table
-                    variant="line"
-                    density="compact"
-                    data={TABLE_DENSITY_COMPACT_DATA}
-                    columns={{ name: { header: "Name" }, status: { header: "Status" } }}
-                />
-                <Separator label="ROW HEIGHT" align="start" />
-                <Table
-                    variant="line"
-                    rowHeight={48n}
-                    data={TABLE_ROW_HEIGHT_DATA}
-                    columns={{ name: { header: "Name" }, status: { header: "Status" } }}
-                />
-                <Separator label="ROW STATUS" align="start" />
-                <Table
-                    rowStatus={rowStatus}
-                    variant="line"
-                    data={TABLE_ROW_STATUS_DATA}
-                    columns={{ name: { header: "Name" }, score: { header: "Score" } }}
-                />
-            </VStack>
-        );
-    }),
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -362,8 +580,7 @@ export const tableSelection = example({
                     controls={[
                         Configurator.Control("Mode", mode,
                             <SegmentGroup value={mode} onChange={onModeChange} size="sm"
-                                items={modes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                            "range: shift-click extends from the last anchor"),
+                                items={modes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                     ]}
                     preview={
                         <Table
@@ -389,107 +606,19 @@ export const tableSelection = example({
     inputs: [],
 });
 
-export const tableInteractiveCallbacks = example({
-    keywords: ["Table", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive"],
-    description: "Click, double-click rows/cells, or click headers to sort",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const lastEventBind = $.let(State.bind([StringType], "table_last_event", ""));
-            const lastEvent = $.let(lastEventBind.read());
-
-            const onRowClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));
-            }));
-            const onRowDoubleClick = $.const(East.function([Table.Types.RowClickEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));
-            }));
-            const onCellClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
-            }));
-            const onCellDoubleClick = $.const(East.function([Table.Types.CellClickEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
-            }));
-            const onRowSelectionChange = $.const(East.function([Table.Types.RowSelectionEvent], NullType, ($, event) => {
-                $(lastEventBind.write(
-                    event.selected.ifElse(
-                        _$ => East.str`onRowSelectionChange: selected row ${event.rowIndex}`,
-                        _$ => East.str`onRowSelectionChange: deselected row ${event.rowIndex}`,
-                    ),
-                ));
-            }));
-            const onSortChange = $.const(East.function([Table.Types.SortEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
-            }));
-
-            return (
-                <VStack gap="3" align="stretch">
-                    <Table
-                        interactive={true}
-                        striped={true}
-                        onRowClick={onRowClick}
-                        onRowDoubleClick={onRowDoubleClick}
-                        onCellClick={onCellClick}
-                        onCellDoubleClick={onCellDoubleClick}
-                        onRowSelectionChange={onRowSelectionChange}
-                        onSortChange={onSortChange}
-                        data={[
-                            { name: "Alice", role: "Admin", score: 95n },
-                            { name: "Bob", role: "User", score: 88n },
-                            { name: "Charlie", role: "User", score: 92n },
-                        ]}
-                        columns={{
-                            name: { header: "Name" },
-                            role: { header: "Role" },
-                            score: { header: "Score" },
-                        }}
-                    />
-                    <Badge colorPalette="brand" variant="outline">
-                        {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the table", _$ => lastEvent)}
-                    </Badge>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const tableReactivePagination = example({
-    keywords: ["Table", "Root", "pagination", "page", "Reactive", "State"],
-    description: "Embedded pagination — Table holds `pagination: { pageSize, page, onPageChange }` on its main struct; the renderer draws the Pagination primitive beneath",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const pageBind = $.let(State.bind([IntegerType], "table_page", 0n));
-            const page = $.let(pageBind.read());
-            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
-                $(pageBind.write(next));
-            }));
-            return (
-                <Table
-                    variant="line"
-                    pagination={{ pageSize: 20n, page, onPageChange }}
-                    data={East.Array.range(0n, 120n).map((_$, i) => ({
-                        id: East.str`#${i}`,
-                        name: East.str`Row ${i}`,
-                        value: i.multiply(3n),
-                    }))}
-                    columns={{ id: { header: "ID" }, name: { header: "Name" }, value: { header: "Value" } }}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 /**
- * Review chrome (#264) — the shared per-row Approve / Reject Decision column
- * (a pinned-right column) plus the commitBar batch foot, identical to the
- * Planner's. An order-exceptions table: flagged rows rest `pending` with a
- * quiet warning dot; clean rows rest `approved`. Accessors receive the
- * UNSLICED `rowIndex`.
+ * Review chrome pair (#264) — the shared per-row Approve / Reject Decision
+ * column (a pinned-right column) plus the commitBar batch foot, identical to
+ * the Planner's, on an order-exceptions table (flagged rows rest `pending`
+ * with a quiet warning dot; clean rows rest `approved`); and the same chrome
+ * composed with the pager — the review foot stacks BELOW the pagination band,
+ * and every review callback / accessor receives the UNSLICED row index (page
+ * 2's first row is rowIndex 20, not 0 — the `expandedContent` convention), so
+ * approvals map straight back to the source data under paging AND sorting.
  */
 export const tableReview = example({
-    keywords: ["Table", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "exception"],
-    description: "Optional per-row approval on an order-exceptions table — pinned-right Decision column + commitBar batch foot, quiet dots on flagged pending rows",
+    keywords: ["Table", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "exception", "pagination", "rowIndex", "unsliced", "page", "foot"],
+    description: "Review chrome pair — per-row Decision column + commitBar batch foot on an order-exceptions table, and the same chrome under pagination (unsliced rowIndex: page 2 row 0 is rowIndex 20, foot below the pager band)",
     fn: East.function([], UIComponentType, ($) => {
         const flagged = $.const(East.function([IntegerType], BooleanType, (_$, rowIndex) =>
             rowIndex.modulo(3n).equals(1n)));
@@ -504,74 +633,63 @@ export const tableReview = example({
                 _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
             )));
         return (
-            <Table
-                variant="line"
-                data={East.Array.range(0n, 6n).map((_$, i) => ({
-                    order: East.str`SO-10${i}`,
-                    exception: i.modulo(3n).equals(1n).ifElse(_$ => "margin below floor", _$ => "—"),
-                    value: i.multiply(1250n),
-                }))}
-                columns={{ order: { header: "Order" }, exception: { header: "Exception" }, value: { header: "Value" } }}
-                review={{
-                    columnLabel: "Decision",
-                    rerunLabel: "Rerun",
-                    summary: <Text color="fg.muted">6 orders · 2 exceptions need a call</Text>,
-                    onApprove: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
-                    onReject: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
-                    onApproveAll: East.function([], NullType, _$ => null),
-                    onRejectAll: East.function([], NullType, _$ => null),
-                    onRerun: East.function([], NullType, _$ => null),
-                }}
-                reviewStatus={reviewStatus}
-                reviewApproval={reviewApproval}
-            />
+            <VStack gap="4" align="stretch">
+                <Separator label="REVIEW" align="start" />
+                <Table
+                    variant="line"
+                    data={East.Array.range(0n, 6n).map((_$, i) => ({
+                        order: East.str`SO-10${i}`,
+                        exception: i.modulo(3n).equals(1n).ifElse(_$ => "margin below floor", _$ => "—"),
+                        value: i.multiply(1250n),
+                    }))}
+                    columns={{ order: { header: "Order" }, exception: { header: "Exception" }, value: { header: "Value" } }}
+                    review={{
+                        columnLabel: "Decision",
+                        rerunLabel: "Rerun",
+                        summary: <Text color="fg.muted">6 orders · 2 exceptions need a call</Text>,
+                        onApprove: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
+                        onReject: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
+                        onApproveAll: East.function([], NullType, _$ => null),
+                        onRejectAll: East.function([], NullType, _$ => null),
+                        onRerun: East.function([], NullType, _$ => null),
+                    }}
+                    reviewStatus={reviewStatus}
+                    reviewApproval={reviewApproval}
+                />
+                <Separator label="REVIEW PAGINATED" align="start" />
+                <Reactive>{$ => {
+                    const pageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
+                    const page = $.let(pageBind.read());
+                    const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                        $(pageBind.write(next));
+                    }));
+                    const lastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
+                    const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
+                        $(lastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
+                    }));
+                    const reviewApprovalPaged = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
+                        some(variant("pending", null))));
+                    const last = $.let(lastBind.read());
+                    return (
+                        <VStack gap="3" align="stretch">
+                            <Table
+                                variant="line"
+                                pagination={{ pageSize: 20n, page, onPageChange }}
+                                data={East.Array.range(0n, 200n).map((_$, i) => ({
+                                    id: East.str`#${i}`,
+                                    name: East.str`Order ${i}`,
+                                }))}
+                                columns={{ id: { header: "ID" }, name: { header: "Name" } }}
+                                review={{ onApprove, onApproveAll: East.function([], NullType, _$ => null) }}
+                                reviewApproval={reviewApprovalPaged}
+                            />
+                            <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
+                        </VStack>
+                    );
+                }}</Reactive>
+            </VStack>
         );
     }),
-    inputs: [],
-});
-
-/**
- * Review + pagination (#264) — the Decision column composes with the pager:
- * the review foot stacks BELOW the pagination band, and every review
- * callback / accessor receives the UNSLICED row index (page 2's first row is
- * rowIndex 20, not 0 — the `expandedContent` convention), so approvals map
- * straight back to the source data under paging AND sorting.
- */
-export const tableReviewPaginated = example({
-    keywords: ["Table", "review", "pagination", "rowIndex", "unsliced", "page", "decision", "foot"],
-    description: "Review chrome under pagination — unsliced rowIndex semantics (page 2 row 0 is rowIndex 20), review foot stacked below the pager band",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const pageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
-            const page = $.let(pageBind.read());
-            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
-                $(pageBind.write(next));
-            }));
-            const lastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
-            const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
-                $(lastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
-            }));
-            const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
-                some(variant("pending", null))));
-            const last = $.let(lastBind.read());
-            return (
-                <VStack gap="3" align="stretch">
-                    <Table
-                        variant="line"
-                        pagination={{ pageSize: 20n, page, onPageChange }}
-                        data={East.Array.range(0n, 200n).map((_$, i) => ({
-                            id: East.str`#${i}`,
-                            name: East.str`Order ${i}`,
-                        }))}
-                        columns={{ id: { header: "ID" }, name: { header: "Name" } }}
-                        review={{ onApprove, onApproveAll: East.function([], NullType, _$ => null) }}
-                        reviewApproval={reviewApproval}
-                    />
-                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });
 

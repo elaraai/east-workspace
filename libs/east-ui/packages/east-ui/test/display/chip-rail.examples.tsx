@@ -133,14 +133,12 @@ export const chipRailVariants = example({
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Separator", sKey,
                                 <SegmentGroup value={sKey} onChange={onSeparator} size="sm"
-                                    items={separators.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "suppressed in labeled mode"),
+                                    items={separators.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Mode / Captions spec rows below rather than as one value.
                             Configurator.Slot("Labels",
                                 <HStack gap="5" align="center">
                                     <Switch checked={labeled} label="Labeled" onChange={onLabeled} />
-                                    <Text textStyle="caption" color="fg.subtle">mono uppercase caption above each chip</Text>
                                 </HStack>),
                         ]}
                         preview={rail}

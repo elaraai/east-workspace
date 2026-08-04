@@ -12,7 +12,6 @@ describeEast("Tag", (test) => {
     Assert.examples(test, {
         tagBasic: ex.tagBasic,
         tagStyles: ex.tagStyles,
-        tagClosable: ex.tagClosable,
     });
 
     // =========================================================================
@@ -31,14 +30,6 @@ describeEast("Tag", (test) => {
         // directly.
         const panel = $.const(ex.tagStyles.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("tagClosable panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.tagClosable.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CLOSABLE"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ON CLOSE INTERACTIVE"));
     });
 
     // =========================================================================

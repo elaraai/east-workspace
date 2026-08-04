@@ -106,12 +106,10 @@ export const statVariants = example({
                         controls={[
                             Configurator.Control("Format", fKey,
                                 <SegmentGroup value={fKey} onChange={onFormat} size="sm"
-                                    items={formats.map((_$, o) => SegmentGroup.Item(o.format.getTag(), <Text>{o.format.getTag().upperCase()}</Text>))} />,
-                                "label · value · caption follow the format"),
+                                    items={formats.map((_$, o) => SegmentGroup.Item(o.format.getTag(), <Text>{o.format.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Indicator", dirKey,
                                 <SegmentGroup value={dirKey} onChange={onDirection} size="sm"
-                                    items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "flat renders no arrow"),
+                                    items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -121,7 +119,6 @@ export const statVariants = example({
                             Configurator.Control("Help text", helpSpec,
                                 <HStack gap="5" align="center">
                                     <Switch checked={showHelp} label="Caption" onChange={onHelp} />
-                                    <Text textStyle="caption" color="fg.subtle">context beneath the value</Text>
                                 </HStack>),
                         ]}
                         preview={

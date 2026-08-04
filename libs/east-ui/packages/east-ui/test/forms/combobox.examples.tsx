@@ -125,8 +125,7 @@ export const comboboxVariants = example({
                         controls={[
                             Configurator.Control("Value", selDisplay,
                                 <SegmentGroup value={selected} onChange={onValue} size="sm"
-                                    items={countries.filter((_$, c) => c.disabled.not()).map((_$, c) => SegmentGroup.Item(c.value, <Text>{c.value.upperCase()}</Text>))} />,
-                                "pre-select from outside — or type in the preview"),
+                                    items={countries.filter((_$, c) => c.disabled.not()).map((_$, c) => SegmentGroup.Item(c.value, <Text>{c.value.upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -136,11 +135,8 @@ export const comboboxVariants = example({
                             Configurator.Slot("Flags",
                                 <HStack gap="5" align="center">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
-                                    <Text textStyle="caption" color="fg.subtle">whole control</Text>
                                     <Switch checked={custom} label="Custom value" onChange={onCustom} />
-                                    <Text textStyle="caption" color="fg.subtle">freeform entries allowed</Text>
                                     <Switch checked={multiple} label="Multiple" onChange={onMultiple} />
-                                    <Text textStyle="caption" color="fg.subtle">pick many · own State key</Text>
                                 </HStack>),
                         ]}
                         preview={combo}

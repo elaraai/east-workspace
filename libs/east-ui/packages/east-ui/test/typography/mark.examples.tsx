@@ -92,7 +92,6 @@ export const markVariants = example({
                             Configurator.Slot("Context",
                                 <HStack gap="5" align="center">
                                     <Switch checked={ctx} label="In sentence" onChange={onContext} />
-                                    <Text textStyle="caption" color="fg.subtle">mark inside a running text flow</Text>
                                 </HStack>),
                         ]}
                         preview={preview}

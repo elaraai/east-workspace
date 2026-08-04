@@ -12,8 +12,6 @@ import * as ex from "./map.examples.js";
 describeEast("Map", (test) => {
     Assert.examples(test, {
         mapBasic: ex.mapBasic,
-        mapOverlayHud: ex.mapOverlayHud,
-        mapInteractive: ex.mapInteractive,
         mapOverlayVariants: ex.mapOverlayVariants,
     });
 
@@ -22,14 +20,17 @@ describeEast("Map", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("mapOverlayVariants panel mounts one captioned row per merged example", $ => {
+    test("mapOverlayVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the overlay-preset table
+        // routing between the five canvases plus the area-click aside — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the
+        // outer function. The per-option coverage lives in the Map.Root tests
+        // below, which construct each option directly.
         const panel = $.const(ex.mapOverlayVariants.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 8n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "AREAS"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "HEX LOD"));
-        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PULSE"));
-        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REGIONS"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("resolves markers with defaults and an empty canvas", $ => {

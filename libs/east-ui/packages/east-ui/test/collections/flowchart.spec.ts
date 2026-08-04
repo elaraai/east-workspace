@@ -12,10 +12,8 @@ describeEast("Flowchart", (test) => {
     Assert.examples(test, {
         flowchartMinimal: ex.flowchartMinimal,
         flowchartPlant: ex.flowchartPlant,
-        flowchartConnect: ex.flowchartConnect,
         flowchartBuilder: ex.flowchartBuilder,
-        flowchartHoverCards: ex.flowchartHoverCards,
-        flowchartDrawerDetail: ex.flowchartDrawerDetail,
+        flowchartDetail: ex.flowchartDetail,
     });
 
     test("creates a flowchart with bare defaults", $ => {

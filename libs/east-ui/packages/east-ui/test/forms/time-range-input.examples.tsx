@@ -126,17 +126,14 @@ export const timeRangeInputVariants = example({
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "escape hatches over the input recipe"),
+                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switches report as the
                             // Disabled / Presets spec rows below rather than as
                             // one value each.
                             Configurator.Slot("Flags",
                                 <HStack gap="5" align="center">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
-                                    <Text textStyle="caption" color="fg.subtle">both inputs greyed</Text>
                                     <Switch checked={presetsOn} label="Presets" onChange={onPresets} />
-                                    <Text textStyle="caption" color="fg.subtle">the three shifts</Text>
                                 </HStack>),
                         ]}
                         preview={window}

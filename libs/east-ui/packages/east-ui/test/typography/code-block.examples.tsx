@@ -100,12 +100,10 @@ export const codeBlockVariants = example({
                         controls={[
                             Configurator.Control("Language", lKey,
                                 <SegmentGroup value={lKey} onChange={onLanguage} size="sm"
-                                    items={snippets.map((_$, o) => SegmentGroup.Item(o.language.getTag(), <Text>{o.language.getTag().upperCase()}</Text>))} />,
-                                "snippet · highlight line follow the language"),
+                                    items={snippets.map((_$, o) => SegmentGroup.Item(o.language.getTag(), <Text>{o.language.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Max height", hKey,
                                 <SegmentGroup value={hKey} onChange={onHeight} size="sm"
-                                    items={heights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
-                                "the block scrolls past the cap"),
+                                    items={heights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as
                             // the Line numbers / Highlight spec rows below
                             // rather than as one value.
@@ -113,7 +111,6 @@ export const codeBlockVariants = example({
                                 <HStack gap="5" align="center">
                                     <Switch checked={lines} label="Line numbers" onChange={onLines} />
                                     <Switch checked={hl} label="Highlight" onChange={onHighlight} />
-                                    <Text textStyle="caption" color="fg.subtle">one emphasised line per snippet</Text>
                                 </HStack>),
                         ]}
                         preview={block}

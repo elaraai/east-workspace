@@ -105,47 +105,9 @@ export const calendarDemand = example({
     inputs: [],
 });
 
-export const calendarInteractive = example({
-    keywords: ["Calendar", "Reactive", "State", "onSelect", "interactive", "footer"],
-    description: "Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const days = $.const([
-                { week: "W37", day: "Tue", demand: 105.0, lastYear: 95.0 }, { week: "W37", day: "Wed", demand: 116.0, lastYear: 102.0 },
-                { week: "W37", day: "Thu", demand: 120.0, lastYear: 103.0 }, { week: "W37", day: "Fri", demand: 144.0, lastYear: 121.0 },
-                { week: "W37", day: "Sat", demand: 179.0, lastYear: 147.0 }, { week: "W37", day: "Sun", demand: 151.0, lastYear: 134.0 },
-                { week: "W38", day: "Mon", demand: 96.0, lastYear: 89.0 }, { week: "W38", day: "Tue", demand: 104.0, lastYear: 94.0 },
-                { week: "W38", day: "Wed", demand: 124.0, lastYear: 109.0 }, { week: "W38", day: "Thu", demand: 131.0, lastYear: 112.0 },
-                { week: "W38", day: "Fri", demand: 157.0, lastYear: 132.0 }, { week: "W38", day: "Sat", demand: 187.0, lastYear: 153.0 },
-                { week: "W38", day: "Sun", demand: 160.0, lastYear: 142.0 }, { week: "W39", day: "Mon", demand: 98.0, lastYear: 91.0 },
-                { week: "W39", day: "Tue", demand: 116.0, lastYear: 104.0 }, { week: "W39", day: "Wed", demand: 127.0, lastYear: 112.0 },
-                { week: "W39", day: "Thu", demand: 141.0, lastYear: 121.0 }, { week: "W39", day: "Fri", demand: 165.0, lastYear: 139.0 },
-                { week: "W39", day: "Sat", demand: 201.0, lastYear: 165.0 }, { week: "W39", day: "Sun", demand: 164.0, lastYear: 145.0 },
-            ]);
-            const bind = $.let(State.bind([StringType], "calendar_selected", "none"));
-            const onSelect = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {
-                $(bind.write(East.str`${ref.day} ${ref.week}`));
-            }));
-            const selected = $.let(bind.read());
-            return (
-                <VStack gap="3" align="stretch">
-                    <Calendar
-                        data={days}
-                        cell={d => ({ week: d.week, day: d.day, value: d.demand, compare: d.lastYear, text: East.Float.printFixed(d.demand, 0n) })}
-                        footer={Calendar.footer({ valueLabel: "predicted", compareLabel: "last yr", legend: true })}
-                        onSelect={onSelect}
-                    />
-                    <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
 export const calendarVariants = example({
-    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Calendar configurator — density and scale-step axes plus values, totals and minimal-chrome switches driving one live heatmap",
+    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive", "footer"],
+    description: "Calendar configurator — density and scale-step axes plus values, totals and minimal-chrome switches driving one live heatmap; the aside tracks the tapped day via onSelect",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -171,18 +133,26 @@ export const calendarVariants = example({
                 const valuesBind  = $.let(State.bind([BooleanType], "calendar_values", true));
                 const totalsBind  = $.let(State.bind([BooleanType], "calendar_totals", false));
                 const chromeBind  = $.let(State.bind([BooleanType], "calendar_chrome", false));
+                // The selection readout (folded from the old interactive
+                // example — its State key is preserved): onSelect writes the
+                // tapped day into the aside.
+                const selectedBind = $.let(State.bind([StringType], "calendar_selected", "none"));
 
                 const dKey     = $.let(densityBind.read());
                 const sKey     = $.let(scaleBind.read());
                 const valuesOn = $.let(valuesBind.read());
                 const totalsOn = $.let(totalsBind.read());
                 const minimal  = $.let(chromeBind.read());
+                const selected = $.let(selectedBind.read());
 
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onScale   = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
                 const onValues  = $.const(East.function([BooleanType], NullType, ($, next) => { $(valuesBind.write(next)); }));
                 const onTotals  = $.const(East.function([BooleanType], NullType, ($, next) => { $(totalsBind.write(next)); }));
                 const onChrome  = $.const(East.function([BooleanType], NullType, ($, next) => { $(chromeBind.write(next)); }));
+                const onSelect  = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {
+                    $(selectedBind.write(East.str`${ref.day} ${ref.week}`));
+                }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
@@ -205,6 +175,7 @@ export const calendarVariants = example({
                             density={density}
                             totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
                             aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
+                            onSelect={onSelect}
                         />
                     ),
                     _$ => (
@@ -214,6 +185,7 @@ export const calendarVariants = example({
                             values={valuesOn}
                             scale={Calendar.scale({ steps: scale.steps })}
                             density={density}
+                            onSelect={onSelect}
                         />
                     ),
                 ));
@@ -223,29 +195,28 @@ export const calendarVariants = example({
                         controls={[
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
-                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "cell + label sizing"),
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Scale", sKey,
                                 <SegmentGroup value={sKey} onChange={onScale} size="sm"
-                                    items={scales.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "fewer steps coarsen the heat ramp"),
+                                    items={scales.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // Slots, not Controls: the switches report as the
                             // Values / Totals / Data spec rows below rather than
                             // as one value each.
                             Configurator.Slot("Cells",
                                 <HStack gap="5" align="center">
                                     <Switch checked={valuesOn} label="Values" onChange={onValues} />
-                                    <Text textStyle="caption" color="fg.subtle">in-cell numerals · off is a pure heat read</Text>
                                 </HStack>),
                             Configurator.Slot("Chrome",
                                 <HStack gap="5" align="center">
                                     <Switch checked={totalsOn} label="Totals" onChange={onTotals} />
-                                    <Text textStyle="caption" color="fg.subtle">Σ-wk rail + weekday aggregate row</Text>
                                     <Switch checked={minimal} label="Minimal" onChange={onChrome} />
-                                    <Text textStyle="caption" color="fg.subtle">sparse data · hatched missing days</Text>
                                 </HStack>),
                         ]}
                         preview={cal}
+                        aside={{
+                            label: "Selection · Reactive",
+                            body: <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>,
+                        }}
                         spec={[
                             Configurator.Spec("Days", East.print(data.size())),
                             Configurator.Spec("Steps", East.print(scale.steps)),

@@ -127,23 +127,19 @@ export const tabsVariants = example({
                         controls={[
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "line renders the underline indicator"),
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Trigger", tKey,
                                 <SegmentGroup value={tKey} onChange={onTrigger} size="sm"
-                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "count carries a mono badge · two-line stacks a caption"),
+                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as the
                             // Fitted / Tabs spec rows below rather than as one value.
                             Configurator.Slot("List",
                                 <HStack gap="5" align="center">
                                     <Switch checked={fitted} label="Fitted" onChange={onFitted} />
-                                    <Text textStyle="caption" color="fg.subtle">equal-width triggers</Text>
                                     <Switch checked={disabled} label="Disabled tab" onChange={onDisabled} />
-                                    <Text textStyle="caption" color="fg.subtle">appends a blocked trigger</Text>
                                 </HStack>),
                         ]}
                         preview={

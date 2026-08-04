@@ -107,24 +107,19 @@ export const carouselVariants = example({
                         controls={[
                             Configurator.Control("Slides", sKey,
                                 <SegmentGroup value={sKey} onChange={onSlides} size="sm"
-                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "slidesPerView · spacing per set"),
+                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Chrome", chKey,
                                 <SegmentGroup value={chKey} onChange={onChrome} size="sm"
-                                    items={chromes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "showControls · showIndicators pair"),
+                                    items={chromes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "indicator · control colour slots"),
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as the
                             // Loop / Drag spec rows below rather than as one value.
                             Configurator.Slot("Motion",
                                 <HStack gap="5" align="center">
                                     <Switch checked={loop} label="Loop" onChange={onLoop} />
-                                    <Text textStyle="caption" color="fg.subtle">infinite scrolling</Text>
                                     <Switch checked={drag} label="Draggable" onChange={onDrag} />
-                                    <Text textStyle="caption" color="fg.subtle">drag / swipe to navigate</Text>
                                 </HStack>),
                         ]}
                         preview={

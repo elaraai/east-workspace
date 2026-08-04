@@ -136,9 +136,7 @@ export const badgeStyles = example({
                             Configurator.Slot("Shape",
                                 <HStack gap="5" align="center">
                                     <Switch checked={pill} label="Pill" onChange={onPill} />
-                                    <Text textStyle="caption" color="fg.subtle">radius-full</Text>
                                     <Switch checked={wide} label="Fixed width" onChange={onWide} />
-                                    <Text textStyle="caption" color="fg.subtle">48px · centred</Text>
                                 </HStack>),
                         ]}
                         preview={

@@ -136,8 +136,7 @@ export const inputStyles = example({
                         controls={[
                             Configurator.Control("Type", tKey,
                                 <SegmentGroup value={tKey} onChange={onType} size="sm"
-                                    items={types.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "swaps the whole live bound control"),
+                                    items={types.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -149,7 +148,6 @@ export const inputStyles = example({
                             Configurator.Slot("Focus",
                                 <HStack gap="5" align="center">
                                     <Switch checked={focus} label="Autofocus" onChange={onAutoFocus} />
-                                    <Text textStyle="caption" color="fg.subtle">brand border + soft ring on mount</Text>
                                 </HStack>),
                         ]}
                         preview={sel.input}

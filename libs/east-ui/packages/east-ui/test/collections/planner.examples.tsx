@@ -3,61 +3,40 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from "@elaraai/east";
-import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Library, Planner, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
+import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, StructType, some, none, variant, example } from "@elaraai/east";
+import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Planner, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
+// Module-scope fixtures (consolidation epic #455, pass 4).
 // ============================================================================
 
-const PLANNER_BUCKETS_DATA = [{ name: "Alice" }, { name: "Bob" }];
-const PLANNER_MIXED_BUCKETS_DATA = [
-    { name: "Alice", group: "Shifts", isAlice: true, isBob: false },
-    { name: "Bob", group: "Shifts", isAlice: false, isBob: true },
-    { name: "Headcount", group: "Daily", isAlice: false, isBob: false },
-    { name: "Output", group: "Daily", isAlice: false, isBob: false },
+/** One row shape for every configurator preset — the detailed column set
+ *  derives Hours / Free from used / cap on ANY preset's rows. */
+const PLANNER_ROW = StructType({ name: StringType, role: StringType, team: StringType, used: FloatType, cap: FloatType });
+
+const PLANNER_CREW_DATA = [
+    { name: "Alice", role: "Lead", team: "Team A", used: 6.0, cap: 8.0 },
+    { name: "Bob", role: "Engineer", team: "Team A", used: 4.0, cap: 8.0 },
+    { name: "Carol", role: "Designer", team: "Team B", used: 7.0, cap: 8.0 },
 ];
-const PLANNER_PER_CELL_BUCKETS_DATA = [
-    { name: "Press A", bucketed: true },
-    { name: "Press B", bucketed: false },
+const PLANNER_PAIR_DATA = [
+    { name: "Line A", role: "Press", team: "Plant", used: 6.0, cap: 8.0 },
+    { name: "Line B", role: "Press", team: "Plant", used: 5.0, cap: 8.0 },
 ];
-const PLANNER_STRETCH_DATA = [{ name: "Line A" }, { name: "Line B" }];
-const PLANNER_EVENT_TONE_DATA = [{ name: "Reactor" }];
-const PLANNER_EVENT_COLOR_DATA = [{ name: "Line" }];
-const PLANNER_MARKERS_DATA = [
-    { name: "api-01", role: "Lead" },
-    { name: "api-02", role: "Engineer" },
-    { name: "cache", role: "Service" },
-    { name: "etl-01", role: "Batch" },
-];
-const PLANNER_ROW_HOVER_DATA = [{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }];
-const PLANNER_DENSITY_DATA = [{ name: "Alice" }, { name: "Bob" }];
-const PLANNER_ORDINAL_AXIS_DATA = [{ name: "Item" }];
-const PLANNER_DATA_DRIVEN_RANGE_DATA = [{ name: "Line A" }, { name: "Line B" }];
-const PLANNER_SCROLL_DATA = [
-    { name: "api-01", role: "Lead" }, { name: "api-02", role: "Engineer" },
-    { name: "api-03", role: "Engineer" }, { name: "cache-01", role: "Service" },
-    { name: "cache-02", role: "Service" }, { name: "etl-01", role: "Lead" },
-    { name: "etl-02", role: "Engineer" }, { name: "etl-03", role: "Engineer" },
-    { name: "web-01", role: "Lead" }, { name: "web-02", role: "Engineer" },
-    { name: "web-03", role: "Engineer" }, { name: "queue-01", role: "Service" },
-    { name: "queue-02", role: "Service" }, { name: "batch-01", role: "Lead" },
-    { name: "batch-02", role: "Engineer" }, { name: "batch-03", role: "Engineer" },
-];
-const PLANNER_POPOVER_DATA = [{ name: "Alice" }];
-const PLANNER_HOVERCARD_DATA = [{ name: "Alice" }];
-const PLANNER_FILL_HEIGHT_DATA = [
-    { name: "api-01", role: "Lead" }, { name: "api-02", role: "Engineer" },
-    { name: "api-03", role: "Engineer" }, { name: "cache-01", role: "Service" },
-    { name: "cache-02", role: "Service" }, { name: "etl-01", role: "Lead" },
-    { name: "etl-02", role: "Engineer" }, { name: "etl-03", role: "Engineer" },
-    { name: "web-01", role: "Lead" }, { name: "web-02", role: "Engineer" },
-    { name: "web-03", role: "Engineer" }, { name: "queue-01", role: "Service" },
-];
+const PLANNER_SCROLL_DATA = East.Array.range(0n, 16n).map((_$, i) => ({
+    name: East.str`unit-${i}`,
+    role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
+    team: i.remainder(2n).equals(0n).ifElse(() => "Team A", () => "Team B"),
+    used: 6.0,
+    cap: 8.0,
+}));
 const PLANNER_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
     name: East.str`unit-${i}`,
     role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
+    team: i.remainder(2n).equals(0n).ifElse(() => "Team A", () => "Team B"),
+    used: 6.0,
+    cap: 8.0,
 }));
 
 /**
@@ -98,329 +77,157 @@ export const plannerPoint = example({
 });
 
 /**
- * The Span variant — multi-slot span events on a datetime axis (a committed span
- * and a proposed one).
+ * THE Planner configurator (pass 4) — one preset axis spans the whole surface:
+ * the event grammars (states / stretch / tones / colors / markers), the bucket
+ * grammars (buckets / mixed / per-cell), the overlays (popover / hovercard),
+ * the axis scales (ordinal / day / hour / horizon / scroll), the span chassis
+ * and the #320 fill contract. Axis configs, `now` slots and event arrays are
+ * all East DATA, so every point preset flows through ONE subtree; only the
+ * chassis (Point / Span / bounded-fill) and the build-time column sets are
+ * prebuilt arms. Columns and density compose across every preset; the events
+ * callback branches per row for the mixed / per-cell bucket grammars.
  */
-export const plannerSpan = example({
-    keywords: ["Planner", "span", "gantt", "datetime", "range", "duration", "timeline"],
-    description: "Span variant: multi-slot datetime spans, committed and proposed",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Planner.Span
-                data={[
-                    { name: "Workstream A", owner: "d.park" },
-                    { name: "Workstream B", owner: "r.chen" },
-                ]}
-                axis={Planner.axis.time({ format: "MMM" })}
-                columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.owner }]}
-                events={_r => [
-                    Planner.event({
-                        slot: Planner.at.time(new Date("2024-01-01")), endSlot: Planner.at.time(new Date("2024-02-15")),
-                        label: "Phase one", state: "committed",
-                    }),
-                    Planner.event({
-                        slot: Planner.at.time(new Date("2024-02-15")), endSlot: Planner.at.time(new Date("2024-04-01")),
-                        label: "Phase two", state: "added",
-                    }),
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
+export const plannerVariants = example({
+    keywords: ["Planner", "state", "committed", "proposed", "rejected", "model", "draft", "audit", "stretch", "content", "align", "tile", "tone", "pulse", "animation", "warning", "danger", "color", "colorPalette", "brand", "teal", "marker", "status", "flag", "tooltip", "bucket", "sub-slot", "shift", "per-cell", "mixed", "flat", "popover", "hovercard", "hover", "detail", "click", "ordinal", "phase", "time", "day", "resolution", "hour", "horizon", "FloatType", "expression", "scroll", "maxHeight", "span", "datetime", "duration", "timeline", "fill", "height", "#320", "virtual", "rowHover", "density", "columns", "eyebrow", "derived", "groupBy", "frozen", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State"],
+    description: "Planner configurator — a preset axis over event, bucket, overlay, axis-scale, span and fill demos plus columns, density and row-hover controls on one live plan",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presetKeys = $.const([
+                "states", "stretch", "tones", "colors", "markers",
+                "buckets", "mixed", "percell", "popover", "hovercard",
+                "ordinal", "day", "hour", "horizon", "scroll", "span", "fill",
+            ], ArrayType(StringType));
+            const columnSets = $.const(["simple", "detailed"], ArrayType(StringType));
+            const densities = $.const([
+                variant("condensed", null), variant("compact", null), variant("comfortable", null),
+            ], ArrayType(Style.Types.Density));
 
-/**
- * Every event state in one row — committed, the three proposed flavours
- * (added / model / removed), and rejected.
- */
-export const plannerEventStates = example({
-    keywords: ["Planner", "state", "committed", "proposed", "rejected", "model", "draft", "audit", "diff"],
-    description: "The event-state grammar: committed, proposed (added / model / removed), rejected",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Planner.Point
-                data={[{ name: "Stream" }]}
-                axis={Planner.axis.number({ range: { min: 1, max: 5 } })}
-                columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                events={_r => [
-                    Planner.event({ slot: Planner.at.number(1), label: "Done", state: "committed" }),
-                    Planner.event({ slot: Planner.at.number(2), label: "Add", state: "added" }),
-                    Planner.event({ slot: Planner.at.number(3), label: "Suggest", state: "model" }),
-                    Planner.event({ slot: Planner.at.number(4), label: "Drop", state: "removed" }),
-                    Planner.event({ slot: Planner.at.number(5), label: "Declined", state: "rejected" }),
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
+            const presetBind = $.let(State.bind([StringType], "planner_preset", "states"));
+            const columnsBind = $.let(State.bind([StringType], "planner_columns", "simple"));
+            const densityBind = $.let(State.bind([StringType], "planner_density", "compact"));
+            const hoverBind = $.let(State.bind([BooleanType], "planner_rowhover", false));
 
-/**
- * The left-column model — a frozen identity column with an eyebrow sub-label, a
- * derived column computed in East, an end-aligned column, and row grouping.
- */
-export const plannerColumns = example({
-    keywords: ["Planner", "column", "eyebrow", "sublabel", "derived", "group", "groupBy", "frozen", "capacity"],
-    description: "Value + eyebrow columns, a derived East-computed column, alignment, frozen, groupBy",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Planner.Point
-                data={[
-                    { name: "Alice", role: "Lead", team: "Team A", used: 6.0, cap: 8.0 },
-                    { name: "Bob", role: "Engineer", team: "Team A", used: 4.0, cap: 8.0 },
-                    { name: "Carol", role: "Designer", team: "Team B", used: 7.0, cap: 8.0 },
-                ]}
-                axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
-                groupBy={r => r.team}
-                columns={[
-                    { key: "name", frozen: true, value: r => r.name, sublabel: r => r.role },
-                    { key: "hours", header: "Hours", align: "end", value: r => East.str`${r.used} / ${r.cap} h` },
-                    { key: "free", header: "Free", align: "end", value: r => East.print(r.cap.subtract(r.used)) },
-                ]}
-                events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
-            />
-        );
-    }),
-    inputs: [],
-});
+            const pKey = $.let(presetBind.read());
+            const cKey = $.let(columnsBind.read());
+            const dKey = $.let(densityBind.read());
+            const hoverOn = $.let(hoverBind.read());
 
-/**
- * Bucket variant panel — labelled sub-slot buckets, per-cell bucketing in a
- * grouped Planner, and per-cell bucketing composed with stretch (+ the N/A
- * orphan lane).
- */
-export const plannerBucketsVariants = example({
-    keywords: ["Planner", "bucket", "sub-slot", "slotsPerColumn", "shift", "morning", "afternoon", "per-cell", "mixed", "unbucketed", "stretch", "flat", "ifElse", "group", "N/A", "orphan", "fill"],
-    description: "Bucket variant panel — buckets (labelled sub-slot buckets per column, three named shifts), mixed buckets (grouped per-cell bucketing: Alice mixes stretched bucketed cells with an unstretched flat cell, Bob a stretched flat cell, the Daily group plain flat rows), per cell buckets (stretched lanes with a stray bucketless event dropping to an N/A lane, beside normal bucketed and flat cells)",
-    fn: East.function([], UIComponentType, ($) => {
-        // MIXED BUCKETS — one typed event list per resource so the per-row
-        // `ifElse` branches each return a typed `Array<PlannerEvent>`.
-        const aliceEvents = $.const([
-            // Day 1 — stretched bucketed cells: am + pm fill their lane bands.
-            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Open", state: "committed", stretch: "both" }),
-            Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Mid", state: "committed", stretch: "both" }),
-            // Day 3 — an unstretched unbucketed (flat) cell beside the bucketed one.
-            Planner.event({ slot: Planner.at.number(3), label: "OT", state: "added" }),
-        ], ArrayType(Planner.Types.Event));
-        const bobEvents = $.const([
-            // Day 1 — a stretched unbucketed (flat) cell filling its cell.
-            Planner.event({ slot: Planner.at.number(1), label: "Cover", state: "committed", stretch: "both" }),
-        ], ArrayType(Planner.Types.Event));
-        const dailyEvents = $.const([
-            Planner.event({ slot: Planner.at.number(1), label: "12", state: "committed" }),
-            Planner.event({ slot: Planner.at.number(2), label: "15", state: "committed" }),
-            Planner.event({ slot: Planner.at.number(3), label: "9", state: "added" }),
-        ], ArrayType(Planner.Types.Event));
-        // PER CELL BUCKETS — Press A bucketed: day-1 am/pm lanes stretched to
-        // fill their band (+ a stray bucketless event ⇒ N/A lane); day-2 a
-        // normal-sized bucketed cell. Press B flat: day-1 a stretched tile
-        // filling the cell, day-2 a normal content-sized tile.
-        const pressA = $.const([
-            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Setup", state: "committed", stretch: "both" }),
-            Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Run", state: "committed", stretch: "both" }),
-            Planner.event({ slot: Planner.at.number(1), label: "Note", state: "added" }),
-            Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "QA", state: "committed" }),
-        ], ArrayType(Planner.Types.Event));
-        const pressB = $.const([
-            Planner.event({ slot: Planner.at.number(1), label: "Maint", state: "committed", stretch: "both" }),
-            Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "added" }),
-        ], ArrayType(Planner.Types.Event));
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="BUCKETS" align="start" />
-                <Planner.Point
-                    data={PLANNER_BUCKETS_DATA}
-                    axis={Planner.axis.number({
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
+            const onColumns = $.const(East.function([StringType], NullType, ($, next) => { $(columnsBind.write(next)); }));
+            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+            const onHoverKey = $.const(East.function([StringType], NullType, ($, next) => { $(hoverBind.write(next.equal("on"))); }));
+
+            // HORIZON — a runtime-derived extent (last event day 3 + a 4-day
+            // tail) proves `range.max` accepts a FloatType expression.
+            const lastEventDay = $.const(3.0, FloatType);
+            const horizon = $.const(lastEventDay.add(4.0), FloatType);
+
+            // Every POINT preset is pure data: axis + now + rows + events
+            // travel together through one subtree.
+            const presets = $.const([
+                {
+                    key: "states",
+                    axis: Planner.axis.number({ range: { min: 1, max: 5 } }),
+                    now: Planner.at.number(5),
+                    rows: [{ name: "Stream", role: "Monitor", team: "Ops", used: 6.0, cap: 8.0 }],
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "Done", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Add", state: "added" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Suggest", state: "model" }),
+                        Planner.event({ slot: Planner.at.number(4), label: "Drop", state: "removed" }),
+                        Planner.event({ slot: Planner.at.number(5), label: "Declined", state: "rejected" }),
+                    ],
+                },
+                {
+                    key: "stretch",
+                    axis: Planner.axis.number({ range: { min: 1, max: 4 } }),
+                    now: Planner.at.number(4),
+                    rows: PLANNER_PAIR_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "Full", state: "committed", stretch: "both", content: { horizontal: "center", vertical: "center" } }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Wide", state: "added", stretch: "horizontal" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Top-left", state: "committed" }),
+                    ],
+                },
+                {
+                    key: "tones",
+                    axis: Planner.axis.number({ range: { min: 1, max: 4 } }),
+                    now: Planner.at.number(4),
+                    rows: [{ name: "Reactor", role: "Vessel", team: "Plant", used: 7.0, cap: 8.0 }],
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "OK", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Watch", state: "committed", tone: "warning" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Breach", state: "committed", tone: "danger", animation: "pulse" }),
+                    ],
+                },
+                {
+                    key: "colors",
+                    axis: Planner.axis.number({ range: { min: 1, max: 4 } }),
+                    now: Planner.at.number(4),
+                    rows: [{ name: "Line", role: "Pack", team: "Plant", used: 5.0, cap: 8.0 }],
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "Series A", state: "committed", color: "teal.solid" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "brand" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "fg.default" }),
+                    ],
+                },
+                {
+                    key: "markers",
+                    axis: Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 4 } }),
+                    now: Planner.at.number(4),
+                    rows: PLANNER_CREW_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
+                    ],
+                },
+                {
+                    key: "buckets",
+                    axis: Planner.axis.number({
                         buckets: [
                             { key: "morning", label: "AM" },
                             { key: "afternoon", label: "PM" },
                             { key: "evening", label: "EV" },
                         ],
                         range: { min: 1, max: 3 },
-                    })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
+                    }),
+                    now: Planner.at.number(3),
+                    rows: PLANNER_PAIR_DATA,
+                    events: [
                         Planner.event({ slot: Planner.at.number(1), bucket: "morning", label: "A", state: "committed" }),
                         Planner.event({ slot: Planner.at.number(1), bucket: "evening", label: "B", state: "added" }),
-                    ]}
-                />
-                <Separator label="MIXED BUCKETS" align="start" />
-                <Planner.Point
-                    data={PLANNER_MIXED_BUCKETS_DATA}
-                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } })}
-                    groupBy={r => r.group}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={r => r.isAlice.ifElse(() => aliceEvents, () => r.isBob.ifElse(() => bobEvents, () => dailyEvents))}
-                />
-                <Separator label="PER CELL BUCKETS" align="start" />
-                <Planner.Point
-                    data={PLANNER_PER_CELL_BUCKETS_DATA}
-                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={r => r.bucketed.ifElse(() => pressA, () => pressB)}
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Event-style variant panel — per-event stretch/content geometry, tone +
- * animation, brand colour, status markers, row hover, and density.
- */
-export const plannerEventStyleVariants = example({
-    keywords: ["Planner", "stretch", "fill", "content", "align", "orientation", "tile", "both", "horizontal", "tone", "colour", "override", "animation", "pulse", "attention", "warning", "danger", "color", "colorPalette", "brand", "teal", "purple", "match", "chart", "series", "marker", "status", "success", "info", "flag", "tooltip", "rowHover", "hover", "row", "highlight", "outline", "density", "compact", "comfortable", "condensed", "size"],
-    description: "Event-style variant panel — stretch (a both-axis tile with centred content, a width-filling tile, a normal top-left tile), event tone (danger-toned committed event pulses while keeping audit cues), event color (color 'brand.solid' / colorPalette 'brand' match paired chart series), markers (success / warning / danger / info status rings with hover tooltips), row hover (light brand outline around the whole row), density (compact row / header rhythm)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="STRETCH" align="start" />
-                <Planner.Point
-                    data={PLANNER_STRETCH_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                    density="comfortable"
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), label: "Full", state: "committed", stretch: "both", content: { horizontal: "center", vertical: "center" } }),
-                        Planner.event({ slot: Planner.at.number(2), label: "Wide", state: "added", stretch: "horizontal" }),
-                        Planner.event({ slot: Planner.at.number(3), label: "Top-left", state: "committed" }),
-                    ]}
-                />
-                <Separator label="EVENT TONE" align="start" />
-                <Planner.Point
-                    data={PLANNER_EVENT_TONE_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), label: "OK", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(2), label: "Watch", state: "committed", tone: "warning" }),
-                        Planner.event({ slot: Planner.at.number(3), label: "Breach", state: "committed", tone: "danger", animation: "pulse" }),
-                    ]}
-                />
-                <Separator label="EVENT COLOR" align="start" />
-                <Planner.Point
-                    data={PLANNER_EVENT_COLOR_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), label: "Series A", state: "committed", color: "teal.solid" }),
-                        Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "brand" }),
-                        Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "fg.default" }),
-                    ]}
-                />
-                <Separator label="MARKERS" align="start" />
-                <Planner.Point
-                    data={PLANNER_MARKERS_DATA}
-                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 4 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
-                    ]}
-                    markers={_r => [
-                        Planner.marker({ slot: Planner.at.number(1), status: "success", message: "On track" }),
-                        Planner.marker({ slot: Planner.at.number(2), status: "warning", message: "Tight turnaround" }),
-                        Planner.marker({ slot: Planner.at.number(3), status: "danger", message: "Double-booked in this slot" }),
-                        Planner.marker({ slot: Planner.at.number(4), status: "info", message: "Pending review" }),
-                    ]}
-                />
-                <Separator label="ROW HOVER" align="start" />
-                <Planner.Point
-                    data={PLANNER_ROW_HOVER_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                    rowHover={true}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
-                />
-                <Separator label="DENSITY" align="start" />
-                <Planner.Point
-                    data={PLANNER_DENSITY_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
-                    density="compact"
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Axis variant panel — ordinal phases, a data-driven numeric extent, and the
- * maxHeight scroll cap (#302).
- */
-export const plannerAxisVariants = example({
-    keywords: ["Planner", "ordinal", "phase", "stage", "category", "axis", "range", "data-driven", "expression", "now", "horizon", "FloatType", "SubtypeExprOrValue", "maxHeight", "scroll", "vertical", "stickyHeader", "sticky", "overflow", "pinned"],
-    description: "Axis variant panel — ordinal axis (named phases, one slot per column), data driven range (range.max is a FloatType expression: a horizon past the last event keeps the now marker on-grid), scroll (maxHeight caps the plan area, body scrolls with the header pinned sticky-top)",
-    fn: East.function([], UIComponentType, ($) => {
-        // DATA DRIVEN RANGE — a runtime-derived horizon (last event day 3 + a
-        // 4-day tail = 7) proves range.max accepts a FloatType *expression*.
-        const lastEventDay = $.const(3.0, FloatType);
-        const horizon = $.const(lastEventDay.add(4.0), FloatType);
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="ORDINAL AXIS" align="start" />
-                <Planner.Point
-                    data={PLANNER_ORDINAL_AXIS_DATA}
-                    axis={Planner.axis.ordinal({ range: ["backlog", "active", "review", "done"] })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.ordinal("active"), label: "Start", state: "committed" }),
-                        Planner.event({ slot: Planner.at.ordinal("done"), label: "Wrap up", state: "model" }),
-                    ]}
-                />
-                <Separator label="DATA DRIVEN RANGE" align="start" />
-                <Planner.Point
-                    data={PLANNER_DATA_DRIVEN_RANGE_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: horizon } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(3), label: "plan", state: "added" }),
-                    ]}
-                    now={Planner.at.number(7)}
-                />
-                <Separator label="SCROLL" align="start" />
-                <Planner.Point
-                    data={PLANNER_SCROLL_DATA}
-                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
-                        Planner.event({ slot: Planner.at.number(5), bucket: "am", label: "plan", state: "model" }),
-                    ]}
-                    now={Planner.at.number(4)}
-                    maxHeight="320px"
-                />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Overlay pair — the per-event click popover and the open-on-hover HoverCard
- * (coexisting with the click popover on one event).
- */
-export const plannerOverlays = example({
-    keywords: ["Planner", "popover", "detail", "click", "rich", "hovercard", "hover", "preview", "coexist"],
-    description: "Overlay pair — popover (per-event click popover with rich content) and hovercard (open-on-hover HoverCard on an event coexisting with the click popover: hover previews, click pins)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="POPOVER" align="start" />
-                <Planner.Point
-                    data={PLANNER_POPOVER_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
+                    ],
+                },
+                {
+                    key: "mixed",
+                    axis: Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } }),
+                    now: Planner.at.number(5),
+                    rows: [
+                        { name: "Alice", role: "Shifts", team: "Shifts", used: 6.0, cap: 8.0 },
+                        { name: "Bob", role: "Shifts", team: "Shifts", used: 5.0, cap: 8.0 },
+                        { name: "Headcount", role: "Daily", team: "Daily", used: 0.0, cap: 0.0 },
+                    ],
+                    // Per-row events come from the callback branch below.
+                    events: [],
+                },
+                {
+                    key: "percell",
+                    axis: Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } }),
+                    now: Planner.at.number(3),
+                    rows: [
+                        { name: "Press A", role: "bucketed", team: "Plant", used: 6.0, cap: 8.0 },
+                        { name: "Press B", role: "flat", team: "Plant", used: 5.0, cap: 8.0 },
+                    ],
+                    events: [],
+                },
+                {
+                    key: "popover",
+                    axis: Planner.axis.number({ range: { min: 1, max: 4 } }),
+                    now: Planner.at.number(4),
+                    rows: PLANNER_PAIR_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "Setup", state: "committed" }),
                         Planner.event({
                             slot: Planner.at.number(2), label: "Review", state: "committed",
                             popover: (
@@ -430,14 +237,16 @@ export const plannerOverlays = example({
                                 </VStack>
                             ),
                         }),
-                    ]}
-                />
-                <Separator label="HOVERCARD" align="start" />
-                <Planner.Point
-                    data={PLANNER_HOVERCARD_DATA}
-                    axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(3), label: "Plan", state: "added" }),
+                    ],
+                },
+                {
+                    key: "hovercard",
+                    axis: Planner.axis.number({ range: { min: 1, max: 4 } }),
+                    now: Planner.at.number(4),
+                    rows: PLANNER_PAIR_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "Setup", state: "committed" }),
                         Planner.event({
                             slot: Planner.at.number(2), label: "Review", state: "committed",
                             hovercard: (
@@ -453,45 +262,229 @@ export const plannerOverlays = example({
                                 </VStack>
                             ),
                         }),
+                        Planner.event({ slot: Planner.at.number(3), label: "Plan", state: "added" }),
+                    ],
+                },
+                {
+                    key: "ordinal",
+                    axis: Planner.axis.ordinal({ range: ["backlog", "active", "review", "done"] }),
+                    now: Planner.at.ordinal("review"),
+                    rows: PLANNER_CREW_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.ordinal("active"), label: "Start", state: "committed" }),
+                        Planner.event({ slot: Planner.at.ordinal("review"), label: "Check", state: "added" }),
+                        Planner.event({ slot: Planner.at.ordinal("done"), label: "Wrap up", state: "model" }),
+                    ],
+                },
+                {
+                    // A pinned ≤ 14-day window auto-derives Mon 30 … Sun 05 day
+                    // columns (#309).
+                    key: "day",
+                    axis: Planner.axis.time({ format: "ddd DD", range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") } }),
+                    now: Planner.at.time(new Date("2026-04-02")),
+                    rows: PLANNER_CREW_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.time(new Date("2026-03-30T10:00:00Z")), label: "Setup", state: "committed" }),
+                        Planner.event({ slot: Planner.at.time(new Date("2026-04-01T09:00:00Z")), label: "Run", state: "committed" }),
+                        Planner.event({ slot: Planner.at.time(new Date("2026-04-03T09:00:00Z")), label: "Plan", state: "added" }),
+                    ],
+                },
+                {
+                    // Forced hour resolution over a single working day (#309).
+                    key: "hour",
+                    axis: Planner.axis.time({ resolution: "hour", format: "HH:mm", range: { min: new Date("2026-03-30T08:00:00Z"), max: new Date("2026-03-30T18:00:00Z") } }),
+                    now: Planner.at.time(new Date("2026-03-30T12:00:00Z")),
+                    rows: PLANNER_CREW_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.time(new Date("2026-03-30T09:00:00Z")), label: "Setup", state: "committed" }),
+                        Planner.event({ slot: Planner.at.time(new Date("2026-03-30T11:00:00Z")), label: "Run", state: "committed" }),
+                        Planner.event({ slot: Planner.at.time(new Date("2026-03-30T14:00:00Z")), label: "Plan", state: "added" }),
+                    ],
+                },
+                {
+                    // `range.max` is a Float EXPRESSION — a data-driven extent.
+                    key: "horizon",
+                    axis: Planner.axis.number({ range: { min: 1, max: horizon } }),
+                    now: Planner.at.number(7),
+                    rows: PLANNER_CREW_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(3), label: "plan", state: "added" }),
+                    ],
+                },
+                {
+                    key: "scroll",
+                    axis: Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } }),
+                    now: Planner.at.number(4),
+                    rows: PLANNER_SCROLL_DATA,
+                    events: [
+                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
+                    ],
+                },
+            ], ArrayType(StructType({ key: StringType, axis: Planner.Types.Axis, now: Planner.Types.Slot, rows: ArrayType(PLANNER_ROW), events: ArrayType(Planner.Types.Event) })));
+            const sel = $.let(presets.filter((_$, o) => o.key.equal(pKey)).get(0n, _$ => presets.get(0n)));
+            const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+
+            // MIXED / PER-CELL grammars need per-row event lists — the one
+            // events callback branches on the preset key AND the row.
+            const aliceEvents = $.const([
+                Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Open", state: "committed", stretch: "both" }),
+                Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Mid", state: "committed", stretch: "both" }),
+                Planner.event({ slot: Planner.at.number(3), label: "OT", state: "added" }),
+            ], ArrayType(Planner.Types.Event));
+            const bobEvents = $.const([
+                Planner.event({ slot: Planner.at.number(1), label: "Cover", state: "committed", stretch: "both" }),
+            ], ArrayType(Planner.Types.Event));
+            const dailyEvents = $.const([
+                Planner.event({ slot: Planner.at.number(1), label: "12", state: "committed" }),
+                Planner.event({ slot: Planner.at.number(2), label: "15", state: "committed" }),
+                Planner.event({ slot: Planner.at.number(3), label: "9", state: "added" }),
+            ], ArrayType(Planner.Types.Event));
+            const pressA = $.const([
+                Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Setup", state: "committed", stretch: "both" }),
+                Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Run", state: "committed", stretch: "both" }),
+                Planner.event({ slot: Planner.at.number(1), label: "Note", state: "added" }),
+                Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "QA", state: "committed" }),
+            ], ArrayType(Planner.Types.Event));
+            const pressB = $.const([
+                Planner.event({ slot: Planner.at.number(1), label: "Maint", state: "committed", stretch: "both" }),
+                Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "added" }),
+            ], ArrayType(Planner.Types.Event));
+
+            // SPAN chassis — multi-slot start → end events on a months axis.
+            const spanAxis = $.let(Planner.axis.time({ format: "MMM" }));
+            const spanEvents = $.const([
+                Planner.event({
+                    slot: Planner.at.time(new Date("2024-01-01")), endSlot: Planner.at.time(new Date("2024-02-15")),
+                    label: "Phase one", state: "committed",
+                }),
+                Planner.event({
+                    slot: Planner.at.time(new Date("2024-02-15")), endSlot: Planner.at.time(new Date("2024-04-01")),
+                    label: "Phase two", state: "added",
+                }),
+            ], ArrayType(Planner.Types.Event));
+
+            // Prebuilt arms: chassis × column set (columns are build-time).
+            const pointSimple = $.const(
+                <Planner.Point
+                    data={sel.rows}
+                    axis={sel.axis}
+                    now={sel.now}
+                    density={densitySel}
+                    rowHover={hoverOn}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={r => pKey.equal("mixed").ifElse(
+                        _$ => r.team.equal("Daily").ifElse(_$ => dailyEvents, _$ => r.name.equal("Alice").ifElse(_$ => aliceEvents, _$ => bobEvents)),
+                        _$ => pKey.equal("percell").ifElse(
+                            _$ => r.role.equal("bucketed").ifElse(_$ => pressA, _$ => pressB),
+                            _$ => sel.events,
+                        ),
+                    )}
+                    maxHeight="320px"
+                />,
+            );
+            const pointDetailed = $.const(
+                <Planner.Point
+                    data={sel.rows}
+                    axis={sel.axis}
+                    now={sel.now}
+                    density={densitySel}
+                    rowHover={hoverOn}
+                    groupBy={r => r.team}
+                    columns={[
+                        { key: "name", frozen: true, value: r => r.name, sublabel: r => r.role },
+                        { key: "hours", header: "Hours", align: "end", value: r => East.str`${r.used} / ${r.cap} h` },
+                        { key: "free", header: "Free", align: "end", value: r => East.print(r.cap.subtract(r.used)) },
+                    ]}
+                    events={r => pKey.equal("mixed").ifElse(
+                        _$ => r.team.equal("Daily").ifElse(_$ => dailyEvents, _$ => r.name.equal("Alice").ifElse(_$ => aliceEvents, _$ => bobEvents)),
+                        _$ => pKey.equal("percell").ifElse(
+                            _$ => r.role.equal("bucketed").ifElse(_$ => pressA, _$ => pressB),
+                            _$ => sel.events,
+                        ),
+                    )}
+                    maxHeight="320px"
+                />,
+            );
+            const spanSimple = $.const(
+                <Planner.Span
+                    data={PLANNER_CREW_DATA}
+                    axis={spanAxis}
+                    density={densitySel}
+                    rowHover={hoverOn}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => spanEvents}
+                />,
+            );
+            const spanDetailed = $.const(
+                <Planner.Span
+                    data={PLANNER_CREW_DATA}
+                    axis={spanAxis}
+                    density={densitySel}
+                    rowHover={hoverOn}
+                    groupBy={r => r.team}
+                    columns={[
+                        { key: "name", frozen: true, value: r => r.name, sublabel: r => r.role },
+                        { key: "hours", header: "Hours", align: "end", value: r => East.str`${r.used} / ${r.cap} h` },
+                        { key: "free", header: "Free", align: "end", value: r => East.print(r.cap.subtract(r.used)) },
+                    ]}
+                    events={_r => spanEvents}
+                />,
+            );
+            // FILL (#320) — height="fill" resolves against the bounded Box and
+            // virtualizes the 200 rows.
+            const fillArm = $.const(
+                <Box height="200px">
+                    <Planner.Point
+                        data={PLANNER_FILL_DATA}
+                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
+                        density={densitySel}
+                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                        events={_r => [
+                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "on", state: "committed" }),
+                            Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
+                        ]}
+                        height="fill"
+                    />
+                </Box>,
+            );
+
+            const preview = $.const(pKey.equal("span").ifElse(
+                _$ => cKey.equal("detailed").ifElse(_$ => spanDetailed, _$ => spanSimple),
+                _$ => pKey.equal("fill").ifElse(
+                    _$ => fillArm,
+                    _$ => cKey.equal("detailed").ifElse(_$ => pointDetailed, _$ => pointSimple),
+                ),
+            ), UIComponentType);
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Preset", pKey,
+                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        Configurator.Control("Columns", cKey,
+                            <SegmentGroup value={cKey} onChange={onColumns} size="sm"
+                                items={columnSets.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        Configurator.Control("Density", dKey,
+                            <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Row hover", hoverOn.ifElse(_$ => "on", _$ => "off"),
+                            <SegmentGroup value={hoverOn.ifElse(_$ => "on", _$ => "off")} onChange={onHoverKey} size="sm"
+                                items={["off", "on"].map(s => SegmentGroup.Item(s, <Text>{s.toUpperCase()}</Text>))} />),
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Chassis", pKey.equal("span").ifElse(_$ => "Span", _$ => "Point")),
+                        Configurator.Spec("Scale", pKey.equal("span").ifElse(_$ => "time", _$ => pKey.equal("fill").ifElse(_$ => "number", _$ => sel.axis.scale.getTag()))),
+                        Configurator.Spec("Rows", pKey.equal("span").ifElse(_$ => "3", _$ => pKey.equal("fill").ifElse(_$ => "200", _$ => East.print(sel.rows.size())))),
                     ]}
                 />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Day-resolution time axis (#309) — a pinned time range spanning ≤ 14 days
- * derives one column per day automatically (`resolution: "hour" | "day" |
- * "week" | "month" | "quarter" | "year"` forces the unit instead), and
- * `format` prints each column with the Chart date-pattern tokens (`"ddd DD"`
- * → `Mon 30`). The pinned range is a half-open calendar window `[min, max)`:
- * Mar 30 … Apr 6 is exactly the seven columns Mon 30 … Sun 05. Events and the
- * now divider keep real instants — each floors to its day column.
- */
-export const plannerDayResolution = example({
-    keywords: ["Planner", "time", "day", "resolution", "week", "daily", "format", "ddd", "axis", "range", "roster", "hour", "columns"],
-    description: "Day-resolution time axis — a pinned 7-day window derives Mon 30 … Sun 05 day columns (format 'ddd DD'); resolution: 'hour'/'day'/'week'/'month'/'quarter'/'year' forces the unit",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Planner.Point
-            data={[
-                { name: "Press A", role: "Stamp" },
-                { name: "Press B", role: "Stamp" },
-                { name: "Line 1", role: "Bottling" },
-            ]}
-            axis={Planner.axis.time({
-                format: "ddd DD",
-                range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") },
-            })}
-            now={Planner.at.time(new Date("2026-04-02"))}
-            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-            events={_r => [
-                Planner.event({ slot: Planner.at.time(new Date("2026-03-30T10:00:00Z")), label: "Setup", state: "committed" }),
-                Planner.event({ slot: Planner.at.time(new Date("2026-04-01T09:00:00Z")), label: "Run", state: "committed" }),
-                Planner.event({ slot: Planner.at.time(new Date("2026-04-03T09:00:00Z")), label: "Plan", state: "added" }),
-            ]}
-        />
+            );
+        }}</Reactive>
     )),
     inputs: [],
 });
@@ -558,7 +551,7 @@ export const plannerReview = example({
  */
 export const plannerLibraryDnd = example({
     keywords: ["Planner", "Library", "DnD", "drag", "add", "move", "remove", "onDrag", "canDrop", "target", "bucket", "lane", "composite", "proposed", "review", "pending", "approve", "loop"],
-    description: "Library + Planner DnD — drag a person onto the weekly plan (proposed(added) tile, per-cell ⊘ veto left of now; Press B's AM/PM bucket lanes take drops as composite day:bucket slots); every grammar arm and Approve logs to the LAST line; the drop flips the row pending and Approve resolves it",
+    description: "Library + Planner DnD — proposed(added) drops through the one onDrag grammar, canDrop ⊘ left of now, composite day:bucket lanes on Press B; a drop flips its row pending and Approve resolves it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pendingRowBind = $.let(State.bind([IntegerType], "planner_pending_row", -1n));
@@ -699,48 +692,5 @@ export const plannerLibraryDnd = example({
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-/**
- * Height sizing pair (#320) — a definite `height` pins the plan to exactly its
- * box (vs `maxHeight`'s grow-up-to-a-cap), and `height="fill"` resolves against
- * a bounded parent Box with row virtualization.
- */
-export const plannerFill = example({
-    keywords: ["Planner", "height", "definite", "bounded", "scroll", "sticky", "sizing", "#320", "fill", "Box", "virtual"],
-    description: "Height sizing pair (#320) — fill height (a definite height=\"220px\" pins the plan to exactly this box; header pinned, body scrolls within) and fill (height=\"fill\" inside a fixed 200px Box: two hundred rows overflow the box so only the visible rows mount, header pinned)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="FILL HEIGHT" align="start" />
-                <Planner.Point
-                    data={PLANNER_FILL_HEIGHT_DATA}
-                    axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
-                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                    events={_r => [
-                        Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
-                        Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
-                    ]}
-                    now={Planner.at.number(4)}
-                    height="220px"
-                />
-                <Separator label="FILL" align="start" />
-                <Box height="200px">
-                    <Planner.Point
-                        data={PLANNER_FILL_DATA}
-                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
-                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "on", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
-                        ]}
-                        height="fill"
-                    />
-                </Box>
-            </VStack>
-        );
-    }),
     inputs: [],
 });

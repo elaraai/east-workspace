@@ -140,8 +140,7 @@ export const stackVariants = example({
                         controls={[
                             Configurator.Control("Direction", dKey,
                                 <SegmentGroup value={dKey} onChange={onDirection} size="sm"
-                                    items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "row is HStack · column is VStack"),
+                                    items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Justify", jKey,
                                 <SegmentGroup value={jKey} onChange={onJustify} size="sm"
                                     items={justifies.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -150,18 +149,15 @@ export const stackVariants = example({
                                     items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Density", denKey,
                                 <SegmentGroup value={denKey} onChange={onDensity} size="sm"
-                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "cascades to the Tag · Badge · Meter children"),
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Content", cKey,
                                 <SegmentGroup value={cKey} onChange={onContent} size="sm"
-                                    items={contents.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "navbar nests an HStack inside the stack"),
+                                    items={contents.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Width spec row below rather than as one value.
                             Configurator.Slot("Wrap",
                                 <HStack gap="5" align="center">
                                     <Switch checked={wrapOn} label="Wrap" onChange={onWrap} />
-                                    <Text textStyle="caption" color="fg.subtle">200px canvas — items wrap to the next line</Text>
                                 </HStack>),
                         ]}
                         preview={

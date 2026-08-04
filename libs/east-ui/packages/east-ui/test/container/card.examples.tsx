@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, VariantType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Separator, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -29,8 +29,8 @@ export const cardBasic = example({
 // ============================================================================
 
 export const cardVariants = example({
-    keywords: ["Card", "Root", "header", "eyebrow", "Header", "title", "description", "footer", "Button", "actions", "meta", "Section", "multi-section", "flush", "bodyPadding", "full-bleed", "padding", "Badge", "rich content", "height", "overflow", "dimensions", "flex", "Stack", "HStack", "fill", "body", "constrain", "scroll", "sizing", "fillBody", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Card configurator — header, body and sizing axes plus footer / sections switches driving one live card; the aside shares one row between two flex cards",
+    keywords: ["Card", "Root", "header", "eyebrow", "Header", "title", "description", "footer", "Button", "actions", "meta", "Section", "multi-section", "flush", "bodyPadding", "full-bleed", "padding", "Badge", "rich content", "height", "overflow", "dimensions", "flex", "Stack", "HStack", "fill", "body", "constrain", "scroll", "sizing", "fillBody", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "state", "loading", "Skeleton", "empty", "EmptyState", "error", "permission-denied", "access denied"],
+    description: "Card configurator — header, body, sizing and runtime-state axes plus footer / sections switches driving one live card; the aside shares one row between two flex cards",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -57,6 +57,18 @@ export const cardVariants = example({
                     { label: "flexible",  height: "auto",  width: "100%",  flex: "1",    overflow: variant("visible", null) },
                     { label: "fill-body", height: "240px", width: "280px", flex: "none", overflow: variant("visible", null) },
                 ], ArrayType(StructType({ label: StringType, height: StringType, width: StringType, flex: StringType, overflow: Style.Types.Overflow })));
+
+                // Runtime state is the shared states contract — `ready` plus
+                // the fallback quartet. The selected variant lowers onto every
+                // prebuilt leaf, so the fallback bodies render inside whichever
+                // header / footer / sizing combination is configured.
+                const states = $.const([
+                    variant("ready", null), variant("loading", null), variant("empty", null),
+                    variant("error", null), variant("permission-denied", null),
+                ], ArrayType(VariantType({
+                    ready: NullType, loading: NullType, empty: NullType,
+                    error: NullType, "permission-denied": NullType,
+                })));
 
                 // The three bodies the switches and the #320 preset pick between.
                 const scrollBody = $.const([
@@ -89,24 +101,28 @@ export const cardVariants = example({
                 const headerBind   = $.let(State.bind([StringType], "card_header", "full"));
                 const bodyBind     = $.let(State.bind([StringType], "card_body", "default"));
                 const sizingBind   = $.let(State.bind([StringType], "card_sizing", "flexible"));
+                const stateBind    = $.let(State.bind([StringType], "card_state", "ready"));
                 const footerBind   = $.let(State.bind([BooleanType], "card_footer", true));
                 const sectionsBind = $.let(State.bind([BooleanType], "card_sections", false));
 
                 const hKey       = $.let(headerBind.read());
                 const bKey       = $.let(bodyBind.read());
                 const sKey       = $.let(sizingBind.read());
+                const stKey      = $.let(stateBind.read());
                 const footerOn   = $.let(footerBind.read());
                 const sectionsOn = $.let(sectionsBind.read());
 
                 const onHeader   = $.const(East.function([StringType], NullType, ($, next) => { $(headerBind.write(next)); }));
                 const onBody     = $.const(East.function([StringType], NullType, ($, next) => { $(bodyBind.write(next)); }));
                 const onSizing   = $.const(East.function([StringType], NullType, ($, next) => { $(sizingBind.write(next)); }));
+                const onState    = $.const(East.function([StringType], NullType, ($, next) => { $(stateBind.write(next)); }));
                 const onFooter   = $.const(East.function([BooleanType], NullType, ($, next) => { $(footerBind.write(next)); }));
                 const onSections = $.const(East.function([BooleanType], NullType, ($, next) => { $(sectionsBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const body = $.let(bodies.filter((_$, o) => o.label.equal(bKey)).get(0n));
                 const sizing = $.let(sizings.filter((_$, o) => o.label.equal(sKey)).get(0n));
+                const cardState = $.let(states.filter((_$, v) => v.getTag().equal(stKey)).get(0n));
 
                 const kids = $.let(sKey.equal("fill-body").ifElse(
                     _$ => scrollBody,
@@ -126,7 +142,7 @@ export const cardVariants = example({
                                     <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
                                 ] }}
                                 flush={body.flush} bodyPadding={body.pad}
-                                height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                             >
                                 {kids}
                             </Card>
@@ -134,7 +150,7 @@ export const cardVariants = example({
                         _$ => (
                             <Card
                                 flush={body.flush} bodyPadding={body.pad}
-                                height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                             >
                                 {kids}
                             </Card>
@@ -150,7 +166,7 @@ export const cardVariants = example({
                                         <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
                                     ] }}
                                     flush={body.flush} bodyPadding={body.pad}
-                                    height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                    height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                                 >
                                     {kids}
                                 </Card>
@@ -159,7 +175,7 @@ export const cardVariants = example({
                                 <Card
                                     header={{ eyebrow: "Run summary" }}
                                     flush={body.flush} bodyPadding={body.pad}
-                                    height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                    height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                                 >
                                     {kids}
                                 </Card>
@@ -175,7 +191,7 @@ export const cardVariants = example({
                                             <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
                                         ] }}
                                         flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                                     >
                                         {kids}
                                     </Card>
@@ -184,7 +200,7 @@ export const cardVariants = example({
                                     <Card
                                         header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}
                                         flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                                     >
                                         {kids}
                                     </Card>
@@ -196,7 +212,7 @@ export const cardVariants = example({
                                         header={{ eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" }}
                                         footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant="subtle">Export</Button>] }}
                                         flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                                     >
                                         {kids}
                                     </Card>
@@ -205,7 +221,7 @@ export const cardVariants = example({
                                     <Card
                                         header={{ eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" }}
                                         flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow}
+                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
                                     >
                                         {kids}
                                     </Card>
@@ -220,25 +236,23 @@ export const cardVariants = example({
                         controls={[
                             Configurator.Control("Header", hKey,
                                 <SegmentGroup value={hKey} onChange={onHeader} size="sm"
-                                    items={headers.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
-                                "eyebrow · title · description · meta"),
+                                    items={headers.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             Configurator.Control("Body", bKey,
                                 <SegmentGroup value={bKey} onChange={onBody} size="sm"
-                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "flush overrides bodyPadding"),
+                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Sizing", sKey,
                                 <SegmentGroup value={sKey} onChange={onSizing} size="sm"
-                                    items={sizings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "fill-body is the #320 contract"),
+                                    items={sizings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("State", stKey,
+                                <SegmentGroup value={stKey} onChange={onState} size="sm"
+                                    items={states.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as
                             // the Footer / Sections spec rows below rather than
                             // as one value.
                             Configurator.Slot("Slots",
                                 <HStack gap="5" align="center">
                                     <Switch checked={footerOn} label="Footer" onChange={onFooter} />
-                                    <Text textStyle="caption" color="fg.subtle">action row</Text>
                                     <Switch checked={sectionsOn} label="Sections" onChange={onSections} />
-                                    <Text textStyle="caption" color="fg.subtle">two hairline sections</Text>
                                 </HStack>),
                         ]}
                         preview={preview}
@@ -262,42 +276,13 @@ export const cardVariants = example({
                             Configurator.Spec("Sections", sKey.equal("fill-body").ifElse(
                                 _$ => "fill scrollY body",
                                 _$ => sectionsOn.ifElse(_$ => "2 hairline", _$ => "inline body"))),
+                            Configurator.Spec("Body render", stKey.equal("ready").ifElse(
+                                _$ => "children",
+                                _$ => East.str`${stKey} fallback`)),
                         ]}
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Card — the shared states contract (states panel)
-// ============================================================================
-
-export const cardStates = example({
-    keywords: ["Card", "state", "loading", "Skeleton", "empty", "EmptyState", "error", "permission-denied", "access denied"],
-    description: "Card state panel — the shared states-contract quartet: loading (skeleton body), empty (EmptyState fallback body), error (compute-error fallback body), permission denied (access-denied fallback body)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="LOADING" align="start" />
-                <Card header={{ title: "Run summary" }} state="loading">
-                    <Text>Original content — replaced by skeleton while loading.</Text>
-                </Card>
-                <Separator label="EMPTY" align="start" />
-                <Card header={{ eyebrow: "Scenarios" }} state="empty">
-                    <Text>Original content — replaced by EmptyState when empty.</Text>
-                </Card>
-                <Separator label="ERROR" align="start" />
-                <Card header={{ eyebrow: "Run summary" }} state="error">
-                    <Text>Original content — replaced by error alert.</Text>
-                </Card>
-                <Separator label="PERMISSION DENIED" align="start" />
-                <Card header={{ eyebrow: "Admin panel" }} state="permission-denied">
-                    <Text>Sensitive content.</Text>
-                </Card>
-            </VStack>
         );
     }),
     inputs: [],

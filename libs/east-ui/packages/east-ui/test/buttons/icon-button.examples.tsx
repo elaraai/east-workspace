@@ -140,22 +140,18 @@ export const iconButtonVariants = example({
                                     items={palettes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />,
-                                "escape hatches over the palette recipe"),
+                                    items={colours.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                             Configurator.Control("Badge", bKey,
                                 <SegmentGroup value={bKey} onChange={onBadge} size="sm"
-                                    items={badges.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "DOT renders the empty-string indicator"),
+                                    items={badges.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Attention", aKey,
                                 <SegmentGroup value={aKey} onChange={onAttention} size="sm"
-                                    items={attentions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />,
-                                "PULSE blinks the badge · RING pings the button"),
+                                    items={attentions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Loading spec row below rather than as one value.
                             Configurator.Slot("State",
                                 <HStack gap="5" align="center">
                                     <Switch checked={loading} label="Loading" onChange={onLoading} />
-                                    <Text textStyle="caption" color="fg.subtle">custom spinner swap</Text>
                                 </HStack>),
                         ]}
                         preview={btn}

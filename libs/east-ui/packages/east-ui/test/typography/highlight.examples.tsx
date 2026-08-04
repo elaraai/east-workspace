@@ -77,12 +77,10 @@ export const highlightVariants = example({
                         controls={[
                             Configurator.Control("Terms", tKey,
                                 <SegmentGroup value={tKey} onChange={onTerms} size="sm"
-                                    items={passages.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "passage · query follow the preset"),
+                                    items={passages.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />,
-                                "native uses the default mark tint"),
+                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                         ]}
                         preview={highlight}
                         aside={{
