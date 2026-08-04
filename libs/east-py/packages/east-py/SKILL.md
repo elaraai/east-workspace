@@ -536,16 +536,21 @@ Task → What do you need?
     │
     ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()   (no arithmetic methods)
     │
-    ├─ Serialize a collection that does NOT fit in memory (beast2 v5 streaming)
-    │   ├─ Write it → Beast2Writer(T, stream) as w: w.write(batch) per batch — peak memory is ONE batch
-    │   │   └─ already in memory, just want the bytes → encode_beast2_segments_for(T)(batches)
-    │   ├─ Read it back one batch at a time → for b in iter_beast2_segments_for(T)(source)  — O(segment)
-    │   │   (source: bytes / mmap / binary stream; pass an mmap for a large file)
-    │   ├─ Read it whole (segments merge: Array concat, Set union, Dict last-wins)
-    │   │                                 → decode_beast2_with_header_for(T)(blob)   — v4 AND v5
-    │   ├─ Jump straight to row N / segment i → open_beast2_pages_for(T)(source)
-    │   │   .element(n) / .segment(i) — decodes ONE segment, needs index + self_contained
-    │   └─ How many rows without decoding → read_beast2_index(T, blob) -> (segments, elements)
+    ├─ A collection FILE that does not fit in memory (beast2 v5) — start MANAGED:
+    │   ├─ Write → write_beast2_file(path, T, value)  (any size; re-batched into segments)
+    │   │   └─ streaming producer → open_beast2_file(path, T, mode="w") as w: w.write(batch)
+    │   ├─ Read → open_beast2_file(path, T) as f — owns the mmap, mirrors the collection:
+    │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
+    │   │   ├─ scan → for batch in f.segments():  — process each batch NATIVELY (eager methods)
+    │   │   ├─ Array point reads → f[i] · f.get/get_or_default/try_get/has · f.slice(a,b) · f.get_keys(rows)
+    │   │   └─ Dict/Set keyed reads + find_sorted_* → #481 W2 (today the stubs raise NotImplementedError)
+    │   └─ Buffer-level (you hold the bytes, not a path):
+    │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
+    │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
+    │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5 (Array concat, Set union, Dict last-wins)
+    │       ├─ open_beast2_pages_for(T)(source) — .element(n)/.segment(i), ONE segment each;
+    │       │   ❗borrows the buffer — keep it alive (open_beast2_file owns it for you)
+    │       └─ read_beast2_index(T, blob) -> (segments, elements) — totals without decoding
     │
     └─ Let East call your Python function
         ├─ Concrete types → @platform_function(inputs=[…], output=…)  +  platform_functions(__name__)
@@ -795,6 +800,37 @@ and v5 through the same entry points, and each batch becomes one
 independently decodable segment. Use for exports too big to hold, or to
 re-read a huge file one batch at a time.
 
+**Managed files — start here (`open_beast2_file` / `write_beast2_file`, #481).**
+Path + East type in, East values out: the file object owns the fd + mmap
+(closes on `with`-exit), east-c does all byte work, and segment sizing is
+managed — no buffers, iterators, or batch sizes in user code. The read flavor
+mirrors the root collection's read surface name-for-name.
+
+| Signature | Description |
+|-----------|-------------|
+| `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint) |
+| `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally; `.segments` counts them |
+| `open_beast2_file(path, T)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` |
+| `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size |
+| `f.segments()` | Yield one decoded collection per segment (process each batch with the native eager methods — never element-by-element from python) |
+| `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index (Array counts exact; Set/Dict exact when segments are key-disjoint, as our writers produce) |
+| Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` → `some`/`none` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | Same names, signatures and error semantics as `EastArray`; every point read decodes only the owning segment, `get_keys` decodes each owning segment once |
+| Dict: `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` | Keyed point reads (`get`/`get_or_default`/`try_get`/`has`/`get_keys`/`[]`/`in`) and Array `find_sorted_*` land with **#481 W2** — the stubs raise `NotImplementedError` naming it |
+| Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
+
+```python
+from east.serialization.beast2 import open_beast2_file, write_beast2_file
+
+write_beast2_file(path, rows_t, rows)             # any size, one call
+
+with open_beast2_file(path, rows_t) as f:         # mmap-backed, managed
+    row = f[1_234_567]                            # one segment decode
+    for batch in f.segments():                    # O(segment) scan
+        totals.merge_all(batch.group_sum(lambda r: r["sku"], lambda r: r["qty"]),
+                         lambda a, b, _k: a + b, lambda _k: 0)  # batch processed natively
+    table = f.load()                              # whole table when you truly need it
+```
+
 **Pick the right pair first — `_for` is NOT the same format as `_with_header_for`:**
 
 | Signature | Description |
@@ -810,14 +846,15 @@ re-read a huge file one batch at a time.
 | `iter_beast2_segments_for(T) -> (source) -> iterator` | Yield one decoded collection per segment, O(segment) memory; `source` is bytes / `mmap` / binary stream |
 | `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments merge: Array concat, Set union, Dict last-wins) |
 | `read_beast2_index(T, blob) -> (segments, elements) \| None` | O(1) totals from a v5 blob's trailing index |
-| `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()`/`[]`). Seeks via the index and decodes ONE segment — O(segment), not O(blob). ❗Needs a blob written with `index=True` **and** `self_contained=True` (both default); `.element()` is Array roots only |
+| `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()`/`[]`). Seeks via the index and decodes ONE segment — O(segment), not O(blob). ❗Needs a blob written with `index=True` **and** `self_contained=True` (both default); `.element()` is Array roots only. ❗Borrows the source buffer — keep it alive (and an mmap open) for the pages' lifetime, or use `open_beast2_file`, which owns it |
 
-**Batch size is the one number to get right.** A batch is simultaneously your
-memory ceiling, one segment, one compression window, and the granularity of
-random access. ~1000 rows is a good default: measured on 5000 struct rows, one
-row per batch costs **4x the bytes** of 1000-per-batch (79,418 vs 20,066), and
-the curve is flat past ~100. `write()` takes a batch, never a row — accumulate
-and flush yourself.
+**Batch size (buffer-level `Beast2Writer` only — the managed writer re-batches
+for you).** A batch is simultaneously your memory ceiling, one segment, one
+compression window, and the granularity of random access. ~1000 rows is a good
+default: measured on 5000 struct rows, one row per batch costs **4x the bytes**
+of 1000-per-batch (79,418 vs 20,066), and the curve is flat past ~100.
+`write()` takes a batch, never a row — accumulate and flush yourself (or let
+`open_beast2_file(..., mode="w")` do exactly that).
 
 ```python
 import mmap

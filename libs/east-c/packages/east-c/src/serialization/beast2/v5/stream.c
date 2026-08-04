@@ -221,9 +221,30 @@ struct Beast2SegmentReader {
 
 Beast2SegmentReader *east_beast2_reader_new(const uint8_t *data, size_t len, EastType *type)
 {
-    if (!data || !type) return NULL;
+    if (!data || !type) {
+        east_builtin_error("beast2 v5: segment reading needs a blob and a decode type");
+        return NULL;
+    }
     if (!b2v5_is_segmented_root(type)) {
         east_builtin_error("beast2 v5 segment reading needs an Array, Set or Dict type");
+        return NULL;
+    }
+    /* Pre-check the magic: b2v5_read_header returns false silently on a bad
+     * prefix, and "not a v5 blob" deserves a message the caller can act on.
+     * (Same checks, same order, as east_beast2_pages_new.) */
+    if (len < 8) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Data too short for Beast2 format: %zu bytes", len);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    if (memcmp(data, BEAST2_MAGIC, 7) == 0 && data[7] == 0x04) {
+        east_builtin_error("beast2 v5: segment APIs need a v5 blob; this is a v4 container "
+                           "(re-encode with version 5)");
+        return NULL;
+    }
+    if (memcmp(data, BEAST2_MAGIC_V5, 8) != 0) {
+        east_builtin_error("beast2 v5: not a beast2 v5 container");
         return NULL;
     }
 
