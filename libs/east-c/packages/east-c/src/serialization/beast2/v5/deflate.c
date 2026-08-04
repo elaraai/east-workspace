@@ -212,3 +212,18 @@ bool b2v5_inflate_raw(const uint8_t *src, size_t src_len, uint8_t *dst, size_t d
     size_t produced = tinfl_decompress_mem_to_mem(dst, dst_len, src, src_len, 0);
     return produced != TINFL_DECOMPRESS_MEM_TO_MEM_FAILED && produced == dst_len;
 }
+
+size_t b2v5_inflate_prefix(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_cap)
+{
+    /* Inflate stops when dst fills (TINFL_STATUS_HAS_MORE_OUTPUT) — the
+     * fence probes (#481 W2) want the first few hundred logical bytes of a
+     * segment without paying for the whole frame. */
+    tinfl_decompressor d;
+    tinfl_init(&d);
+    size_t in_len = src_len;
+    size_t out_len = dst_cap;
+    tinfl_status s = tinfl_decompress(&d, src, &in_len, dst, dst, &out_len,
+                                      TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    if (s < TINFL_STATUS_DONE && s != TINFL_STATUS_HAS_MORE_OUTPUT) return 0;
+    return out_len;
+}

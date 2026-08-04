@@ -43,6 +43,9 @@
 bool b2v5_deflate_raw(const uint8_t *src, size_t src_len, uint8_t **out, size_t *out_len);
 /* Inflate a raw-DEFLATE stream into dst; the output must be exactly dst_len. */
 bool b2v5_inflate_raw(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len);
+/* Inflate at most dst_cap bytes of a stream's logical prefix (fence probes).
+ * Returns bytes produced, or 0 on corruption. */
+size_t b2v5_inflate_prefix(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_cap);
 
 /* ================================================================== */
 /*  Frames (v5/container.c)                                             */

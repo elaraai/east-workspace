@@ -435,6 +435,20 @@ cdef class _Beast2PagesCore:
         finally:
             _eastc.east_value_release(c_val)
 
+    def fence(self, object i):
+        """Segment ``i``'s first element (Array/Set) or first key (Dict) — a
+        bounded-inflate probe of the frame's prefix, cached C-side."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_fence(self._p, <size_t>i)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 pages fence failed")
+        cdef _eastc.EastType* fence_t = self._type.data.element
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            fence_t = self._type.data.dict.key
+        try:
+            return c_value_to_py(c_val, fence_t)
+        finally:
+            _eastc.east_value_release(c_val)
+
     def __dealloc__(self):
         if self._p != NULL:
             _eastc.east_beast2_pages_free(self._p)

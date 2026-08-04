@@ -538,10 +538,11 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
 struct Beast2Pages {
     const uint8_t *data; /* borrowed — caller keeps it alive and unchanged */
     size_t len;
-    EastType *type;     /* retained decode type */
-    EastSourceMap sm;   /* owned (header) */
-    B2V5Index index;    /* owned */
-    size_t *cumulative; /* prefix sums of index.counts; NULL when count == 0 */
+    EastType *type;      /* retained decode type */
+    EastSourceMap sm;    /* owned (header) */
+    B2V5Index index;     /* owned */
+    size_t *cumulative;  /* prefix sums of index.counts; NULL when count == 0 */
+    EastValue **fences;  /* lazily decoded first element/key per segment (owned) */
 };
 
 Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type)
@@ -769,9 +770,117 @@ EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
 void east_beast2_pages_free(Beast2Pages *p)
 {
     if (!p) return;
+    if (p->fences) {
+        for (size_t i = 0; i < p->index.count; i++)
+            if (p->fences[i]) east_value_release(p->fences[i]);
+        free(p->fences);
+    }
     if (p->type) east_type_release(p->type);
     beast2_source_map_free(&p->sm);
     b2v5_index_free(&p->index);
     free(p->cumulative);
     free(p);
+}
+
+/* The fence value's type: what one probe decodes — the KEY for Dict roots,
+ * the element otherwise. */
+static EastType *pages_fence_type(Beast2Pages *p)
+{
+    if (p->type->kind == EAST_TYPE_DICT) return p->type->data.dict.key;
+    return p->type->data.element;
+}
+
+EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
+{
+    if (!p) return NULL;
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return NULL;
+    }
+    if (i >= p->index.count) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "beast2 v5: segment %zu out of range (%zu segments)", i,
+                 p->index.count);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    if (!p->fences) {
+        p->fences = calloc(p->index.count, sizeof(EastValue *));
+        if (!p->fences) return NULL;
+    }
+    if (p->fences[i]) {
+        east_value_retain(p->fences[i]);
+        return p->fences[i];
+    }
+
+    size_t off = p->index.offsets[i];
+    uint64_t codec, uncompressed_len, payload_len;
+    if (!read_varint_checked(p->data, p->len, &off, &codec) ||
+        !read_varint_checked(p->data, p->len, &off, &uncompressed_len) ||
+        !read_varint_checked(p->data, p->len, &off, &payload_len) ||
+        payload_len > p->len - off) {
+        east_builtin_error("beast2 v5: malformed segment frame header");
+        return NULL;
+    }
+
+    EastValue *first = NULL;
+    size_t sm_mark = p->sm.num_stacks;
+    B2V5DecodeCtx ctx;
+
+    if (codec == EAST_BEAST2_CODEC_NONE) {
+        size_t coff = 0;
+        uint64_t n;
+        b2v5_dec_ctx_init(&ctx, &p->sm);
+        if (read_varint_checked(p->data + off, (size_t)payload_len, &coff, &n) && n > 0)
+            first = b2v5_decode_value(p->data + off, (size_t)payload_len, &coff,
+                                      pages_fence_type(p), &ctx);
+        b2v5_dec_ctx_free(&ctx);
+    } else {
+        /* Inflate a bounded prefix and decode the first element from it; a
+         * truncated element grows the probe until it fits (the final attempt
+         * inflates the whole frame, so real corruption still surfaces). */
+        size_t cap = 4096;
+        for (;;) {
+            if (cap > (size_t)uncompressed_len) cap = (size_t)uncompressed_len;
+            uint8_t *buf = malloc(cap ? cap : 1);
+            if (!buf) return NULL;
+            size_t got = b2v5_inflate_prefix(p->data + off, (size_t)payload_len, buf, cap);
+            if (got == 0) {
+                free(buf);
+                east_builtin_error("beast2 v5: segment frame failed to inflate");
+                return NULL;
+            }
+            size_t coff = 0;
+            uint64_t n;
+            b2v5_dec_ctx_init(&ctx, &p->sm);
+            if (read_varint_checked(buf, got, &coff, &n) && n > 0)
+                first = b2v5_decode_value(buf, got, &coff, pages_fence_type(p), &ctx);
+            b2v5_dec_ctx_free(&ctx);
+            free(buf);
+            if (first || cap >= (size_t)uncompressed_len) break;
+            /* Truncation, not corruption: drop the posted error, probe bigger. */
+            free(east_builtin_get_error());
+            cap *= 4;
+        }
+    }
+
+    if (p->sm.num_stacks != sm_mark) {
+        if (first) east_value_release(first);
+        east_builtin_error("beast2 v5: self-contained segments cannot add source maps");
+        return NULL;
+    }
+    if (!first) {
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
+            east_builtin_error("beast2 v5: malformed segment");
+        }
+        return NULL;
+    }
+    p->fences[i] = first;     /* the cache owns one reference */
+    east_value_retain(first); /* and the caller gets their own */
+    return first;
 }

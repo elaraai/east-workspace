@@ -410,6 +410,7 @@ cdef extern from "east/serialization.h":
     const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
     EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
     EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
+    EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
     void east_beast2_pages_free(Beast2Pages *p)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)

@@ -131,6 +131,12 @@ bool east_beast2_pages_self_contained(Beast2Pages *p);
 const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
+// Segment i's FENCE: its first element (Array/Set) or first key (Dict),
+// decoded from a bounded inflate of the frame's prefix and cached — the
+// microsecond probe behind keyed lookups (#481 W2). Requires self-contained
+// segments. Returns a retained value or NULL (message via
+// east_builtin_get_error).
+EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i);
 void east_beast2_pages_free(Beast2Pages *p);
 
 // Byte extents of an indexed v5 collection blob, for splicing (issue #484):
