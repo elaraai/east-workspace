@@ -510,6 +510,14 @@ await describe("String", (test) => {
         // Multi-character delimiter
         $(assert.equal(East.value("hello::world").split("::"), East.value(["hello", "world"], ArrayType(StringType))));
         $(assert.equal(East.value("one::two::three").split("::"), East.value(["one", "two", "three"], ArrayType(StringType))));
+
+        // NUL bytes are ordinary characters — the search must scan the full
+        // length, never stop at the first \0 (#480)
+        $(assert.equal(East.value("AA|\0\0|CC").split("|"), East.value(["AA", "\0\0", "CC"], ArrayType(StringType))));
+        $(assert.equal(East.value("\0\0|BB|CC").split("|"), East.value(["\0\0", "BB", "CC"], ArrayType(StringType))));
+        $(assert.equal(East.value("AA|BB|\0").split("|"), East.value(["AA", "BB", "\0"], ArrayType(StringType))));
+        $(assert.equal(East.value("\0").split("|"), East.value(["\0"], ArrayType(StringType))));
+        $(assert.equal(East.value("a\0b").split("\0"), East.value(["a", "b"], ArrayType(StringType))));
     });
 
     assert.examples(test, {
@@ -614,6 +622,11 @@ await describe("String", (test) => {
         $(assert.equal(East.value("café world").contains("café"), true));
         $(assert.equal(East.value("hello café").contains("é"), true));
         $(assert.equal(East.value("🚀🌟⭐").contains("🌟"), true));
+
+        // NUL bytes are ordinary characters (#480)
+        $(assert.equal(East.value("AA|\0\0|CC").contains("CC"), true));
+        $(assert.equal(East.value("AA|\0\0|CC").contains("\0"), true));
+        $(assert.equal(East.value("AB").contains("\0"), false));
     });
 
     assert.examples(test, {
@@ -650,6 +663,11 @@ await describe("String", (test) => {
         // Japanese characters
         $(assert.equal(East.value("東京日本").indexOf("京"), 1n));
         $(assert.equal(East.value("東京日本").indexOf("日本"), 2n));
+
+        // NUL bytes are ordinary characters (#480)
+        $(assert.equal(East.value("AA|\0\0|CC").indexOf("CC"), 6n));
+        $(assert.equal(East.value("AA|\0\0|CC").indexOf("\0"), 3n));
+        $(assert.equal(East.value("AA|\0\0|CC").indexOf("ZZ"), -1n));
     });
 
     assert.examples(test, {
@@ -683,6 +701,11 @@ await describe("String", (test) => {
         // Case sensitivity
         $(assert.equal(East.value("Hello World").replace("hello", "hi"), "Hello World"));
         $(assert.equal(East.value("Hello World").replace("Hello", "Hi"), "Hi World"));
+
+        // NUL bytes are ordinary characters (#480)
+        $(assert.equal(East.value("AA|\0\0|CC").replace("|", "-"), "AA-\0\0-CC"));
+        $(assert.equal(East.value("AA|\0\0|CC").replace("\0", "x"), "AA|xx|CC"));
+        $(assert.equal(East.value("AA|\0\0|CC").replace("CC", ""), "AA|\0\0|"));
     });
 
     test("Regex replace", $ => {

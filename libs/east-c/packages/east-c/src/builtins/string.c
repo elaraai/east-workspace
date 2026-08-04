@@ -73,6 +73,25 @@ static size_t utf8_byte_to_cp(const char *s, size_t byte_offset)
     return cp;
 }
 
+/* Length-aware forward substring search. East strings carry their length and
+ * may legitimately contain NUL bytes, so strstr — which stops scanning at the
+ * first NUL — must never see a subject (#480). An empty needle matches at the
+ * start, like strstr. (memmem is not in C11/MSVC, hence hand-rolled.) */
+static const char *mem_find(const char *hay, size_t hay_len, const char *needle, size_t needle_len)
+{
+    if (needle_len == 0) return hay;
+    if (needle_len > hay_len) return NULL;
+    const char *p = hay;
+    const char *last = hay + (hay_len - needle_len);
+    while (p <= last) {
+        p = memchr(p, needle[0], (size_t)(last - p) + 1);
+        if (!p) return NULL;
+        if (memcmp(p, needle, needle_len) == 0) return p;
+        p++;
+    }
+    return NULL;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Basic string operations                                            */
 /* ------------------------------------------------------------------ */
@@ -150,8 +169,10 @@ static EastValue *string_index_of(EastValue **args, size_t n)
 {
     (void)n;
     const char *s = args[0]->data.string.data;
+    size_t slen = args[0]->data.string.len;
     const char *sub = args[1]->data.string.data;
-    const char *found = strstr(s, sub);
+    size_t sublen = args[1]->data.string.len;
+    const char *found = mem_find(s, slen, sub, sublen);
     if (!found) return east_integer(-1);
     /* Convert byte offset to codepoint index */
     size_t byte_offset = (size_t)(found - s);
@@ -191,8 +212,8 @@ static EastValue *string_split(EastValue **args, size_t n)
         const char *pos = s;
         const char *end = s + slen;
         while (pos <= end) {
-            const char *found = strstr(pos, delim);
-            if (!found || found > end) {
+            const char *found = mem_find(pos, (size_t)(end - pos), delim, dlen);
+            if (!found) {
                 EastValue *part = east_string_len(pos, (size_t)(end - pos));
                 east_array_push(arr, part);
                 east_value_release(part);
@@ -413,7 +434,7 @@ static EastValue *string_replace(EastValue **args, size_t n)
     /* Count occurrences */
     size_t count = 0;
     const char *p = s;
-    while ((p = strstr(p, old_str)) != NULL) {
+    while ((p = mem_find(p, slen - (size_t)(p - s), old_str, old_len)) != NULL) {
         count++;
         p += old_len;
     }
@@ -425,7 +446,7 @@ static EastValue *string_replace(EastValue **args, size_t n)
 
     char *dst = buf;
     const char *src = s;
-    while ((p = strstr(src, old_str)) != NULL) {
+    while ((p = mem_find(src, slen - (size_t)(src - s), old_str, old_len)) != NULL) {
         size_t prefix = (size_t)(p - src);
         memcpy(dst, src, prefix);
         dst += prefix;
@@ -469,8 +490,10 @@ static EastValue *string_contains(EastValue **args, size_t n)
 {
     (void)n;
     const char *s = args[0]->data.string.data;
+    size_t slen = args[0]->data.string.len;
     const char *sub = args[1]->data.string.data;
-    return east_boolean(strstr(s, sub) != NULL);
+    size_t sublen = args[1]->data.string.len;
+    return east_boolean(mem_find(s, slen, sub, sublen) != NULL);
 }
 
 /* ------------------------------------------------------------------ */
