@@ -12,7 +12,7 @@ All beast2 serialization goes through east-c. No Python fallback.
 
 from libc.stdint cimport int32_t, uint8_t
 from libc.stddef cimport size_t
-from libc.stdlib cimport free
+from libc.stdlib cimport free, malloc
 
 from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c
@@ -440,6 +440,62 @@ cdef class _Beast2PagesCore:
             _eastc.east_beast2_pages_free(self._p)
         if self._type != NULL:
             _eastc.east_type_release(self._type)
+
+
+def _beast2_splice_extents(object data):
+    """Byte extents of one indexed v5 blob (issue #484), parsed by east-c.
+
+    Returns a dict of wire offsets and flags; raises ValueError with east-c's
+    message on anything malformed. Never decodes a value.
+    """
+    cdef const uint8_t[::1] view = data
+    _ensure_eastc_runtime()
+    cdef const uint8_t* ptr = NULL
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef _eastc.Beast2SpliceExtents* e = _eastc.east_beast2_splice_extents(
+        ptr, <size_t>view.shape[0])
+    if e == NULL:
+        _consume_eastc_error("east-c beast2 v5 splice extents failed", ValueError)
+    try:
+        return {
+            "prefix_end": e.prefix_end,
+            "segments_end": e.segments_end,
+            "index_offset": e.index_offset,
+            "offsets": tuple(e.offsets[i] for i in range(e.segment_count)),
+            "counts": tuple(e.counts[i] for i in range(e.segment_count)),
+            "self_contained": e.self_contained != 0,
+            "source_map_empty": e.source_map_empty != 0,
+        }
+    finally:
+        _eastc.east_beast2_splice_extents_free(e)
+
+
+def _beast2_splice_tail(object offsets, object counts, object stream_end):
+    """Terminator + merged index + footer bytes for a spliced stream (east-c)."""
+    _ensure_eastc_runtime()
+    cdef size_t n = len(offsets)
+    if n != <size_t>len(counts):
+        raise ValueError("splice tail: offsets and counts must be the same length")
+    cdef size_t* c_offsets = <size_t*>malloc(n * sizeof(size_t)) if n else NULL
+    cdef size_t* c_counts = <size_t*>malloc(n * sizeof(size_t)) if n else NULL
+    cdef _eastc.ByteBuffer* buf = NULL
+    cdef size_t i
+    try:
+        if n and (c_offsets == NULL or c_counts == NULL):
+            raise MemoryError()
+        for i in range(n):
+            c_offsets[i] = <size_t>offsets[i]
+            c_counts[i] = <size_t>counts[i]
+        buf = _eastc.east_beast2_splice_tail(c_offsets, c_counts, n, <size_t>stream_end)
+        if buf == NULL:
+            _consume_eastc_error("east-c beast2 v5 splice tail failed")
+        return <bytes>buf.data[:buf.len]
+    finally:
+        if buf != NULL:
+            _eastc.byte_buffer_free(buf)
+        free(c_offsets)
+        free(c_counts)
 
 
 cpdef str beast2_auto_to_east_text(bytes data):

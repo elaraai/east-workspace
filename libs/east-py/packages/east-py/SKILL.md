@@ -538,7 +538,9 @@ Task → What do you need?
     │
     ├─ A collection FILE that does not fit in memory (beast2 v5) — start MANAGED:
     │   ├─ Write → write_beast2_file(path, T, value)  (any size; re-batched into segments)
-    │   │   └─ streaming producer → open_beast2_file(path, T, mode="w") as w: w.write(batch)
+    │   │   ├─ streaming producer → open_beast2_file(path, T, mode="w") as w: w.write(batch)
+    │   │   └─ merge N shard files into ONE, no re-encode → splice_beast2_files(path, T, sources)
+    │   │       (fork-parallel exporters: shards are for CPUs and live minutes; segments are for memory)
     │   ├─ Read → open_beast2_file(path, T) as f — owns the mmap, mirrors the collection:
     │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
     │   │   ├─ scan → for batch in f.segments():  — process each batch NATIVELY (eager methods)
@@ -811,6 +813,7 @@ mirrors the root collection's read surface name-for-name.
 | `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint) |
 | `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally; `.segments` counts them |
 | `open_beast2_file(path, T)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` |
+| `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merge indexed v5 files into one by **byte copy** — east-c parses the container geometry, `os.sendfile` moves the segment frames, nothing decodes or re-encodes. `sources` may be a lazy generator (shards splice as they complete, in order = row order). Every source must be v5 + indexed + self-contained with an identical type section; refusals name the offending path and leave no destination. Output is indistinguishable from one writer given the same batches; `verify=True` re-walks it with east-c's strict sequential reader |
 | `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size |
 | `f.segments()` | Yield one decoded collection per segment (process each batch with the native eager methods — never element-by-element from python) |
 | `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index (Array counts exact; Set/Dict exact when segments are key-disjoint, as our writers produce) |

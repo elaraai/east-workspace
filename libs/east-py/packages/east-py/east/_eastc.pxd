@@ -412,6 +412,21 @@ cdef extern from "east/serialization.h":
     EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
     void east_beast2_pages_free(Beast2Pages *p)
 
+    # v5 splice extents — byte geometry for merging blobs (issue #484)
+    ctypedef struct Beast2SpliceExtents:
+        size_t prefix_end
+        size_t segments_end
+        size_t index_offset
+        size_t *offsets
+        size_t *counts
+        size_t segment_count
+        bint self_contained
+        bint source_map_empty
+    Beast2SpliceExtents *east_beast2_splice_extents(const uint8_t *data, size_t length)
+    void east_beast2_splice_extents_free(Beast2SpliceExtents *e)
+    ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts, size_t n,
+                                        size_t stream_end)
+
     # JSON serialization
     char *east_json_encode(EastValue *value, EastType *type)
     EastValue *east_json_decode(const char *json, EastType *type)
