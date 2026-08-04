@@ -140,11 +140,11 @@ void east_beast2_pages_free(Beast2Pages *p);
 // self_contained / source_map_empty report the blob's flags rather than
 // failing, so the host can name the offending file in its own error.
 typedef struct {
-    size_t prefix_end;     /* end of header + root NEW tag frame = first segment frame */
-    size_t segments_end;   /* end of the last segment frame = terminator frame start */
-    size_t index_offset;   /* wire offset of the index section */
-    size_t *offsets;       /* per-segment frame offsets */
-    size_t *counts;        /* per-segment element (pair) counts */
+    size_t prefix_end;   /* end of header + root NEW tag frame = first segment frame */
+    size_t segments_end; /* end of the last segment frame = terminator frame start */
+    size_t index_offset; /* wire offset of the index section */
+    size_t *offsets;     /* per-segment frame offsets */
+    size_t *counts;      /* per-segment element (pair) counts */
     size_t segment_count;
     bool self_contained;
     bool source_map_empty; /* the header source map carries no stacks */

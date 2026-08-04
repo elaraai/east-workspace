@@ -862,28 +862,30 @@ def write_beast2_file(path, collection_type, value, *, codec: str = "deflate",
 def _copy_range(dest_file, src_file, start: int, count: int) -> None:
     """Append ``count`` bytes from ``src_file`` at ``start`` to ``dest_file``.
 
-    ``os.sendfile`` keeps the copy in the kernel; platforms or filesystems
-    that refuse it fall back to chunked ``pread``. ``dest_file`` must be
+    ``os.sendfile`` keeps the copy in the kernel where the platform has it
+    (Linux/BSD/macOS); elsewhere — or on fd pairs that refuse it — a chunked
+    seek-and-read loop does the same work portably. ``dest_file`` must be
     unbuffered so python-side writes and fd-level copies stay in sync.
     """
     remaining = count
     offset = start
-    try:
-        while remaining:
-            sent = os.sendfile(dest_file.fileno(), src_file.fileno(), offset, remaining)
-            if sent == 0:
-                raise ValueError("unexpected end of source during splice")
-            offset += sent
-            remaining -= sent
-        return
-    except OSError:
-        pass  # e.g. sendfile unsupported for this fd pair — fall back
+    if hasattr(os, "sendfile"):
+        try:
+            while remaining:
+                sent = os.sendfile(dest_file.fileno(), src_file.fileno(), offset, remaining)
+                if sent == 0:
+                    raise ValueError("unexpected end of source during splice")
+                offset += sent
+                remaining -= sent
+            return
+        except OSError:
+            pass  # sendfile unsupported for this fd pair — fall back
+    src_file.seek(offset)
     while remaining:
-        chunk = os.pread(src_file.fileno(), min(remaining, 1 << 20), offset)
+        chunk = src_file.read(min(remaining, 1 << 20))
         if not chunk:
             raise ValueError("unexpected end of source during splice")
         dest_file.write(chunk)
-        offset += len(chunk)
         remaining -= len(chunk)
 
 

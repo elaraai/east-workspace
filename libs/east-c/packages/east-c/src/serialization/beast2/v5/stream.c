@@ -468,8 +468,7 @@ Beast2SpliceExtents *east_beast2_splice_extents(const uint8_t *data, size_t len)
         uint64_t codec, uncompressed_len, payload_len;
         if (!read_varint_checked(data, len, &off, &codec) ||
             !read_varint_checked(data, len, &off, &uncompressed_len) ||
-            !read_varint_checked(data, len, &off, &payload_len) ||
-            payload_len > len - off) {
+            !read_varint_checked(data, len, &off, &payload_len) || payload_len > len - off) {
             east_builtin_error("beast2 v5: malformed segment frame header");
             b2v5_index_free(&ix);
             return NULL;
