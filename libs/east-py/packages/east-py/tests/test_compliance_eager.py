@@ -45,7 +45,8 @@ FUNNEL_ONLY = frozenset({
     "ArrayEncodeCsv", "ArrayGetKeys", "ArrayMerge", "ArrayMergeAll",
     "ArrayPrepend", "BlobDecodeBeast", "BlobDecodeBeast2", "BlobDecodeCsv",
     "BlobDecodeUtf8", "BlobDecodeUtf16", "BlobEncodeBeast", "BlobEncodeBeast2",
-    "BlobGetUint8", "BlobSize", "DictMerge", "DictUnionInPlace",
+    "BlobGetUint8", "BlobSize", "DateTimeParseFormat", "DateTimePrintFormat",
+    "DictMerge", "DictUnionInPlace",
     "MatrixCols", "MatrixFill", "MatrixFromArray", "MatrixFromRows",
     "MatrixGet", "MatrixGetCol", "MatrixGetRow", "MatrixMapRows", "MatrixOnes",
     "MatrixRows", "MatrixSet", "MatrixToArray", "MatrixToRows",
@@ -92,15 +93,6 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Blob__Beast_v2_parity_'): (
         'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 parity - a recursive type referenced from several positions'})),
-    ('kernel', 'DateTime'): (
-        'datetime format-token surface differences — #479',
-        frozenset({'Format a datetime as a string with a format pattern', 'Formatted parsing', 'Formatted parsing errors', 'Formatted printing', 'Parse a formatted string into a datetime'})),
-    ('trampoline', 'DateTime'): (
-        'datetime format-token surface differences — #479',
-        frozenset({'Format a datetime as a string with a format pattern', 'Formatted parsing', 'Formatted parsing errors', 'Formatted printing', 'Parse a formatted string into a datetime'})),
-    ('traced', 'DateTime'): (
-        'datetime format-token surface differences — #479',
-        frozenset({'Format a datetime as a string with a format pattern', 'Formatted parsing', 'Formatted parsing errors', 'Formatted printing', 'Parse a formatted string into a datetime'})),
     ('kernel', 'East'): (
         'value aliasing and recursive-type print parity — #478',
         frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
