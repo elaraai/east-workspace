@@ -820,6 +820,11 @@ def _opt_inner(t: EastVariant) -> EastVariant:
 
 
 _ROWS: dict[str, Any] = {
+    # RegexReplace is the one string builtin whose user spelling reorders the
+    # trailing arguments: the builtin (and IR) carry (text, pattern, flags,
+    # replacement) while East.String.regex_replace takes (s, pattern,
+    # replacement, flags) — the generic namespace funnel would swap them.
+    "RegexReplace": lambda ev, n, a: East.String.regex_replace(a[0], a[1], a[3], a[2]),
     # comparisons — user spelling is the ordering-function surface
     "Equal": lambda ev, n, a: equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
     if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)

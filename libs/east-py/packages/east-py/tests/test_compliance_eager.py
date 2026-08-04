@@ -65,24 +65,15 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Array'): (
         'serialized Recursive-type dialect divergence (#475)',
         frozenset({'map() with function returning Expr<RecursiveType> preserves type'})),
-    ('kernel', 'Blob'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
-        frozenset({'UTF-16 decoding/encoding'})),
-    ('trampoline', 'Blob'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
-        frozenset({'UTF-16 decoding/encoding'})),
-    ('traced', 'Blob'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
-        frozenset({'UTF-16 decoding/encoding'})),
     ('kernel', 'Blob__Beast_v1_'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
-        frozenset({'Beast v1 - String type', 'Beast v1 - Variant type'})),
+        'variant tag construction at the py boundary — #476/#478 family',
+        frozenset({'Beast v1 - Variant type'})),
     ('trampoline', 'Blob__Beast_v1_'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
-        frozenset({'Beast v1 - String type', 'Beast v1 - Variant type'})),
+        'variant tag construction at the py boundary — #476/#478 family',
+        frozenset({'Beast v1 - Variant type'})),
     ('traced', 'Blob__Beast_v1_'): (
-        'lone-surrogate strings through the strict-UTF-8 bridge — #477',
-        frozenset({'Beast v1 - String type', 'Beast v1 - Variant type'})),
+        'variant tag construction at the py boundary — #476/#478 family',
+        frozenset({'Beast v1 - Variant type'})),
     ('kernel', 'Blob__Beast_v2_'): (
         'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
@@ -200,6 +191,15 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Patch___E2E_All_Types'): (
         'recursive/function containers beyond quote and coercion — #476/#478',
         frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
+    ('kernel', 'String'): (
+        'recursive-type print/parse and JSON shapes — #478 family',
+        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
+    ('trampoline', 'String'): (
+        'recursive-type print/parse and JSON shapes — #478 family',
+        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
+    ('traced', 'String'): (
+        'recursive-type print/parse and JSON shapes — #478 family',
+        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
     ('kernel', 'Recursive'): (
         'recursive value print/parse and comparison parity — #478',
         frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
@@ -209,15 +209,6 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Recursive'): (
         'recursive value print/parse and comparison parity — #478',
         frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
-    ('kernel', 'String'): (
-        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge — #477',
-        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values', 'Regex indexOf', 'Regex replace', 'Replace all regex matches in a string', 'String contains', 'String indexOf', 'String length', 'String replace', 'String split', 'String starts/ends with', 'String substring', 'String trim'})),
-    ('trampoline', 'String'): (
-        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge — #477',
-        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values', 'Regex indexOf', 'Regex replace', 'Replace all regex matches in a string', 'String contains', 'String indexOf', 'String length', 'String replace', 'String split', 'String starts/ends with', 'String substring', 'String trim'})),
-    ('traced', 'String'): (
-        'lone-surrogate (WTF-8) strings through the strict-UTF-8 bridge — #477',
-        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values', 'Regex indexOf', 'Regex replace', 'Replace all regex matches in a string', 'String contains', 'String indexOf', 'String length', 'String replace', 'String split', 'String starts/ends with', 'String substring', 'String trim'})),
 }
 
 _TOTAL = Report()
