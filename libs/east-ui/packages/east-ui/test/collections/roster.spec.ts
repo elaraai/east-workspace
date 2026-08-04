@@ -13,9 +13,7 @@ describeEast("Roster", (test) => {
     Assert.examples(test, {
         rosterModes: ex.rosterModes,
         rosterInteractive: ex.rosterInteractive,
-        rosterReview: ex.rosterReview,
         rosterLibraryDnd: ex.rosterLibraryDnd,
-        rosterFill: ex.rosterFill,
     });
 
     // =========================================================================
@@ -32,14 +30,6 @@ describeEast("Roster", (test) => {
         // Roster.Root tests below.
         const panel = $.const(ex.rosterModes.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("rosterFill panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.rosterFill.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SCROLL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("creates a roster with target declaration and default week", $ => {

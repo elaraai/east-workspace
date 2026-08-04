@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, DictType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Matrix, Reactive, SegmentGroup, Separator, Slider, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Matrix, Reactive, SegmentGroup, Slider, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -70,106 +70,9 @@ export const matrixHeatGrid = example({
     inputs: [],
 });
 
-/**
- * The two reactive contracts on one panel. ADJUST — dragging the committed
- * segment fires `onSegmentChange`, which writes the new weight to
- * browser-local state; the cell reads that bound value back, so the grid is
- * fully controlled. PIVOT — both axes are derived from the cell records, not
- * declared. A flat list of `{ resource, day, load }` bookings is pivoted into
- * a resource × day grid: the distinct days become the `columns` and the
- * distinct resources become the rows, each computed East-side from the data.
- * A bound threshold drops every booking below it, so as you drag the slider
- * whole columns and rows appear and disappear with the surviving cells.
- */
-export const matrixReactive = example({
-    keywords: ["Matrix", "reactive", "State", "bind", "onSegmentChange", "adjust", "edit", "drag", "controlled", "pivot", "data-driven", "columns", "rows", "threshold", "filter"],
-    description: "Matrix reactive panel — adjust (drag a segment: onSegmentChange writes bound State, the cell reads it back), pivot (rows and columns derived from the cell records; drag the threshold to drop low bookings and watch whole rows/columns appear and disappear)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <VStack gap="4" align="stretch">
-            <Separator label="ADJUST" align="start" />
-            <Reactive>{$ => {
-                const committedBind = $.let(State.bind([FloatType], "matrix_adjust_committed", 0.5));
-                const committed = $.let(committedBind.read());
-                const data = $.const([{ team: "Squad", load: committed }], ArrayType(StructType({ team: StringType, load: FloatType })));
-                const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {
-                    $(committedBind.write(e.weight));
-                }));
-                return (
-                    <Matrix
-                        data={data}
-                        columns={[
-                            Matrix.column({ key: "load", label: "Allocation" }),
-                        ]}
-                        rowKey={r => r.team}
-                        rowHeader="Squad"
-                        cell={(r, _col) => Matrix.cell({ segments: [
-                            Matrix.segment({ fill: "success", weight: r.load, label: East.str`${r.load.multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
-                            Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.load) }),
-                        ] })}
-                        onSegmentChange={onSegmentChange}
-                    />
-                );
-            }}</Reactive>
-            <Separator label="PIVOT" align="start" />
-            <Reactive>{$ => {
-                const BookingArrayType = ArrayType(StructType({ resource: StringType, day: StringType, load: FloatType }));
-                const bookings = $.let([
-                    { resource: "Alice", day: "Mon", load: 0.90 },
-                    { resource: "Alice", day: "Tue", load: 0.30 },
-                    { resource: "Alice", day: "Wed", load: 0.60 },
-                    { resource: "Bob", day: "Mon", load: 0.20 },
-                    { resource: "Bob", day: "Wed", load: 0.80 },
-                    { resource: "Carol", day: "Tue", load: 0.50 },
-                    { resource: "Carol", day: "Thu", load: 0.95 },
-                    { resource: "Dave", day: "Fri", load: 0.15 },
-                ], BookingArrayType);
-
-                const thresholdBind = $.let(State.bind([FloatType], "matrix_pivot_threshold", 0.0));
-                const threshold = $.let(thresholdBind.read());
-                const onChange = $.const(East.function([FloatType], NullType, ($, next) => {
-                    $(thresholdBind.write(next));
-                }));
-
-                // Both axes emerge from the surviving cells: keep bookings at or above
-                // the threshold, then take the distinct days (columns) and resources (rows).
-                const kept = $.let(bookings.filter(($, b) => b.load.greaterEqual(threshold)));
-                const dayKeys = $.let(kept.toSet(($, b) => b.day).toArray());
-                const resourceKeys = $.let(kept.toSet(($, b) => b.resource).toArray());
-
-                return (
-                    <VStack gap="3" align="stretch">
-                        <Slider value={threshold} min={0} max={1} step={0.05} onChange={onChange} />
-                        {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}
-                        <Matrix
-                            data={resourceKeys.map(($, name) => ({
-                                name,
-                                // Pivot this resource's surviving bookings into a day → load
-                                // cell, summed per (resource, day) and zero where it has none.
-                                loads: dayKeys.toDict(
-                                    ($, day) => day,
-                                    ($, day) => kept.filter(($, b) => b.resource.equal(name).and(() => b.day.equal(day))).sum(($, b) => b.load),
-                                ),
-                            }))}
-                            columns={dayKeys.map(($, day) => Matrix.column({ key: day, label: day }))}
-                            rowKey={r => r.name}
-                            rowHeader="Resource"
-                            cell={(r, col) => Matrix.cell({ segments: [
-                                Matrix.segment({ fill: "brand", weight: r.loads.get(col.key), label: East.str`${r.loads.get(col.key).multiply(100.0)}%` }),
-                                Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.loads.get(col.key)) }),
-                            ] })}
-                            legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                        />
-                    </VStack>
-                );
-            }}</Reactive>
-        </VStack>
-    )),
-    inputs: [],
-});
-
 export const matrixVariants = example({
-    keywords: ["Matrix", "segment", "committed", "pending", "slack", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Matrix configurator — cell-preset and orientation axes driving one live allocation grid; vertical stacks every cell bottom-up as a capacity bar",
+    keywords: ["Matrix", "segment", "committed", "pending", "slack", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "reactive", "bind", "onSegmentChange", "adjust", "edit", "controlled", "pivot", "data-driven", "threshold", "filter", "maxHeight", "bounded", "fill", "#320", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Matrix configurator — a cell-preset axis (segments / markers / popover / adjust / pivot / bounded / fill) and an orientation axis driving one live allocation grid",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Enumerated axes are just their variants — `getTag()` gives the
@@ -180,9 +83,10 @@ export const matrixVariants = example({
             ], ArrayType(Matrix.Types.Orientation));
 
             // Each preset is its own build-time cell config (segment stacks,
-            // corner markers, click popovers), so the axis routes between
-            // three matrices over the same orientation override.
-            const presets = $.const(["segments", "markers", "popover"], ArrayType(StringType));
+            // corner markers, click popovers, the two reactive contracts and
+            // the two #320 sizing arms), so the axis routes between complete
+            // matrices over the same orientation override.
+            const presets = $.const(["segments", "markers", "popover", "adjust", "pivot", "bounded", "fill"], ArrayType(StringType));
 
             const presetBind      = $.let(State.bind([StringType], "matrix_preset", "segments"));
             const orientationBind = $.let(State.bind([StringType], "matrix_orientation", "horizontal"));
@@ -273,9 +177,137 @@ export const matrixVariants = example({
                     onCellClick={East.function([Matrix.Types.CellClickEvent], NullType, _$ => null)}
                 />,
             );
+            // ADJUST — dragging the committed segment fires onSegmentChange,
+            // which writes the new weight to bound State; the cell reads it
+            // back, so the grid is fully controlled.
+            const committedBind = $.let(State.bind([FloatType], "matrix_adjust_committed", 0.5));
+            const committed = $.let(committedBind.read());
+            const adjustData = $.const([{ team: "Squad", load: committed }], ArrayType(StructType({ team: StringType, load: FloatType })));
+            const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {
+                $(committedBind.write(e.weight));
+            }));
+            const adjust = $.const(
+                <Matrix
+                    data={adjustData}
+                    columns={[
+                        Matrix.column({ key: "load", label: "Allocation" }),
+                    ]}
+                    rowKey={r => r.team}
+                    rowHeader="Squad"
+                    cell={(r, _col) => Matrix.cell({ orientation, segments: [
+                        Matrix.segment({ fill: "success", weight: r.load, label: East.str`${r.load.multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
+                        Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.load) }),
+                    ] })}
+                    onSegmentChange={onSegmentChange}
+                />,
+            );
+
+            // PIVOT — both axes derive from the surviving cell records; the
+            // threshold slider drops low bookings and whole rows / columns
+            // appear and disappear with them.
+            const BookingArrayType = ArrayType(StructType({ resource: StringType, day: StringType, load: FloatType }));
+            const bookings = $.const([
+                { resource: "Alice", day: "Mon", load: 0.90 },
+                { resource: "Alice", day: "Tue", load: 0.30 },
+                { resource: "Alice", day: "Wed", load: 0.60 },
+                { resource: "Bob", day: "Mon", load: 0.20 },
+                { resource: "Bob", day: "Wed", load: 0.80 },
+                { resource: "Carol", day: "Tue", load: 0.50 },
+                { resource: "Carol", day: "Thu", load: 0.95 },
+                { resource: "Dave", day: "Fri", load: 0.15 },
+            ], BookingArrayType);
+            const thresholdBind = $.let(State.bind([FloatType], "matrix_pivot_threshold", 0.0));
+            const threshold = $.let(thresholdBind.read());
+            const onThreshold = $.const(East.function([FloatType], NullType, ($, next) => {
+                $(thresholdBind.write(next));
+            }));
+            const kept = $.let(bookings.filter(($, b) => b.load.greaterEqual(threshold)));
+            const dayKeys = $.let(kept.toSet(($, b) => b.day).toArray());
+            const resourceKeys = $.let(kept.toSet(($, b) => b.resource).toArray());
+            const pivot = $.const(
+                <VStack gap="3" align="stretch">
+                    <Slider value={threshold} min={0} max={1} step={0.05} onChange={onThreshold} />
+                    {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}
+                    <Matrix
+                        data={resourceKeys.map(($, name) => ({
+                            name,
+                            loads: dayKeys.toDict(
+                                ($, day) => day,
+                                ($, day) => kept.filter(($, b) => b.resource.equal(name).and(() => b.day.equal(day))).sum(($, b) => b.load),
+                            ),
+                        }))}
+                        columns={dayKeys.map(($, day) => Matrix.column({ key: day, label: day }))}
+                        rowKey={r => r.name}
+                        rowHeader="Resource"
+                        cell={(r, col) => Matrix.cell({ orientation, segments: [
+                            Matrix.segment({ fill: "brand", weight: r.loads.get(col.key), label: East.str`${r.loads.get(col.key).multiply(100.0)}%` }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.loads.get(col.key)) }),
+                        ] })}
+                        legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                    />
+                </VStack>,
+            );
+
+            // BOUNDED / FILL (#320) — a bare-number maxHeight caps the grid;
+            // height="fill" resolves against the bounded Box and virtualizes.
+            const bounded = $.const(
+                <Matrix
+                    data={MATRIX_BOUNDED_DATA}
+                    columns={[
+                        Matrix.column({ key: "mon", label: "Mon" }),
+                        Matrix.column({ key: "tue", label: "Tue" }),
+                        Matrix.column({ key: "wed", label: "Wed" }),
+                    ]}
+                    rowKey={r => r.name}
+                    rowHeader="Resource"
+                    rowSublabel={r => r.role}
+                    groupBy={r => r.team}
+                    cell={(r, col) => Matrix.cell({ orientation, segments: [
+                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                    ] })}
+                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                    maxHeight="140"
+                />,
+            );
+            const fillArm = $.const(
+                <Box height="200px">
+                    <Matrix
+                        data={MATRIX_FILL_DATA}
+                        columns={[
+                            Matrix.column({ key: "mon", label: "Mon" }),
+                            Matrix.column({ key: "tue", label: "Tue" }),
+                            Matrix.column({ key: "wed", label: "Wed" }),
+                        ]}
+                        rowKey={r => r.name}
+                        rowHeader="Resource"
+                        rowSublabel={r => r.role}
+                        groupBy={r => r.team}
+                        cell={(r, col) => Matrix.cell({ orientation, segments: [
+                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                        ] })}
+                        legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                        height="fill"
+                    />
+                </Box>,
+            );
+
             const grid = $.const(pKey.equal("markers").ifElse(
                 _$ => markers,
-                _$ => pKey.equal("popover").ifElse(_$ => popover, _$ => segments),
+                _$ => pKey.equal("popover").ifElse(
+                    _$ => popover,
+                    _$ => pKey.equal("adjust").ifElse(
+                        _$ => adjust,
+                        _$ => pKey.equal("pivot").ifElse(
+                            _$ => pivot,
+                            _$ => pKey.equal("bounded").ifElse(
+                                _$ => bounded,
+                                _$ => pKey.equal("fill").ifElse(_$ => fillArm, _$ => segments),
+                            ),
+                        ),
+                    ),
+                ),
             ), UIComponentType);
 
             return (
@@ -290,64 +322,12 @@ export const matrixVariants = example({
                     ]}
                     preview={grid}
                     spec={[
-                        Configurator.Spec("Preset", pKey),
-                        Configurator.Spec("Orientation", oKey),
+                        Configurator.Spec("Committed", East.str`${committed.multiply(100.0)}%`),
+                        Configurator.Spec("Pivot", East.str`${East.print(resourceKeys.size())} rows`),
                     ]}
                 />
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-export const matrixFill = example({
-    keywords: ["Matrix", "maxHeight", "height", "bounded", "scroll", "sizing", "#320", "fill", "Box", "virtual"],
-    description: "Matrix sizing panel (#320) — bounded (a bare-number maxHeight ('140', parsed to 140px) caps the whole component; it scrolls within its box instead of growing to content), fill (height=\"fill\": the matrix fills a fixed 200px Box and scrolls within it; two hundred rows over two teams overflow the box so only the visible rows plus overscan mount, the reserved-gutter scrollbar showing there is more)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="BOUNDED" align="start" />
-                <Matrix
-                    data={MATRIX_BOUNDED_DATA}
-                    columns={[
-                        Matrix.column({ key: "mon", label: "Mon" }),
-                        Matrix.column({ key: "tue", label: "Tue" }),
-                        Matrix.column({ key: "wed", label: "Wed" }),
-                    ]}
-                    rowKey={r => r.name}
-                    rowHeader="Resource"
-                    rowSublabel={r => r.role}
-                    groupBy={r => r.team}
-                    cell={(r, col) => Matrix.cell({ segments: [
-                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                    ] })}
-                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                    maxHeight="140"
-                />
-                <Separator label="FILL" align="start" />
-                <Box height="200px">
-                    <Matrix
-                        data={MATRIX_FILL_DATA}
-                        columns={[
-                            Matrix.column({ key: "mon", label: "Mon" }),
-                            Matrix.column({ key: "tue", label: "Tue" }),
-                            Matrix.column({ key: "wed", label: "Wed" }),
-                        ]}
-                        rowKey={r => r.name}
-                        rowHeader="Resource"
-                        rowSublabel={r => r.role}
-                        groupBy={r => r.team}
-                        cell={(r, col) => Matrix.cell({ segments: [
-                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                        ] })}
-                        legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                        height="fill"
-                    />
-                </Box>
-            </VStack>
-        );
-    }),
     inputs: [],
 });

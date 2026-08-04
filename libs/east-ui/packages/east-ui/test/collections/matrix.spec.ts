@@ -12,9 +12,7 @@ import * as ex from "./matrix.examples.js";
 describeEast("Matrix", (test) => {
     Assert.examples(test, {
         matrixHeatGrid: ex.matrixHeatGrid,
-        matrixReactive: ex.matrixReactive,
         matrixVariants: ex.matrixVariants,
-        matrixFill: ex.matrixFill,
     });
 
     // =========================================================================
@@ -33,22 +31,6 @@ describeEast("Matrix", (test) => {
         // directly.
         const panel = $.const(ex.matrixVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("matrixReactive panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.matrixReactive.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ADJUST"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PIVOT"));
-    });
-
-    test("matrixFill panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.matrixFill.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BOUNDED"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FILL"));
     });
 
     // =========================================================================

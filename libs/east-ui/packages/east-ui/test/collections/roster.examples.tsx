@@ -83,19 +83,24 @@ const ROSTER_FILL_DATA = [
 ];
 
 export const rosterModes = example({
-    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Roster mode configurator — a mode preset axis (edit / published) swaps one live work-week roster between the full proposal states and committed-only, pointer-immutable",
+    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Roster configurator — a mode preset axis (edit / published / review / scroll / fill) over one live work-week roster",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The mode axis is a bare label array — each preset swaps the whole
             // roster (data, days, chrome), so the axis is a preset picker
             // rather than a per-prop lookup.
-            const modes = $.const(["edit", "published"], ArrayType(StringType));
+            const modes = $.const(["edit", "published", "review", "scroll", "fill"], ArrayType(StringType));
             const modeBind = $.let(State.bind([StringType], "roster_mode", "edit"));
             const mode = $.let(modeBind.read());
             const onMode = $.const(East.function([StringType], NullType, ($, next) => {
                 $(modeBind.write(next));
             }));
+            const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
+            const onApprove = $.const(East.function([Roster.Types.ApproveEvent], NullType, _$ => null));
+            const onReject = $.const(East.function([Roster.Types.ApproveEvent], NullType, _$ => null));
+            const onApproveAll = $.const(East.function([], NullType, _$ => null));
+            const onRejectAll = $.const(East.function([], NullType, _$ => null));
             return (
                 <Configurator
                     controls={[
@@ -119,18 +124,84 @@ export const rosterModes = example({
                                     summary="3 dirty · 1 new · 2 model-ghost"
                                 />
                             ),
-                            // Published — a work-week roster with committed shifts
-                            // only, no grips.
-                            _$ => (
-                                <Roster
-                                    id="roster-published"
-                                    people={ROSTER_PUBLISHED_PEOPLE_DATA}
-                                    person={p => ({ key: p.id, label: p.name })}
-                                    shifts={ROSTER_PUBLISHED_DATA}
-                                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                                    days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                                    summary="published · wk of Sep 16"
-                                />
+                            _$ => mode.equal("published").ifElse(
+                                // Published — committed shifts only, no grips.
+                                _$ => (
+                                    <Roster
+                                        id="roster-published"
+                                        people={ROSTER_PUBLISHED_PEOPLE_DATA}
+                                        person={p => ({ key: p.id, label: p.name })}
+                                        shifts={ROSTER_PUBLISHED_DATA}
+                                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                                        days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                                        summary="published · wk of Sep 16"
+                                    />
+                                ),
+                                _$ => mode.equal("review").ifElse(
+                                    // Review (#265) — the shared Decision column +
+                                    // commitBar foot beside per-tile ghost accept:
+                                    // accept ONE ghost vs approve the LINE.
+                                    _$ => (
+                                        <Roster
+                                            id="roster-review"
+                                            mode="edit"
+                                            people={[
+                                                { id: "patel", name: "Patel", flagged: false },
+                                                { id: "cho", name: "Cho", flagged: true },
+                                                { id: "kim", name: "Kim", flagged: false },
+                                            ]}
+                                            person={p => ({
+                                                key: p.id,
+                                                label: p.name,
+                                                status: p.flagged.ifElse(() => some(variant("warning", null)), () => none),
+                                                approval: p.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
+                                            })}
+                                            shifts={[
+                                                { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+                                                { id: "c1", person: "cho", day: "Tue", hours: 6n, state: GHOST },
+                                                { id: "c2", person: "cho", day: "Thu", hours: 6n, state: ADDED },
+                                                { id: "k1", person: "kim", day: "Wed", hours: 8n, state: COMMITTED },
+                                            ]}
+                                            shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                                            days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                                            onAccept={onAccept}
+                                            review={{
+                                                summary: <Text color="fg.muted">3 lines · 1 flagged needs a call</Text>,
+                                                onApprove: onApprove,
+                                                onReject: onReject,
+                                                onApproveAll: onApproveAll,
+                                                onRejectAll: onRejectAll,
+                                            }}
+                                        />
+                                    ),
+                                    _$ => mode.equal("scroll").ifElse(
+                                        // Scroll (#320) — maxHeight caps the roster.
+                                        _$ => (
+                                            <Roster
+                                                id="roster-scroll"
+                                                people={ROSTER_SCROLL_PEOPLE_DATA}
+                                                person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                                                shifts={ROSTER_SCROLL_DATA}
+                                                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                                                maxHeight="180px"
+                                            />
+                                        ),
+                                        // Fill (#320) — height="fill" in a bounded Box
+                                        // virtualizes the 200 person rows.
+                                        _$ => (
+                                            <Box height="180px">
+                                                <Roster
+                                                    id="roster-fill"
+                                                    people={ROSTER_FILL_PEOPLE_DATA}
+                                                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                                                    shifts={ROSTER_FILL_DATA}
+                                                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                                                    height="fill"
+                                                />
+                                            </Box>
+                                        ),
+                                    ),
+                                ),
                             ),
                         )
                     }
@@ -181,61 +252,6 @@ export const rosterInteractive = example({
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-/**
- * Row-level review (#265) — the shared Decision column + commitBar foot on a
- * roster, composing with per-tile ghost accept. The flagged line carries a
- * model ghost: clicking the ghost's ✓ accepts ONE shift (`onAccept`), while
- * the row's Approve signs off the LINE (`review.onApprove({ rowIndex })`) —
- * two complementary granularities; the interplay is host-owned.
- */
-export const rosterReview = example({
-    keywords: ["Roster", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "granularity"],
-    description: "Row-level review on a roster — Decision column + batch foot beside per-tile ghost accept (accept ONE ghost vs approve the LINE)",
-    fn: East.function([], UIComponentType, ($) => {
-        const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
-        return (
-            <Roster
-                id="roster-review"
-                mode="edit"
-                people={[
-                    { id: "patel", name: "Patel", flagged: false },
-                    { id: "cho", name: "Cho", flagged: true },
-                    { id: "kim", name: "Kim", flagged: false },
-                ]}
-                person={p => ({
-                    key: p.id,
-                    label: p.name,
-                    status: p.flagged.ifElse(
-                        _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
-                        _$ => East.value(none, OptionType(Status.Types.Value)),
-                    ),
-                    approval: p.flagged.ifElse(
-                        _$ => East.value(some(variant("pending", null)), OptionType(Roster.Types.Approval)),
-                        _$ => East.value(some(variant("approved", null)), OptionType(Roster.Types.Approval)),
-                    ),
-                })}
-                shifts={[
-                    { id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("committed", null) },
-                    { id: "c1", person: "cho", day: "Tue", hours: 6n, state: variant("proposed", variant("model", null)) },
-                    { id: "c2", person: "cho", day: "Thu", hours: 6n, state: variant("proposed", variant("added", null)) },
-                    { id: "k1", person: "kim", day: "Wed", hours: 8n, state: variant("committed", null) },
-                ]}
-                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                onAccept={onAccept}
-                review={{
-                    summary: <Text color="fg.muted">3 lines · 1 flagged needs a call</Text>,
-                    onApprove: East.function([Roster.Types.ApproveEvent], NullType, _$ => null),
-                    onReject: East.function([Roster.Types.ApproveEvent], NullType, _$ => null),
-                    onApproveAll: East.function([], NullType, _$ => null),
-                    onRejectAll: East.function([], NullType, _$ => null),
-                }}
-            />
-        );
-    }),
     inputs: [],
 });
 
@@ -305,37 +321,5 @@ export const rosterLibraryDnd = example({
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-export const rosterFill = example({
-    keywords: ["Roster", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320", "fill", "height", "Box"],
-    description: "Roster sizing panel (#320) — scroll (maxHeight=\"180px\" caps the component; eight people overflow so it clips mid-row and scrolls within), fill (height=\"fill\": the roster fills a fixed 180px Box and scrolls within it; two hundred people overflow the box so only the visible person rows plus overscan mount)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="SCROLL" align="start" />
-                <Roster
-                    id="roster-scroll"
-                    people={ROSTER_SCROLL_PEOPLE_DATA}
-                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                    shifts={ROSTER_SCROLL_DATA}
-                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                    maxHeight="180px"
-                />
-                <Separator label="FILL" align="start" />
-                <Box height="180px">
-                    <Roster
-                        id="roster-fill"
-                        people={ROSTER_FILL_PEOPLE_DATA}
-                        person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                        shifts={ROSTER_FILL_DATA}
-                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                        height="fill"
-                    />
-                </Box>
-            </VStack>
-        );
-    }),
     inputs: [],
 });

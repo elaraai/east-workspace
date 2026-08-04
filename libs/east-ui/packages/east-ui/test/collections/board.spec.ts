@@ -12,10 +12,8 @@ import * as ex from "./board.examples.js";
 describeEast("Board", (test) => {
     Assert.examples(test, {
         boardEdit: ex.boardEdit,
-        boardReviewFoot: ex.boardReviewFoot,
         boardLibraryDnd: ex.boardLibraryDnd,
         boardModes: ex.boardModes,
-        boardFill: ex.boardFill,
     });
 
     // =========================================================================
@@ -32,14 +30,6 @@ describeEast("Board", (test) => {
         // Board.Root tests below.
         const panel = $.const(ex.boardModes.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("boardFill panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.boardFill.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SCROLL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("creates a board with target declaration and bare defaults", $ => {
