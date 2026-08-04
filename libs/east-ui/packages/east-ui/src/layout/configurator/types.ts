@@ -19,12 +19,12 @@ import {
  * narrow it. Everything is optional; the recipe supplies the defaults.
  *
  * @property labelWidth - Width of the control-row label gutter (e.g. `"140px"`)
- * @property sidebarWidth - Width of the preview / spec column (e.g. `"340px"`)
+ * @property controlsWidth - Cap on the control column's width (e.g. `"340px"`); the preview column always takes the remaining width
  * @property previewMinHeight - Minimum height of the preview stage
  */
 export const ConfiguratorStyleType = StructType({
     labelWidth: OptionType(StringType),
-    sidebarWidth: OptionType(StringType),
+    controlsWidth: OptionType(StringType),
     previewMinHeight: OptionType(StringType),
 });
 
@@ -60,8 +60,8 @@ export type ConfiguratorSpecType = typeof ConfiguratorSpecType;
 export interface ConfiguratorStyle {
     /** Width of the control-row label gutter (e.g. `"140px"`). */
     labelWidth?: SubtypeExprOrValue<StringType>;
-    /** Width of the preview / spec column (e.g. `"340px"`). */
-    sidebarWidth?: SubtypeExprOrValue<StringType>;
+    /** Cap on the control column's width (e.g. `"340px"`); the preview column always takes the remaining width. */
+    controlsWidth?: SubtypeExprOrValue<StringType>;
     /** Minimum height of the preview stage. */
     previewMinHeight?: SubtypeExprOrValue<StringType>;
 }

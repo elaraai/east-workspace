@@ -89,7 +89,7 @@ function EastChakraConfiguratorImpl({ value, storageKey }: EastChakraConfigurato
 
     const cssVars = {
         ...(getSomeorUndefined(style?.labelWidth) ? { "--cfg-label": getSomeorUndefined(style?.labelWidth) } : {}),
-        ...(getSomeorUndefined(style?.sidebarWidth) ? { "--cfg-sidebar": getSomeorUndefined(style?.sidebarWidth) } : {}),
+        ...(getSomeorUndefined(style?.controlsWidth) ? { "--cfg-controls": getSomeorUndefined(style?.controlsWidth) } : {}),
         ...(getSomeorUndefined(style?.previewMinHeight) ? { "--cfg-preview-min": getSomeorUndefined(style?.previewMinHeight) } : {}),
     } as React.CSSProperties;
 

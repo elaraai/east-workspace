@@ -123,7 +123,7 @@ export interface ConfiguratorOptions extends ConfiguratorStyle {
 function buildStyle(style: ConfiguratorStyle) {
     return East.value({
         labelWidth: style.labelWidth !== undefined ? some(style.labelWidth) : none,
-        sidebarWidth: style.sidebarWidth !== undefined ? some(style.sidebarWidth) : none,
+        controlsWidth: style.controlsWidth !== undefined ? some(style.controlsWidth) : none,
         previewMinHeight: style.previewMinHeight !== undefined ? some(style.previewMinHeight) : none,
     } as any, ConfiguratorStyleType);
 }

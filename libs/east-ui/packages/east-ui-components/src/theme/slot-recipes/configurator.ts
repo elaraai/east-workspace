@@ -54,7 +54,11 @@ export const configuratorSlotRecipe = defineSlotRecipe({
     base: {
         root: {
             display: "grid",
-            gridTemplateColumns: "1fr var(--cfg-sidebar, 320px)",
+            /* The PREVIEW side owns the width: controls are capped and shrink
+             * first (their SegmentGroups wrap), the sidebar takes everything
+             * else with minWidth: 0 so wide previews (tables, calendars,
+             * benches) fit instead of clipping at a fixed sidebar width. */
+            gridTemplateColumns: "minmax(220px, var(--cfg-controls, 340px)) minmax(0, 1fr)",
             borderWidth: "1px",
             borderColor: "border.subtle",
             borderRadius: "lg",
@@ -211,6 +215,10 @@ export const configuratorSlotRecipe = defineSlotRecipe({
             minHeight: "var(--cfg-preview-min, 160px)",
             borderBottomWidth: "1px",
             borderColor: "border.subtle",
+            /* Last-resort guard: content wider than the (now 1fr) stage
+             * scrolls inside the stage rather than blowing out the grid. */
+            minWidth: 0,
+            overflowX: "auto",
         },
         aside: {
             display: "flex",

@@ -44,14 +44,15 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
              * auto (shrink-to-fit) with `minWidth: 0` so a flex parent can
              * actually clamp the box — a fixed `max-content` width plus
              * the min-width:auto floor defeats both the percentage clamp
-             * and line-shrink, and the wrap never engages. The 1px rowGap
-             * exposes the border-coloured root surface as the inter-row
-             * rule; every variant paints its items `bg.surface`, so the
-             * root colour is invisible on a single row. */
+             * and line-shrink, and the wrap never engages. ALL dividers
+             * (between segments AND between wrapped rows) are the
+             * border-coloured root surface showing through a uniform 1px
+             * gap — one mechanism, one visual weight; items carry no
+             * borders of their own. */
             minWidth: 0,
             maxWidth: "100%",
             flexWrap: "wrap",
-            rowGap: "1px",
+            gap: "1px",
             /* Keep intrinsic width even inside a parent flex with
              * `align-items: stretch` (e.g. VStack). */
             alignSelf: "flex-start",
@@ -85,18 +86,15 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             /* Touch (#346). */
             _coarse: { minHeight: "44px" },
             borderRadius: "0",
-            borderRightWidth: "1px",
-            borderRightColor: "border.strong",
             cursor: "pointer",
             transitionProperty: "background, color",
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",
             color: "fg.muted",
             background: "transparent",
-            /* Defeat Chakra default `_before` divider line — we use a real
-             * border-right above. */
+            /* Defeat Chakra default `_before` divider line — the 1px root
+             * gap is the divider. */
             _before: { display: "none" },
-            "&:last-of-type": { borderRightWidth: "0" },
             _hover: { color: "fg" },
             _focusVisible: { outline: "none", boxShadow: "none" },
             _disabled: { opacity: 0.4, cursor: "not-allowed" },
