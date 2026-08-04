@@ -1148,3 +1148,10 @@ def _namespace_rows() -> dict[str, Any]:
 
 for _name, _row in _namespace_rows().items():
     _ROWS.setdefault(_name, _row)
+
+# The formatted-datetime builtins take a pre-tokenized
+# Array<DateTimeFormatToken>; the namespace sugar tokenizes a format STRING,
+# so its derived rows cannot replay the IR's argument shape — the funnel
+# carries them instead (they are in FUNNEL_ONLY).
+for _fmt_builtin in ("DateTimePrintFormat", "DateTimeParseFormat"):
+    _ROWS.pop(_fmt_builtin, None)
