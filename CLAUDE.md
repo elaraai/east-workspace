@@ -3,6 +3,17 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with
 code in this repository.
 
+## HARD RULE: read the whole file before editing it
+
+Before editing ANY source file, you MUST have read that file **in its
+entirety, recently** — meaning after its most recent change, including your
+own earlier edits, merges, rebases, and formatter runs. Partial reads, grep
+fragments, or a full read that predates a known change do not qualify. If a
+file exceeds one Read call, read it in consecutive chunks until complete.
+There is no "small edit" exception. When a tool result notes the file was
+modified on disk since you last read it, that is a STOP: re-read the whole
+file before the next edit to it.
+
 ## What this repo is
 
 The **East monorepo** — a pnpm + uv + cmake workspace containing all
