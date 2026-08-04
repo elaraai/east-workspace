@@ -624,14 +624,35 @@ static char *jp_parse_string(JsonParser *p, size_t *out_len)
                 hex[4] = '\0';
                 p->pos += 4;
                 unsigned int cp = (unsigned int)strtoul(hex, NULL, 16);
-                /* Simple UTF-8 encoding */
+                /* A high surrogate followed by an escaped low surrogate is ONE
+                 * astral codepoint — JSON.parse and python's json join the
+                 * pair, and decoding the halves separately produced CESU-8
+                 * that doubled lengths and broke matching (#477). An unpaired
+                 * surrogate keeps its 3-byte WTF-8 form, like JS strings. */
+                if (cp >= 0xD800 && cp <= 0xDBFF && p->pos + 6 <= p->len &&
+                    p->input[p->pos] == '\\' && p->input[p->pos + 1] == 'u') {
+                    char hex_lo[5];
+                    memcpy(hex_lo, p->input + p->pos + 2, 4);
+                    hex_lo[4] = '\0';
+                    unsigned int lo = (unsigned int)strtoul(hex_lo, NULL, 16);
+                    if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                        p->pos += 6;
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                    }
+                }
+                /* UTF-8 encode (1-4 bytes) */
                 if (cp < 0x80) {
                     strbuf_append_char(&sb, (char)cp);
                 } else if (cp < 0x800) {
                     strbuf_append_char(&sb, (char)(0xC0 | (cp >> 6)));
                     strbuf_append_char(&sb, (char)(0x80 | (cp & 0x3F)));
-                } else {
+                } else if (cp < 0x10000) {
                     strbuf_append_char(&sb, (char)(0xE0 | (cp >> 12)));
+                    strbuf_append_char(&sb, (char)(0x80 | ((cp >> 6) & 0x3F)));
+                    strbuf_append_char(&sb, (char)(0x80 | (cp & 0x3F)));
+                } else {
+                    strbuf_append_char(&sb, (char)(0xF0 | (cp >> 18)));
+                    strbuf_append_char(&sb, (char)(0x80 | ((cp >> 12) & 0x3F)));
                     strbuf_append_char(&sb, (char)(0x80 | ((cp >> 6) & 0x3F)));
                     strbuf_append_char(&sb, (char)(0x80 | (cp & 0x3F)));
                 }

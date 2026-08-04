@@ -566,10 +566,14 @@ cdef Py_ssize_t _STR_INTERN_MAX_SIZE = 1 << 16
 
 
 cdef inline object _box_string(_eastc.EastValue *val):
+    # East strings are WTF-8: TS/east-c carry lone surrogates (e.g. from JS
+    # strings or DecodeUTF16), encoded as their 3-byte sequences. strict
+    # UTF-8 decoding raised on them; surrogatepass round-trips them and is
+    # identical to strict for valid UTF-8 (#477).
     s = PyUnicode_DecodeUTF8(
         val.data.string.data,
         <Py_ssize_t>val.data.string.len,
-        NULL,
+        b"surrogatepass",
     )
     if <Py_ssize_t>val.data.string.len <= _STR_INTERN_MAX_LEN:
         cached = _str_intern.get(s)
@@ -1284,7 +1288,16 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
         return _eastc.east_float(<double>val)
 
     elif kind == _eastc.EAST_TYPE_STRING:
-        str_data = PyUnicode_AsUTF8AndSize(val, &str_len)
+        # The cached strict-UTF-8 fast path covers real text; a python str
+        # holding lone surrogates (WTF-8 round-trips, UTF-16 artifacts) is
+        # rejected by it, so re-encode those with surrogatepass — the same
+        # 3-byte sequences TS/east-c store (#477).
+        try:
+            str_data = PyUnicode_AsUTF8AndSize(val, &str_len)
+        except UnicodeEncodeError:
+            wtf8 = (<str>val).encode("utf-8", "surrogatepass")
+            return _eastc.east_string_len(
+                PyBytes_AS_STRING(<bytes>wtf8), <size_t>PyBytes_GET_SIZE(<bytes>wtf8))
         return _eastc.east_string_len(str_data, <size_t>str_len)
 
     elif kind == _eastc.EAST_TYPE_DATETIME:
