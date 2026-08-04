@@ -47,6 +47,8 @@ class Beast2DecodeOptions(TypedDict, total=False):
 
 
 from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]  # noqa: E402
+    _beast2_splice_extents,
+    _beast2_splice_tail,
     _Beast2PagesCore,
     _Beast2ReaderCore,
     _Beast2WriterCore,
@@ -841,6 +843,156 @@ def write_beast2_file(path, collection_type, value, *, codec: str = "deflate",
     with Beast2FileWriter(path, collection_type, codec=codec,
                           segment_rows=segment_rows) as writer:
         writer.write(value)
+
+
+# ── Splice: merge v5 files without re-encoding (issue #484) ───────────────
+#
+# A self-contained segment's bytes are position-independent by design (REF
+# deltas are relative and never cross a segment boundary), so merging N files
+# is: keep one header, byte-copy every source's segment-frame range, write one
+# terminator and one merged index. No value ever decodes or re-encodes.
+#
+# east-c owns every byte of container grammar — `_beast2_splice_extents`
+# parses each source's geometry and `_beast2_splice_tail` builds the merged
+# terminator + index + footer, both composed from the same internals the C
+# readers and writers use. Python owns only the file descriptors: open,
+# sendfile, rename, and errors that name the offending path.
+
+
+def _copy_range(dest_file, src_file, start: int, count: int) -> None:
+    """Append ``count`` bytes from ``src_file`` at ``start`` to ``dest_file``.
+
+    ``os.sendfile`` keeps the copy in the kernel where the platform has it
+    (Linux/BSD/macOS); elsewhere — or on fd pairs that refuse it — a chunked
+    seek-and-read loop does the same work portably. ``dest_file`` must be
+    unbuffered so python-side writes and fd-level copies stay in sync.
+    """
+    remaining = count
+    offset = start
+    if hasattr(os, "sendfile"):
+        try:
+            while remaining:
+                sent = os.sendfile(dest_file.fileno(), src_file.fileno(), offset, remaining)
+                if sent == 0:
+                    raise ValueError("unexpected end of source during splice")
+                offset += sent
+                remaining -= sent
+            return
+        except OSError:
+            pass  # sendfile unsupported for this fd pair — fall back
+    src_file.seek(offset)
+    while remaining:
+        chunk = src_file.read(min(remaining, 1 << 20))
+        if not chunk:
+            raise ValueError("unexpected end of source during splice")
+        dest_file.write(chunk)
+        remaining -= len(chunk)
+
+
+def splice_beast2_files(path, collection_type, sources, *, verify: bool = False) -> tuple[int, int]:
+    """Merge indexed v5 collection files into one, by byte copy.
+
+    Keeps the first source's header, copies every source's segment frames
+    through untouched (``os.sendfile`` — no decode, no re-encode), and writes
+    one merged trailing index. The output is structurally indistinguishable
+    from a single writer's file; row order is source order, and Set/Dict
+    sources merge on decode with the ordinary segment semantics.
+
+    ``sources`` is a sequence or any iterable of paths, **consumed lazily** —
+    pass a generator that yields each shard as it completes and the
+    destination grows incrementally. The destination is written to a
+    temporary sibling and renamed on success, so it is complete or absent.
+
+    Every source must be v5, indexed, self-contained, carry no source map,
+    and declare a byte-identical type section; violations fail naming the
+    offending path.
+
+    Args:
+        path: The destination file (overwritten if present).
+        collection_type: The root Array/Set/Dict type of every source.
+        sources: Paths of the files to merge, in order.
+        verify: When True, run east-c's sequential segment reader over the
+            finished destination — the whole-stream validator (frames,
+            terminator, index consistency) at O(one segment) memory.
+
+    Returns:
+        ``(segment_count, element_count)`` of the merged file (elements are
+        exact for Array roots; the per-segment sum for Set/Dict roots).
+    """
+    _check_segmented(collection_type)
+    dest = os.fspath(path)
+    tmp = dest + ".splice-tmp"
+    ref_prefix: bytes | None = None
+    ref_path: str | None = None
+    offsets: list[int] = []
+    counts: list[int] = []
+    dest_file = None
+    written = 0
+    try:
+        for source in sources:
+            src_path = os.fspath(source)
+            with open(src_path, "rb") as src_file:
+                if os.fstat(src_file.fileno()).st_size == 0:
+                    raise ValueError(f"{src_path}: Data too short for Beast2 format: 0 bytes")
+                with mmap.mmap(src_file.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                    try:
+                        extents = _beast2_splice_extents(mm)
+                    except ValueError as exc:
+                        raise ValueError(f"{src_path}: {exc}") from None
+                    if not extents["self_contained"]:
+                        raise ValueError(
+                            f"{src_path}: blob has cross-segment aliasing — splice "
+                            "requires self-contained segments (the writer default)"
+                        )
+                    if not extents["source_map_empty"]:
+                        raise ValueError(
+                            f"{src_path}: blob carries a source map — splice supports "
+                            "data collections only"
+                        )
+                    prefix_end = extents["prefix_end"]
+                    prefix = bytes(mm[8:prefix_end])
+                    if ref_prefix is None:
+                        ref_prefix, ref_path = prefix, src_path
+                        dest_file = open(tmp, "wb", buffering=0)  # noqa: SIM115 — outlives the loop; closed in finally
+                        dest_file.write(bytes(mm[:prefix_end]))
+                        written = prefix_end
+                    elif prefix != ref_prefix:
+                        raise ValueError(
+                            f"{src_path}: type section differs from {ref_path} — "
+                            "splice sources must share one declared type"
+                        )
+                shift = written - prefix_end
+                span = extents["segments_end"] - prefix_end
+                if span:
+                    _copy_range(dest_file, src_file, prefix_end, span)
+                    written += span
+                offsets.extend(o + shift for o in extents["offsets"])
+                counts.extend(extents["counts"])
+        if dest_file is None:
+            raise ValueError("splice_beast2_files: at least one source is required")
+
+        dest_file.write(_beast2_splice_tail(offsets, counts, written))
+        dest_file.close()
+        dest_file = None
+        os.replace(tmp, dest)
+    except BaseException:
+        if dest_file is not None:
+            dest_file.close()
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+    if verify:
+        with open(dest, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            total = 0
+            for segment in iter_beast2_segments_for(collection_type)(mm):
+                total += len(segment)
+            if total != sum(counts):
+                raise ValueError(
+                    f"splice verification failed: decoded {total} elements, "
+                    f"index says {sum(counts)}"
+                )
+    return len(offsets), sum(counts)
 
 
 __all__ = [

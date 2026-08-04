@@ -390,6 +390,135 @@ void east_beast2_reader_free(Beast2SegmentReader *r)
 }
 
 /* ================================================================== */
+/*  Splice extents — byte geometry for merging blobs (issue #484)      */
+/* ================================================================== */
+
+/* Both the root NEW tag frame and the terminator frame encode to exactly
+ * these four bytes: codec 0, uncompressed len 1, payload len 1, payload 0x00. */
+static const uint8_t B2V5_TAG_OR_TERMINATOR_FRAME[4] = {0x00, 0x01, 0x01, 0x00};
+
+Beast2SpliceExtents *east_beast2_splice_extents(const uint8_t *data, size_t len)
+{
+    if (!data) {
+        east_builtin_error("beast2 v5: splice extents need a blob");
+        return NULL;
+    }
+    if (len < 8) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Data too short for Beast2 format: %zu bytes", len);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    if (memcmp(data, BEAST2_MAGIC, 7) == 0 && data[7] == 0x04) {
+        east_builtin_error("beast2 v5: splice needs v5 blobs; this is a v4 container "
+                           "(re-encode with version 5)");
+        return NULL;
+    }
+    if (memcmp(data, BEAST2_MAGIC_V5, 8) != 0) {
+        east_builtin_error("beast2 v5: not a beast2 v5 container");
+        return NULL;
+    }
+
+    B2V5Header h;
+    if (!b2v5_read_header(data, len, &h)) {
+        /* Re-post any specific message (e.g. a well-known hash mismatch);
+         * type-section truncation returns false silently, so cover it. */
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
+            east_builtin_error("beast2 v5: malformed header sections");
+        }
+        return NULL;
+    }
+    bool source_map_empty = h.sm.num_stacks == 0;
+    size_t frame_offset = h.frame_offset;
+    b2v5_header_dispose(&h);
+
+    /* Index BEFORE frame geometry: an index-less whole-value blob packs the
+     * tag, segments and terminator into one frame, so probing for the framed
+     * layout first would report a confusing geometry error instead of the
+     * actionable one. */
+    B2V5Index ix;
+    int r = b2v5_read_index(data, len, &ix);
+    if (r == -1) return NULL; /* error already posted */
+    if (r == 0) {
+        east_builtin_error("beast2 v5: blob carries no index — splice needs one "
+                           "(write with the index enabled, the default)");
+        return NULL;
+    }
+
+    if (frame_offset + 4 > len ||
+        memcmp(data + frame_offset, B2V5_TAG_OR_TERMINATOR_FRAME, 4) != 0) {
+        east_builtin_error("beast2 v5: root tag frame not found where expected");
+        b2v5_index_free(&ix);
+        return NULL;
+    }
+    size_t prefix_end = frame_offset + 4;
+
+    size_t segments_end = prefix_end;
+    if (ix.count > 0) {
+        if (ix.offsets[0] != prefix_end) {
+            east_builtin_error("beast2 v5: segments not contiguous with the header");
+            b2v5_index_free(&ix);
+            return NULL;
+        }
+        size_t off = ix.offsets[ix.count - 1];
+        uint64_t codec, uncompressed_len, payload_len;
+        if (!read_varint_checked(data, len, &off, &codec) ||
+            !read_varint_checked(data, len, &off, &uncompressed_len) ||
+            !read_varint_checked(data, len, &off, &payload_len) || payload_len > len - off) {
+            east_builtin_error("beast2 v5: malformed segment frame header");
+            b2v5_index_free(&ix);
+            return NULL;
+        }
+        segments_end = off + (size_t)payload_len;
+    }
+    if (segments_end + 4 != ix.index_offset ||
+        memcmp(data + segments_end, B2V5_TAG_OR_TERMINATOR_FRAME, 4) != 0) {
+        east_builtin_error("beast2 v5: terminator frame not found where expected");
+        b2v5_index_free(&ix);
+        return NULL;
+    }
+
+    Beast2SpliceExtents *e = calloc(1, sizeof(*e));
+    if (!e) {
+        b2v5_index_free(&ix);
+        return NULL;
+    }
+    e->prefix_end = prefix_end;
+    e->segments_end = segments_end;
+    e->index_offset = ix.index_offset;
+    e->segment_count = ix.count;
+    e->self_contained = ix.self_contained;
+    e->source_map_empty = source_map_empty;
+    /* Steal the index arrays rather than copying. */
+    e->offsets = ix.offsets;
+    e->counts = ix.counts;
+    memset(&ix, 0, sizeof(ix));
+    return e;
+}
+
+void east_beast2_splice_extents_free(Beast2SpliceExtents *e)
+{
+    if (!e) return;
+    free(e->offsets);
+    free(e->counts);
+    free(e);
+}
+
+ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts, size_t n,
+                                    size_t stream_end)
+{
+    ByteBuffer *buf = byte_buffer_new(64);
+    if (!buf) return NULL;
+    byte_buffer_write_bytes(buf, B2V5_TAG_OR_TERMINATOR_FRAME, 4);
+    b2v5_write_index_footer(buf, stream_end + 4, offsets, counts, n, true);
+    return buf;
+}
+
+/* ================================================================== */
 /*  Paging reader — random access over an indexed, self-contained blob  */
 /* ================================================================== */
 

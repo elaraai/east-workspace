@@ -133,6 +133,36 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
 void east_beast2_pages_free(Beast2Pages *p);
 
+// Byte extents of an indexed v5 collection blob, for splicing (issue #484):
+// everything a host needs to byte-copy the blob's segment frames into a merged
+// stream without decoding a value. All offsets are wire offsets; offsets and
+// counts are owned by the struct (free with east_beast2_splice_extents_free).
+// self_contained / source_map_empty report the blob's flags rather than
+// failing, so the host can name the offending file in its own error.
+typedef struct {
+    size_t prefix_end;   /* end of header + root NEW tag frame = first segment frame */
+    size_t segments_end; /* end of the last segment frame = terminator frame start */
+    size_t index_offset; /* wire offset of the index section */
+    size_t *offsets;     /* per-segment frame offsets */
+    size_t *counts;      /* per-segment element (pair) counts */
+    size_t segment_count;
+    bool self_contained;
+    bool source_map_empty; /* the header source map carries no stacks */
+} Beast2SpliceExtents;
+
+// Parse the extents of one indexed v5 blob. Returns NULL on failure (message
+// via east_builtin_get_error): not a v5 container, no trailing index, or
+// malformed/misplaced sections. Never decodes a value.
+Beast2SpliceExtents *east_beast2_splice_extents(const uint8_t *data, size_t len);
+void east_beast2_splice_extents_free(Beast2SpliceExtents *e);
+
+// The bytes that terminate a spliced stream whose segment frames end at wire
+// offset `stream_end`: terminator frame + self-contained index for the given
+// segment table + footer. Returns a ByteBuffer the caller frees, or NULL on
+// allocation failure.
+ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts, size_t n,
+                                    size_t stream_end);
+
 // Decode JSON IR in wrapper format {ir, source_map} and convert to IRNode.
 // Tries wrapper format first (TS test suite export), falls back to raw IR.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue*.
