@@ -15,7 +15,7 @@ from libc.stddef cimport size_t
 from libc.stdlib cimport free, malloc
 
 from east cimport _eastc
-from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c
+from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
 
 
 # ─── East-c runtime initialization ────────────────────────────────────────
@@ -440,6 +440,24 @@ cdef class _Beast2PagesCore:
             _eastc.east_beast2_pages_free(self._p)
         if self._type != NULL:
             _eastc.east_type_release(self._type)
+
+
+def _beast2_read_type(object data):
+    """The type schema embedded in a beast2-full blob (v4 or v5), as the
+    python type descriptor. Parses only the header — no value decodes."""
+    cdef const uint8_t[::1] view = data
+    _ensure_eastc_runtime()
+    cdef const uint8_t* ptr = <const uint8_t*>_EMPTY
+    cdef size_t n = <size_t>view.shape[0]
+    if n > 0:
+        ptr = &view[0]
+    cdef _eastc.EastType* c_type = _eastc.east_beast2_extract_type(ptr, n)
+    if c_type == NULL:
+        _consume_eastc_error("beast2: could not extract the type schema", ValueError)
+    try:
+        return _c_type_tag_to_py_type(c_type)
+    finally:
+        _eastc.east_type_release(c_type)
 
 
 def _beast2_splice_extents(object data):

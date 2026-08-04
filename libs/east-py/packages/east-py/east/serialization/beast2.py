@@ -47,6 +47,7 @@ class Beast2DecodeOptions(TypedDict, total=False):
 
 
 from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]  # noqa: E402
+    _beast2_read_type,
     _beast2_splice_extents,
     _beast2_splice_tail,
     _Beast2PagesCore,
@@ -279,6 +280,33 @@ def open_beast2_pages_for(collection_type, options: Beast2DecodeOptions | None =
     return opener
 
 
+def read_beast2_type(source):
+    """The type schema embedded in a self-describing beast2 blob (v4 or v5).
+
+    A v5 (and v4) container always carries its root type; this reads it back
+    without decoding any value, so tooling can inspect exports it knows
+    nothing about — and loaders can be regenerated from artifacts alone.
+
+    Args:
+        source: A path, or any buffer (``bytes``, ``bytearray``,
+            ``memoryview``, an ``mmap``).
+
+    Returns:
+        The blob's root type, as the ordinary python type descriptor.
+    """
+    if isinstance(source, (str, os.PathLike)):
+        path = os.fspath(source)
+        with open(path, "rb") as f:
+            if os.fstat(f.fileno()).st_size == 0:
+                raise ValueError(f"{path}: Data too short for Beast2 format: 0 bytes")
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                try:
+                    return _beast2_read_type(mm)
+                except ValueError as exc:
+                    raise ValueError(f"{path}: {exc}") from None
+    return _beast2_read_type(_as_buffer(source))
+
+
 # ── Managed file interface (issue #481 W1) ────────────────────────────────
 #
 # Path + East type in, East values out: `Beast2File` owns the fd + mmap and
@@ -305,10 +333,7 @@ class Beast2File:
     input-side memory at a time). Close via ``with`` or :meth:`close`.
     """
 
-    def __init__(self, path, collection_type):
-        _check_segmented(collection_type)
-        self.collection_type = collection_type
-        """The declared root collection type (Array/Set/Dict)."""
+    def __init__(self, path, collection_type=None):
         self.path = os.fspath(path)
         """The opened file's path."""
         self._file = open(self.path, "rb")  # noqa: SIM115 — the file object owns the handle
@@ -328,8 +353,22 @@ class Beast2File:
                 )
             if head != BEAST2_V5_MAGIC:
                 raise ValueError("open_beast2_file: not a beast2 v5 container")
+            self.wire_type = _beast2_read_type(self._mm)
+            """The root type the file itself declares in its header."""
+            if collection_type is not None and collection_type != self.wire_type:
+                from east.serialization.east_printer import print_type
+
+                raise ValueError(
+                    "open_beast2_file: declared type does not match the file — "
+                    f"declared {print_type(collection_type)}, the file carries "
+                    f"{print_type(self.wire_type)}"
+                )
+            self.collection_type = collection_type if collection_type is not None else self.wire_type
+            """The root collection type reads decode with (the wire type when
+            none was declared)."""
+            _check_segmented(self.collection_type)
             try:
-                self._pages = Beast2Pages(collection_type, self._mm)
+                self._pages = Beast2Pages(self.collection_type, self._mm)
             except RuntimeError as exc:
                 # An index-less v5 blob degrades to stream-only access
                 # (segments()/load()); anything else is a real error.
@@ -794,7 +833,7 @@ class Beast2FileWriter:
             yield rebuilt
 
 
-def open_beast2_file(path, collection_type, mode: str = "r", *,
+def open_beast2_file(path, collection_type=None, mode: str = "r", *,
                      codec: str = "deflate", segment_rows: int | None = None):
     """Open a beast2 v5 collection file, managed end to end.
 
@@ -805,7 +844,10 @@ def open_beast2_file(path, collection_type, mode: str = "r", *,
 
     Args:
         path: The file to open.
-        collection_type: The root Array/Set/Dict type.
+        collection_type: The root Array/Set/Dict type. Optional when reading —
+            a v5 file is self-describing, so the header supplies it; when
+            given it is validated against the header and a mismatch fails at
+            open instead of decoding garbage. Required for write mode.
         mode: ``"r"`` (default) or ``"w"``.
         codec: Write mode only — segment codec, ``"deflate"`` (default) or
             ``"none"``.
@@ -819,9 +861,15 @@ def open_beast2_file(path, collection_type, mode: str = "r", *,
     if mode == "r":
         if codec != "deflate" or segment_rows is not None:
             raise ValueError("codec/segment_rows are write-mode options")
-        kind = _check_segmented(collection_type)
-        return _FILE_KINDS[kind](path, collection_type)
+        resolved = collection_type if collection_type is not None else read_beast2_type(path)
+        kind = _check_segmented(resolved)
+        return _FILE_KINDS[kind](path, collection_type if collection_type is not None else resolved)
     if mode == "w":
+        if collection_type is None:
+            raise ValueError(
+                "open_beast2_file: write mode requires collection_type — only "
+                "an existing file can supply its own type"
+            )
         return Beast2FileWriter(path, collection_type, codec=codec,
                                 segment_rows=segment_rows)
     raise ValueError(f"open_beast2_file mode must be 'r' or 'w', not {mode!r}")
@@ -1208,6 +1256,7 @@ __all__ = [
     "encode_beast2_segments_for",
     "iter_beast2_segments_for",
     "read_beast2_index",
+    "read_beast2_type",
     "Beast2Pages",
     "open_beast2_pages_for",
     "Beast2File",
