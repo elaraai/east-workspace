@@ -1087,6 +1087,48 @@ Stochastic fits memoize their first realization. Code edits don't change keys �
 bump the salt. Inert with no directory configured: under e3, the dataflow's
 content-addressed task cache is the real memo and this stays off.
 
+### Fork-parallel export of a huge table (one file out)
+
+The shape for "N CPUs on one table": build the expensive shared context once,
+let forked workers inherit it copy-on-write, and ship a single indexed file —
+consumers never learn the export was parallel. (Windows runs the same contract
+inline, sequentially; the output is byte-identical either way.)
+
+```python
+from east.serialization.beast2 import open_beast2_file, write_beast2_file_parallel
+
+ROW = StructType([("order_id", StringType), ("qty", IntegerType), ("total", FloatType)])
+
+lookups = load_reference_tables()          # multi-GB keyed dicts: built ONCE, pre-fork,
+                                           # inherited COW — never pickled, never rebuilt
+
+def produce(span):                         # runs in the worker process
+    start, count = span                    # yield batches of any size — the managed
+    for chunk in chunk_ranges(start, count, 8192):   # writer re-batches into segments
+        yield compute_rows(lookups, chunk)           # eager methods + kernels: native
+
+write_beast2_file_parallel(
+    "orders.beast2", ArrayType(ROW),
+    partitions=row_ranges(total_records, shards=13),  # partition order = row order
+    produce=produce,
+    processes=13,          # a worker failure kills the rest, cleans up, re-raises
+)
+
+# Consumers — e.g. the table's @platform_function loader — see ONE file, no
+# catalog, no shard names, and read it at one segment of memory:
+@platform_function(inputs=[StringType], output=ArrayType(ROW))
+def load_orders(path):
+    with open_beast2_file(path, ArrayType(ROW)) as f:
+        return f.load()    # or stream f.segments() and never hold the table
+```
+
+Shards produced by your own process topology (or on another machine)? Merge
+them directly — same one-writer output guarantee, pure byte copy:
+
+```python
+splice_beast2_files("orders.beast2", ArrayType(ROW), sorted(shard_paths), verify=True)
+```
+
 ### Sort uses East's total order
 
 ```python
