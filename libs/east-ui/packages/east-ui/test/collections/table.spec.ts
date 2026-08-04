@@ -16,7 +16,6 @@ describeEast("Table", (test) => {
         tableSelection: ex.tableSelection,
         tableReview: ex.tableReview,
         tableExpandedRichDetail: ex.tableExpandedRichDetail,
-        tableFill: ex.tableFill,
         tablePnlGrouped: ex.tablePnlGrouped,
     });
 

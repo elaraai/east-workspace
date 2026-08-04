@@ -13,7 +13,6 @@ describeEast("Library", (test) => {
     Assert.examples(test, {
         libraryPeople: ex.libraryPeople,
         libraryLarge: ex.libraryLarge,
-        libraryFill: ex.libraryFill,
     });
 
     // =========================================================================
@@ -33,14 +32,6 @@ describeEast("Library", (test) => {
         // same fixture shape directly.
         const panel = $.const(ex.libraryLarge.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("libraryFill panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.libraryFill.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SCROLL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("400 generated cards resolve with hoisted per-group summaries", $ => {

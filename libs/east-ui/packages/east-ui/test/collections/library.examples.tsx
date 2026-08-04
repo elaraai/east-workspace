@@ -131,8 +131,8 @@ export const libraryPeople = example({
 });
 
 export const libraryLarge = example({
-    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "card", "chips", "assets", "vehicles", "minimal"],
-    description: "Large-library configurator — dataset (crew / assets / rooms) and mode (grouped / flat / sliced) axes over one live palette; sliced mounts Slice chrome with rows via Slice.rows",
+    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "card", "chips", "assets", "vehicles", "minimal", "maxHeight", "bounded", "fill", "#320"],
+    description: "Large-library configurator — dataset (crew / assets / rooms), mode (grouped / flat / sliced) and size (auto / scroll / fill) axes over one live palette",
     fn: East.function([], UIComponentType, (_$) => {
         const cfg = Slice.config(CrewType, {
             fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
@@ -153,16 +153,22 @@ export const libraryLarge = example({
                 // card set; the mode stays the grouping axis.
                 const datasets = $.const(["crew", "assets", "rooms"], ArrayType(StringType));
                 const modes = $.const(["grouped", "flat", "sliced"], ArrayType(StringType));
+                const sizes = $.const(["auto", "scroll", "fill"], ArrayType(StringType));
 
                 const datasetBind = $.let(State.bind([StringType], "library_large_dataset", "crew"));
                 const modeBind = $.let(State.bind([StringType], "library_large_mode", "grouped"));
+                const sizeBind = $.let(State.bind([StringType], "library_large_size", "auto"));
                 const dataset = $.let(datasetBind.read());
                 const mode = $.let(modeBind.read());
+                const sizeKey = $.let(sizeBind.read());
                 const onDatasetChange = $.const(East.function([StringType], NullType, ($, next) => {
                     $(datasetBind.write(next));
                 }));
                 const onModeChange = $.const(East.function([StringType], NullType, ($, next) => {
                     $(modeBind.write(next));
+                }));
+                const onSizeChange = $.const(East.function([StringType], NullType, ($, next) => {
+                    $(sizeBind.write(next));
                 }));
                 const crew = $.const(LIBRARY_LARGE_CARDS);
                 const assets = $.const(LIBRARY_ASSETS_DATA, ArrayType(AssetType));
@@ -322,9 +328,37 @@ export const libraryLarge = example({
                     _$ => roomsSliced,
                     _$ => roomsFlat,
                 ), UIComponentType);
-                const body = $.const(dataset.equal("assets").ifElse(
+                // Scroll / fill (#320, absorbed libraryFill).
+                const scrollArm = $.const(
+                    <Library
+                        id="library-scroll"
+                        data={LIBRARY_SCROLL_DATA}
+                        item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
+                        dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
+                        groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
+                        style={{ maxHeight: "200px" }}
+                    />,
+                );
+                const fillArm = $.const(
+                    <Box height="200px">
+                        <Library
+                            id="library-fill"
+                            data={LIBRARY_FILL_DATA}
+                            item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
+                            dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
+                            groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
+                            style={{ height: "fill" }}
+                        />
+                    </Box>,
+                );
+
+                const datasetBody = $.const(dataset.equal("assets").ifElse(
                     _$ => assetsBody,
                     _$ => dataset.equal("rooms").ifElse(_$ => roomsBody, _$ => crewBody),
+                ), UIComponentType);
+                const body = $.const(sizeKey.equal("scroll").ifElse(
+                    _$ => scrollArm,
+                    _$ => sizeKey.equal("fill").ifElse(_$ => fillArm, _$ => datasetBody),
                 ), UIComponentType);
                 return (
                     <Configurator
@@ -335,6 +369,9 @@ export const libraryLarge = example({
                             Configurator.Control("Mode", mode,
                                 <SegmentGroup value={mode} onChange={onModeChange} size="sm"
                                     items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                            Configurator.Control("Size", sizeKey,
+                                <SegmentGroup value={sizeKey} onChange={onSizeChange} size="sm"
+                                    items={sizes.map((_$, k) => SegmentGroup.Item(k, <Text>{k.upperCase()}</Text>))} />),
                         ]}
                         preview={body}
                         spec={[
@@ -344,38 +381,6 @@ export const libraryLarge = example({
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-export const libraryFill = example({
-    keywords: ["Library", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320", "fill", "height", "Box"],
-    description: "Library sizing panel (#320) — scroll (style maxHeight=\"200px\" caps the card grid; six cards over two roles overflow so it clips mid-row and virtualizes within), fill (height=\"fill\": the library card grid fills a fixed 200px Box and scrolls within it; two hundred cards over two roles overflow the box so only the visible cards plus overscan mount)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="SCROLL" align="start" />
-                <Library
-                    id="library-scroll"
-                    data={LIBRARY_SCROLL_DATA}
-                    item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
-                    dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
-                    groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                    style={{ maxHeight: "200px" }}
-                />
-                <Separator label="FILL" align="start" />
-                <Box height="200px">
-                    <Library
-                        id="library-fill"
-                        data={LIBRARY_FILL_DATA}
-                        item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
-                        dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
-                        groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                        style={{ height: "fill" }}
-                    />
-                </Box>
-            </VStack>
         );
     }),
     inputs: [],

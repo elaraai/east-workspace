@@ -13,7 +13,6 @@ describeEast("Calendar", (test) => {
     Assert.examples(test, {
         calendarDemand: ex.calendarDemand,
         calendarVariants: ex.calendarVariants,
-        calendarFill: ex.calendarFill,
     });
 
     // =========================================================================
@@ -33,14 +32,6 @@ describeEast("Calendar", (test) => {
         // construct each option directly.
         const panel = $.const(ex.calendarVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
-
-    test("calendarFill panel mounts one captioned row per merged example", $ => {
-        const panel = $.const(ex.calendarFill.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SCROLL"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FILL"));
     });
 
     test("resolves cells with default formatting, values on, and no chrome", $ => {

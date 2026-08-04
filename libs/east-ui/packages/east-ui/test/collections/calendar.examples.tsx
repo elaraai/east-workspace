@@ -106,8 +106,8 @@ export const calendarDemand = example({
 });
 
 export const calendarVariants = example({
-    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive", "footer"],
-    description: "Calendar configurator — density and scale-step axes plus values, totals and minimal-chrome switches driving one live heatmap; the aside tracks the tapped day via onSelect",
+    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive", "footer"],
+    description: "Calendar configurator — density, scale-step and size axes plus values, totals and sparse-data switches driving one live heatmap; the aside tracks the tapped day via onSelect",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -133,6 +133,7 @@ export const calendarVariants = example({
                 const valuesBind  = $.let(State.bind([BooleanType], "calendar_values", true));
                 const totalsBind  = $.let(State.bind([BooleanType], "calendar_totals", false));
                 const chromeBind  = $.let(State.bind([BooleanType], "calendar_chrome", false));
+                const sizeBind    = $.let(State.bind([StringType], "calendar_size", "auto"));
                 // The selection readout (folded from the old interactive
                 // example — its State key is preserved): onSelect writes the
                 // tapped day into the aside.
@@ -143,6 +144,7 @@ export const calendarVariants = example({
                 const valuesOn = $.let(valuesBind.read());
                 const totalsOn = $.let(totalsBind.read());
                 const minimal  = $.let(chromeBind.read());
+                const sizeKey  = $.let(sizeBind.read());
                 const selected = $.let(selectedBind.read());
 
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
@@ -150,6 +152,7 @@ export const calendarVariants = example({
                 const onValues  = $.const(East.function([BooleanType], NullType, ($, next) => { $(valuesBind.write(next)); }));
                 const onTotals  = $.const(East.function([BooleanType], NullType, ($, next) => { $(totalsBind.write(next)); }));
                 const onChrome  = $.const(East.function([BooleanType], NullType, ($, next) => { $(chromeBind.write(next)); }));
+                const onSize    = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
                 const onSelect  = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {
                     $(selectedBind.write(East.str`${ref.day} ${ref.week}`));
                 }));
@@ -165,7 +168,34 @@ export const calendarVariants = example({
                 // Totals chrome is the presence of the rail + aggregate row,
                 // not a value of either — so the switch picks between the two
                 // calendars rather than feeding empty configs.
-                const cal = $.const(totalsOn.ifElse(
+                // Scroll / fill (#320, absorbed calendarFill) — density, scale
+                // and values stay live on both sizing arms.
+                const scrollArm = $.const(
+                    <Calendar
+                        data={CALENDAR_SCROLL_DATA}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                        values={valuesOn}
+                        scale={Calendar.scale({ steps: scale.steps })}
+                        density={density}
+                        onSelect={onSelect}
+                        maxHeight="200px"
+                    />,
+                );
+                const fillArm = $.const(
+                    <Box height="200px">
+                        <Calendar
+                            data={CALENDAR_FILL_DATA}
+                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                            values={valuesOn}
+                            scale={Calendar.scale({ steps: scale.steps })}
+                            density={density}
+                            onSelect={onSelect}
+                            height="fill"
+                        />
+                    </Box>,
+                );
+
+                const liveCal = $.const(totalsOn.ifElse(
                     _$ => (
                         <Calendar
                             data={data}
@@ -189,6 +219,10 @@ export const calendarVariants = example({
                         />
                     ),
                 ));
+                const cal = $.const(sizeKey.equal("scroll").ifElse(
+                    _$ => scrollArm,
+                    _$ => sizeKey.equal("fill").ifElse(_$ => fillArm, _$ => liveCal),
+                ), UIComponentType);
 
                 return (
                     <Configurator
@@ -206,10 +240,13 @@ export const calendarVariants = example({
                                 <HStack gap="5" align="center">
                                     <Switch checked={valuesOn} label="Values" onChange={onValues} />
                                 </HStack>),
+                            Configurator.Control("Size", sizeKey,
+                                <SegmentGroup value={sizeKey} onChange={onSize} size="sm"
+                                    items={["auto", "scroll", "fill"].map(k => SegmentGroup.Item(k, <Text>{k.toUpperCase()}</Text>))} />),
                             Configurator.Slot("Chrome",
                                 <HStack gap="5" align="center">
-                                    <Switch checked={totalsOn} label="Totals" onChange={onTotals} />
-                                    <Switch checked={minimal} label="Minimal" onChange={onChrome} />
+                                    <Switch checked={totalsOn} label="Totals (auto)" onChange={onTotals} />
+                                    <Switch checked={minimal} label="Sparse data (auto)" onChange={onChrome} />
                                 </HStack>),
                         ]}
                         preview={cal}
@@ -218,7 +255,7 @@ export const calendarVariants = example({
                             body: <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>,
                         }}
                         spec={[
-                            Configurator.Spec("Days", East.print(data.size())),
+                            Configurator.Spec("Days", sizeKey.equal("auto").ifElse(_$ => East.print(data.size()), _$ => sizeKey.equal("scroll").ifElse(_$ => "24", _$ => "200"))),
                             Configurator.Spec("Steps", East.print(scale.steps)),
                             Configurator.Spec("Values", valuesOn.ifElse(_$ => "numerals", _$ => "heat only")),
                             Configurator.Spec("Totals", totalsOn.ifElse(_$ => "sum rail · peak row", _$ => "off")),
@@ -226,32 +263,6 @@ export const calendarVariants = example({
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-export const calendarFill = example({
-    keywords: ["Calendar", "maxHeight", "bounded", "scroll", "virtual", "week", "sizing", "#320", "fill", "height", "Box"],
-    description: "Calendar sizing panel (#320) — scroll (maxHeight=\"200px\" caps the component; eight week rows overflow so it clips mid-row and scrolls within), fill (height=\"fill\": the calendar fills a fixed 200px Box and scrolls within it; two hundred week rows overflow the box so only the visible weeks plus overscan mount)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="SCROLL" align="start" />
-                <Calendar
-                    data={CALENDAR_SCROLL_DATA}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                    maxHeight="200px"
-                />
-                <Separator label="FILL" align="start" />
-                <Box height="200px">
-                    <Calendar
-                        data={CALENDAR_FILL_DATA}
-                        cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                        height="fill"
-                    />
-                </Box>
-            </VStack>
         );
     }),
     inputs: [],

@@ -22,39 +22,13 @@ export const dataListBasic = example({
     inputs: [],
 });
 
-export const dataListRichValues = example({
-    keywords: ["DataList", "Root", "Badge", "HoverCard", "Highlight", "rich"],
-    description: "Values can be any UI component — badges, hover cards, highlighted text",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <DataList items={[
-                { label: "Status", value: <Badge variant="solid" colorPalette="success">Active</Badge> },
-                {
-                    label: "Assigned To",
-                    value: (
-                        <HoverCard trigger={<Text color="link">@alice</Text>}>
-                            <VStack gap="1">
-                                <Text fontWeight="bold">Alice Johnson</Text>
-                                <Text textStyle="body-sm">Lead Designer — UX Team</Text>
-                            </VStack>
-                        </HoverCard>
-                    ),
-                },
-                { label: "Filter", value: <Highlight query={["LIKE"]}>name LIKE '%smith%'</Highlight> },
-                { label: "Priority", value: <Badge variant="subtle" colorPalette="danger">Urgent</Badge> },
-            ]} />
-        );
-    }),
-    inputs: [],
-});
-
 // ============================================================================
 // DataList — live configurator over every list axis
 // ============================================================================
 
 export const dataListVariants = example({
-    keywords: ["DataList", "Root", "orientation", "horizontal", "variant", "bold", "size", "sm", "compact", "lg", "profile", "user", "colour", "override", "background", "labelColor", "valueColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "DataList configurator — orientation, variant, size, content-preset and colour axes driving one live list; the aside stacks the three sizes",
+    keywords: ["DataList", "Root", "orientation", "horizontal", "variant", "bold", "size", "sm", "compact", "lg", "profile", "user", "colour", "override", "Badge", "HoverCard", "Highlight", "rich", "background", "labelColor", "valueColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "DataList configurator — orientation, variant, size, content-preset (specs / profile / rich) and colour axes driving one live list",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -92,6 +66,25 @@ export const dataListVariants = example({
                             { label: "Department", value: <Text>Engineering</Text> },
                             { label: "Role", value: <Text>Senior Developer</Text> },
                             { label: "Location", value: <Text>San Francisco, CA</Text> },
+                        ],
+                    },
+                    {
+                        label: "rich",
+                        items: [
+                            { label: "Status", value: <Badge variant="solid" colorPalette="success">Active</Badge> },
+                            {
+                                label: "Assigned To",
+                                value: (
+                                    <HoverCard trigger={<Text color="link">@alice</Text>}>
+                                        <VStack gap="1">
+                                            <Text fontWeight="bold">Alice Johnson</Text>
+                                            <Text textStyle="body-sm">Lead Designer — UX Team</Text>
+                                        </VStack>
+                                    </HoverCard>
+                                ),
+                            },
+                            { label: "Filter", value: <Highlight query={["LIKE"]}>name LIKE '%smith%'</Highlight> },
+                            { label: "Priority", value: <Badge variant="subtle" colorPalette="danger">Urgent</Badge> },
                         ],
                     },
                 ], ArrayType(StructType({ label: StringType, items: ArrayType(DataList.Types.Item) })));
@@ -159,15 +152,7 @@ export const dataListVariants = example({
                                 items={preset.items}
                             />
                         }
-                        aside={{
-                            label: "Size ladder",
-                            body: (
-                                <VStack gap="4" align="stretch">
-                                    {sizes.map((_$, d) => <DataList size={d} items={preset.items} />)}
-                                </VStack>
-                            ),
-                        }}
-                        spec={[
+                                                spec={[
                             Configurator.Spec("Rows", East.print(preset.items.size())),
                         ]}
                     />

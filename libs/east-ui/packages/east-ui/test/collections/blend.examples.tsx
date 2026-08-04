@@ -27,28 +27,23 @@ const BLEND_MODE_PORTFOLIO_DATA = [
 
 export const blendSingle = example({
     keywords: ["Blend", "single", "composition", "allocation", "metric", "objective", "pinned"],
-    description: "Single target — composition bar, allocations with a pinned lot, predicted metrics, objective + actions",
+    description: "Minimal bench — one target, two allocations (one pinned), one predicted metric",
     fn: East.function([], UIComponentType, ($) => {
         const targets = $.const([
-            { key: "MIX-318", name: "Batch 318", cap: 40000.0, cost: 3.42, grade: "A−" },
+            { key: "MIX-318", name: "Batch 318", cap: 40000.0 },
         ]);
         return (
             <Blend
                 id="bench"
-                sources={["materials"]}
                 targets={targets}
                 target={t => ({
                     key: t.key, label: t.name, capacity: t.cap,
-                    objective: "min cost · grade ≥ A · respect pins",
                     allocations: [
-                        Blend.allocation({ source: "LOT-204", sublabel: "class 1 · north", amount: 16000.0 }),
-                        Blend.allocation({ source: "LOT-219", sublabel: "class 1 · south", amount: 10000.0, pinned: true }),
-                        Blend.allocation({ source: "LOT-167", sublabel: "class 2 · north", amount: 5000.0, state: variant("proposed", variant("added", null)) }),
+                        Blend.allocation({ source: "LOT-204", amount: 16000.0 }),
+                        Blend.allocation({ source: "LOT-219", amount: 10000.0, pinned: true }),
                     ],
                     metrics: [
-                        Blend.metric({ key: "grade", label: "predicted grade", value: t.grade, model: "blend-v2.1" }),
-                        Blend.metric({ key: "cost", label: "cost / unit", value: East.str`$${East.print(t.cost)}`, numeric: t.cost, model: "cost-v1.4" }),
-                        Blend.metric({ key: "specx", label: "spec X (interp.)", value: "3.62", numeric: 3.62, band: { min: 3.55, max: 3.68 } }),
+                        Blend.metric({ key: "grade", label: "predicted grade", value: "A−", model: "blend-v2.1" }),
                     ],
                 })}
             />
@@ -161,7 +156,7 @@ export const blendModes = example({
  */
 export const blendLibraryDnd = example({
     keywords: ["Blend", "Library", "DnD", "drag", "add", "remove", "Reactive", "onDrag", "onAmountChange", "onAction", "interactive", "canDrop", "veto", "invalid", "validation", "candidate", "drop"],
-    description: "Library + Blend DnD — drag material cards into the batch (add), amounts edit inline, actions report through typed events; the canDrop stage vetoes class-2 cards on the premium batch (⊘ while dragging, no LAST log)",
+    description: "Library + Blend DnD — adds, inline amount edits and actions through typed events; canDrop vetoes class-2 cards on the premium batch",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>

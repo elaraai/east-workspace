@@ -11,7 +11,6 @@ import * as ex from "./data-list.examples.js";
 describeEast("DataList", (test) => {
     Assert.examples(test, {
         dataListBasic: ex.dataListBasic,
-        dataListRichValues: ex.dataListRichValues,
         dataListVariants: ex.dataListVariants,
     });
 

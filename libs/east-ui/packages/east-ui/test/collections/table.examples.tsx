@@ -96,32 +96,20 @@ export const tableBasic = example({
  */
 export const tableColumnsVariants = example({
     keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap", "frozen", "pin", "scroll", "columnGroups", "nested", "category", "header row", "footerRows", "subtotal", "grand total", "multi-row", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Column-system configurator — columns axis (widths / complex full-row render / wrapping tags) plus frozen / groups / footer switches on one live table; one structure previews at a time",
+    description: "Column-system configurator — one columns axis: widths, complex full-row render, wrapping tags, frozen, nested groups, footer rows",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const complexData = $.let(TABLE_COMPLEX_COLUMNS_DATA);
             const metricsData = $.let(TABLE_WRAPPING_TAGS_DATA);
-            const columnSets = $.const(["widths", "complex", "tags"], ArrayType(StringType));
+            const columnSets = $.const(["widths", "complex", "tags", "frozen", "groups", "footer"], ArrayType(StringType));
 
             const presetBind = $.let(State.bind([StringType], "table_columns_preset", "widths"));
-            const frozenBind = $.let(State.bind([BooleanType], "table_columns_frozen", false));
-            const groupsBind = $.let(State.bind([BooleanType], "table_columns_groups", false));
-            const footerBind = $.let(State.bind([BooleanType], "table_columns_footer", false));
-
             const cKey = $.let(presetBind.read());
-            const frozenOn = $.let(frozenBind.read());
-            const groupsOn = $.let(groupsBind.read());
-            const footerOn = $.let(footerBind.read());
-
             const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
-            const onFrozen = $.const(East.function([BooleanType], NullType, ($, next) => { $(frozenBind.write(next)); }));
-            const onGroups = $.const(East.function([BooleanType], NullType, ($, next) => { $(groupsBind.write(next)); }));
-            const onFooter = $.const(East.function([BooleanType], NullType, ($, next) => { $(footerBind.write(next)); }));
 
-            // One prebuilt table per column mechanic — the structure switches
-            // take priority (frozen > groups > footer), then the columns axis
-            // picks among the header-config presets.
-            const preview = $.const(frozenOn.ifElse(
+            // One prebuilt table per column mechanic — a single axis, no
+            // priority chains: every value previews exactly what it names.
+            const preview = $.const(cKey.equal("frozen").ifElse(
                 _$ => (
                     <Box width="600px" overflow="hidden">
                         <Table
@@ -143,7 +131,7 @@ export const tableColumnsVariants = example({
                         />
                     </Box>
                 ),
-                _$ => groupsOn.ifElse(
+                _$ => cKey.equal("groups").ifElse(
                     _$ => (
                         <Table
                             variant="outline"
@@ -164,7 +152,7 @@ export const tableColumnsVariants = example({
                             }}
                         />
                     ),
-                    _$ => footerOn.ifElse(
+                    _$ => cKey.equal("footer").ifElse(
                         _$ => (
                             <Table
                                 variant="line"
@@ -271,23 +259,10 @@ export const tableColumnsVariants = example({
                         Configurator.Control("Columns", cKey,
                             <SegmentGroup value={cKey} onChange={onPreset} size="sm"
                                 items={columnSets.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
-                        // A Slot, not a Control: the three switches report as
-                        // the Structure spec row below rather than as one value.
-                        Configurator.Slot("Structure",
-                            <HStack gap="5" align="center">
-                                <Switch checked={frozenOn} label="Frozen" onChange={onFrozen} />
-                                <Switch checked={groupsOn} label="Groups" onChange={onGroups} />
-                                <Switch checked={footerOn} label="Footer" onChange={onFooter} />
-                            </HStack>),
                     ]}
                     preview={preview}
                     spec={[
-                        Configurator.Spec("Structure", frozenOn.ifElse(
-                            _$ => "frozen columns",
-                            _$ => groupsOn.ifElse(
-                                _$ => "column groups",
-                                _$ => footerOn.ifElse(_$ => "footer rows", _$ => "column preset")))),
-                        Configurator.Spec("Columns", cKey),
+                        Configurator.Spec("Rows", cKey.equal("frozen").ifElse(_$ => "20 · 600px viewport", _$ => "3")),
                     ]}
                 />
             );
@@ -308,7 +283,7 @@ export const tableColumnsVariants = example({
  */
 export const tableStyleVariants = example({
     keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "pagination", "page", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Table style configurator — density, badge and row-height axes plus striped / paginated / row-status switches over one live 1000-row table; every callback logs to the aside",
+    description: "Table style configurator — density, badge and rows axes (virtual / paginated / status / row heights / fill) plus a striped switch over one live 1000-row table; every callback logs to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Bound ONCE — every preview arm maps over the same 1000-row array.
@@ -321,32 +296,26 @@ export const tableStyleVariants = example({
             const badgeVariants = $.const([
                 variant("solid", null), variant("subtle", null), variant("outline", null),
             ], ArrayType(Style.Types.StyleVariant));
-            const rowHeights = $.const(["auto", "48", "64"], ArrayType(StringType));
+            const rowModes = $.const(["virtual", "paginated", "status", "row 48", "row 64", "fill"], ArrayType(StringType));
 
             const stripedBind = $.let(State.bind([BooleanType], "table_striped", true));
             const densityBind = $.let(State.bind([StringType], "table_density", "compact"));
             const badgeBind = $.let(State.bind([StringType], "table_badge", "solid"));
-            const rhBind = $.let(State.bind([StringType], "table_rowheight", "auto"));
-            const paginatedBind = $.let(State.bind([BooleanType], "table_paginated", false));
-            const statusBind = $.let(State.bind([BooleanType], "table_rowstatus", false));
+            const rowsBind = $.let(State.bind([StringType], "table_rows", "virtual"));
             const pageBind = $.let(State.bind([IntegerType], "table_page", 0n));
             const lastEventBind = $.let(State.bind([StringType], "table_last_event", ""));
 
             const stripedOn = $.let(stripedBind.read());
             const dKey = $.let(densityBind.read());
             const bKey = $.let(badgeBind.read());
-            const rhKey = $.let(rhBind.read());
-            const pagOn = $.let(paginatedBind.read());
-            const statusOn = $.let(statusBind.read());
+            const rKey = $.let(rowsBind.read());
             const page = $.let(pageBind.read());
             const lastEvent = $.let(lastEventBind.read());
 
             const onStriped = $.const(East.function([BooleanType], NullType, ($, next) => { $(stripedBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
             const onBadge = $.const(East.function([StringType], NullType, ($, next) => { $(badgeBind.write(next)); }));
-            const onRowHeight = $.const(East.function([StringType], NullType, ($, next) => { $(rhBind.write(next)); }));
-            const onPaginated = $.const(East.function([BooleanType], NullType, ($, next) => { $(paginatedBind.write(next)); }));
-            const onRowStatus = $.const(East.function([BooleanType], NullType, ($, next) => { $(statusBind.write(next)); }));
+            const onRows = $.const(East.function([StringType], NullType, ($, next) => { $(rowsBind.write(next)); }));
             const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
                 $(pageBind.write(next));
             }));
@@ -392,7 +361,7 @@ export const tableStyleVariants = example({
             // Each selection is a lookup into the same array the control renders.
             const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
             const badgeSel = $.let(badgeVariants.filter((_$, v) => v.getTag().equal(bKey)).get(0n));
-            const rhPx = $.let(rhKey.equal("48").ifElse(_$ => 48n, _$ => 64n));
+            const rhPx = $.let(rKey.equal("row 48").ifElse(_$ => 48n, _$ => 64n));
 
             // The badge axis drives the status column's render live — the
             // render captures only data (the selected variant value).
@@ -400,10 +369,29 @@ export const tableStyleVariants = example({
                 <Badge variant={badgeSel} colorPalette="brand">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
             )));
 
-            // rowStatus / pagination / rowHeight presence is host-side, so the
-            // switches pick between prebuilt tables (the cardVariants leaf
-            // precedent); striped / density / badge stay live in every arm.
-            const preview = $.const(pagOn.ifElse(
+            // FILL (#320, absorbed tableFill) — height="fill" resolves against
+            // the bounded Box; striped / density stay live.
+            const fillArm = $.const(
+                <Box height="220px">
+                    <Table
+                        variant="line"
+                        striped={stripedOn}
+                        density={densitySel}
+                        height="fill"
+                        data={badgeData}
+                        columns={{
+                            name: { header: "Name" },
+                            email: { header: "Email" },
+                            status: { header: "Status", render: badgeRender },
+                        }}
+                    />
+                </Box>,
+            );
+
+            // Row-mode presence (pagination / rowStatus / explicit height /
+            // bounded fill) is host-side, so the axis picks between prebuilt
+            // tables; striped / density / badge stay live in every arm.
+            const preview = $.const(rKey.equal("paginated").ifElse(
                 _$ => (
                     <Table
                         variant="line"
@@ -425,7 +413,7 @@ export const tableStyleVariants = example({
                         }}
                     />
                 ),
-                _$ => statusOn.ifElse(
+                _$ => rKey.equal("status").ifElse(
                     _$ => (
                         <Table
                             variant="line"
@@ -448,7 +436,7 @@ export const tableStyleVariants = example({
                             }}
                         />
                     ),
-                    _$ => rhKey.equal("auto").ifElse(
+                    _$ => rKey.equal("virtual").ifElse(
                         _$ => (
                             <Table
                                 variant="line"
@@ -470,7 +458,9 @@ export const tableStyleVariants = example({
                                 }}
                             />
                         ),
-                        _$ => (
+                        _$ => rKey.equal("fill").ifElse(
+                            _$ => fillArm,
+                            _$ => (
                             <Table
                                 variant="line"
                                 interactive={true}
@@ -492,6 +482,7 @@ export const tableStyleVariants = example({
                                 }}
                             />
                         ),
+                        ),
                     ),
                 ),
             ));
@@ -505,16 +496,12 @@ export const tableStyleVariants = example({
                         Configurator.Control("Badge", bKey,
                             <SegmentGroup value={bKey} onChange={onBadge} size="sm"
                                 items={badgeVariants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Row height", rhKey,
-                            <SegmentGroup value={rhKey} onChange={onRowHeight} size="sm"
-                                items={rowHeights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
-                        // A Slot, not a Control: the three switches report as
-                        // the Preview spec row below rather than as one value.
-                        Configurator.Slot("Rows",
+                        Configurator.Control("Rows", rKey,
+                            <SegmentGroup value={rKey} onChange={onRows} size="sm"
+                                items={rowModes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                        Configurator.Slot("Chrome",
                             <HStack gap="5" align="center">
                                 <Switch checked={stripedOn} label="Striped" onChange={onStriped} />
-                                <Switch checked={pagOn} label="Paginated" onChange={onPaginated} />
-                                <Switch checked={statusOn} label="Row status" onChange={onRowStatus} />
                             </HStack>),
                     ]}
                     preview={preview}
@@ -527,12 +514,8 @@ export const tableStyleVariants = example({
                         ),
                     }}
                     spec={[
-                        Configurator.Spec("Preview", pagOn.ifElse(
-                            _$ => "paginated",
-                            _$ => statusOn.ifElse(
-                                _$ => "row status",
-                                _$ => rhKey.equal("auto").ifElse(_$ => "virtualized", _$ => "row height")))),
-                        Configurator.Spec("Rows", pagOn.ifElse(_$ => "1000 · paged 20", _$ => "1000 · virtualized")),
+                        Configurator.Spec("Rows", rKey.equal("paginated").ifElse(_$ => "1000 · paged 20", _$ => "1000")),
+                        Configurator.Spec("Page", East.print(page)),
                     ]}
                 />
             );
@@ -607,34 +590,54 @@ export const tableSelection = example({
 });
 
 /**
- * Review chrome pair (#264) — the shared per-row Approve / Reject Decision
- * column (a pinned-right column) plus the commitBar batch foot, identical to
- * the Planner's, on an order-exceptions table (flagged rows rest `pending`
- * with a quiet warning dot; clean rows rest `approved`); and the same chrome
- * composed with the pager — the review foot stacks BELOW the pagination band,
- * and every review callback / accessor receives the UNSLICED row index (page
- * 2's first row is rowIndex 20, not 0 — the `expandedContent` convention), so
- * approvals map straight back to the source data under paging AND sorting.
+ * Review chrome (#264) — the shared per-row Approve / Reject Decision column
+ * (pinned right) plus the commitBar batch foot, with a Paginated switch: the
+ * paginated arm stacks the foot BELOW the pager band and every review
+ * callback / accessor receives the UNSLICED row index (page 2's first row is
+ * rowIndex 20), so approvals map straight back to the source data under
+ * paging AND sorting.
  */
 export const tableReview = example({
-    keywords: ["Table", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "exception", "pagination", "rowIndex", "unsliced", "page", "foot"],
-    description: "Review chrome pair — per-row Decision column + commitBar batch foot on an order-exceptions table, and the same chrome under pagination (unsliced rowIndex: page 2 row 0 is rowIndex 20, foot below the pager band)",
-    fn: East.function([], UIComponentType, ($) => {
-        const flagged = $.const(East.function([IntegerType], BooleanType, (_$, rowIndex) =>
-            rowIndex.modulo(3n).equals(1n)));
-        const reviewStatus = $.const(East.function([IntegerType], OptionType(Status.Types.Value), ($, rowIndex) =>
-            flagged(rowIndex).ifElse(
-                _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
-                _$ => East.value(none, OptionType(Status.Types.Value)),
-            )));
-        const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), ($, rowIndex) =>
-            flagged(rowIndex).ifElse(
-                _$ => East.value(some(variant("pending", null)), OptionType(Table.Types.Approval)),
-                _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
-            )));
-        return (
-            <VStack gap="4" align="stretch">
-                <Separator label="REVIEW" align="start" />
+    keywords: ["Table", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "exception", "pagination", "rowIndex", "unsliced", "page", "foot", "Reactive", "State", "Switch", "Configurator", "configurator"],
+    description: "Review chrome configurator — per-row Decision column + commitBar foot on an order-exceptions table; the Paginated switch stacks the foot below the pager with unsliced rowIndex semantics",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const paginatedBind = $.let(State.bind([BooleanType], "table_review_paginated", false));
+            const pagOn = $.let(paginatedBind.read());
+            const onPaginated = $.const(East.function([BooleanType], NullType, ($, next) => { $(paginatedBind.write(next)); }));
+
+            const flagged = $.const(East.function([IntegerType], BooleanType, (_$, rowIndex) =>
+                rowIndex.modulo(3n).equals(1n)));
+            const reviewStatus = $.const(East.function([IntegerType], OptionType(Status.Types.Value), ($, rowIndex) =>
+                flagged(rowIndex).ifElse(
+                    _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
+                    _$ => East.value(none, OptionType(Status.Types.Value)),
+                )));
+            const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), ($, rowIndex) =>
+                flagged(rowIndex).ifElse(
+                    _$ => East.value(some(variant("pending", null)), OptionType(Table.Types.Approval)),
+                    _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
+                )));
+            const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
+            const onReject = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
+            const onApproveAll = $.const(East.function([], NullType, _$ => null));
+            const onRejectAll = $.const(East.function([], NullType, _$ => null));
+            const onRerun = $.const(East.function([], NullType, _$ => null));
+
+            const pageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
+            const page = $.let(pageBind.read());
+            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                $(pageBind.write(next));
+            }));
+            const lastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
+            const onApprovePaged = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
+                $(lastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
+            }));
+            const reviewApprovalPaged = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
+                some(variant("pending", null))));
+            const last = $.let(lastBind.read());
+
+            const plainArm = $.const(
                 <Table
                     variant="line"
                     data={East.Array.range(0n, 6n).map((_$, i) => ({
@@ -647,49 +650,51 @@ export const tableReview = example({
                         columnLabel: "Decision",
                         rerunLabel: "Rerun",
                         summary: <Text color="fg.muted">6 orders · 2 exceptions need a call</Text>,
-                        onApprove: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
-                        onReject: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
-                        onApproveAll: East.function([], NullType, _$ => null),
-                        onRejectAll: East.function([], NullType, _$ => null),
-                        onRerun: East.function([], NullType, _$ => null),
+                        onApprove: onApprove,
+                        onReject: onReject,
+                        onApproveAll: onApproveAll,
+                        onRejectAll: onRejectAll,
+                        onRerun: onRerun,
                     }}
                     reviewStatus={reviewStatus}
                     reviewApproval={reviewApproval}
+                />,
+            );
+            const pagedArm = $.const(
+                <Table
+                    variant="line"
+                    pagination={{ pageSize: 20n, page, onPageChange }}
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        id: East.str`#${i}`,
+                        name: East.str`Order ${i}`,
+                    }))}
+                    columns={{ id: { header: "ID" }, name: { header: "Name" } }}
+                    review={{ onApprove: onApprovePaged, onApproveAll: onApproveAll }}
+                    reviewApproval={reviewApprovalPaged}
+                />,
+            );
+            const preview = $.const(pagOn.ifElse(_$ => pagedArm, _$ => plainArm), UIComponentType);
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Slot("Paging",
+                            <HStack gap="5" align="center">
+                                <Switch checked={pagOn} label="Paginated" onChange={onPaginated} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "Approvals · Reactive",
+                        body: <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>,
+                    }}
+                    spec={[
+                        Configurator.Spec("rowIndex", pagOn.ifElse(_$ => "unsliced · page 2 row 0 = 20", _$ => "direct")),
+                    ]}
                 />
-                <Separator label="REVIEW PAGINATED" align="start" />
-                <Reactive>{$ => {
-                    const pageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
-                    const page = $.let(pageBind.read());
-                    const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
-                        $(pageBind.write(next));
-                    }));
-                    const lastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
-                    const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
-                        $(lastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
-                    }));
-                    const reviewApprovalPaged = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
-                        some(variant("pending", null))));
-                    const last = $.let(lastBind.read());
-                    return (
-                        <VStack gap="3" align="stretch">
-                            <Table
-                                variant="line"
-                                pagination={{ pageSize: 20n, page, onPageChange }}
-                                data={East.Array.range(0n, 200n).map((_$, i) => ({
-                                    id: East.str`#${i}`,
-                                    name: East.str`Order ${i}`,
-                                }))}
-                                columns={{ id: { header: "ID" }, name: { header: "Name" } }}
-                                review={{ onApprove, onApproveAll: East.function([], NullType, _$ => null) }}
-                                reviewApproval={reviewApprovalPaged}
-                            />
-                            <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
-                        </VStack>
-                    );
-                }}</Reactive>
-            </VStack>
-        );
-    }),
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -730,35 +735,6 @@ export const tableExpandedRichDetail = example({
                 data={rows}
                 columns={{ name: { header: "Sales rep" }, region: { header: "Region" } }}
             />
-        );
-    }),
-    inputs: [],
-});
-
-export const tableFill = example({
-    keywords: ["Table", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the table fills a fixed 220px Box and scrolls within it; two hundred rows overflow the box so only the visible rows mount, with the header pinned",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Box height="220px">
-                <Table
-                    variant="line"
-                    striped={true}
-                    height="fill"
-                    data={East.Array.range(0n, 200n).map((_$, i) => ({
-                        id: East.str`#${i}`,
-                        name: East.str`User ${i}`,
-                        email: East.str`user${i}@example.com`,
-                        dept: "Engineering",
-                    }))}
-                    columns={{
-                        id: { header: "ID", width: "80px" },
-                        name: { header: "Name", width: "150px" },
-                        email: { header: "Email", width: "250px" },
-                        dept: { header: "Department", width: "150px" },
-                    }}
-                />
-            </Box>
         );
     }),
     inputs: [],
