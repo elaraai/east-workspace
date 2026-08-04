@@ -82,11 +82,22 @@ cpdef bytes _encode_beast2(object py_type, object value):
     return result
 
 
-cpdef object _decode_beast2(object py_type, bytes data):
+cdef bytes _EMPTY = b""
+
+
+cpdef object _decode_beast2(object py_type, object data):
+    # Any C-contiguous buffer decodes zero-copy — bytes, bytearray, memoryview,
+    # an mmap of a large file. Coerce the view BEFORE taking the type so a
+    # non-buffer input cannot leak the retained type.
+    cdef const uint8_t[::1] view = data
     _ensure_eastc_runtime()
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
-    cdef const uint8_t* data_ptr = <const uint8_t*>data
-    cdef size_t data_len = len(data)
+    # len 0 must still hand east-c a non-NULL pointer so its too-short error
+    # fires rather than the NULL-argument one.
+    cdef const uint8_t* data_ptr = <const uint8_t*>_EMPTY
+    cdef size_t data_len = <size_t>view.shape[0]
+    if data_len > 0:
+        data_ptr = &view[0]
 
     cdef _eastc.EastValue* c_val = _eastc.east_beast2_decode(data_ptr, data_len, c_type)
     if c_val == NULL:
@@ -162,11 +173,16 @@ cpdef bytes _encode_beast2_v4(object py_type, object value):
     return result
 
 
-cpdef object _decode_beast2_full(object py_type, bytes data):
+cpdef object _decode_beast2_full(object py_type, object data):
+    # Same buffer contract as _decode_beast2: borrow any C-contiguous buffer,
+    # so full decodes of mmap-backed files never copy the blob into RAM.
+    cdef const uint8_t[::1] view = data
     _ensure_eastc_runtime()
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
-    cdef const uint8_t* data_ptr = <const uint8_t*>data
-    cdef size_t data_len = len(data)
+    cdef const uint8_t* data_ptr = <const uint8_t*>_EMPTY
+    cdef size_t data_len = <size_t>view.shape[0]
+    if data_len > 0:
+        data_ptr = &view[0]
 
     cdef _eastc.EastValue* c_val = _eastc.east_beast2_decode_full(data_ptr, data_len, c_type)
     if c_val == NULL:
