@@ -544,7 +544,9 @@ Task → What do you need?
     │   │   │    Linux/macOS, Windows runs the same contract inline — output is ONE file either way)
     │   │   └─ merge shard files yourself → splice_beast2_files(path, T, sources) — byte copy, no re-encode
     │   │       (shards are for CPUs and live minutes; segments are for memory and live forever)
-    │   ├─ Read → open_beast2_file(path, T) as f — owns the mmap, mirrors the collection:
+    │   ├─ Read → open_beast2_file(path) as f — owns the mmap, mirrors the collection
+    │   │   (T optional: the header supplies it; declare T to VALIDATE it at open;
+    │   │    don't know a file's type? → read_beast2_type(path) — works on v4 too):
     │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
     │   │   ├─ scan → for batch in f.segments():  — process each batch NATIVELY (eager methods)
     │   │   ├─ Array point reads → f[i] · f.get/get_or_default/try_get/has · f.slice(a,b) · f.get_keys(rows)
@@ -815,7 +817,8 @@ mirrors the root collection's read surface name-for-name.
 |-----------|-------------|
 | `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint) |
 | `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally; `.segments` counts them |
-| `open_beast2_file(path, T)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` |
+| `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile`. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
+| `read_beast2_type(source) -> EastType` | The root type embedded in any beast2-full blob (v4 **and** v5), from a path or buffer, no value decoded — regenerate loaders from artifacts alone, or inspect a file you know nothing about |
 | `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, segment_rows=, keep_shards=False, verify=False)` | Partitioned parallel write to ONE file: `produce(partition)` runs per worker and returns that partition's batches (or one collection = one batch); each worker writes a private shard and the shards splice **in partition order**, incrementally, as they finish. `strategy="auto"` forks on Linux/macOS — whatever `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and call before starting threads) — and runs inline on Windows: byte-identical output either way. Any worker failure (exception or signal) fails the whole call with the worker's traceback and leaves nothing behind |
 | `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merge indexed v5 files into one by **byte copy** — east-c parses the container geometry, `os.sendfile` moves the segment frames, nothing decodes or re-encodes. `sources` may be a lazy generator (shards splice as they complete, in order = row order). Every source must be v5 + indexed + self-contained with an identical type section; refusals name the offending path and leave no destination. Output is indistinguishable from one writer given the same batches; `verify=True` re-walks it with east-c's strict sequential reader |
 | `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size |
