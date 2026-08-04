@@ -995,6 +995,208 @@ def splice_beast2_files(path, collection_type, sources, *, verify: bool = False)
     return len(offsets), sum(counts)
 
 
+# ── Fork-parallel writes (issue #484) ─────────────────────────────────────
+#
+# Shards are for CPUs and live for minutes; segments are for memory and live
+# forever: N workers each write a private temp shard and the parent splices
+# them, in partition order, into ONE file that is byte-identical to a single
+# writer writing the same batches. Where the platform has fork (Linux, macOS)
+# the workers are forked processes, so whatever expensive context `produce`
+# closes over is inherited copy-on-write and east-c's single-threadedness is
+# never in play — each child owns a whole address space. Where it doesn't
+# (Windows), the same contract runs inline, sequentially: identical output,
+# no parallelism to lose.
+
+
+def _produce_batches(produce, partition):
+    """Normalize ``produce``'s result: one East collection is one batch."""
+    from east.types.values.collections import EastArray, EastDict, EastSet
+
+    result = produce(partition)
+    if isinstance(result, (EastArray, EastDict, EastSet, list, tuple, dict, set, frozenset)):
+        return [result]
+    return result
+
+
+def _write_one_shard(shard_path, collection_type, produce, partition, codec, segment_rows):
+    with Beast2FileWriter(shard_path, collection_type, codec=codec,
+                          segment_rows=segment_rows) as writer:
+        for batch in _produce_batches(produce, partition):
+            writer.write(batch)
+
+
+def _forked_shards(dest, collection_type, partitions, produce, processes, codec,
+                   segment_rows):
+    """Yield each partition's finished shard path, in partition order.
+
+    Runs up to ``processes`` forked children at once; a child writes its shard
+    then ``os._exit(0)``, or writes its traceback to a ``.err`` sidecar and
+    exits 1. The generator launches queued partitions as slots free and blocks
+    only when the next-in-order shard is not yet done, so splicing overlaps
+    the remaining children's work. Any child failure raises after terminating
+    the rest; the caller cleans up files.
+    """
+    import contextlib
+    import signal
+
+    running: dict[int, int] = {}  # pid -> partition index
+    done: set[int] = set()
+    next_index = 0
+    launched = 0
+
+    def shard_path(i: int) -> str:
+        return f"{dest}.shard{i}.tmp"
+
+    def launch(i: int) -> None:
+        nonlocal launched
+        pid = os.fork()
+        if pid == 0:
+            # Child: never return into the parent's control flow, never run
+            # its buffered-IO flushes or cleanup — os._exit only.
+            code = 1
+            try:
+                _write_one_shard(shard_path(i), collection_type, produce,
+                                 partitions[i], codec, segment_rows)
+                code = 0
+            except BaseException:
+                import traceback
+
+                try:
+                    with open(shard_path(i) + ".err", "w") as err:
+                        traceback.print_exc(file=err)
+                except OSError:
+                    pass
+            finally:
+                os._exit(code)
+        running[pid] = i
+        launched += 1
+
+    def reap_one() -> None:
+        pid, status = os.waitpid(-1, 0)
+        i = running.pop(pid)
+        failed = not (os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0)
+        if failed:
+            for other in running:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(other, signal.SIGTERM)
+            while running:
+                gone, _ = os.waitpid(-1, 0)
+                running.pop(gone, None)
+            detail = f"partition {i} "
+            if os.WIFSIGNALED(status):
+                detail += f"died with signal {os.WTERMSIG(status)}"
+            else:
+                detail += f"exited with status {os.WEXITSTATUS(status)}"
+            err_path = shard_path(i) + ".err"
+            if os.path.exists(err_path):
+                with open(err_path) as err:
+                    detail += ":\n" + err.read()
+            raise RuntimeError(f"write_beast2_file_parallel: {detail}")
+        done.add(i)
+
+    try:
+        while next_index < len(partitions):
+            while launched < len(partitions) and len(running) < processes:
+                launch(launched)
+            if next_index in done:
+                yield shard_path(next_index)
+                next_index += 1
+                continue
+            reap_one()
+    finally:
+        # A failure (or an abandoned generator) must not leak children.
+        for pid in list(running):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGTERM)
+        while running:
+            try:
+                gone, _ = os.waitpid(-1, 0)
+            except ChildProcessError:
+                break
+            running.pop(gone, None)
+
+
+def write_beast2_file_parallel(path, collection_type, partitions, produce, *,
+                               processes: int | None = None, strategy: str = "auto",
+                               codec: str = "deflate", segment_rows: int | None = None,
+                               keep_shards: bool = False, verify: bool = False) -> tuple[int, int]:
+    """Write one indexed v5 file from partitioned work, in parallel where the
+    platform allows.
+
+    ``produce(partition)`` runs once per partition and returns the batches for
+    that partition's rows — an iterable of East collections (or python
+    builtins), or a single collection meaning one batch. Each partition writes
+    a private temp shard through a managed writer, and the shards splice —
+    **in partition order**, incrementally, as they finish — into ``path``. The
+    result is byte-identical to one writer writing the same batches, so
+    readers never learn how many processes wrote it.
+
+    On POSIX (Linux, macOS) the partitions run in **forked** children, so any
+    expensive context ``produce`` closes over is built once, pre-fork, and
+    inherited copy-on-write — and east-c needs no thread safety, because each
+    child owns a whole process. Call before starting any threads. On Windows
+    the same contract runs inline, sequentially.
+
+    Args:
+        path: The destination file (overwritten if present).
+        collection_type: The root Array/Set/Dict type.
+        partitions: The work descriptors, one per shard; any sequence.
+        produce: ``produce(partition) -> batches``; runs in the worker.
+        processes: Maximum concurrent children (default: CPU count, capped at
+            the partition count). Ignored by the inline strategy.
+        strategy: ``"auto"`` (default — fork where available, else inline),
+            ``"fork"`` (error where unavailable), or ``"inline"``.
+        codec: Segment codec, ``"deflate"`` (default) or ``"none"``.
+        segment_rows: Rows per segment; managed when omitted.
+        keep_shards: Leave the per-partition shard files behind (debugging).
+        verify: Re-walk the spliced result with east-c's sequential reader.
+
+    Returns:
+        ``(segment_count, element_count)`` of the finished file.
+    """
+    parts = list(partitions)
+    if not parts:
+        raise ValueError("write_beast2_file_parallel: at least one partition is required")
+    if strategy not in ("auto", "fork", "inline"):
+        raise ValueError(f"strategy must be 'auto', 'fork' or 'inline', not {strategy!r}")
+    has_fork = hasattr(os, "fork")
+    if strategy == "fork" and not has_fork:
+        raise ValueError(
+            "strategy='fork' needs os.fork (Linux/macOS); this platform runs "
+            "strategy='inline'"
+        )
+    use_fork = has_fork if strategy == "auto" else strategy == "fork"
+    dest = os.fspath(path)
+
+    shard_paths = [f"{dest}.shard{i}.tmp" for i in range(len(parts))]
+    try:
+        if use_fork:
+            workers = min(len(parts), processes or os.cpu_count() or 4)
+            sources = _forked_shards(dest, collection_type, parts, produce, workers,
+                                     codec, segment_rows)
+        else:
+
+            def _inline():
+                for i, partition in enumerate(parts):
+                    _write_one_shard(shard_paths[i], collection_type, produce,
+                                     partition, codec, segment_rows)
+                    yield shard_paths[i]
+
+            sources = _inline()
+        result = splice_beast2_files(dest, collection_type, sources, verify=verify)
+    except BaseException:
+        for shard in shard_paths:
+            for leftover in (shard, shard + ".err"):
+                if os.path.exists(leftover):
+                    os.unlink(leftover)
+        raise
+    if not keep_shards:
+        for shard in shard_paths:
+            if os.path.exists(shard):
+                os.unlink(shard)
+    return result
+
+
 __all__ = [
     "Beast2DecodeOptions",
     "Beast2Writer",
@@ -1015,6 +1217,8 @@ __all__ = [
     "Beast2FileWriter",
     "open_beast2_file",
     "write_beast2_file",
+    "write_beast2_file_parallel",
+    "splice_beast2_files",
     "BEAST2_MAGIC_BYTES",
     "BEAST2_V4_MAGIC",
     "BEAST2_V5_MAGIC",
