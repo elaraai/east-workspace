@@ -465,7 +465,7 @@ export const schematicVariants = example({
                             <SegmentGroup value={canvas} onChange={onCanvas} size="sm"
                                 items={canvases.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
                         Configurator.Slot("Editing",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={roOn} label="Read-only" onChange={onRo} />
                             </HStack>),
                     ]}
@@ -855,15 +855,15 @@ export const schematicInteractions = example({
                         // Slots, not Controls: the switches report through the
                         // aside's event log rather than as one value each.
                         Configurator.Slot("Selection",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={multiOn} label="Multi-select (marquee/zone)" onChange={onMulti} />
                             </HStack>),
                         Configurator.Slot("Camera",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={focusOn} label="Zoom focus (marquee)" onChange={onFocus} />
                             </HStack>),
                         Configurator.Slot("Items",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={mOn} label="Movable (move)" onChange={onM} />
                             </HStack>),
                     ]}

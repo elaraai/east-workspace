@@ -146,7 +146,7 @@ export const inputStyles = example({
                             // A Slot, not a Control: the switch reports as the
                             // Autofocus spec row below rather than as one value.
                             Configurator.Slot("Focus",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={focus} label="Autofocus" onChange={onAutoFocus} />
                                 </HStack>),
                         ]}

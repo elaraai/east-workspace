@@ -69,7 +69,7 @@ export const avatarGroupVariants = example({
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Slot("Members",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={overflowOn} label="Overflow +N" onChange={onOverflow} />
                                 <Switch checked={borderOn} label="Branded border" onChange={onBorder} />
                             </HStack>),

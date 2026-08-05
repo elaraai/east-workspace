@@ -96,7 +96,7 @@ export const segmentedMeterVariants = example({
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Slot("Track",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={residualOn} label="Residual (sum < max)" onChange={onResidual} />
                             </HStack>),
                     ]}

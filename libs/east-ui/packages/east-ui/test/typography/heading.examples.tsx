@@ -112,7 +112,7 @@ export const headingVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Band spec row below rather than as one value.
                             Configurator.Slot("Band",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={band} label="Hero band" onChange={onBand} />
                                 </HStack>),
                         ]}

@@ -188,11 +188,11 @@ export const lineVariants = example({
                             // A Slot, not a Control: the switches report as the spec
                             // rows below rather than as one value.
                             Configurator.Slot("Marks",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={dots} label="Points" onChange={onPoints} />
                                 </HStack>),
                             Configurator.Slot("Axes",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={showGrid} label="Grid" onChange={onGrid} />
                                     <Switch checked={compactFmt} label="Compact currency" onChange={onFormat} />
                                     <Switch checked={pinned} label="Pin y" onChange={onRange} />

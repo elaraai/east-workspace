@@ -67,7 +67,7 @@ export const buttonGroupVariants = example({
                             <SegmentGroup value={pKey} onChange={onPreset} size="sm"
                                 items={presets.map((_$, p) => SegmentGroup.Item(p, <Text>{p.upperCase()}</Text>))} />),
                         Configurator.Slot("Layout",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={attachedOn} label="Attached" onChange={onAttached} />
                             </HStack>),
                     ]}

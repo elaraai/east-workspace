@@ -98,7 +98,7 @@ export const editableChipVariants = example({
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
                                     items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("State", disabled.ifElse(_$ => "disabled", _$ => "enabled"),
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
                                 </HStack>),
                         ]}

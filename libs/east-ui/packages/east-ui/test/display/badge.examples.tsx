@@ -134,7 +134,7 @@ export const badgeStyles = example({
                             // A Slot, not a Control: the two switches report as the
                             // Radius / Width spec rows below rather than as one value.
                             Configurator.Slot("Shape",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={pill} label="Pill" onChange={onPill} />
                                     <Switch checked={wide} label="Fixed width" onChange={onWide} />
                                 </HStack>),

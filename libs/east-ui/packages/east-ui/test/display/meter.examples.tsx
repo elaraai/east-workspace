@@ -145,7 +145,7 @@ export const meterVariants = example({
                                 <SegmentGroup value={captionKey} onChange={onCaption} size="sm"
                                     items={captions.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
                             Configurator.Control("Percent", showPercent.ifElse(_$ => "shown", _$ => "hidden"),
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={showPercent} label="Show percent" onChange={onPercent} />
                                 </HStack>),
                         ]}

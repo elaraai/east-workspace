@@ -164,7 +164,7 @@ export const navListVariants = example({
                             // Icons / Surface spec rows below rather than as one
                             // value.
                             Configurator.Slot("Treatment",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={iconsOn} label="Icons" onChange={onIcons} />
                                     <Switch checked={shell} label="Shell surface" onChange={onShell} />
                                 </HStack>),

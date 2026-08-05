@@ -51,12 +51,9 @@ describeEast("Table", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("tableReview mounts the review + paginated-review rows", $ => {
+    test("tableReview is the live review configurator", $ => {
         const panel = $.const(ex.tableReview.fn() as ExprType<UIComponentType>);
-        const rows = $.const(panel.unwrap().unwrap("Stack").children);
-        $(Assert.equal(rows.size(), 4n));
-        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REVIEW"));
-        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REVIEW PAGINATED"));
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("tableSelection drives its preview from inline option tables", $ => {

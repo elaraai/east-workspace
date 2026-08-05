@@ -169,7 +169,7 @@ export const boxVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Font spec row below rather than as one value.
                             Configurator.Slot("Typography",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={mono} label="Mono" onChange={onMono} />
                                 </HStack>),
                         ]}

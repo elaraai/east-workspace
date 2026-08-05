@@ -124,7 +124,7 @@ export const dockVariants = example({
                             // the Rail / Badge spec rows below rather than as one
                             // value.
                             Configurator.Slot("Chrome",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={collapsedOn} label="Collapsed" onChange={onCollapsedSw} />
                                     <Switch checked={badgeOn} label="Badge" onChange={onBadge} />
                                 </HStack>),

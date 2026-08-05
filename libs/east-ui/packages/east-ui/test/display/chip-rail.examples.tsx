@@ -137,7 +137,7 @@ export const chipRailVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Mode / Captions spec rows below rather than as one value.
                             Configurator.Slot("Labels",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={labeled} label="Labeled" onChange={onLabeled} />
                                 </HStack>),
                         ]}

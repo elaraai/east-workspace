@@ -104,7 +104,7 @@ export const barStripVariants = example({
                             <SegmentGroup value={tKey} onChange={onThickness} size="sm"
                                 items={thicknesses.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Slot("Rows",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={sortOn} label="Sorted" onChange={onSort} />
                                 <Switch checked={limitOn} label="Max 3 (sorted)" onChange={onLimit} />
                                 <Switch checked={valuesOn} label="Values" onChange={onValues} />

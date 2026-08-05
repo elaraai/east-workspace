@@ -67,7 +67,7 @@ export const combineDensities = example({
                             // A Slot, not a Control: the switch reports as the
                             // Striped spec row below rather than as one value.
                             Configurator.Slot("Rows",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={striped} label="Striped" onChange={onStriped} />
                                 </HStack>),
                         ]}

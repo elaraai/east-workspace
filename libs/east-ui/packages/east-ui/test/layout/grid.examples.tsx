@@ -150,7 +150,7 @@ export const gridVariants = example({
                             // the Span / Cells spec rows below rather than as one
                             // value.
                             Configurator.Slot("Items",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={spanOn} label="Span" onChange={onSpan} />
                                     <Switch checked={centered} label="Centered" onChange={onCentered} />
                                 </HStack>),

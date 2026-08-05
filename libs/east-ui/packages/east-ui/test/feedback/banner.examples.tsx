@@ -61,7 +61,7 @@ export const bannerStatusVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Dismiss spec row below rather than as one value.
                             Configurator.Slot("Dismiss",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={dismissible} label="Dismissible" onChange={onDismissible} />
                                 </HStack>),
                         ]}

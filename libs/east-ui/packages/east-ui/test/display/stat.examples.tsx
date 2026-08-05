@@ -117,7 +117,7 @@ export const statVariants = example({
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Help text", helpSpec,
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={showHelp} label="Caption" onChange={onHelp} />
                                 </HStack>),
                         ]}

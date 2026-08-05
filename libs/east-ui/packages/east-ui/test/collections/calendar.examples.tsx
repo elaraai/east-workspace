@@ -237,14 +237,14 @@ export const calendarVariants = example({
                             // Values / Totals / Data spec rows below rather than
                             // as one value each.
                             Configurator.Slot("Cells",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={valuesOn} label="Values" onChange={onValues} />
                                 </HStack>),
                             Configurator.Control("Size", sizeKey,
                                 <SegmentGroup value={sizeKey} onChange={onSize} size="sm"
                                     items={["auto", "scroll", "fill"].map(k => SegmentGroup.Item(k, <Text>{k.toUpperCase()}</Text>))} />),
                             Configurator.Slot("Chrome",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={totalsOn} label="Totals (auto)" onChange={onTotals} />
                                     <Switch checked={minimal} label="Sparse data (auto)" onChange={onChrome} />
                                 </HStack>),

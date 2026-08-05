@@ -80,7 +80,7 @@ export const statusVariants = example({
                             <SegmentGroup value={vKey} onChange={onValue} size="sm"
                                 items={values.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Slot("Face",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={pulsingOn} label="Pulsing" onChange={onPulsing} />
                                 <Switch checked={richOn} label="Rich label" onChange={onRich} />
                                 <Switch checked={iconOn} label="Custom icon" onChange={onIcon} />

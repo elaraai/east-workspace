@@ -61,7 +61,7 @@ export const noteVariants = example({
                             <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                 items={variants.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
                         Configurator.Slot("Body",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={richOn} label="Rich body (narrative)" onChange={onRich} />
                             </HStack>),
                     ]}

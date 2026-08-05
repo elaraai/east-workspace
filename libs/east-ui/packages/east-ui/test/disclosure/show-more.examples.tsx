@@ -65,7 +65,7 @@ export const disclosureVariants = example({
                             <SegmentGroup value={pKey} onChange={onPreset} size="sm"
                                 items={presets.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
                         Configurator.Slot("Colours",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={brandedOn} label="Branded (rationale)" onChange={onBranded} />
                             </HStack>),
                     ]}

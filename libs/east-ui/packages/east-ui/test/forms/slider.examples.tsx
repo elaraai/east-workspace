@@ -70,7 +70,7 @@ export const sliderVariants = example({
                             <SegmentGroup value={stKey} onChange={onStep} size="sm"
                                 items={steps.map((_$, v) => SegmentGroup.Item(v, <Text>{v}</Text>))} />),
                         Configurator.Slot("Behaviour",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={commitOn} label="Commit on release" onChange={onCommit} />
                                 <Switch checked={disabledOn} label="Disabled" onChange={onDisabled} />
                             </HStack>),

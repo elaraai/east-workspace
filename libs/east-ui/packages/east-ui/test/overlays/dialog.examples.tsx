@@ -74,7 +74,7 @@ export const dialogVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Slot("Size",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={largeOn} label="Large" onChange={onLarge} />
                             </HStack>),
                     ]}

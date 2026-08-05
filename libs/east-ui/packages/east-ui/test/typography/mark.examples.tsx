@@ -90,7 +90,7 @@ export const markVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Placement spec row below rather than as one value.
                             Configurator.Slot("Context",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={ctx} label="In sentence" onChange={onContext} />
                                 </HStack>),
                         ]}

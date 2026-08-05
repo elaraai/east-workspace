@@ -171,7 +171,7 @@ export const listVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Items spec row below rather than as one value.
                             Configurator.Slot("Empty",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={empty} label="No items" onChange={onEmpty} />
                                 </HStack>),
                         ]}

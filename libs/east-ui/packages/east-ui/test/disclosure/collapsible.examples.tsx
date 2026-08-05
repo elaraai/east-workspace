@@ -68,7 +68,7 @@ export const collapsibleVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Slot("State",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={defaultOpenOn} label="Default open" onChange={onDefaultOpen} />
                                 <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
                             </HStack>),

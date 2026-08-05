@@ -49,7 +49,7 @@ export const fieldVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Slot("Validation",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={requiredOn} label="Required" onChange={onRequired} />
                                 <Switch checked={invalidOn} label="Invalid" onChange={onInvalid} />
                             </HStack>),

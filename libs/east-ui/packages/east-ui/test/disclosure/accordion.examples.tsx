@@ -96,7 +96,7 @@ export const accordionVariants = example({
                             // Multiple / Collapsible spec rows below rather than as
                             // one value.
                             Configurator.Slot("Behaviour",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={multiple} label="Multiple" onChange={onMultiple} />
                                     <Switch checked={collapsible} label="Collapsible" onChange={onCollapsible} />
                                 </HStack>),

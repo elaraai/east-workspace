@@ -250,7 +250,7 @@ export const cardVariants = example({
                             // the Footer / Sections spec rows below rather than
                             // as one value.
                             Configurator.Slot("Slots",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={footerOn} label="Footer" onChange={onFooter} />
                                     <Switch checked={sectionsOn} label="Sections" onChange={onSections} />
                                 </HStack>),

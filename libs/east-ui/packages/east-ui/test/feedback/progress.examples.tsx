@@ -122,12 +122,12 @@ export const progressVariants = example({
                             // Striped / Animated spec rows below rather than as one
                             // value.
                             Configurator.Slot("Stripes",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={striped} label="Striped" onChange={onStriped} />
                                     <Switch checked={animated} label="Animated" onChange={onAnimated} />
                                 </HStack>),
                             Configurator.Control("Label", labelSpec,
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={labelOn} label="Label" onChange={onLabel} />
                                 </HStack>),
                         ]}

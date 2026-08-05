@@ -146,19 +146,19 @@ export const tagStyles = example({
                             // Radius / Width / Overflow spec rows below rather than
                             // as one value.
                             Configurator.Slot("Shape",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={pill} label="Pill" onChange={onPill} />
                                     <Switch checked={wide} label="Fixed width" onChange={onWide} />
                                 </HStack>),
                             Configurator.Slot("Dynamic",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={active} label="Active" onChange={onActive} />
                                 </HStack>),
                             // Filter chips set by the operator always carry a
                             // removable × — the switch drives `closable` and the
                             // preview's onClose feeds the aside counter.
                             Configurator.Slot("Closable",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={closable} label="Closable" onChange={onClosable} />
                                 </HStack>),
                         ]}

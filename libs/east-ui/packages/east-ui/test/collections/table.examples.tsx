@@ -500,7 +500,7 @@ export const tableStyleVariants = example({
                             <SegmentGroup value={rKey} onChange={onRows} size="sm"
                                 items={rowModes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                         Configurator.Slot("Chrome",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={stripedOn} label="Striped" onChange={onStriped} />
                             </HStack>),
                     ]}
@@ -679,7 +679,7 @@ export const tableReview = example({
                 <Configurator
                     controls={[
                         Configurator.Slot("Paging",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={pagOn} label="Paginated" onChange={onPaginated} />
                             </HStack>),
                     ]}

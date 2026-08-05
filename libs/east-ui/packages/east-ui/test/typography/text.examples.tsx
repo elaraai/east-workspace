@@ -212,7 +212,7 @@ export const textVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Width / Overflow spec rows below rather than as one value.
                             Configurator.Slot("Clip",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={clip} label="Constrain" onChange={onClip} />
                                 </HStack>),
                         ]}

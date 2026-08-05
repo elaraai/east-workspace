@@ -117,7 +117,7 @@ export const carouselVariants = example({
                             // A Slot, not a Control: the two switches report as the
                             // Loop / Drag spec rows below rather than as one value.
                             Configurator.Slot("Motion",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={loop} label="Loop" onChange={onLoop} />
                                     <Switch checked={drag} label="Draggable" onChange={onDrag} />
                                 </HStack>),

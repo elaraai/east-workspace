@@ -88,7 +88,7 @@ export const selectVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Slot("Selection",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={multiOn} label="Multiple" onChange={onMulti} />
                             </HStack>),
                     ]}

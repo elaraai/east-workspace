@@ -57,7 +57,7 @@ export const switchVariants = example({
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
                         Configurator.Slot("State",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={disabledOn} label="Disabled" onChange={onDisabled} />
                             </HStack>),
                     ]}

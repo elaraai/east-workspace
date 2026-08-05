@@ -385,11 +385,11 @@ export const deckVariants = example({
                         // Grouping / Face spec rows below rather than as one
                         // value each.
                         Configurator.Slot("Grouping",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={grouped} label="Grouped" onChange={onGroup} />
                             </HStack>),
                         Configurator.Slot("Face",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={custom} label="Custom render" onChange={onCustom} />
                             </HStack>),
                     ]}

@@ -103,7 +103,7 @@ export const linkVariants = example({
                             // the Target / Placement spec rows below rather than
                             // as one value.
                             Configurator.Slot("Behaviour",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={ext} label="External" onChange={onExternal} />
                                     <Switch checked={ctx} label="In sentence" onChange={onContext} />
                                 </HStack>),

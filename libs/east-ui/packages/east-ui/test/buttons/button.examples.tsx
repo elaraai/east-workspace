@@ -159,11 +159,11 @@ export const buttonVariants = example({
                             // Loading / Icons / Label spec rows below rather than
                             // as one value each.
                             Configurator.Slot("State",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={loading} label="Loading" onChange={onLoading} />
                                 </HStack>),
                             Configurator.Slot("Content",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={icons} label="Icons" onChange={onIcons} />
                                     <Switch checked={rich} label="Rich label" onChange={onRich} />
                                 </HStack>),

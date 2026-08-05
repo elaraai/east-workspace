@@ -113,7 +113,7 @@ export const codeBlockVariants = example({
                             // the Line numbers / Highlight spec rows below
                             // rather than as one value.
                             Configurator.Slot("Wiring",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={lines} label="Line numbers" onChange={onLines} />
                                     <Switch checked={hl} label="Highlight" onChange={onHighlight} />
                                 </HStack>),

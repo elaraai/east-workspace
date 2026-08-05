@@ -129,7 +129,7 @@ export const avatarVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Name / Initials spec rows below rather than as one value.
                             Configurator.Slot("Name",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={full} label="Full name" onChange={onFull} />
                                 </HStack>),
                         ]}

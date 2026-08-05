@@ -384,7 +384,7 @@ export const ganttVariants = example({
                             <SegmentGroup value={rhKey} onChange={onRowHeight} size="sm"
                                 items={rowHeights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                         Configurator.Slot("Chrome",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={stripedOn} label="Striped" onChange={onStriped} />
                                 <Switch checked={todayOn} label="Today" onChange={onToday} />
                             </HStack>),

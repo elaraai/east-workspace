@@ -89,7 +89,7 @@ export const numericVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Sign spec row below rather than as one value.
                             Configurator.Slot("Sign",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={signed} label="Signed" onChange={onSign} />
                                 </HStack>),
                         ]}

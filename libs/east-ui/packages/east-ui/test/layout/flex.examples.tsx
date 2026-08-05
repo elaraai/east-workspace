@@ -136,7 +136,7 @@ export const flexVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Width spec row below rather than as one value.
                             Configurator.Slot("Wrap",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={wrapOn} label="Wrap" onChange={onWrap} />
                                 </HStack>),
                         ]}

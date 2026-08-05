@@ -212,7 +212,7 @@ export const storyChromeVariants = example({
                             // the Chrome / Runway spec rows below rather than as
                             // one value.
                             Configurator.Slot("Chrome",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={titleOn} label="Title" onChange={onTitle} />
                                     <Switch checked={compactOn} label="Compact" onChange={onCompact} />
                                 </HStack>),

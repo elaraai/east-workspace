@@ -124,7 +124,7 @@ export const radioGroupVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Disabled spec row below rather than as one value.
                             Configurator.Slot("Items",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={disabledOne} label="Disabled item" onChange={onDisabled} />
                                 </HStack>),
                         ]}

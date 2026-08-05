@@ -137,7 +137,7 @@ export const tabsVariants = example({
                             // A Slot, not a Control: the two switches report as the
                             // Fitted / Tabs spec rows below rather than as one value.
                             Configurator.Slot("List",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={fitted} label="Fitted" onChange={onFitted} />
                                     <Switch checked={disabled} label="Disabled tab" onChange={onDisabled} />
                                 </HStack>),

@@ -131,7 +131,7 @@ export const timeRangeInputVariants = example({
                             // Disabled / Presets spec rows below rather than as
                             // one value each.
                             Configurator.Slot("Flags",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
                                     <Switch checked={presetsOn} label="Presets" onChange={onPresets} />
                                 </HStack>),

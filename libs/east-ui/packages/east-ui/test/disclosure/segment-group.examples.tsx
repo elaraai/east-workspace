@@ -100,7 +100,7 @@ export const segmentGroupVariants = example({
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
                         Configurator.Slot("Colours",
-                            <HStack gap="5" align="center">
+                            <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
                             </HStack>),
                     ]}

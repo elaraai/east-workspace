@@ -177,7 +177,7 @@ export const treeViewVariants = example({
                             // A Slot, not a Control: the switch reports as the
                             // Expanded spec row below rather than as one value.
                             Configurator.Slot("State",
-                                <HStack gap="5" align="center">
+                                <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={expandedOn} label="Default expanded" onChange={onExpanded} />
                                 </HStack>),
                         ]}
