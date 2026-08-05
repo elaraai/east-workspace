@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, StringType, StructType, ArrayType, BooleanType, NullType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Chart, Configurator, HStack, Reactive, SegmentGroup, Switch, Table, Text, VStack } from "@elaraai/east-ui";
+import { Box, Button, Chart, Configurator, HStack, Reactive, SegmentGroup, Select, Switch, Table, Text, VStack } from "@elaraai/east-ui";
 
 // Rows for the tooltip-over-sticky-header layering example (below).
 const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
@@ -180,8 +180,8 @@ export const lineVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Curve", curveKey,
-                                <SegmentGroup value={curveKey} onChange={onCurve} size="sm"
-                                    items={curves.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={curveKey} onChange={onCurve} size="sm"
+                                    items={curves.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Fill", fillKey,
                                 <SegmentGroup value={fillKey} onChange={onFill} size="sm"
                                     items={fills.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
@@ -359,8 +359,8 @@ export const areaScatterVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Face", fKey,
-                                <SegmentGroup value={fKey} onChange={onFace} size="sm"
-                                    items={faces.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                <Select value={fKey} onChange={onFace} size="sm"
+                                    items={faces.map((_$, s) => Select.Item(s, s))} />),
                         ]}
                         preview={<Box height="280px" width="100%">{preview}</Box>}
                         spec={[

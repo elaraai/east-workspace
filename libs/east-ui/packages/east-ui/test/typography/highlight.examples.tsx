@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, Highlight, Input, SegmentGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, Highlight, Input, Select, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -76,11 +76,11 @@ export const highlightVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Terms", tKey,
-                                <SegmentGroup value={tKey} onChange={onTerms} size="sm"
-                                    items={passages.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={tKey} onChange={onTerms} size="sm"
+                                    items={passages.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onColour} size="sm"
+                                    items={colours.map((_$, o) => Select.Item(o.label, o.label))} />),
                         ]}
                         preview={highlight}
                         aside={{

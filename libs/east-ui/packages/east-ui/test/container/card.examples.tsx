@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, StringType, StructType, VariantType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Select, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -235,8 +235,8 @@ export const cardVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Header", hKey,
-                                <SegmentGroup value={hKey} onChange={onHeader} size="sm"
-                                    items={headers.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                <Select value={hKey} onChange={onHeader} size="sm"
+                                    items={headers.map((_$, s) => Select.Item(s, s))} />),
                             Configurator.Control("Body", bKey,
                                 <SegmentGroup value={bKey} onChange={onBody} size="sm"
                                     items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
@@ -244,8 +244,8 @@ export const cardVariants = example({
                                 <SegmentGroup value={sKey} onChange={onSizing} size="sm"
                                     items={sizings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("State", stKey,
-                                <SegmentGroup value={stKey} onChange={onState} size="sm"
-                                    items={states.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={stKey} onChange={onState} size="sm"
+                                    items={states.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             // A Slot, not a Control: the two switches report as
                             // the Footer / Sections spec rows below rather than
                             // as one value.

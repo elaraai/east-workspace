@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Configurator, HStack, SegmentGroup, Separator, Style, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Box, Button, Configurator, HStack, SegmentGroup, Select, Separator, Style, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -128,11 +128,11 @@ export const separatorVariants = example({
                                 <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
                                     items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Variant", vKey,
-                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={hairlines.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={vKey} onChange={onVariant} size="sm"
+                                    items={hairlines.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Label", lKey,
-                                <SegmentGroup value={lKey} onChange={onLabel} size="sm"
-                                    items={labels.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={lKey} onChange={onLabel} size="sm"
+                                    items={labels.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Align", aKey,
                                 <SegmentGroup value={aKey} onChange={onAlign} size="sm"
                                     items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

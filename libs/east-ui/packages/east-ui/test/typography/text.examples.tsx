@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, SegmentGroup, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, SegmentGroup, Select, Slider, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -37,10 +37,6 @@ export const textVariants = example({
                     variant("light", null), variant("normal", null), variant("medium", null),
                     variant("semibold", null), variant("bold", null),
                 ], ArrayType(Style.Types.FontWeight));
-
-                // Numeric axes collapse the same way: an opacity is a
-                // percentage, so the axis is a bare array of the value itself.
-                const opacities = $.const([100n, 75n, 50n, 25n], ArrayType(IntegerType));
 
                 // The remaining axes are presets — each bundles the props that
                 // only read well together (an ink token, a face, a background /
@@ -109,7 +105,7 @@ export const textVariants = example({
                 const faceBind      = $.let(State.bind([StringType], "text_emphasis", "none"));
                 const treatmentBind = $.let(State.bind([StringType], "text_treatment", "plain"));
                 const spacingBind   = $.let(State.bind([StringType], "text_spacing", "normal"));
-                const opacityBind   = $.let(State.bind([StringType], "text_opacity", "100"));
+                const opacityBind   = $.let(State.bind([FloatType], "text_opacity", 1.0));
                 const boxBind       = $.let(State.bind([StringType], "text_box", "none"));
                 const scaleBind     = $.let(State.bind([StringType], "text_scale", "body-md"));
                 const numericBind   = $.let(State.bind([StringType], "text_numeric", "mono-kpi"));
@@ -121,7 +117,7 @@ export const textVariants = example({
                 const fKey  = $.let(faceBind.read());
                 const tKey  = $.let(treatmentBind.read());
                 const sKey  = $.let(spacingBind.read());
-                const oKey  = $.let(opacityBind.read());
+                const op    = $.let(opacityBind.read());
                 const bKey  = $.let(boxBind.read());
                 const scKey = $.let(scaleBind.read());
                 const nKey  = $.let(numericBind.read());
@@ -133,7 +129,7 @@ export const textVariants = example({
                 const onEmphasis  = $.const(East.function([StringType], NullType, ($, next) => { $(faceBind.write(next)); }));
                 const onTreatment = $.const(East.function([StringType], NullType, ($, next) => { $(treatmentBind.write(next)); }));
                 const onSpacing   = $.const(East.function([StringType], NullType, ($, next) => { $(spacingBind.write(next)); }));
-                const onOpacity   = $.const(East.function([StringType], NullType, ($, next) => { $(opacityBind.write(next)); }));
+                const onOpacity   = $.const(East.function([FloatType], NullType, ($, next) => { $(opacityBind.write(next)); }));
                 const onBox       = $.const(East.function([StringType], NullType, ($, next) => { $(boxBind.write(next)); }));
                 const onScale     = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
                 const onNumeric   = $.const(East.function([StringType], NullType, ($, next) => { $(numericBind.write(next)); }));
@@ -149,7 +145,6 @@ export const textVariants = example({
                 const face = $.let(faces.filter((_$, o) => o.label.equal(fKey)).get(0n));
                 const treatment = $.let(treatments.filter((_$, o) => o.label.equal(tKey)).get(0n));
                 const spacing = $.let(spacings.filter((_$, o) => o.label.equal(sKey)).get(0n));
-                const opacityPct = $.let(opacities.filter((_$, p) => East.print(p).equal(oKey)).get(0n));
                 const box = $.let(boxes.filter((_$, o) => o.label.equal(bKey)).get(0n));
                 const scale = $.let(scales.filter((_$, v) => v.getTag().equal(scKey)).get(0n));
 
@@ -183,29 +178,28 @@ export const textVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Ink", iKey,
-                                <SegmentGroup value={iKey} onChange={onInk} size="sm"
-                                    items={inks.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={iKey} onChange={onInk} size="sm"
+                                    items={inks.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Weight", wKey,
-                                <SegmentGroup value={wKey} onChange={onWeight} size="sm"
-                                    items={weights.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={wKey} onChange={onWeight} size="sm"
+                                    items={weights.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Emphasis", fKey,
-                                <SegmentGroup value={fKey} onChange={onEmphasis} size="sm"
-                                    items={faces.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={fKey} onChange={onEmphasis} size="sm"
+                                    items={faces.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Treatment", tKey,
-                                <SegmentGroup value={tKey} onChange={onTreatment} size="sm"
-                                    items={treatments.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={tKey} onChange={onTreatment} size="sm"
+                                    items={treatments.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Spacing", sKey,
                                 <SegmentGroup value={sKey} onChange={onSpacing} size="sm"
                                     items={spacings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
-                            Configurator.Control("Opacity", East.str`${oKey}%`,
-                                <SegmentGroup value={oKey} onChange={onOpacity} size="sm"
-                                    items={opacities.map((_$, p) => SegmentGroup.Item(East.print(p), <Text>{East.str`${East.print(p)}%`}</Text>))} />),
+                            Configurator.Control("Opacity", East.str`${East.print(op.multiply(100.0).toInteger())}%`,
+                                <Slider value={op} min={0.0} max={1.0} step={0.05} size="sm" onChange={onOpacity} />),
                             Configurator.Control("Box", bKey,
                                 <SegmentGroup value={bKey} onChange={onBox} size="sm"
                                     items={boxes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Scale", scKey,
-                                <SegmentGroup value={scKey} onChange={onScale} size="sm"
-                                    items={scales.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={scKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Numeric", nKey,
                                 <SegmentGroup value={nKey} onChange={onNumeric} size="sm"
                                     items={numerics.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
@@ -230,7 +224,7 @@ export const textVariants = example({
                                     borderColor={treatment.borderColor}
                                     letterSpacing={spacing.tracking}
                                     lineHeight={spacing.leading}
-                                    opacity={opacityPct.toFloat().divide(100.0)}
+                                    opacity={op}
                                     padding={{ top: some(box.pad), right: some(box.pad), bottom: some(box.pad), left: some(box.pad) }}
                                     margin={{ top: some(box.marg), right: some(box.marg), bottom: some(box.marg), left: some(box.marg) }}
                                     maxWidth="260px"

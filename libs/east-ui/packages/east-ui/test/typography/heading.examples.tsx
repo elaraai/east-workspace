@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, Heading, HStack, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, Heading, HStack, SegmentGroup, Select, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -98,14 +98,14 @@ export const headingVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Text style", sKey,
-                                <SegmentGroup value={sKey} onChange={onScale} size="sm"
-                                    items={scales.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Level", lKey,
-                                <SegmentGroup value={lKey} onChange={onLevel} size="sm"
-                                    items={levels.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={lKey} onChange={onLevel} size="sm"
+                                    items={levels.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={inks.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={inks.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Align", aKey,
                                 <SegmentGroup value={aKey} onChange={onAlign} size="sm"
                                     items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

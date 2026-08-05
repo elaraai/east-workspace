@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Progress, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, Progress, SegmentGroup, Select, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // Progress does not export its tone enum standalone — pull it out of the
 // component's own style contract so the axis stays typed by exactly the
@@ -116,8 +116,8 @@ export const progressVariants = example({
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Value", vKey,
-                                <SegmentGroup value={vKey} onChange={onValue} size="sm"
-                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={vKey} onChange={onValue} size="sm"
+                                    items={presets.map((_$, o) => Select.Item(o.label, o.label))} />),
                             // A Slot, not a Control: the two switches report as the
                             // Striped / Animated spec rows below rather than as one
                             // value.

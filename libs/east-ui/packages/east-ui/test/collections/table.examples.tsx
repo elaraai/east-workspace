@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, HStack, Reactive, SegmentGroup, Separator, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, HStack, Reactive, SegmentGroup, Select, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -309,8 +309,8 @@ export const tableColumnsVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Columns", cKey,
-                            <SegmentGroup value={cKey} onChange={onPreset} size="sm"
-                                items={columnSets.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            <Select value={cKey} onChange={onPreset} size="sm"
+                                items={columnSets.map((_$, s) => Select.Item(s, s))} />),
                     ]}
                     preview={preview}
                     spec={[
@@ -711,8 +711,8 @@ export const tableStyleVariants = example({
                             <SegmentGroup value={bKey} onChange={onBadge} size="sm"
                                 items={badgeVariants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Control("Rows", rKey,
-                            <SegmentGroup value={rKey} onChange={onRows} size="sm"
-                                items={rowModes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            <Select value={rKey} onChange={onRows} size="sm"
+                                items={rowModes.map((_$, s) => Select.Item(s, s))} />),
                         Configurator.Slot("Chrome",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={stripedOn} label="Striped" onChange={onStriped} />

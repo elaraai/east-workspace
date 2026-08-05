@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
+import { East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Configurator, Icon, HStack, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
+import { Box, Button, Configurator, Icon, HStack, Reactive, SegmentGroup, Select, Slider, Text } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -53,7 +53,6 @@ export const iconStyles = example({
                 const tints = $.const([
                     "fg.default", "fg.success", "fg.warning", "fg.danger", "link",
                 ], ArrayType(StringType));
-                const opacities = $.const([100n, 75n, 50n, 25n], ArrayType(IntegerType));
                 const paddings = $.const(["0", "1", "3"], ArrayType(StringType));
 
                 // Only the tile needs a struct — it is a background/radius pair,
@@ -68,7 +67,7 @@ export const iconStyles = example({
                 const glyphBind   = $.let(State.bind([StringType], "icon_glyph", "solid"));
                 const sizeBind    = $.let(State.bind([StringType], "icon_size", "2xl"));
                 const tintBind    = $.let(State.bind([StringType], "icon_tint", "fg.default"));
-                const opacityBind = $.let(State.bind([StringType], "icon_opacity", "100"));
+                const opacityBind = $.let(State.bind([FloatType], "icon_opacity", 1.0));
                 const tileBind    = $.let(State.bind([StringType], "icon_tile", "none"));
                 const paddingBind = $.let(State.bind([StringType], "icon_padding", "0"));
                 // The aside's toggle is the reactive row — clicking flips the
@@ -79,7 +78,7 @@ export const iconStyles = example({
                 const gKey = $.let(glyphBind.read());
                 const sKey = $.let(sizeBind.read());
                 const tKey = $.let(tintBind.read());
-                const oKey = $.let(opacityBind.read());
+                const opacity = $.let(opacityBind.read());
                 const bKey = $.let(tileBind.read());
                 const pKey = $.let(paddingBind.read());
                 const clicks = $.let(counter.read());
@@ -93,7 +92,7 @@ export const iconStyles = example({
                 const onGlyph   = $.const(East.function([StringType], NullType, ($, next) => { $(glyphBind.write(next)); }));
                 const onSize    = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
                 const onTint    = $.const(East.function([StringType], NullType, ($, next) => { $(tintBind.write(next)); }));
-                const onOpacity = $.const(East.function([StringType], NullType, ($, next) => { $(opacityBind.write(next)); }));
+                const onOpacity = $.const(East.function([FloatType], NullType, ($, next) => { $(opacityBind.write(next)); }));
                 const onTile    = $.const(East.function([StringType], NullType, ($, next) => { $(tileBind.write(next)); }));
                 const onPadding = $.const(East.function([StringType], NullType, ($, next) => { $(paddingBind.write(next)); }));
                 const inc       = $.const(East.function([], NullType, $ => {
@@ -104,11 +103,9 @@ export const iconStyles = example({
                 // Each selection is a lookup into the same array the control renders.
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
                 const tint = $.let(tints.filter((_$, t) => t.equal(tKey)).get(0n));
-                const opacityPct = $.let(opacities.filter((_$, p) => East.print(p).equal(oKey)).get(0n));
                 const tile = $.let(tiles.filter((_$, o) => o.label.equal(bKey)).get(0n));
                 const padToken = $.let(paddings.filter((_$, s) => s.equal(pKey)).get(0n));
 
-                const opacity = $.let(opacityPct.toFloat().divide(100.0));
                 const pad = $.let({ top: some(padToken), right: some(padToken), bottom: some(padToken), left: some(padToken) }, Box.Types.Padding);
 
                 // The glyph axis is the one that carries its own rendered value:
@@ -131,20 +128,19 @@ export const iconStyles = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Glyph", gKey,
-                                <SegmentGroup value={gKey} onChange={onGlyph} size="sm"
-                                    items={glyphs.map((_$, g) => SegmentGroup.Item(g.label, <Text>{g.label.upperCase()}</Text>))} />),
+                                <Select value={gKey} onChange={onGlyph} size="sm"
+                                    items={glyphs.map((_$, g) => Select.Item(g.label, g.label))} />),
                             Configurator.Control("Size", sKey,
-                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Tint", tKey,
-                                <SegmentGroup value={tKey} onChange={onTint} size="sm"
-                                    items={tints.map((_$, t) => SegmentGroup.Item(t, <Text>{t}</Text>))} />),
-                            Configurator.Control("Opacity", East.str`${oKey}%`,
-                                <SegmentGroup value={oKey} onChange={onOpacity} size="sm"
-                                    items={opacities.map((_$, p) => SegmentGroup.Item(East.print(p), <Text>{East.str`${East.print(p)}%`}</Text>))} />),
+                                <Select value={tKey} onChange={onTint} size="sm"
+                                    items={tints.map((_$, t) => Select.Item(t, t))} />),
+                            Configurator.Control("Opacity", East.str`${East.print(opacity.multiply(100.0).toInteger())}%`,
+                                <Slider value={opacity} min={0.0} max={1.0} step={0.05} size="sm" onChange={onOpacity} />),
                             Configurator.Control("Tile", bKey,
-                                <SegmentGroup value={bKey} onChange={onTile} size="sm"
-                                    items={tiles.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={bKey} onChange={onTile} size="sm"
+                                    items={tiles.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Padding", pKey,
                                 <SegmentGroup value={pKey} onChange={onPadding} size="sm"
                                     items={paddings.map((_$, s) => SegmentGroup.Item(s, <Text>{s}</Text>))} />),

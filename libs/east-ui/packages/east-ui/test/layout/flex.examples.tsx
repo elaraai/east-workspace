@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, Flex, HStack, SegmentGroup, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, Flex, HStack, SegmentGroup, Select, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -125,11 +125,11 @@ export const flexVariants = example({
                                 <SegmentGroup value={dKey} onChange={onDirection} size="sm"
                                     items={directions.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Justify", jKey,
-                                <SegmentGroup value={jKey} onChange={onJustify} size="sm"
-                                    items={justifies.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={jKey} onChange={onJustify} size="sm"
+                                    items={justifies.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Align", aKey,
-                                <SegmentGroup value={aKey} onChange={onAlign} size="sm"
-                                    items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={aKey} onChange={onAlign} size="sm"
+                                    items={aligns.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Content", cKey,
                                 <SegmentGroup value={cKey} onChange={onContent} size="sm"
                                     items={contents.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, Icon, List, SegmentGroup, Switch, VStack, HStack, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, Icon, List, SegmentGroup, Select, Switch, VStack, HStack, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -157,8 +157,8 @@ export const listVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Content", cKey,
-                                <SegmentGroup value={cKey} onChange={onContent} size="sm"
-                                    items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onContent} size="sm"
+                                    items={sets.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                     items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

@@ -29,7 +29,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Reactive, SegmentGroup, Text, ValueTree } from "@elaraai/east-ui";
+import { Box, Configurator, Reactive, Select, ValueTree } from "@elaraai/east-ui";
 
 const MachineType = StructType({
     name: StringType,
@@ -186,7 +186,7 @@ export const valueTreeBasic = example({
  * typed handler; the axis just swaps which tree previews.
  */
 export const valueTreeVariants = example({
-    keywords: ["ValueTree", "dict", "struct", "option", "variant", "nested", "deep", "recursive", "set", "vector", "matrix", "blob", "ref", "kitchen sink", "at", "scope", "subtree", "handler", "bubble", "onUpdate", "dispatch", "add", "remove", "collection", "onEdit", "path", "leaf", "raw", "editable", "edit", "virtualized", "height", "scroll", "fill", "parent", "bounded", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    keywords: ["ValueTree", "dict", "struct", "option", "variant", "nested", "deep", "recursive", "set", "vector", "matrix", "blob", "ref", "kitchen sink", "at", "scope", "subtree", "handler", "bubble", "onUpdate", "dispatch", "add", "remove", "collection", "onEdit", "path", "leaf", "raw", "editable", "edit", "virtualized", "height", "scroll", "fill", "parent", "bounded", "Reactive", "State", "Select", "Configurator", "getTag", "configurator"],
     description: "ValueTree configurator — a mode axis over the read-only inspectors, the five editing contracts (whole / scoped / collections / raw paths / deep sink) and the virtualized + fill sizing arms",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -348,8 +348,8 @@ export const valueTreeVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Mode", mKey,
-                            <SegmentGroup value={mKey} onChange={onMode} size="sm"
-                                items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                            <Select value={mKey} onChange={onMode} size="sm"
+                                items={modes.map((_$, m) => Select.Item(m, m))} />),
                     ]}
                     preview={preview}
                     spec={[

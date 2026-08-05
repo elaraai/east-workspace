@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, MetricChip, SegmentGroup, Style, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, MetricChip, SegmentGroup, Select, Style, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -141,8 +141,8 @@ export const metricChipVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Tone", tKey,
-                                <SegmentGroup value={tKey} onChange={onTone} size="sm"
-                                    items={tones.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={tKey} onChange={onTone} size="sm"
+                                    items={tones.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Emphasis", eKey,
                                 <SegmentGroup value={eKey} onChange={onEmphasis} size="sm"
                                     items={emphases.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -150,14 +150,14 @@ export const metricChipVariants = example({
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
-                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Unit", uKey,
-                                <SegmentGroup value={uKey} onChange={onUnit} size="sm"
-                                    items={units.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                <Select value={uKey} onChange={onUnit} size="sm"
+                                    items={units.map((_$, s) => Select.Item(s, s))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
                         ]}
                         preview={chip}
                         aside={{

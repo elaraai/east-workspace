@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { ChipRail, Configurator, HStack, SegmentGroup, Stack, Style, Tag, Text, Trace, Reactive } from "@elaraai/east-ui";
+import { ChipRail, Configurator, HStack, SegmentGroup, Select, Stack, Style, Tag, Text, Trace, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -174,8 +174,8 @@ export const traceVariants = example({
                                 <SegmentGroup value={futureKey} onChange={onFuture} size="sm"
                                     items={futures.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Now", nowKey,
-                                <SegmentGroup value={nowKey} onChange={onNow} size="sm"
-                                    items={nows.map((_$, n) => SegmentGroup.Item(East.print(n), <Text>{East.print(n)}</Text>))} />),
+                                <Select value={nowKey} onChange={onNow} size="sm"
+                                    items={nows.map((_$, n) => Select.Item(East.print(n), East.print(n)))} />),
                             Configurator.Control("Label width", gutterKey,
                                 <SegmentGroup value={gutterKey} onChange={onGutter} size="sm"
                                     items={gutters.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />),

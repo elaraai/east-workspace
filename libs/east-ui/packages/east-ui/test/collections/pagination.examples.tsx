@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, Pagination, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
+import { Configurator, Input, Pagination, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
 
 export const paginationBasic = example({
     keywords: ["Pagination", "Root", "page", "basic", "Reactive", "State"],
@@ -24,7 +24,7 @@ export const paginationBasic = example({
 });
 
 export const paginationVariants = example({
-    keywords: ["Pagination", "Root", "variant", "outline", "subtle", "size", "lg", "siblings", "boundaries", "color", "activeColor", "activeBackground", "palette", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Pagination", "Root", "variant", "outline", "subtle", "size", "lg", "siblings", "boundaries", "color", "activeColor", "activeBackground", "palette", "Reactive", "State", "SegmentGroup", "Input", "Integer", "Configurator", "getTag", "configurator"],
     description: "Pagination configurator — variant, size, siblings and palette axes driving one live pager over 500 rows; custom swaps in the active-trigger colour overrides",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -39,39 +39,36 @@ export const paginationVariants = example({
                 variant("sm", null), variant("md", null), variant("lg", null),
             ], ArrayType(Pagination.Types.Size));
 
-            // Siblings and boundaries travel together — the trigger window is
-            // only legible as a pair, so the axis is a struct.
-            const spans = $.const([
-                { label: "narrow", siblings: 1n, boundaries: 1n },
-                { label: "wide",   siblings: 2n, boundaries: 2n },
-            ], ArrayType(StructType({ label: StringType, siblings: IntegerType, boundaries: IntegerType })));
-
             // The colour escape hatches are presence-typed — recipe means the
             // overrides stay unset — so the palette axis is a bare label pair.
             const palettes = $.const(["recipe", "custom"], ArrayType(StringType));
 
             const variantBind = $.let(State.bind([StringType], "pagination_variant", "subtle"));
             const sizeBind    = $.let(State.bind([StringType], "pagination_size", "md"));
-            const spanBind    = $.let(State.bind([StringType], "pagination_span", "narrow"));
+            // Siblings and boundaries are expression-fed integers — real
+            // numeric inputs, not canned presets.
+            const siblingsBind   = $.let(State.bind([IntegerType], "pagination_siblings", 1n));
+            const boundariesBind = $.let(State.bind([IntegerType], "pagination_boundaries", 1n));
             const paletteBind = $.let(State.bind([StringType], "pagination_palette", "recipe"));
             const pageBind    = $.let(State.bind([IntegerType], "pagination_page", 5n));
 
             const vKey = $.let(variantBind.read());
             const sKey = $.let(sizeBind.read());
-            const wKey = $.let(spanBind.read());
+            const sibs   = $.let(siblingsBind.read());
+            const bounds = $.let(boundariesBind.read());
             const cKey = $.let(paletteBind.read());
             const page = $.let(pageBind.read());
 
             const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
             const onSize    = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-            const onSpan    = $.const(East.function([StringType], NullType, ($, next) => { $(spanBind.write(next)); }));
+            const onSiblings   = $.const(East.function([IntegerType], NullType, ($, next) => { $(siblingsBind.write(next)); }));
+            const onBoundaries = $.const(East.function([IntegerType], NullType, ($, next) => { $(boundariesBind.write(next)); }));
             const onPalette = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
             const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => { $(pageBind.write(next)); }));
 
             // Each selection is a lookup into the same array the control renders.
             const pagerVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
             const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
-            const span = $.let(spans.filter((_$, o) => o.label.equal(wKey)).get(0n));
             const custom = $.let(cKey.equal("custom"));
 
             // The overrides are presence-typed options, so the palette axis
@@ -79,12 +76,12 @@ export const paginationVariants = example({
             const pager = $.const(custom.ifElse(
                 _$ => (
                     <Pagination page={page} pageSize={10n} count={500n} onPageChange={onPageChange}
-                        variant={pagerVariant} size={size} siblings={span.siblings} boundaries={span.boundaries}
+                        variant={pagerVariant} size={size} siblings={sibs} boundaries={bounds}
                         activeBackground="bg.brand.subtle" activeColor="fg.inverse" />
                 ),
                 _$ => (
                     <Pagination page={page} pageSize={10n} count={500n} onPageChange={onPageChange}
-                        variant={pagerVariant} size={size} siblings={span.siblings} boundaries={span.boundaries} />
+                        variant={pagerVariant} size={size} siblings={sibs} boundaries={bounds} />
                 ),
             ));
 
@@ -97,9 +94,10 @@ export const paginationVariants = example({
                         Configurator.Control("Size", sKey,
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Siblings", wKey,
-                            <SegmentGroup value={wKey} onChange={onSpan} size="sm"
-                                items={spans.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                        Configurator.Control("Siblings", East.print(sibs),
+                            <Input.Integer value={sibs} min={0n} max={4n} step={1n} size="sm" onChange={onSiblings} />),
+                        Configurator.Control("Boundaries", East.print(bounds),
+                            <Input.Integer value={bounds} min={0n} max={4n} step={1n} size="sm" onChange={onBoundaries} />),
                         Configurator.Control("Palette", cKey,
                             <SegmentGroup value={cKey} onChange={onPalette} size="sm"
                                 items={palettes.map((_$, p) => SegmentGroup.Item(p, <Text>{p.upperCase()}</Text>))} />),
@@ -107,8 +105,6 @@ export const paginationVariants = example({
                     preview={pager}
                     spec={[
                         Configurator.Spec("Pages", "50"),
-                        Configurator.Spec("Window", East.str`${East.print(span.siblings)} · ${East.print(span.boundaries)}`),
-                        Configurator.Spec("Palette", custom.ifElse(_$ => "active overrides", _$ => "recipe")),
                     ]}
                 />
             );

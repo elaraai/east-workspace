@@ -256,11 +256,15 @@ examples are under the slot budget already and are exempt.)
    forms:
    - **A live `<Configurator>` surface** — the preferred form for
      style-axis components: every prop axis is a plain array of the
-     values themselves (`getTag()` supplies the segment key and label),
-     one `State.bind` per axis, the same array feeding the SegmentGroup
+     values themselves (`getTag()` supplies the key and label), one
+     `State.bind` per axis, the same array feeding the control widget
      and the preview; switch pairs report through `Slot` + `Spec` rows
-     and reactive counters live in the `aside`. Exemplar:
-     `display/badge.examples.tsx`.
+     and reactive counters live in the `aside`. The control widget
+     matches the axis: `SegmentGroup` for ≤5 short-token options that
+     should all be visible at once, `Select` for longer or wordier
+     enumerations (presets, modes, palettes), `Input.Integer` /
+     `Input.Float` / `Slider` for expression-fed numeric props, and
+     `Switch` for booleans. Exemplar: `display/badge.examples.tsx`.
    - **A static enumeration panel** (`VStack` of
      `<Separator label>`-bounded groups) ONLY where seeing every row at
      once is the point — the aligned-stack catalogue

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, Reactive, SegmentGroup, Sparkline, Text, VStack } from "@elaraai/east-ui";
+import { Button, Configurator, Reactive, SegmentGroup, Select, Sparkline, Text, VStack } from "@elaraai/east-ui";
 
 // Module-scope fixtures — one per data preset (consolidation epic #455).
 const SPARKLINE_STOCK_DATA = [142.5, 143.2, 141.8, 144.0, 143.5, 145.2, 144.8, 146.0];
@@ -97,14 +97,14 @@ export const sparklineVariants = example({
                                 <SegmentGroup value={tKey} onChange={onType} size="sm"
                                     items={types.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Data", dKey,
-                                <SegmentGroup value={dKey} onChange={onData} size="sm"
-                                    items={datasets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={dKey} onChange={onData} size="sm"
+                                    items={datasets.map((_$, o) => Select.Item(o.label, o.label))} />),
                         ]}
                         preview={
                             <Sparkline data={dataset.points} type={chartType} color={color.color} width={size.w} height={size.h} />

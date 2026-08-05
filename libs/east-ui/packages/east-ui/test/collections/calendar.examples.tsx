@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, StringType, StructType, NullType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Box, Calendar, Configurator, HStack, Reactive, SegmentGroup, Separator, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Box, Calendar, Configurator, HStack, Reactive, SegmentGroup, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455).

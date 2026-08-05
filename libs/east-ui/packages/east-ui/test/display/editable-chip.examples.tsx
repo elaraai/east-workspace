@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, EditableChip, SegmentGroup, Style, Switch, Text, HStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, EditableChip, SegmentGroup, Select, Style, Switch, Text, HStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -92,11 +92,11 @@ export const editableChipVariants = example({
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Radius", rKey,
-                                <SegmentGroup value={rKey} onChange={onRadius} size="sm"
-                                    items={radii.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                <Select value={rKey} onChange={onRadius} size="sm"
+                                    items={radii.map((_$, s) => Select.Item(s, s))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("State", disabled.ifElse(_$ => "disabled", _$ => "enabled"),
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />

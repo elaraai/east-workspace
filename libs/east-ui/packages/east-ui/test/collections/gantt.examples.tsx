@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, East, DateTimeType, FloatType, NullType, OptionType, StringType, StructType, none, some, variant, example } from "@elaraai/east";
 import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, Gantt, HStack, Library, Reactive, SegmentGroup, Switch, Table, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, Gantt, HStack, Library, Reactive, SegmentGroup, Select, Switch, Table, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455, pass 4).
@@ -372,8 +372,8 @@ export const ganttVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Preset", pKey,
-                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
-                                items={presetKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            <Select value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, s) => Select.Item(s, s))} />),
                         Configurator.Control("Variant", vKey,
                             <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                 items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

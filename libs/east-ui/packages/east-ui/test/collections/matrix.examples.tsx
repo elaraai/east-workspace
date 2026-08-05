@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, DictType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Matrix, Reactive, SegmentGroup, Slider, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Matrix, Reactive, SegmentGroup, Select, Slider, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -314,8 +314,8 @@ export const matrixVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Preset", pKey,
-                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
-                                items={presets.map((_$, p) => SegmentGroup.Item(p, <Text>{p.upperCase()}</Text>))} />),
+                            <Select value={pKey} onChange={onPreset} size="sm"
+                                items={presets.map((_$, p) => Select.Item(p, p))} />),
                         Configurator.Control("Orientation", oKey,
                             <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
                                 items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

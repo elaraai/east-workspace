@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, StructType, some, none, variant, example } from "@elaraai/east";
 import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Library, Planner, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Planner, Reactive, SegmentGroup, Select, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455, pass 4).
@@ -115,7 +115,7 @@ export const plannerVariants = example({
             const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
             const onColumns = $.const(East.function([StringType], NullType, ($, next) => { $(columnsBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
-            const onHoverKey = $.const(East.function([StringType], NullType, ($, next) => { $(hoverBind.write(next.equal("on"))); }));
+            const onHover = $.const(East.function([BooleanType], NullType, ($, next) => { $(hoverBind.write(next)); }));
 
             // HORIZON — a runtime-derived extent (last event day 3 + a 4-day
             // tail) proves `range.max` accepts a FloatType expression.
@@ -464,8 +464,8 @@ export const plannerVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Preset", pKey,
-                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
-                                items={presetKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            <Select value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, s) => Select.Item(s, s))} />),
                         Configurator.Control("Columns", cKey,
                             <SegmentGroup value={cKey} onChange={onColumns} size="sm"
                                 items={columnSets.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
@@ -473,8 +473,7 @@ export const plannerVariants = example({
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Control("Row hover", hoverOn.ifElse(_$ => "on", _$ => "off"),
-                            <SegmentGroup value={hoverOn.ifElse(_$ => "on", _$ => "off")} onChange={onHoverKey} size="sm"
-                                items={["off", "on"].map(s => SegmentGroup.Item(s, <Text>{s.toUpperCase()}</Text>))} />),
+                            <Switch checked={hoverOn} onChange={onHover} />),
                     ]}
                     preview={preview}
                     spec={[

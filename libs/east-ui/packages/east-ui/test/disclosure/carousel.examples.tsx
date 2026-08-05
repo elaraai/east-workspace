@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Carousel, Configurator, HStack, SegmentGroup, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Box, Carousel, Configurator, HStack, SegmentGroup, Select, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 export const carouselBasic = example({
     keywords: ["Carousel", "Root", "showControls", "showIndicators", "basic"],
@@ -109,8 +109,8 @@ export const carouselVariants = example({
                                 <SegmentGroup value={sKey} onChange={onSlides} size="sm"
                                     items={sets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             Configurator.Control("Chrome", chKey,
-                                <SegmentGroup value={chKey} onChange={onChrome} size="sm"
-                                    items={chromes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={chKey} onChange={onChrome} size="sm"
+                                    items={chromes.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Colour", cKey,
                                 <SegmentGroup value={cKey} onChange={onColor} size="sm"
                                     items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),

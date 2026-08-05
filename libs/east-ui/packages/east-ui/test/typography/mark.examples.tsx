@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, Mark, SegmentGroup, Switch, HStack, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, Mark, Select, Switch, HStack, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -82,11 +82,11 @@ export const markVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Variant", vKey,
-                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Palette", pKey,
-                                <SegmentGroup value={pKey} onChange={onPalette} size="sm"
-                                    items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                <Select value={pKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, s) => Select.Item(s, s))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Placement spec row below rather than as one value.
                             Configurator.Slot("Context",

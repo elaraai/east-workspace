@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Button, Configurator, HStack, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Avatar, Button, Configurator, HStack, SegmentGroup, Select, Slider, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -60,14 +60,13 @@ export const avatarVariants = example({
                 // Numeric / token axes collapse the same way: an opacity is a
                 // percentage and a radius is a CSS token, so both are bare
                 // arrays of the value itself.
-                const opacities = $.const([100n, 75n, 50n, 25n], ArrayType(IntegerType));
                 const radii = $.const(["full", "md", "0"], ArrayType(StringType));
 
                 const sizeBind    = $.let(State.bind([StringType], "avatar_size", "md"));
                 const paletteBind = $.let(State.bind([StringType], "avatar_palette", "brand"));
                 const variantBind = $.let(State.bind([StringType], "avatar_variant", "subtle"));
                 const densityBind = $.let(State.bind([StringType], "avatar_density", "compact"));
-                const opacityBind = $.let(State.bind([StringType], "avatar_opacity", "100"));
+                const opacityBind = $.let(State.bind([FloatType], "avatar_opacity", 1.0));
                 const radiusBind  = $.let(State.bind([StringType], "avatar_radius", "full"));
                 const fullBind    = $.let(State.bind([BooleanType], "avatar_full_name", true));
                 const counter     = $.let(State.bind([IntegerType], "avatar_counter", 0n));
@@ -76,7 +75,7 @@ export const avatarVariants = example({
                 const cKey = $.let(paletteBind.read());
                 const vKey = $.let(variantBind.read());
                 const dKey = $.let(densityBind.read());
-                const oKey = $.let(opacityBind.read());
+                const op = $.let(opacityBind.read());
                 const rKey = $.let(radiusBind.read());
                 const full = $.let(fullBind.read());
                 const count = $.let(counter.read());
@@ -85,7 +84,7 @@ export const avatarVariants = example({
                 const onPalette = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
                 const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
-                const onOpacity = $.const(East.function([StringType], NullType, ($, next) => { $(opacityBind.write(next)); }));
+                const onOpacity = $.const(East.function([FloatType], NullType, ($, next) => { $(opacityBind.write(next)); }));
                 const onRadius  = $.const(East.function([StringType], NullType, ($, next) => { $(radiusBind.write(next)); }));
                 const onFull    = $.const(East.function([BooleanType], NullType, ($, next) => { $(fullBind.write(next)); }));
                 const inc       = $.const(East.function([], NullType, $ => {
@@ -98,7 +97,6 @@ export const avatarVariants = example({
                 const palette = $.let(palettes.filter((_$, v) => v.getTag().equal(cKey)).get(0n));
                 const avatarVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
                 const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
-                const opacityPct = $.let(opacities.filter((_$, p) => East.print(p).equal(oKey)).get(0n));
                 const radius = $.let(radii.filter((_$, r) => r.equal(rKey)).get(0n));
 
                 // The name is the initials source: two words fall back to two
@@ -109,20 +107,19 @@ export const avatarVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Size", sKey,
-                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onPalette} size="sm"
-                                    items={palettes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                     items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Opacity", East.str`${oKey}%`,
-                                <SegmentGroup value={oKey} onChange={onOpacity} size="sm"
-                                    items={opacities.map((_$, p) => SegmentGroup.Item(East.print(p), <Text>{East.str`${East.print(p)}%`}</Text>))} />),
+                            Configurator.Control("Opacity", East.str`${East.print(op.multiply(100.0).toInteger())}%`,
+                                <Slider value={op} min={0.0} max={1.0} step={0.05} size="sm" onChange={onOpacity} />),
                             Configurator.Control("Radius", rKey,
                                 <SegmentGroup value={rKey} onChange={onRadius} size="sm"
                                     items={radii.map((_$, r) => SegmentGroup.Item(r, <Text>{r.upperCase()}</Text>))} />),
@@ -140,7 +137,7 @@ export const avatarVariants = example({
                                 colorPalette={palette}
                                 variant={avatarVariant}
                                 density={density}
-                                opacity={opacityPct.toFloat().divide(100.0)}
+                                opacity={op}
                                 borderRadius={radius}
                             />
                         }

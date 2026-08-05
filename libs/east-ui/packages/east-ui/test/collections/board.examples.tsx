@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Board, Box, Configurator, Library, Reactive, SegmentGroup, Separator, Text, VStack } from "@elaraai/east-ui";
+import { Board, Box, Configurator, Library, Reactive, Select, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -253,7 +253,7 @@ export const boardLibraryDnd = example({
 });
 
 export const boardModes = example({
-    keywords: ["Board", "assignment", "published", "committed", "read-only", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed", "maxVisible", "overflow", "popover", "multiple", "people", "review", "approve", "reject", "batch", "foot", "commitBar", "rerun", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Box", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Board", "assignment", "published", "committed", "read-only", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed", "maxVisible", "overflow", "popover", "multiple", "people", "review", "approve", "reject", "batch", "foot", "commitBar", "rerun", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Box", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
     description: "Board configurator — a mode preset axis (published / coverage / overflow / review / scroll / fill) over one live day board",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -274,8 +274,8 @@ export const boardModes = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Mode", mode,
-                            <SegmentGroup value={mode} onChange={onMode} size="sm"
-                                items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                            <Select value={mode} onChange={onMode} size="sm"
+                                items={modes.map((_$, m) => Select.Item(m, m))} />),
                     ]}
                     preview={
                         mode.equal("published").ifElse(

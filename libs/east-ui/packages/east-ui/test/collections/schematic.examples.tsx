@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, Schematic, SegmentGroup, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, Schematic, Select, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -462,8 +462,8 @@ export const schematicVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Canvas", canvas,
-                            <SegmentGroup value={canvas} onChange={onCanvas} size="sm"
-                                items={canvases.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
+                            <Select value={canvas} onChange={onCanvas} size="sm"
+                                items={canvases.map((_$, c) => Select.Item(c, c))} />),
                         Configurator.Slot("Editing",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={roOn} label="Read-only" onChange={onRo} />
@@ -850,8 +850,8 @@ export const schematicInteractions = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Tool", tool,
-                            <SegmentGroup value={tool} onChange={onToolChange} size="sm"
-                                items={tools.map((_$, t) => SegmentGroup.Item(t, <Text>{t.upperCase()}</Text>))} />),
+                            <Select value={tool} onChange={onToolChange} size="sm"
+                                items={tools.map((_$, t) => Select.Item(t, t))} />),
                         // Slots, not Controls: the switches report through the
                         // aside's event log rather than as one value each.
                         Configurator.Slot("Selection",

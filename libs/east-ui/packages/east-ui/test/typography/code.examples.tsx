@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Code, Configurator, HStack, SegmentGroup, Style, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Code, Configurator, HStack, SegmentGroup, Select, Style, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -75,11 +75,11 @@ export const codeVariants = example({
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                     items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Size", sKey,
-                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Palette", pKey,
-                                <SegmentGroup value={pKey} onChange={onPalette} size="sm"
-                                    items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                <Select value={pKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, s) => Select.Item(s, s))} />),
                         ]}
                         preview={
                             <Code variant={codeVariant} size={size} colorPalette={palette}>console.log('Hello')</Code>

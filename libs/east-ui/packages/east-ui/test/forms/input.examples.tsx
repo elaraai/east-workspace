@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Input, SegmentGroup, Status, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, Input, SegmentGroup, Select, Status, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Input — live configurator over every input axis
@@ -135,11 +135,11 @@ export const inputStyles = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Type", tKey,
-                                <SegmentGroup value={tKey} onChange={onType} size="sm"
-                                    items={types.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={tKey} onChange={onType} size="sm"
+                                    items={types.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Size", sKey,
-                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                     items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

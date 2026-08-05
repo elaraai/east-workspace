@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
-import { CellRefType, DragEventType, State, Status, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Library, Reactive, Roster, SegmentGroup, Separator, Text, VStack } from "@elaraai/east-ui";
+import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example, none, some, variant } from "@elaraai/east";
+import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Reactive, Roster, Select, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -83,7 +83,7 @@ const ROSTER_FILL_DATA = [
 ];
 
 export const rosterModes = example({
-    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
     description: "Roster configurator — a mode preset axis (edit / published / review / scroll / fill) over one live work-week roster",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -105,8 +105,8 @@ export const rosterModes = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Mode", mode,
-                            <SegmentGroup value={mode} onChange={onMode} size="sm"
-                                items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                            <Select value={mode} onChange={onMode} size="sm"
+                                items={modes.map((_$, m) => Select.Item(m, m))} />),
                     ]}
                     preview={
                         mode.equal("edit").ifElse(

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { Format, State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, Numeric, SegmentGroup, Switch, HStack, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, Numeric, SegmentGroup, Select, Switch, HStack, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -81,8 +81,8 @@ export const numericVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Format", fKey,
-                                <SegmentGroup value={fKey} onChange={onFormat} size="sm"
-                                    items={formats.map((_$, o) => SegmentGroup.Item(o.format.getTag(), <Text>{o.format.getTag().upperCase()}</Text>))} />),
+                                <Select value={fKey} onChange={onFormat} size="sm"
+                                    items={formats.map((_$, o) => Select.Item(o.format.getTag(), o.format.getTag()))} />),
                             Configurator.Control("Sentiment", sKey,
                                 <SegmentGroup value={sKey} onChange={onSentiment} size="sm"
                                     items={sentiments.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

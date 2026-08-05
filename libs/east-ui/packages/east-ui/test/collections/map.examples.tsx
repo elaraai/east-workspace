@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, Map, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, Map, Reactive, Select, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -69,7 +69,7 @@ export const mapBasic = example({
 });
 
 export const mapOverlayVariants = example({
-    keywords: ["Map", "area", "hexDisk", "label", "flyTo", "tone", "hex", "lattice", "lodZoom", "detailLabel", "LOD", "status", "pulse", "success", "danger", "cells", "H3", "hexagon", "adjacent", "regions", "irregular", "overlay", "HUD", "Button", "approve", "reject", "Reactive", "State", "onAreaClick", "interactive", "select", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Map", "area", "hexDisk", "label", "flyTo", "tone", "hex", "lattice", "lodZoom", "detailLabel", "LOD", "status", "pulse", "success", "danger", "cells", "H3", "hexagon", "adjacent", "regions", "irregular", "overlay", "HUD", "Button", "approve", "reject", "Reactive", "State", "onAreaClick", "interactive", "select", "Select", "Switch", "Configurator", "getTag", "configurator"],
     description: "Map configurator — an overlay-preset axis (filled areas, hex-lattice LOD, status pulse, H3 region unions, ELARA HUD) driving one live canvas; the aside reads the clicked area key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -210,8 +210,8 @@ export const mapOverlayVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Overlay", pKey,
-                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
-                                items={presets.map((_$, p) => SegmentGroup.Item(p, <Text>{p.upperCase()}</Text>))} />),
+                            <Select value={pKey} onChange={onPreset} size="sm"
+                                items={presets.map((_$, p) => Select.Item(p, p))} />),
                     ]}
                     preview={canvas}
                     aside={{

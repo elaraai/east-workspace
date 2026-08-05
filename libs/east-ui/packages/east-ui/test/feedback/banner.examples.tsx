@@ -5,14 +5,14 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Banner, Button, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from "@elaraai/east-ui";
+import { Badge, Banner, Button, Configurator, HStack, Reactive, Select, Switch, Text } from "@elaraai/east-ui";
 
 // ============================================================================
 // Status variants — the Banner status grammar's live configurator (epic #455).
 // ============================================================================
 
 export const bannerStatusVariants = example({
-    keywords: ["Banner", "stale", "dashed", "refresh", "info", "partial", "guard", "warning", "actions", "change", "saved", "success", "commit", "undo", "view", "sync", "progress", "error", "neutral", "dismissible", "onDismiss", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Banner", "stale", "dashed", "refresh", "info", "partial", "guard", "warning", "actions", "change", "saved", "success", "commit", "undo", "view", "sync", "progress", "error", "neutral", "dismissible", "onDismiss", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
     description: "Banner status configurator — the eight-status grammar as one axis, each status swapping its paired icon, copy and action, plus a dismissible switch; the aside tracks onDismiss",
     fn: East.function([], UIComponentType, (_$) => {
         return (
@@ -56,8 +56,8 @@ export const bannerStatusVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Status", sKey,
-                                <SegmentGroup value={sKey} onChange={onStatus} size="sm"
-                                    items={statuses.map((_$, o) => SegmentGroup.Item(o.status.getTag(), <Text>{o.status.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onStatus} size="sm"
+                                    items={statuses.map((_$, o) => Select.Item(o.status.getTag(), o.status.getTag()))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Dismiss spec row below rather than as one value.
                             Configurator.Slot("Dismiss",

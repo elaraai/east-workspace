@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Combobox, Configurator, HStack, SegmentGroup, Separator, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Combobox, Configurator, HStack, Select, Separator, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -124,11 +124,11 @@ export const comboboxVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Value", selDisplay,
-                                <SegmentGroup value={selected} onChange={onValue} size="sm"
-                                    items={countries.filter((_$, c) => c.disabled.not()).map((_$, c) => SegmentGroup.Item(c.value, <Text>{c.value.upperCase()}</Text>))} />),
+                                <Select value={selected} onChange={onValue} size="sm"
+                                    items={countries.filter((_$, c) => c.disabled.not()).map((_$, c) => Select.Item(c.value, c.label))} />),
                             Configurator.Control("Size", sKey,
-                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             // A Slot, not a Control: the switches report as the
                             // Disabled / Custom / Mode spec rows below rather
                             // than as one value each.

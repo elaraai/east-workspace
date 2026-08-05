@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Configurator, Grid, HStack, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Box, Button, Configurator, Grid, HStack, SegmentGroup, Select, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -141,8 +141,8 @@ export const gridVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Template", tKey,
-                                <SegmentGroup value={tKey} onChange={onTemplate} size="sm"
-                                    items={templates.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={tKey} onChange={onTemplate} size="sm"
+                                    items={templates.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Gaps", gKey,
                                 <SegmentGroup value={gKey} onChange={onGaps} size="sm"
                                     items={gaps.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),

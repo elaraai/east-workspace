@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Configurator, HStack, SegmentGroup, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Box, Button, Configurator, HStack, SegmentGroup, Select, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -155,11 +155,11 @@ export const boxVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Surface", sKey,
-                                <SegmentGroup value={sKey} onChange={onSurface} size="sm"
-                                    items={surfaces.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={sKey} onChange={onSurface} size="sm"
+                                    items={surfaces.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Layout", lKey,
-                                <SegmentGroup value={lKey} onChange={onLayout} size="sm"
-                                    items={layouts.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={lKey} onChange={onLayout} size="sm"
+                                    items={layouts.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Animation", aKey,
                                 <SegmentGroup value={aKey} onChange={onAnim} size="sm"
                                     items={animations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

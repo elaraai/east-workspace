@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, Meter, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, Meter, Input, SegmentGroup, Select, Slider, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -26,7 +26,7 @@ export const meterBasic = example({
 
 export const meterVariants = example({
     keywords: ["Meter", "Root", "tone", "success", "warning", "danger", "info", "neutral", "thickness", "density", "condensed", "compact", "comfortable", "sizes", "max", "custom", "value", "label", "fillColor", "trackColor", "labelColor", "showValue", "Reactive", "State", "SegmentGroup", "Switch", "Button", "Configurator", "getTag", "configurator", "interactive"],
-    description: "Meter configurator — tone, density, thickness, reading, scale, colour and label axes plus a show-percent switch driving one live meter; the aside drives a reactive load",
+    description: "Meter configurator — tone, density, thickness, colour and label axes with reading and max dials plus a show-percent switch driving one live meter; the aside drives a reactive load",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -49,15 +49,13 @@ export const meterVariants = example({
                 // Numeric / token axes collapse the same way: the reading is a
                 // percentage, the scale is the `max` the meter divides by, and a
                 // caption is just a string.
-                const readings = $.const([85n, 72n, 70n, 42n], ArrayType(IntegerType));
-                const scales = $.const([100n, 500n], ArrayType(IntegerType));
                 const captions = $.const(["Uptime", "Service level", "Capacity"], ArrayType(StringType));
 
                 const toneBind      = $.let(State.bind([StringType], "meter_tone", "success"));
                 const densityBind   = $.let(State.bind([StringType], "meter_density", "compact"));
                 const thicknessBind = $.let(State.bind([StringType], "meter_thickness", "md"));
-                const readingBind   = $.let(State.bind([StringType], "meter_reading", "85"));
-                const scaleBind     = $.let(State.bind([StringType], "meter_scale", "100"));
+                const readingBind   = $.let(State.bind([FloatType], "meter_reading", 85.0));
+                const maxBind       = $.let(State.bind([IntegerType], "meter_max", 100n));
                 const captionBind   = $.let(State.bind([StringType], "meter_caption", "Uptime"));
                 const colorBind     = $.let(State.bind([StringType], "meter_color", "tone"));
                 const percentBind   = $.let(State.bind([BooleanType], "meter_percent", true));
@@ -66,8 +64,8 @@ export const meterVariants = example({
                 const toneKey      = $.let(toneBind.read());
                 const densityKey   = $.let(densityBind.read());
                 const thicknessKey = $.let(thicknessBind.read());
-                const readingKey   = $.let(readingBind.read());
-                const scaleKey     = $.let(scaleBind.read());
+                const pct          = $.let(readingBind.read());
+                const maxN         = $.let(maxBind.read());
                 const captionKey   = $.let(captionBind.read());
                 const colorKey     = $.let(colorBind.read());
                 const showPercent  = $.let(percentBind.read());
@@ -76,8 +74,8 @@ export const meterVariants = example({
                 const onTone      = $.const(East.function([StringType], NullType, ($, next) => { $(toneBind.write(next)); }));
                 const onDensity   = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onThickness = $.const(East.function([StringType], NullType, ($, next) => { $(thicknessBind.write(next)); }));
-                const onReading   = $.const(East.function([StringType], NullType, ($, next) => { $(readingBind.write(next)); }));
-                const onScale     = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
+                const onReading   = $.const(East.function([FloatType], NullType, ($, next) => { $(readingBind.write(next)); }));
+                const onMax       = $.const(East.function([IntegerType], NullType, ($, next) => { $(maxBind.write(next)); }));
                 const onCaption   = $.const(East.function([StringType], NullType, ($, next) => { $(captionBind.write(next)); }));
                 const onColor     = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
                 const onPercent   = $.const(East.function([BooleanType], NullType, ($, next) => { $(percentBind.write(next)); }));
@@ -96,8 +94,6 @@ export const meterVariants = example({
                 const tone = $.let(tones.filter((_$, t) => t.getTag().equal(toneKey)).get(0n));
                 const density = $.let(densities.filter((_$, d) => d.getTag().equal(densityKey)).get(0n));
                 const thickness = $.let(thicknesses.filter((_$, t) => t.getTag().equal(thicknessKey)).get(0n));
-                const readingPct = $.let(readings.filter((_$, p) => East.print(p).equal(readingKey)).get(0n));
-                const scale = $.let(scales.filter((_$, s) => East.print(s).equal(scaleKey)).get(0n));
                 const caption = $.let(captions.filter((_$, c) => c.equal(captionKey)).get(0n));
 
                 // The recipe paints a toned fill from `fg.<tag>` (neutral reads
@@ -116,31 +112,29 @@ export const meterVariants = example({
                 ], ArrayType(StructType({ label: StringType, fill: StringType, track: StringType, text: StringType })));
                 const color = $.let(colors.filter((_$, o) => o.label.equal(colorKey)).get(0n));
 
-                // The meter fills by value / max, so the reading is the selected
-                // percentage OF the selected scale — 70% of a custom 500 is 350.
-                const reading = $.let(readingPct.multiply(scale).divide(100n));
+                // The meter fills by value / max, so the reading is the dialled
+                // percentage OF the dialled scale — 70% of a custom 500 is 350.
+                const reading = $.let(pct.divide(100.0).multiply(maxN.toFloat()));
 
                 return (
                     <Configurator
                         controls={[
                             Configurator.Control("Tone", toneKey,
-                                <SegmentGroup value={toneKey} onChange={onTone} size="sm"
-                                    items={tones.map((_$, t) => SegmentGroup.Item(t.getTag(), <Text>{t.getTag().upperCase()}</Text>))} />),
+                                <Select value={toneKey} onChange={onTone} size="sm"
+                                    items={tones.map((_$, t) => Select.Item(t.getTag(), t.getTag()))} />),
                             Configurator.Control("Density", densityKey,
                                 <SegmentGroup value={densityKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, d) => SegmentGroup.Item(d.getTag(), <Text>{d.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Thickness", thicknessKey,
-                                <SegmentGroup value={thicknessKey} onChange={onThickness} size="sm"
-                                    items={thicknesses.map((_$, t) => SegmentGroup.Item(t.getTag(), <Text>{t.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Reading", East.str`${readingKey}%`,
-                                <SegmentGroup value={readingKey} onChange={onReading} size="sm"
-                                    items={readings.map((_$, p) => SegmentGroup.Item(East.print(p), <Text>{East.str`${East.print(p)}%`}</Text>))} />),
-                            Configurator.Control("Max", scaleKey,
-                                <SegmentGroup value={scaleKey} onChange={onScale} size="sm"
-                                    items={scales.map((_$, s) => SegmentGroup.Item(East.print(s), <Text>{East.print(s)}</Text>))} />),
+                                <Select value={thicknessKey} onChange={onThickness} size="sm"
+                                    items={thicknesses.map((_$, t) => Select.Item(t.getTag(), t.getTag()))} />),
+                            Configurator.Control("Reading", East.str`${East.print(pct.toInteger())}%`,
+                                <Slider value={pct} min={0.0} max={100.0} step={1.0} size="sm" onChange={onReading} />),
+                            Configurator.Control("Max", East.print(maxN),
+                                <Input.Integer value={maxN} min={50n} max={1000n} step={50n} size="sm" onChange={onMax} />),
                             Configurator.Control("Colour", colorKey,
-                                <SegmentGroup value={colorKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={colorKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Label", captionKey,
                                 <SegmentGroup value={captionKey} onChange={onCaption} size="sm"
                                     items={captions.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
@@ -151,8 +145,8 @@ export const meterVariants = example({
                         ]}
                         preview={
                             <Meter
-                                value={reading.toFloat()}
-                                max={scale.toFloat()}
+                                value={reading}
+                                max={maxN.toFloat()}
                                 tone={tone}
                                 density={density}
                                 thickness={thickness}
@@ -174,7 +168,7 @@ export const meterVariants = example({
                             ),
                         }}
                         spec={[
-                            Configurator.Spec("Reads", East.str`${East.print(reading)} / ${East.print(scale)}`),
+                            Configurator.Spec("Reads", East.str`${East.print(reading.toInteger())} / ${East.print(maxN)}`),
                             Configurator.Spec("Fill", color.fill),
                             Configurator.Spec("Track", color.track),
                         ]}

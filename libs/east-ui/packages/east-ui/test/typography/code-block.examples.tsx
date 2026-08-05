@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, CodeBlock, Configurator, HStack, SegmentGroup, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, CodeBlock, Configurator, HStack, SegmentGroup, Select, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -104,8 +104,8 @@ export const codeBlockVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Language", lKey,
-                                <SegmentGroup value={lKey} onChange={onLanguage} size="sm"
-                                    items={snippets.map((_$, o) => SegmentGroup.Item(o.language.getTag(), <Text>{o.language.getTag().upperCase()}</Text>))} />),
+                                <Select value={lKey} onChange={onLanguage} size="sm"
+                                    items={snippets.map((_$, o) => Select.Item(o.language.getTag(), o.language.getTag()))} />),
                             Configurator.Control("Max height", hKey,
                                 <SegmentGroup value={hKey} onChange={onHeight} size="sm"
                                     items={heights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),

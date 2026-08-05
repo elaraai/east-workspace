@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, NullType, OptionType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Configurator, HStack, Reactive, SegmentGroup, Switch, Text, TreeView } from "@elaraai/east-ui";
+import { Badge, Configurator, HStack, Reactive, SegmentGroup, Select, Switch, Text, TreeView } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -163,8 +163,8 @@ export const treeViewVariants = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Tree", tKey,
-                                <SegmentGroup value={tKey} onChange={onTree} size="sm"
-                                    items={trees.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={tKey} onChange={onTree} size="sm"
+                                    items={trees.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

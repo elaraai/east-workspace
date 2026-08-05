@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, SegmentGroup, Splitter, Text, HStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, SegmentGroup, Select, Splitter, Text, HStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -122,8 +122,8 @@ export const splitterVariants = example({
                                 <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
                                     items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Panels", pKey,
-                                <SegmentGroup value={pKey} onChange={onPanels} size="sm"
-                                    items={presets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={pKey} onChange={onPanels} size="sm"
+                                    items={presets.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Collapse", cKey,
                                 <SegmentGroup value={cKey} onChange={onCollapse} size="sm"
                                     items={collapseModes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),

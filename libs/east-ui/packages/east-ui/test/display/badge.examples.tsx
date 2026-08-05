@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Button, Configurator, HStack, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Badge, Button, Configurator, HStack, SegmentGroup, Select, Slider, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -57,7 +57,6 @@ export const badgeStyles = example({
                 // Numeric / token axes collapse the same way: an opacity is a
                 // percentage and a padding is a spacing-scale token, so both are
                 // bare arrays of the value itself.
-                const opacities = $.const([100n, 75n, 50n, 25n], ArrayType(IntegerType));
                 const paddings = $.const(["0", "1", "3"], ArrayType(StringType));
 
                 // Only colour needs a struct — it is a background/foreground
@@ -73,7 +72,7 @@ export const badgeStyles = example({
                 const densityBind = $.let(State.bind([StringType], "badge_density", "compact"));
                 const colorBind   = $.let(State.bind([StringType], "badge_color", "recipe"));
                 const borderBind  = $.let(State.bind([StringType], "badge_border", "solid"));
-                const opacityBind = $.let(State.bind([StringType], "badge_opacity", "100"));
+                const opacityBind = $.let(State.bind([FloatType], "badge_opacity", 1.0));
                 const paddingBind = $.let(State.bind([StringType], "badge_padding", "0"));
                 const pillBind    = $.let(State.bind([BooleanType], "badge_pill", false));
                 const wideBind    = $.let(State.bind([BooleanType], "badge_wide", false));
@@ -83,7 +82,7 @@ export const badgeStyles = example({
                 const dKey = $.let(densityBind.read());
                 const cKey = $.let(colorBind.read());
                 const bKey = $.let(borderBind.read());
-                const oKey = $.let(opacityBind.read());
+                const op = $.let(opacityBind.read());
                 const pKey = $.let(paddingBind.read());
                 const pill = $.let(pillBind.read());
                 const wide = $.let(wideBind.read());
@@ -93,7 +92,7 @@ export const badgeStyles = example({
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onColor   = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
                 const onBorder  = $.const(East.function([StringType], NullType, ($, next) => { $(borderBind.write(next)); }));
-                const onOpacity = $.const(East.function([StringType], NullType, ($, next) => { $(opacityBind.write(next)); }));
+                const onOpacity = $.const(East.function([FloatType], NullType, ($, next) => { $(opacityBind.write(next)); }));
                 const onPadding = $.const(East.function([StringType], NullType, ($, next) => { $(paddingBind.write(next)); }));
                 const onPill    = $.const(East.function([BooleanType], NullType, ($, next) => { $(pillBind.write(next)); }));
                 const onWide    = $.const(East.function([BooleanType], NullType, ($, next) => { $(wideBind.write(next)); }));
@@ -106,7 +105,6 @@ export const badgeStyles = example({
                 const badgeVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
                 const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
                 const border = $.let(borders.filter((_$, v) => v.getTag().equal(bKey)).get(0n));
-                const opacityPct = $.let(opacities.filter((_$, p) => East.print(p).equal(oKey)).get(0n));
                 const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
                 const pad = $.let(paddings.filter((_$, s) => s.equal(pKey)).get(0n));
 
@@ -114,20 +112,19 @@ export const badgeStyles = example({
                     <Configurator
                         controls={[
                             Configurator.Control("Variant", vKey,
-                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                                <Select value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                     items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
                             Configurator.Control("Border", bKey,
-                                <SegmentGroup value={bKey} onChange={onBorder} size="sm"
-                                    items={borders.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Opacity", East.str`${oKey}%`,
-                                <SegmentGroup value={oKey} onChange={onOpacity} size="sm"
-                                    items={opacities.map((_$, p) => SegmentGroup.Item(East.print(p), <Text>{East.str`${East.print(p)}%`}</Text>))} />),
+                                <Select value={bKey} onChange={onBorder} size="sm"
+                                    items={borders.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Opacity", East.str`${East.print(op.multiply(100.0).toInteger())}%`,
+                                <Slider value={op} min={0.0} max={1.0} step={0.05} size="sm" onChange={onOpacity} />),
                             Configurator.Control("Padding", pKey,
                                 <SegmentGroup value={pKey} onChange={onPadding} size="sm"
                                     items={paddings.map((_$, s) => SegmentGroup.Item(s, <Text>{s}</Text>))} />),
@@ -149,7 +146,7 @@ export const badgeStyles = example({
                                 background={color.bg}
                                 color={color.fg}
                                 borderStyle={border}
-                                opacity={opacityPct.toFloat().divide(100.0)}
+                                opacity={op}
                                 padding={{ top: some(pad), right: some(pad), bottom: some(pad), left: some(pad) }}
                             >
                                 {badgeVariant.getTag().upperCase()}

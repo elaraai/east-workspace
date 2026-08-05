@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, SegmentGroup, Status, Switch, Text } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, Select, Status, Switch, Text } from "@elaraai/east-ui";
 import { State } from "@elaraai/east-ui";
 
 export const statusBasic = example({
@@ -26,7 +26,7 @@ export const statusBasic = example({
 });
 
 export const statusVariants = example({
-    keywords: ["Status", "Root", "value", "success", "warning", "danger", "info", "neutral", "pulsing", "rich label", "custom icon", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Status", "Root", "value", "success", "warning", "danger", "info", "neutral", "pulsing", "rich label", "custom icon", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
     description: "Status configurator — a value axis plus pulsing, rich-label and custom-icon switches on one live status",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -77,8 +77,8 @@ export const statusVariants = example({
                 <Configurator
                     controls={[
                         Configurator.Control("Value", vKey,
-                            <SegmentGroup value={vKey} onChange={onValue} size="sm"
-                                items={values.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            <Select value={vKey} onChange={onValue} size="sm"
+                                items={values.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
                         Configurator.Slot("Face",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={pulsingOn} label="Pulsing" onChange={onPulsing} />
