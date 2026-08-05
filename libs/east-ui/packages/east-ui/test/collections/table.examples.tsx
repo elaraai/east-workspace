@@ -335,7 +335,7 @@ export const tableColumnsVariants = example({
  */
 export const tableStyleVariants = example({
     keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "pagination", "page", "selection", "multiple", "checkbox", "range", "shift-click", "expandedContent", "rich detail", "review", "approve", "reject", "decision", "batch", "rowIndex", "unsliced", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Table style configurator — density and badge axes plus one rows axis: virtual, paginated, status, row heights, fill, multi/range selection, expandable detail and review chrome; callbacks log to the aside",
+    description: "Table style configurator — a density axis plus one rows axis: virtual, paginated, status, row heights, fill, multi/range selection, expandable detail and review chrome; callbacks log to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Bound ONCE — every preview arm maps over the same 1000-row array.
@@ -345,9 +345,6 @@ export const tableStyleVariants = example({
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
             ], ArrayType(Style.Types.Density));
-            const badgeVariants = $.const([
-                variant("solid", null), variant("subtle", null), variant("outline", null),
-            ], ArrayType(Style.Types.StyleVariant));
             const rowModes = $.const(["virtual", "paginated", "status", "row 48", "row 64", "fill", "multi", "range", "detail", "review", "review paged"], ArrayType(StringType));
 
             const stripedBind = $.let(State.bind([BooleanType], "table_striped", true));
@@ -359,14 +356,12 @@ export const tableStyleVariants = example({
 
             const stripedOn = $.let(stripedBind.read());
             const dKey = $.let(densityBind.read());
-            const bKey = $.let(badgeBind.read());
             const rKey = $.let(rowsBind.read());
             const page = $.let(pageBind.read());
             const lastEvent = $.let(lastEventBind.read());
 
             const onStriped = $.const(East.function([BooleanType], NullType, ($, next) => { $(stripedBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
-            const onBadge = $.const(East.function([StringType], NullType, ($, next) => { $(badgeBind.write(next)); }));
             const onRows = $.const(East.function([StringType], NullType, ($, next) => { $(rowsBind.write(next)); }));
             const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
                 $(pageBind.write(next));
@@ -412,13 +407,12 @@ export const tableStyleVariants = example({
 
             // Each selection is a lookup into the same array the control renders.
             const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
-            const badgeSel = $.let(badgeVariants.filter((_$, v) => v.getTag().equal(bKey)).get(0n));
             const rhPx = $.let(rKey.equal("row 48").ifElse(_$ => 48n, _$ => 64n));
 
-            // The badge axis drives the status column's render live — the
-            // render captures only data (the selected variant value).
+            // A fixed badge render for the status column — badge STYLING is the
+            // Badge configurator's axis, not a table feature.
             const badgeRender = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-                <Badge variant={badgeSel} colorPalette="brand">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
+                <Badge variant="solid" colorPalette="brand">{ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => "")}</Badge>
             )));
 
             // FILL (#320, absorbed tableFill) — height="fill" resolves against
@@ -707,9 +701,6 @@ export const tableStyleVariants = example({
                         Configurator.Control("Density", dKey,
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Badge (status col)", bKey,
-                            <SegmentGroup value={bKey} onChange={onBadge} size="sm"
-                                items={badgeVariants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Control("Rows", rKey,
                             <Select value={rKey} onChange={onRows} size="sm"
                                 items={rowModes.map((_$, s) => Select.Item(s, s))} />),

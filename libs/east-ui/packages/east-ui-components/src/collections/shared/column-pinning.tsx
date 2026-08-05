@@ -270,8 +270,11 @@ export function useColumnSizeVars<TData>(table: Table<TData>): Record<string, st
             colSizes[`--col-${header.column.id}-size`] = `${header.column.getSize()}px`;
         }
         return colSizes;
+        // `options.columns` too: swapping the column DEFINITIONS (a reactive
+        // arm change) leaves both sizing states untouched, and without it the
+        // vars go stale — old columns keep dead sizes, new ones get none.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [table.getState().columnSizingInfo, table.getState().columnSizing]);
+    }, [table.getState().columnSizingInfo, table.getState().columnSizing, table.options.columns]);
 }
 
 /** The id of the last unpinned column — it stretches to fill remaining space. */

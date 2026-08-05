@@ -135,22 +135,21 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
                     },
                 },
             },
-            /** Spec `.lib-seg-btn` active. Spec fills with the pale brand-tint,
-             *  but against the white surface that delta is near-invisible — step
-             *  up a few brand stops so the selected segment is legible, same hue
-             *  family. Active text is `--brand-dd` (brand.700). */
+            /** Spec `.lib-seg-btn` fills the active segment with the pale
+             *  brand tint, but that reads washed-out next to real buttons —
+             *  the active segment instead takes the `.btn.primary` treatment
+             *  (`brand.600` fill, inverse text), so a selected segment and a
+             *  solid button carry the same weight in both themes. */
             "brand-tint": {
                 item: {
                     background: "bg.surface",
                     _checked: {
-                        background: "{colors.brand.100}",
-                        color: "{colors.brand.700}",
-                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
+                        background: "{colors.brand.600}",
+                        color: "fg.inverse",
                     },
                     "&[data-state=checked]": {
-                        background: "{colors.brand.100}",
-                        color: "{colors.brand.700}",
-                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
+                        background: "{colors.brand.600}",
+                        color: "fg.inverse",
                     },
                 },
             },

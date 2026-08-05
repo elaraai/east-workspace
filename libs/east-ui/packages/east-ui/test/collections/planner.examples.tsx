@@ -395,9 +395,8 @@ export const plannerVariants = example({
                     rowHover={hoverOn}
                     groupBy={r => r.team}
                     columns={[
-                        { key: "name", frozen: true, value: r => r.name, sublabel: r => r.role },
-                        { key: "hours", header: "Hours", align: "end", value: r => East.str`${r.used} / ${r.cap} h` },
-                        { key: "free", header: "Free", align: "end", value: r => East.print(r.cap.subtract(r.used)) },
+                        { key: "name", frozen: true, width: "120px", value: r => r.name, sublabel: r => r.role },
+                        { key: "hours", header: "Hours", align: "end", width: "96px", value: r => East.str`${r.used} / ${r.cap} h` },
                     ]}
                     events={r => pKey.equal("mixed").ifElse(
                         _$ => r.team.equal("Daily").ifElse(_$ => dailyEvents, _$ => r.name.equal("Alice").ifElse(_$ => aliceEvents, _$ => bobEvents)),
@@ -427,9 +426,8 @@ export const plannerVariants = example({
                     rowHover={hoverOn}
                     groupBy={r => r.team}
                     columns={[
-                        { key: "name", frozen: true, value: r => r.name, sublabel: r => r.role },
-                        { key: "hours", header: "Hours", align: "end", value: r => East.str`${r.used} / ${r.cap} h` },
-                        { key: "free", header: "Free", align: "end", value: r => East.print(r.cap.subtract(r.used)) },
+                        { key: "name", frozen: true, width: "120px", value: r => r.name, sublabel: r => r.role },
+                        { key: "hours", header: "Hours", align: "end", width: "96px", value: r => East.str`${r.used} / ${r.cap} h` },
                     ]}
                     events={_r => spanEvents}
                 />,

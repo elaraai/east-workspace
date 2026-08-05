@@ -871,6 +871,7 @@ export const schematicInteractions = example({
                         /* schematicZoneSelect's 24 × 12 extent — the zone bodies (and
                            the M1 / P1 / P2 rows inside them) need the wider world rect. */
                         <Schematic
+                            navigator={false}
                             extent={{ width: 24, height: 12 }}
                             height="440px"
                             items={SCHEMATIC_INTERACTIONS_ITEMS}
