@@ -475,7 +475,8 @@ class Beast2File:
 
         Exact for Array roots. For Set/Dict roots it is the sum of per-segment
         counts — exact when segments are key-disjoint (what our writers
-        produce), an upper bound otherwise; #481 W2 adds the verification.
+        produce; keyed reads verify the boundaries they land on), an upper
+        bound otherwise.
         """
         return self._require_pages().element_count
 
@@ -596,33 +597,68 @@ class Beast2ArrayFile(Beast2File):
         )
 
     def find_sorted_first(self, target: Any, key: Any = None) -> int:
-        """Not yet paged — lands with #481 W2 (fence binary search)."""
-        raise NotImplementedError(
-            "find_sorted_first on Beast2File lands with #481 W2 (keyed paged reads)"
-        )
+        """Leftmost insertion index for ``target``, global across segments
+        (``EastArray.find_sorted_first`` over the whole file).
+
+        east-c binary-searches the segment *fences* — each segment's first
+        element, decoded from a bounded probe of its frame — to pick the
+        boundary segment, decodes only that one, and adds its base. Assumes
+        the file's rows are sorted, exactly like the eager builtin.
+        """
+        if key is not None:
+            raise ValueError(
+                "find_sorted key= projections are not supported on Beast2File — "
+                "the file pages by element order; load() the array (or scan "
+                "segments()) for projected searches"
+            )
+        return self._require_pages()._core.find_sorted(target, False)
 
     def find_sorted_last(self, target: Any, key: Any = None) -> int:
-        """Not yet paged — lands with #481 W2 (fence binary search)."""
-        raise NotImplementedError(
-            "find_sorted_last on Beast2File lands with #481 W2 (keyed paged reads)"
-        )
+        """Rightmost insertion index for ``target``, global across segments
+        (``EastArray.find_sorted_last`` over the whole file); same fence
+        search and one-segment decode as :meth:`find_sorted_first`.
+        """
+        if key is not None:
+            raise ValueError(
+                "find_sorted key= projections are not supported on Beast2File — "
+                "the file pages by element order; load() the array (or scan "
+                "segments()) for projected searches"
+            )
+        return self._require_pages()._core.find_sorted(target, True)
 
     def find_sorted_range(self, target: Any, key: Any = None):
-        """Not yet paged — lands with #481 W2 (fence binary search)."""
-        raise NotImplementedError(
-            "find_sorted_range on Beast2File lands with #481 W2 (keyed paged reads)"
+        """Half-open ``{start, end}`` span of rows equal to ``target``
+        (``EastArray.find_sorted_range`` over the whole file) — both ends via
+        the fence search; the boundary segment usually decodes once and the
+        second probe hits the pager's segment cache.
+        """
+        if key is not None:
+            raise ValueError(
+                "find_sorted key= projections are not supported on Beast2File — "
+                "the file pages by element order; load() the array (or scan "
+                "segments()) for projected searches"
+            )
+        from east.types.construct import struct
+        from east.types.types import IntegerType, StructType
+
+        pages = self._require_pages()
+        return struct(
+            {"start": pages._core.find_sorted(target, False),
+             "end": pages._core.find_sorted(target, True)},
+            StructType([("start", IntegerType), ("end", IntegerType)]),
         )
 
 
 class Beast2DictFile(Beast2File):
     """A beast2 v5 Dict file, mirroring the ``EastDict`` read surface.
 
-    Keyed point reads (``get`` / ``get_or_default`` / ``try_get`` / ``has`` /
-    ``get_keys`` / ``[]`` / ``in``) land with #481 W2's fence cache; until
-    then they raise ``NotImplementedError`` naming the workstream.
+    Keyed point reads decode only the owning segment: east-c binary-searches
+    the segment *fences* (each segment's first key, decoded from a bounded
+    probe of its frame and cached) to pick the segment, decodes it through a
+    small shared LRU, and answers from the in-segment b-tree. Requires the
+    key-disjoint segments our writers produce — a violated landing boundary
+    raises ``segments are not key-disjoint``.
     """
-
-    _W2 = "keyed reads on Beast2DictFile land with #481 W2 (keyed paged reads)"
 
     @property
     def key_type(self):
@@ -669,34 +705,72 @@ class Beast2DictFile(Beast2File):
         return self.keys()
 
     def get(self, key: Any, default: Any = None) -> Any:
-        raise NotImplementedError(self._W2)
+        """Value for ``key``, or ``default`` if absent — the python
+        ``dict.get`` boundary convenience, as on ``EastDict``. One fence
+        search, at most one segment decode."""
+        found, value = self._require_pages()._core.get_key(key)
+        return value if found else default
 
     def get_or_default(self, key: Any, default: Any) -> Any:
-        raise NotImplementedError(self._W2)
+        """Value for ``key``, or ``default`` if absent
+        (``EastDict.get_or_default``)."""
+        found, value = self._require_pages()._core.get_key(key)
+        return value if found else default
 
     def try_get(self, key: Any):
-        raise NotImplementedError(self._W2)
+        """``some(value)`` if ``key`` is present, else ``none``
+        (``EastDict.try_get``)."""
+        from east.types.values.primitives import east_null
+        from east.types.values.structural import EastVariant
+
+        found, value = self._require_pages()._core.get_key(key)
+        return EastVariant("some", value) if found else EastVariant("none", east_null)
 
     def has(self, key: Any) -> bool:
-        raise NotImplementedError(self._W2)
+        """Whether ``key`` is present (``EastDict.has``)."""
+        found, _ = self._require_pages()._core.get_key(key)
+        return found
 
     def get_keys(self, keys, fill):
-        raise NotImplementedError(self._W2)
+        """Restrict to ``keys``, filling the absent ones — the
+        ``EastDict.get_keys`` contract: a dict keyed exactly by ``keys``,
+        existing values where present, ``fill(key)`` otherwise.
+
+        east-c merges the sorted keys against the fences in one forward
+        pass, so each owning segment decodes exactly once no matter how many
+        keys land in it; ``fill`` runs only per missing key.
+        """
+        from east.types.values.collections import EastSet
+
+        if not isinstance(keys, EastSet):
+            keys = EastSet(self.key_type, keys)
+        found, missing = self._require_pages()._core.get_keys(keys)
+        for k in missing:
+            found[k] = fill(k)
+        return found
 
     def __getitem__(self, key):
-        raise NotImplementedError(self._W2)
+        """Mapping read: the stored value, or ``KeyError`` — the same message
+        the eager dict proxy raises."""
+        found, value = self._require_pages()._core.get_key(key)
+        if not found:
+            from east.serialization.east_printer import print_east
+
+            raise KeyError(f"Dict does not contain key {print_east(key, self.key_type)}")
+        return value
 
     def __contains__(self, key):
-        raise NotImplementedError(self._W2)
+        found, _ = self._require_pages()._core.get_key(key)
+        return found
 
 
 class Beast2SetFile(Beast2File):
     """A beast2 v5 Set file, mirroring the ``EastSet`` read surface.
 
-    Membership (``has`` / ``in``) lands with #481 W2's fence cache.
+    Membership decodes only the owning segment, found by a binary search
+    over the segment fences — the same machinery as
+    :class:`Beast2DictFile`'s keyed reads.
     """
-
-    _W2 = "membership on Beast2SetFile lands with #481 W2 (keyed paged reads)"
 
     @property
     def element_type(self):
@@ -710,10 +784,14 @@ class Beast2SetFile(Beast2File):
             yield from segment
 
     def has(self, value: Any) -> bool:
-        raise NotImplementedError(self._W2)
+        """Whether ``value`` is a member (``EastSet.has``) — one fence
+        search, at most one segment decode."""
+        found, _ = self._require_pages()._core.get_key(value)
+        return found
 
     def __contains__(self, value):
-        raise NotImplementedError(self._W2)
+        found, _ = self._require_pages()._core.get_key(value)
+        return found
 
 
 _FILE_KINDS = {"Array": Beast2ArrayFile, "Set": Beast2SetFile, "Dict": Beast2DictFile}

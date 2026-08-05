@@ -535,13 +535,24 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
  *  check with a real error instead of silently resolving a cross-segment
  *  backref to an empty placeholder. Wrong data is worse than no data.  */
 
+/* Decoded segments kept hot for the element and keyed paths (#481 W2). */
+#define B2V5_PAGES_LRU 4
+
 struct Beast2Pages {
     const uint8_t *data; /* borrowed — caller keeps it alive and unchanged */
     size_t len;
-    EastType *type;     /* retained decode type */
-    EastSourceMap sm;   /* owned (header) */
-    B2V5Index index;    /* owned */
-    size_t *cumulative; /* prefix sums of index.counts; NULL when count == 0 */
+    EastType *type;       /* retained decode type */
+    EastSourceMap sm;     /* owned (header) */
+    B2V5Index index;      /* owned */
+    size_t *cumulative;   /* prefix sums of index.counts; NULL when count == 0 */
+    EastValue **fences;   /* lazily decoded first element/key per segment (owned) */
+    bool fences_verified; /* strict ascent checked (first keyed read) */
+    struct {
+        size_t idx;
+        EastValue *seg; /* owned; NULL = empty slot */
+        uint64_t tick;
+    } lru[B2V5_PAGES_LRU];
+    uint64_t lru_tick;
 };
 
 Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type)
@@ -715,6 +726,37 @@ done:
     return result;
 }
 
+/* Fetch segment i through the pager's small shared LRU. Returns a RETAINED
+ * value (caller releases); the cache keeps its own reference. Only the
+ * element and keyed paths route through here — the public segment() stays a
+ * fresh decode, so a caller mutating its result cannot poison the cache. */
+static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
+{
+    for (size_t k = 0; k < B2V5_PAGES_LRU; k++) {
+        if (p->lru[k].seg && p->lru[k].idx == i) {
+            p->lru[k].tick = ++p->lru_tick;
+            east_value_retain(p->lru[k].seg);
+            return p->lru[k].seg;
+        }
+    }
+    EastValue *seg = east_beast2_pages_segment(p, i);
+    if (!seg) return NULL;
+    size_t victim = 0;
+    for (size_t k = 0; k < B2V5_PAGES_LRU; k++) {
+        if (!p->lru[k].seg) {
+            victim = k;
+            break;
+        }
+        if (p->lru[k].tick < p->lru[victim].tick) victim = k;
+    }
+    if (p->lru[victim].seg) east_value_release(p->lru[victim].seg);
+    p->lru[victim].idx = i;
+    p->lru[victim].seg = seg;
+    p->lru[victim].tick = ++p->lru_tick;
+    east_value_retain(seg); /* the cache's reference */
+    return seg;
+}
+
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
 {
     if (!p) return NULL;
@@ -748,7 +790,7 @@ EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
     }
     size_t base = lo == 0 ? 0 : p->cumulative[lo - 1];
 
-    EastValue *segment = east_beast2_pages_segment(p, lo);
+    EastValue *segment = pages_segment_cached(p, lo);
     if (!segment) return NULL;
     /* east_array_get returns a BORROWED pointer into the segment's items —
      * retain before releasing the segment or the caller gets freed memory. */
@@ -769,9 +811,383 @@ EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
 void east_beast2_pages_free(Beast2Pages *p)
 {
     if (!p) return;
+    for (size_t k = 0; k < B2V5_PAGES_LRU; k++)
+        if (p->lru[k].seg) east_value_release(p->lru[k].seg);
+    if (p->fences) {
+        for (size_t i = 0; i < p->index.count; i++)
+            if (p->fences[i]) east_value_release(p->fences[i]);
+        free(p->fences);
+    }
     if (p->type) east_type_release(p->type);
     beast2_source_map_free(&p->sm);
     b2v5_index_free(&p->index);
     free(p->cumulative);
     free(p);
+}
+
+/* The fence value's type: what one probe decodes — the KEY for Dict roots,
+ * the element otherwise. */
+static EastType *pages_fence_type(Beast2Pages *p)
+{
+    if (p->type->kind == EAST_TYPE_DICT) return p->type->data.dict.key;
+    return p->type->data.element;
+}
+
+EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
+{
+    if (!p) return NULL;
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return NULL;
+    }
+    if (i >= p->index.count) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "beast2 v5: segment %zu out of range (%zu segments)", i,
+                 p->index.count);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    if (!p->fences) {
+        p->fences = calloc(p->index.count, sizeof(EastValue *));
+        if (!p->fences) return NULL;
+    }
+    if (p->fences[i]) {
+        east_value_retain(p->fences[i]);
+        return p->fences[i];
+    }
+
+    size_t off = p->index.offsets[i];
+    uint64_t codec, uncompressed_len, payload_len;
+    if (!read_varint_checked(p->data, p->len, &off, &codec) ||
+        !read_varint_checked(p->data, p->len, &off, &uncompressed_len) ||
+        !read_varint_checked(p->data, p->len, &off, &payload_len) || payload_len > p->len - off) {
+        east_builtin_error("beast2 v5: malformed segment frame header");
+        return NULL;
+    }
+
+    EastValue *first = NULL;
+    size_t sm_mark = p->sm.num_stacks;
+    B2V5DecodeCtx ctx;
+
+    if (codec == EAST_BEAST2_CODEC_NONE) {
+        size_t coff = 0;
+        uint64_t n;
+        b2v5_dec_ctx_init(&ctx, &p->sm);
+        if (read_varint_checked(p->data + off, (size_t)payload_len, &coff, &n) && n > 0)
+            first = b2v5_decode_value(p->data + off, (size_t)payload_len, &coff,
+                                      pages_fence_type(p), &ctx);
+        b2v5_dec_ctx_free(&ctx);
+    } else {
+        /* Inflate a bounded prefix and decode the first element from it; a
+         * truncated element grows the probe until it fits (the final attempt
+         * inflates the whole frame, so real corruption still surfaces). */
+        size_t cap = 4096;
+        for (;;) {
+            if (cap > (size_t)uncompressed_len) cap = (size_t)uncompressed_len;
+            uint8_t *buf = malloc(cap ? cap : 1);
+            if (!buf) return NULL;
+            size_t got = b2v5_inflate_prefix(p->data + off, (size_t)payload_len, buf, cap);
+            if (got == 0) {
+                free(buf);
+                east_builtin_error("beast2 v5: segment frame failed to inflate");
+                return NULL;
+            }
+            size_t coff = 0;
+            uint64_t n;
+            b2v5_dec_ctx_init(&ctx, &p->sm);
+            if (read_varint_checked(buf, got, &coff, &n) && n > 0)
+                first = b2v5_decode_value(buf, got, &coff, pages_fence_type(p), &ctx);
+            b2v5_dec_ctx_free(&ctx);
+            free(buf);
+            if (first || cap >= (size_t)uncompressed_len) break;
+            /* Truncation, not corruption: drop the posted error, probe bigger. */
+            free(east_builtin_get_error());
+            cap *= 4;
+        }
+    }
+
+    if (p->sm.num_stacks != sm_mark) {
+        if (first) east_value_release(first);
+        east_builtin_error("beast2 v5: self-contained segments cannot add source maps");
+        return NULL;
+    }
+    if (!first) {
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
+            east_builtin_error("beast2 v5: malformed segment");
+        }
+        return NULL;
+    }
+    p->fences[i] = first;     /* the cache owns one reference */
+    east_value_retain(first); /* and the caller gets their own */
+    return first;
+}
+
+/* ================================================================== */
+/*  Keyed reads (issue #481 W2)                                        */
+/* ================================================================== */
+
+/* Partition search over the lazily decoded fences: *out becomes the LAST
+ * segment whose fence is < key (or <= key with or_equal), SIZE_MAX when no
+ * fence satisfies it. Assumes fences ascend — keyed callers verify that
+ * first; find_sorted relies on the array's own sortedness contract. Returns
+ * false when a fence fails to decode (error posted). */
+static bool pages_fence_search(Beast2Pages *p, EastValue *key, bool or_equal, size_t *out)
+{
+    size_t lo = 0;
+    size_t hi = p->index.count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        EastValue *f = east_beast2_pages_fence(p, mid);
+        if (!f) return false;
+        int c = east_value_compare(f, key);
+        east_value_release(f);
+        if (or_equal ? c <= 0 : c < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    *out = lo == 0 ? SIZE_MAX : lo - 1;
+    return true;
+}
+
+static void pages_disjoint_error(void)
+{
+    east_builtin_error("beast2 v5: segments are not key-disjoint — keyed reads need "
+                       "segments split along sorted key order (what write_beast2_file "
+                       "and Beast2FileWriter produce)");
+}
+
+/* Keyed reads assume the fences ascend STRICTLY (unique keys, disjoint
+ * segments) — a binary search over unsorted fences lands arbitrarily and
+ * would report false misses, and wrong data is worse than no data. Verify
+ * the whole table once per pager, lazily, on the first keyed operation:
+ * each fence is a cached bounded probe (microseconds warm), so a
+ * 1000-segment file pays ~a dozen milliseconds once, and a blob whose
+ * batches were not written in sorted key order fails loudly here. */
+static bool pages_verify_fences(Beast2Pages *p)
+{
+    if (p->fences_verified) return true;
+    if (p->index.count < 2) {
+        p->fences_verified = true;
+        return true;
+    }
+    EastValue *prev = east_beast2_pages_fence(p, 0);
+    if (!prev) return false;
+    for (size_t i = 1; i < p->index.count; i++) {
+        EastValue *f = east_beast2_pages_fence(p, i);
+        if (!f) {
+            east_value_release(prev);
+            return false;
+        }
+        int c = east_value_compare(prev, f);
+        east_value_release(prev);
+        prev = f;
+        if (c >= 0) {
+            east_value_release(prev);
+            pages_disjoint_error();
+            return false;
+        }
+    }
+    east_value_release(prev);
+    p->fences_verified = true;
+    return true;
+}
+
+/* A decoded segment's greatest key must stay below the next fence — with
+ * the fences verified this pins the landed segment's whole key range, so an
+ * overlapping writer is caught on any segment a keyed read decodes. */
+static bool pages_tail_guard(Beast2Pages *p, size_t s, EastValue *seg)
+{
+    if (s + 1 >= p->index.count) return true;
+    size_t n = p->type->kind == EAST_TYPE_DICT ? east_dict_len(seg) : east_set_len(seg);
+    if (n == 0) return true;
+    EastValue *last =
+        p->type->kind == EAST_TYPE_DICT ? east_dict_key_at(seg, n - 1) : east_set_at(seg, n - 1);
+    EastValue *f = east_beast2_pages_fence(p, s + 1);
+    if (!f) return false;
+    int c = east_value_compare(last, f);
+    east_value_release(f);
+    if (c >= 0) {
+        pages_disjoint_error();
+        return false;
+    }
+    return true;
+}
+
+int east_beast2_pages_get_key(Beast2Pages *p, EastValue *key, EastValue **value_out)
+{
+    if (value_out) *value_out = NULL;
+    if (!p || !key) {
+        east_builtin_error("beast2 v5: keyed read needs a pager and a key");
+        return -1;
+    }
+    if (p->type->kind == EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: keyed reads address Set and Dict roots; "
+                           "element() addresses Array rows");
+        return -1;
+    }
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return -1;
+    }
+    if (p->index.count == 0) return 0;
+    if (!pages_verify_fences(p)) return -1;
+
+    size_t s;
+    if (!pages_fence_search(p, key, true, &s)) return -1;
+    if (s == SIZE_MAX) return 0; /* key precedes every segment's first key */
+
+    EastValue *seg = pages_segment_cached(p, s);
+    if (!seg) return -1;
+    if (!pages_tail_guard(p, s, seg)) {
+        east_value_release(seg);
+        return -1;
+    }
+    int found = 0;
+    if (p->type->kind == EAST_TYPE_DICT) {
+        EastValue *v = east_dict_get(seg, key);
+        if (v) {
+            found = 1;
+            if (value_out) {
+                east_value_retain(v); /* east_dict_get borrows from the segment */
+                *value_out = v;
+            }
+        }
+    } else {
+        found = east_set_has(seg, key) ? 1 : 0;
+    }
+    east_value_release(seg);
+    return found;
+}
+
+EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys, EastValue **missing_out)
+{
+    if (missing_out) *missing_out = NULL;
+    if (!p || !keys) {
+        east_builtin_error("beast2 v5: batched keyed read needs a pager and a key set");
+        return NULL;
+    }
+    if (p->type->kind != EAST_TYPE_DICT) {
+        east_builtin_error("beast2 v5: get_keys addresses Dict roots");
+        return NULL;
+    }
+    if (keys->kind != EAST_VAL_SET) {
+        east_builtin_error("beast2 v5: get_keys takes a Set of keys");
+        return NULL;
+    }
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return NULL;
+    }
+
+    if (!pages_verify_fences(p)) return NULL;
+
+    EastValue *found = east_dict_new(p->type->data.dict.key, p->type->data.dict.value);
+    EastValue *missing = east_set_new(p->type->data.dict.key);
+    EastValue *seg = NULL;
+    if (!found || !missing) goto fail;
+
+    /* Requested keys iterate in East order and the fences ascend (verified
+     * above), so one forward merge finds every owning segment: the cursor
+     * advances while the next fence is <= the key, and each owning segment
+     * decodes once no matter how many keys land in it. */
+    size_t cur = SIZE_MAX; /* before segment 0 */
+    size_t n = east_set_len(keys);
+    for (size_t i = 0; i < n; i++) {
+        EastValue *key = east_set_at(keys, i); /* borrowed */
+        for (;;) {
+            size_t next = cur == SIZE_MAX ? 0 : cur + 1;
+            if (next >= p->index.count) break;
+            EastValue *f = east_beast2_pages_fence(p, next);
+            if (!f) goto fail;
+            bool advance = east_value_compare(f, key) <= 0;
+            east_value_release(f);
+            if (!advance) break;
+            cur = next;
+            if (seg) {
+                east_value_release(seg);
+                seg = NULL;
+            }
+        }
+        if (cur == SIZE_MAX) {
+            east_set_insert(missing, key);
+            continue;
+        }
+        if (!seg) {
+            seg = pages_segment_cached(p, cur);
+            if (!seg) goto fail;
+            if (!pages_tail_guard(p, cur, seg)) goto fail;
+        }
+        EastValue *v = east_dict_get(seg, key); /* borrowed */
+        if (v) {
+            east_dict_set(found, key, v); /* dict_set retains both */
+        } else {
+            east_set_insert(missing, key); /* set_insert retains */
+        }
+    }
+    if (seg) east_value_release(seg);
+    if (missing_out)
+        *missing_out = missing;
+    else
+        east_value_release(missing);
+    return found;
+
+fail:
+    if (seg) east_value_release(seg);
+    if (found) east_value_release(found);
+    if (missing) east_value_release(missing);
+    return NULL;
+}
+
+bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out)
+{
+    if (!p || !target || !index_out) {
+        east_builtin_error("beast2 v5: find_sorted needs a pager, a target and an out param");
+        return false;
+    }
+    *index_out = 0;
+    if (p->type->kind != EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: find_sorted addresses Array roots");
+        return false;
+    }
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return false;
+    }
+    if (p->index.count == 0) return true;
+
+    /* The global insertion index decomposes: the last segment whose fence is
+     * < target (<= for the upper bound) owns the boundary — everything before
+     * it is entirely below — and the in-segment binary search adds its base.
+     * Duplicates spanning segments make fences merely non-decreasing, which
+     * both searches tolerate; sortedness itself is the caller's contract,
+     * exactly as in the eager ArrayFindSorted* builtins. */
+    size_t s;
+    if (!pages_fence_search(p, target, last, &s)) return false;
+    if (s == SIZE_MAX) s = 0;
+    EastValue *seg = pages_segment_cached(p, s);
+    if (!seg) return false;
+    size_t lo = 0;
+    size_t hi = east_array_len(seg);
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        int c = east_value_compare(east_array_get(seg, mid), target);
+        if (last ? c <= 0 : c < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    east_value_release(seg);
+    *index_out = (s == 0 ? 0 : p->cumulative[s - 1]) + lo;
+    return true;
 }

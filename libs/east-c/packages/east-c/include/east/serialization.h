@@ -131,6 +131,31 @@ bool east_beast2_pages_self_contained(Beast2Pages *p);
 const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
+// Segment i's FENCE: its first element (Array/Set) or first key (Dict),
+// decoded from a bounded inflate of the frame's prefix and cached — the
+// microsecond probe behind keyed lookups (#481 W2). Requires self-contained
+// segments. Returns a retained value or NULL (message via
+// east_builtin_get_error).
+EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i);
+// Keyed reads over Set/Dict roots (#481 W2): a binary search over the fences
+// picks the owning segment, that one segment decodes through a small LRU
+// shared with element(), and the in-segment lookup answers. Requires the
+// key-disjoint segments sorted-order writers produce: the first keyed read
+// verifies the fences ascend strictly, and every decoded segment's greatest
+// key is checked against the next fence — violations post "segments are not
+// key-disjoint". get_key returns 1 found (Dict: *value_out retained; Set:
+// membership only), 0 not found, -1 error.
+int east_beast2_pages_get_key(Beast2Pages *p, EastValue *key, EastValue **value_out);
+// Batched Dict lookup: keys is a Set of the root's key type, walked in one
+// forward merge against the fences so each owning segment decodes once.
+// Returns a retained Dict of the found pairs, and via *missing_out (retained)
+// the Set of keys not present; NULL on failure.
+EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys, EastValue **missing_out);
+// GLOBAL insertion index over a sorted Array root: last=false is the leftmost
+// position of an equal element, last=true just past the rightmost — the
+// fences pick the boundary segment, its in-segment binary search adds the
+// base. Sortedness is the caller's contract, as in the eager builtins.
+bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out);
 void east_beast2_pages_free(Beast2Pages *p);
 
 // Byte extents of an indexed v5 collection blob, for splicing (issue #484):
