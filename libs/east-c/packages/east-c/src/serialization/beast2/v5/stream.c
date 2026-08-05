@@ -103,8 +103,8 @@ bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
      * only the boundary needs checking: the batch must start strictly above
      * the previous batch's greatest key. */
     if (w->type->kind != EAST_TYPE_ARRAY) {
-        EastValue *first = w->type->kind == EAST_TYPE_SET ? east_set_at(batch, 0)
-                                                          : east_dict_key_at(batch, 0);
+        EastValue *first =
+            w->type->kind == EAST_TYPE_SET ? east_set_at(batch, 0) : east_dict_key_at(batch, 0);
         if (w->last_key && first && east_value_compare(w->last_key, first) >= 0) {
             east_builtin_error(
                 w->type->kind == EAST_TYPE_SET
