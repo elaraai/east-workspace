@@ -219,7 +219,6 @@ export const mapOverlayVariants = example({
                         body: <Text fontFamily="mono">{East.str`selected: ${selected}`}</Text>,
                     }}
                     spec={[
-                        Configurator.Spec("Preset", pKey),
                         Configurator.Spec("Canvas", "420px"),
                     ]}
                 />

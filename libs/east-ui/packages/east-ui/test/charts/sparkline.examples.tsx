@@ -42,13 +42,13 @@ export const sparklineVariants = example({
                 // Colour is a labelled semantic token; size a width/height pair;
                 // data a labelled trend preset — each a bare array of the value.
                 const colors = $.const([
-                    { label: "success", token: "fg.success" },
-                    { label: "danger",  token: "fg.danger" },
-                    { label: "brand",   token: "brand.600" },
-                    { label: "accent",  token: "accent.purple" },
-                    { label: "muted",   token: "fg.muted" },
-                    { label: "link",    token: "link" },
-                ], ArrayType(StructType({ label: StringType, token: StringType })));
+                    { label: "success", color: "fg.success" },
+                    { label: "danger",  color: "fg.danger" },
+                    { label: "brand",   color: "brand.600" },
+                    { label: "accent",  color: "accent.purple" },
+                    { label: "muted",   color: "fg.muted" },
+                    { label: "link",    color: "link" },
+                ], ArrayType(StructType({ label: StringType, color: StringType })));
 
                 const sizes = $.const([
                     { label: "sm", w: "80px",  h: "24px" },
@@ -107,7 +107,7 @@ export const sparklineVariants = example({
                                     items={datasets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                         ]}
                         preview={
-                            <Sparkline data={dataset.points} type={chartType} color={color.token} width={size.w} height={size.h} />
+                            <Sparkline data={dataset.points} type={chartType} color={color.color} width={size.w} height={size.h} />
                         }
                         aside={{
                             label: "Last point · Reactive",

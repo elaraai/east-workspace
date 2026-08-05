@@ -174,7 +174,7 @@ const STRESS_GRID_ITEMS = Array.from({ length: 3000 }, (_, i) => {
 
 export const schematicStress = example({
     keywords: ["Schematic", "stress", "performance", "LOD", "semantic zoom", "declutter", "minimap", "large", "many items", "slice", "sliceEffect", "pan", "zoom", "10k"],
-    description: "Semantic-zoom + Slice stress probe — 3,000 generated items exercise the LOD ladder AND the Slice chrome (rail + sliceEffect ghosting) at scale; the manual perf-budget probe for pan/zoom WITH slice enabled. The slice chrome is memoised on the slice version so it no longer re-renders on the schematic's per-frame camera update — pan/zoom stays smooth at scale with slice on.",
+    description: "Stress probe — 3,000 generated items exercise the LOD ladder and Slice chrome (rail + ghosting) at scale; the pan/zoom perf budget with slice on",
     fn: East.function([], UIComponentType, (_$) => {
         const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, load: FloatType, kind: StringType });
         const cfg = Slice.config(EquipType, {
@@ -217,7 +217,7 @@ export const schematicStress = example({
 
 export const schematicLinkEdit = example({
     keywords: ["Schematic", "link", "editing", "connect", "linkMode", "session", "onCreateLink", "onSelectLink", "onEditLink", "onDeleteLink", "readOnlyLinks", "readOnly", "draw", "Reactive", "State", "Switch"],
-    description: "Link editing — the connect tool drags item→item to create links (draw mode adds them locally, form-input style; connect mode is event-only for planning operations between areas); Shift+drag ADDS to the session and onCreateLink reports the accumulated links + the pair's existing links; click a link to select it, drag an endpoint handle to re-target (SHIFT-drag from an endpoint instead SEEDS a net session that absorbs the link), Del deletes; switches flip linkMode and readOnlyLinks reactively; canConnect forbids mixer→shipping directly (product must pass a packer)",
+    description: "Link editing — connect drags item→item (draw adds locally, connect is event-only), Shift+drag grows the session, endpoint handles re-target, Del deletes; canConnect vetoes mixer→shipping",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const log = $.let(State.bind([StringType], "schematic_link_log", "—"));
@@ -285,7 +285,7 @@ export const schematicLinkEdit = example({
 
 export const schematicNets = example({
     keywords: ["Schematic", "net", "nets", "manifold", "bus", "trunk", "header", "bar", "stubs", "sources", "destinations", "via", "label", "linkMode", "onCreateLink", "session", "Reactive", "State", "Switch"],
-    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only; Shift-drag OUT of a selected net's member adds the target as a new leg via onEditNet), with switches flipping linkMode and readOnlyLinks reactively; click a stub to select ONE leg and Del removes just that endpoint (onEditNet); canConnect makes CIP-1 supply-only — drafts never snap onto it",
+    description: "Nets — a manifold as ONE row (header bar + stubs, no pairwise explosion); the connect tool grows nets, stub-level selection edits one leg; canConnect keeps CIP-1 supply-only",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const units = $.const([
@@ -628,7 +628,7 @@ export const schematicVariants = example({
 
 export const schematicSlice = example({
     keywords: ["Schematic", "slice", "sliceEffect", "excluded", "ghost", "desaturate", "pulse", "halo", "frame", "partition", "filter", "reactive", "switch", "State", "selection", "selectionMode", "sliceSelectField", "in", "marquee", "onSelectionChange"],
-    description: "Schematic slice panel — slice effect (filtered-out items stay as ghosted / desaturated context: Slice.partition tags each row, excluded marks the losers, and the flat slice* props are SubtypeExprOrValue so State-bound switches toggle pulse / frame / desaturate reactively), select filter (marquee-select drives the bound slice: sliceSelectField writes an `in` filter of the selected keys, so Slice.partition re-tags the rest as excluded and the ghost slice effect fades them — selection → slice → ghost, one-directional)",
+    description: "Slice panel — slice effect (Slice.partition tags rows; excluded ghost/desaturate reactively via slice* props) and select filter (marquee selection writes an in-filter; the rest ghost)",
     fn: East.function([], UIComponentType, (_$) => {
         const EffectEquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType, st: OptionType(StatusTokenType) });
         const effectCfg = Slice.config(EffectEquipType, {
@@ -856,15 +856,15 @@ export const schematicInteractions = example({
                         // aside's event log rather than as one value each.
                         Configurator.Slot("Selection",
                             <HStack gap="5" align="center">
-                                <Switch checked={multiOn} label="Multi-select (Shift extends)" onChange={onMulti} />
+                                <Switch checked={multiOn} label="Multi-select (marquee/zone)" onChange={onMulti} />
                             </HStack>),
                         Configurator.Slot("Camera",
                             <HStack gap="5" align="center">
-                                <Switch checked={focusOn} label="Zoom to focus on select" onChange={onFocus} />
+                                <Switch checked={focusOn} label="Zoom focus (marquee)" onChange={onFocus} />
                             </HStack>),
                         Configurator.Slot("Items",
                             <HStack gap="5" align="center">
-                                <Switch checked={mOn} label="Items movable" onChange={onM} />
+                                <Switch checked={mOn} label="Movable (move)" onChange={onM} />
                             </HStack>),
                     ]}
                     preview={

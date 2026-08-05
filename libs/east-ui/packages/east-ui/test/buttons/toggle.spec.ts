@@ -3,15 +3,20 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Toggle } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./toggle.examples.js";
 
 describeEast("Toggle", (test) => {
     Assert.examples(test, {
         toggleGridlines: ex.toggleGridlines,
-        toggleLockColumns: ex.toggleLockColumns,
-        toggleAutoRefreshReactive: ex.toggleAutoRefreshReactive,
+    });
+
+    test("toggleVariants is the live configurator", $ => {
+        const panel = $.const(ex.toggleVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

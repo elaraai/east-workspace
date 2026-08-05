@@ -3,13 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, BooleanType, NullType, example } from "@elaraai/east";
-import { State, UIComponentType } from "@elaraai/east-ui";
-import { Toggle, HStack, Text, Reactive } from "@elaraai/east-ui";
+import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
+import { State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, SegmentGroup, Switch, Text, Toggle } from "@elaraai/east-ui";
 
 export const toggleGridlines = example({
     keywords: ["Toggle", "Root", "pressed", "toolbar", "gridlines"],
-    description: "Toolbar toggle — 'Show gridlines' with a leading icon (presentational)",
+    description: "Toolbar toggle — 'Show gridlines' with a leading icon",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Toggle pressed icon={{ prefix: "fas", name: "table-cells" }} variant="subtle" size="sm">
@@ -20,36 +20,71 @@ export const toggleGridlines = example({
     inputs: [],
 });
 
-export const toggleLockColumns = example({
-    keywords: ["Toggle", "Root", "pressed", "locked", "icon"],
-    description: "Lock-columns toggle in the unpressed state with a lock icon",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Toggle pressed={false} icon={{ prefix: "fas", name: "lock" }} variant="outline" size="sm">
-                Lock columns
-            </Toggle>
-        );
-    }),
-    inputs: [],
-});
-
-export const toggleAutoRefreshReactive = example({
-    keywords: ["Toggle", "Reactive", "State", "onChange", "auto-refresh"],
-    description: "Reactive auto-refresh toggle wired through State.bind",
+export const toggleVariants = example({
+    keywords: ["Toggle", "Root", "pressed", "variant", "subtle", "outline", "size", "icon", "pressedBackground", "override", "Reactive", "State", "onChange", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Toggle configurator — variant and size axes plus a branded-pressed switch driving one live State-bound toggle; the spec reads the pressed state back",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const bind = $.let(State.bind([BooleanType], "auto_refresh", false));
-            const pressed = $.let(bind.read());
-            const onChange = $.const(East.function([BooleanType], NullType, ($, next) => {
-                $(bind.write(next));
-            }));
-            return (
-                <HStack gap="3" align="center">
-                    <Toggle pressed={pressed} icon={{ prefix: "fas", name: "rotate" }} onChange={onChange} variant="subtle" pressedBackground="bg.brand.subtle">
+            const variants = $.const([
+                variant("subtle", null), variant("outline", null),
+            ], ArrayType(Toggle.Types.Variant));
+            const sizes = $.const([
+                variant("sm", null), variant("md", null), variant("lg", null),
+            ], ArrayType(Style.Types.Size));
+            const variantBind = $.let(State.bind([StringType], "toggle_variant", "subtle"));
+            const sizeBind = $.let(State.bind([StringType], "toggle_size", "sm"));
+            const brandedBind = $.let(State.bind([BooleanType], "toggle_branded", false));
+            const pressedBind = $.let(State.bind([BooleanType], "toggle_pressed", true));
+
+            const vKey = $.let(variantBind.read());
+            const sKey = $.let(sizeBind.read());
+            const brandedOn = $.let(brandedBind.read());
+            const pressed = $.let(pressedBind.read());
+
+            const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+            const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+            const onBranded = $.const(East.function([BooleanType], NullType, ($, next) => { $(brandedBind.write(next)); }));
+            const onPressed = $.const(East.function([BooleanType], NullType, ($, next) => { $(pressedBind.write(next)); }));
+
+            const toggleVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+            const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+
+            // pressedBackground is presence-typed, so the branded switch picks
+            // between two toggles.
+            const preview = $.const(brandedOn.ifElse(
+                _$ => (
+                    <Toggle pressed={pressed} onChange={onPressed} variant={toggleVariant} size={size}
+                        icon={{ prefix: "fas", name: "rotate" }} pressedBackground="bg.brand.subtle">
                         Auto-refresh
                     </Toggle>
-                    <Text color="fg.muted">{pressed.ifElse(_$ => "On", _$ => "Off")}</Text>
-                </HStack>
+                ),
+                _$ => (
+                    <Toggle pressed={pressed} onChange={onPressed} variant={toggleVariant} size={size}
+                        icon={{ prefix: "fas", name: "rotate" }}>
+                        Auto-refresh
+                    </Toggle>
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Variant", vKey,
+                            <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Size", sKey,
+                            <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Slot("Pressed",
+                            <HStack gap="5" align="center">
+                                <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Pressed", pressed.ifElse(_$ => "on", _$ => "off")),
+                    ]}
+                />
             );
         }}</Reactive>
     )),

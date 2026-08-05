@@ -150,7 +150,7 @@ export const flowchartPlant = example({
  */
 export const flowchartBuilder = example({
     keywords: ["Flowchart", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onRenameLane", "onDeleteLane", "onCreateLink", "onDeleteLink", "canConnect", "connect", "linkMode", "authoring", "interactive", "edit", "phases", "ghost"],
-    description: "Interactive builder — State-bound lanes, states and links: + LANE appends a phase (headers click-to-rename, × removes a lane; its states fall into the last lane), the + STATE lane ghost commits new nodes in place, double-click edits a node, dragging a node across lanes moves it (bands highlight), drag any handle to author a link (Del removes the selected one; drop on the SAME node = ↻ in-place); canConnect keeps S1 intake-only — drafts never snap onto it",
+    description: "Interactive builder — State-bound lanes, states and links: + LANE, + STATE ghosts, double-click edit, cross-lane drag, handle-drag linking with Del delete and an intake-only canConnect veto",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LaneRow = StructType({ key: StringType, label: StringType });
@@ -226,7 +226,6 @@ export const flowchartBuilder = example({
                 (_$, _from, to) => East.equal(to, "S1").not()));
             return (
                 <VStack gap="3" align="stretch">
-                    <Text textStyle="caption" color="fg.muted">Hover a lane → + STATE ghost (⏎ commits) · double-click a node to edit it · drag a node across lanes · drag any handle to link (drop on the SAME node = ↻ in-place · S1 never accepts inbound) · + LANE adds a phase · headers click-to-rename · × removes a lane · Del removes the selected link</Text>
                     <Flowchart
                         states={states.read()} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                         links={links.read()} link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
@@ -251,7 +250,7 @@ export const flowchartBuilder = example({
  */
 export const flowchartDetail = example({
     keywords: ["Flowchart", "hover", "stateHover", "linkHover", "triggerHover", "Meter", "card", "glance", "Drawer", "onSelectLink", "onSelectState", "drill", "detail", "click", "open"],
-    description: "Hover glances + click-to-drill on one canvas — stateHover renders a utilisation Meter, linkHover the evidence glance, triggerHover the owning role (arbitrary UI in the standard 400ms shell); onSelectState / onSelectLink open a programmatic Drawer with the entity's detail (detail surfaces are host-owned; the flowchart stays a picture)",
+    description: "Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer",
     fn: East.function([], UIComponentType, ($) => {
         const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });
         const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, vol: FloatType, n: IntegerType, decision: OptionType(StringType) });
