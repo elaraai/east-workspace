@@ -14,9 +14,17 @@ describeEast("Chart", (test) => {
     Assert.examples(test, {
         lineBasic: ex.lineBasic,
         lineVariants: ex.lineVariants,
-        columnBarVariants: ex.columnBarVariants,
-        areaScatterVariants: ex.areaScatterVariants,
-        composedVariants: ex.composedVariants,
+        columnGrouped: ex.columnGrouped,
+        columnStacked: ex.columnStacked,
+        columnPercent: ex.columnPercent,
+        barStacked: ex.barStacked,
+        areaStacked: ex.areaStacked,
+        bandConfidence: ex.bandConfidence,
+        scatterQuadrants: ex.scatterQuadrants,
+        scatterBubble: ex.scatterBubble,
+        composedColumnLine: ex.composedColumnLine,
+        composedDualAxis: ex.composedDualAxis,
+        composedAnnotations: ex.composedAnnotations,
         tooltipOverStickyTable: ex.tooltipOverStickyTable,
     });
 
@@ -36,19 +44,19 @@ describeEast("Chart", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("columnBarVariants drives its preview from inline option tables", $ => {
-        const panel = $.const(ex.columnBarVariants.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    test("columnGrouped evaluates to a sized chart Box", $ => {
+        const panel = $.const(ex.columnGrouped.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Box"), true));
     });
 
-    test("areaScatterVariants drives its preview from inline option tables", $ => {
-        const panel = $.const(ex.areaScatterVariants.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    test("areaStacked evaluates to a sized chart Box", $ => {
+        const panel = $.const(ex.areaStacked.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Box"), true));
     });
 
-    test("composedVariants drives its preview from inline option tables", $ => {
-        const panel = $.const(ex.composedVariants.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    test("composedColumnLine evaluates to a sized chart Box", $ => {
+        const panel = $.const(ex.composedColumnLine.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Box"), true));
     });
 
     // =========================================================================
