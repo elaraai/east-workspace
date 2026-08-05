@@ -117,13 +117,12 @@ export const ganttVariants = example({
         <Reactive>{$ => {
             const presetKeys = $.const([
                 "today", "quarter", "week", "milestones", "progress",
-                "labels", "lifecycle", "status", "stress", "fill",
+                "labels", "lifecycle", "status", "stress",
             ], ArrayType(StringType));
             const variants = $.const([variant("line", null), variant("outline", null)], ArrayType(Table.Types.Variant));
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
             ], ArrayType(Style.Types.Density));
-            const rowHeights = $.const(["auto", "36", "44"], ArrayType(StringType));
 
             // The now-centred rows keep `Date.now()` in-body (the
             // no-build-time-clock rule).
@@ -147,13 +146,12 @@ export const ganttVariants = example({
                 { key: "lifecycle", min: new Date("2023-12-28"), max: new Date("2024-02-21"), tier: variant("week", null), format: "MMM DD", header: "State", rows: GANTT_LIFECYCLE_ROWS },
                 { key: "status", min: new Date("2023-12-28"), max: new Date("2024-02-21"), tier: variant("week", null), format: "MMM DD", header: "Name", rows: GANTT_STATUS_ROWS },
                 { key: "stress", min: new Date("2023-12-01"), max: new Date("2025-10-01"), tier: variant("quarter", null), format: "MMM YYYY", header: "Task", rows: stressRows },
-                { key: "fill", min: new Date("2023-12-01"), max: new Date("2025-10-01"), tier: variant("quarter", null), format: "MMM YYYY", header: "Task", rows: stressRows },
             ], ArrayType(StructType({ key: StringType, min: DateTimeType, max: DateTimeType, tier: Gantt.Types.Tier, format: StringType, header: StringType, rows: ArrayType(GANTT_ROW) })));
 
             const presetBind = $.let(State.bind([StringType], "gantt_preset", "today"));
             const variantBind = $.let(State.bind([StringType], "gantt_variant", "line"));
             const densityBind = $.let(State.bind([StringType], "gantt_density", "compact"));
-            const rhBind = $.let(State.bind([StringType], "gantt_rowheight", "auto"));
+            const fillBind = $.let(State.bind([BooleanType], "gantt_fill", false));
             const stripedBind = $.let(State.bind([BooleanType], "gantt_striped", true));
             const todayBind = $.let(State.bind([BooleanType], "gantt_showtoday", true));
             const lastEventBind = $.let(State.bind([StringType], "gantt_last_event", ""));
@@ -161,7 +159,7 @@ export const ganttVariants = example({
             const pKey = $.let(presetBind.read());
             const vKey = $.let(variantBind.read());
             const dKey = $.let(densityBind.read());
-            const rhKey = $.let(rhBind.read());
+            const fillOn = $.let(fillBind.read());
             const stripedOn = $.let(stripedBind.read());
             const todayOn = $.let(todayBind.read());
             const lastEvent = $.let(lastEventBind.read());
@@ -169,7 +167,7 @@ export const ganttVariants = example({
             const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
             const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
-            const onRowHeight = $.const(East.function([StringType], NullType, ($, next) => { $(rhBind.write(next)); }));
+            const onFill = $.const(East.function([BooleanType], NullType, ($, next) => { $(fillBind.write(next)); }));
             const onStriped = $.const(East.function([BooleanType], NullType, ($, next) => { $(stripedBind.write(next)); }));
             const onToday = $.const(East.function([BooleanType], NullType, ($, next) => { $(todayBind.write(next)); }));
 
@@ -219,7 +217,6 @@ export const ganttVariants = example({
             const sel = $.let(presets.filter((_$, o) => o.key.equal(pKey)).get(0n, _$ => presets.get(0n)));
             const variantSel = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
             const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
-            const rhPx = $.let(rhKey.equal("36").ifElse(_$ => 36n, _$ => 44n));
 
             // ONE rowSpec over the superset row: lifecycle state, risk status,
             // milestone diamonds and the styled label all come off row fields.
@@ -248,13 +245,19 @@ export const ganttVariants = example({
 
             const noMilestones = $.const([], ArrayType(Gantt.Types.Milestone));
 
-            const armAuto = $.const(
+            // ONE live gantt — the Fill switch feeds the height expression (an
+            // empty height reads as unbounded; the wrapper Box only bounds when
+            // filling).
+            const boxHeight = $.let(fillOn.ifElse(_$ => "220px", _$ => ""));
+            const ganttHeight = $.let(fillOn.ifElse(_$ => "fill", _$ => ""));
+            const gantt = $.const(
                 <Gantt
                     id="gantt-live"
                     variant={variantSel}
                     striped={stripedOn}
                     showToday={todayOn}
                     density={densitySel}
+                    height={ganttHeight}
                     axis={{ range: { min: sel.min, max: sel.max }, tier: sel.tier, format: sel.format }}
                     onRowClick={onRowClick}
                     onRowDoubleClick={onRowDoubleClick}
@@ -303,70 +306,9 @@ export const ganttVariants = example({
                     })}
                 />,
             );
-            const armPx = $.const(
-                <Gantt
-                    id="gantt-live"
-                    variant={variantSel}
-                    striped={stripedOn}
-                    showToday={todayOn}
-                    density={densitySel}
-                    rowHeight={rhPx}
-                    axis={{ range: { min: sel.min, max: sel.max }, tier: sel.tier, format: sel.format }}
-                    onRowClick={onRowClick}
-                    onRowDoubleClick={onRowDoubleClick}
-                    onCellClick={onCellClick}
-                    onCellDoubleClick={onCellDoubleClick}
-                    onSortChange={onSortChange}
-                    onTaskClick={onTaskClick}
-                    onTaskDoubleClick={onTaskDoubleClick}
-                    onDrag={onDrag}
-                    onTaskProgressChange={onTaskProgressChange}
-                    onMilestoneClick={onMilestoneClick}
-                    onMilestoneDoubleClick={onMilestoneDoubleClick}
-                    data={sel.rows}
-                    columns={{ name: { header: sel.header, width: "180px" } }}
-                    rowSpec={row => ({
-                        tasks: row.status.equal("").ifElse(
-                            _$ => [Gantt.Task({
-                                start: row.start, end: row.end, label: row.name,
-                                progress: row.progress, state: stateOf(row.state),
-                            })],
-                            _$ => [Gantt.Task({
-                                start: row.start, end: row.end, label: row.name,
-                                progress: row.progress, state: stateOf(row.state), status: statusOf(row.status),
-                            })],
-                        ),
-                        milestones: row.milestone.match({
-                            some: (_$, m) => [Gantt.Milestone({
-                                date: m.date, label: m.label,
-                                kind: m.release.ifElse(_$ => variant("release", null), _$ => variant("interim", null)),
-                            })],
-                            none: (_$) => noMilestones,
-                        }),
-                    })}
-                />,
+            const preview = $.const(
+                <Box width="100%" height={boxHeight} overflow="hidden">{gantt}</Box>,
             );
-            // FILL (#320) — height="fill" resolves against the bounded Box and
-            // virtualizes the 200 rows.
-            const armFill = $.const(
-                <Box height="220px">
-                    <Gantt
-                        variant={variantSel}
-                        striped={stripedOn}
-                        density={densitySel}
-                        height="fill"
-                        axis={{ range: { min: sel.min, max: sel.max }, tier: sel.tier, format: sel.format }}
-                        data={sel.rows}
-                        columns={{ name: { header: sel.header, width: "150px" } }}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                    />
-                </Box>,
-            );
-
-            const preview = $.const(pKey.equal("fill").ifElse(
-                _$ => armFill,
-                _$ => rhKey.equal("auto").ifElse(_$ => armAuto, _$ => armPx),
-            ), UIComponentType);
 
             return (
                 <Configurator
@@ -380,12 +322,10 @@ export const ganttVariants = example({
                         Configurator.Control("Density", dKey,
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Row height", rhKey,
-                            <SegmentGroup value={rhKey} onChange={onRowHeight} size="sm"
-                                items={rowHeights.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                         Configurator.Slot("Chrome",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={stripedOn} label="Striped" onChange={onStriped} />
+                                <Switch checked={fillOn} label="Fill" onChange={onFill} />
                                 <Switch checked={todayOn} label="Today" onChange={onToday} />
                             </HStack>),
                     ]}

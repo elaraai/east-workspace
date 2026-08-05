@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example, none, some, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Library, Reactive, Roster, Select, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Reactive, Roster, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -45,29 +45,11 @@ const ROSTER_EDIT_DATA = [
     { id: "o3", person: "okafor", day: "Thu", hours: 6n, state: COMMITTED },
     { id: "o4", person: "okafor", day: "Fri", hours: 6n, state: COMMITTED },
 ];
-const ROSTER_PUBLISHED_PEOPLE_DATA = [
-    { id: "patel", name: "Patel" },
-    { id: "cho", name: "Cho" },
-];
 const ROSTER_PUBLISHED_DATA = [
     { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
     { id: "p2", person: "patel", day: "Wed", hours: 8n, state: COMMITTED },
     { id: "c1", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
     { id: "c2", person: "cho", day: "Fri", hours: 6n, state: COMMITTED },
-];
-const ROSTER_SCROLL_PEOPLE_DATA = [
-    { id: "patel", name: "Patel", target: "38h" }, { id: "cho", name: "Cho", target: "26h" },
-    { id: "rivera", name: "Rivera", target: "32h" }, { id: "okafor", name: "Okafor", target: "24h" },
-    { id: "nguyen", name: "Nguyen", target: "20h" }, { id: "kim", name: "Kim", target: "22h" },
-    { id: "sato", name: "Sato", target: "30h" }, { id: "diaz", name: "Diaz", target: "28h" },
-];
-const ROSTER_SCROLL_DATA = [
-    { id: "s1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
-    { id: "s2", person: "cho", day: "Tue", hours: 8n, state: COMMITTED },
-    { id: "s3", person: "rivera", day: "Wed", hours: 8n, state: COMMITTED },
-    { id: "s4", person: "okafor", day: "Thu", hours: 6n, state: COMMITTED },
-    { id: "s5", person: "nguyen", day: "Fri", hours: 6n, state: COMMITTED },
-    { id: "s6", person: "sato", day: "Mon", hours: 8n, state: COMMITTED },
 ];
 const ROSTER_FILL_PEOPLE_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
     id: East.str`p${i}`,
@@ -82,132 +64,142 @@ const ROSTER_FILL_DATA = [
     { id: "s5", person: "p199", day: "Fri", hours: 6n, state: COMMITTED },
 ];
 
-export const rosterModes = example({
-    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary", "published", "committed", "read-only", "days", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Roster configurator — a mode preset axis (edit / published / review / scroll / fill) over one live work-week roster",
+/**
+ * THE Roster configurator (pass 5) — ONE live work-week roster; the preset
+ * axis is a pure DATA struct (people / shifts / days / sources / mode /
+ * summary), so the edit grammar and the published read-only week flow through
+ * the same instance.
+ */
+export const rosterVariants = example({
+    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "summary", "published", "committed", "read-only", "days", "mode", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Roster configurator — a data-preset axis (edit / published) driving one live work-week roster; days, sources and mode all travel as data",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // The mode axis is a bare label array — each preset swaps the whole
-            // roster (data, days, chrome), so the axis is a preset picker
-            // rather than a per-prop lookup.
-            const modes = $.const(["edit", "published", "review", "scroll", "fill"], ArrayType(StringType));
-            const modeBind = $.let(State.bind([StringType], "roster_mode", "edit"));
-            const mode = $.let(modeBind.read());
-            const onMode = $.const(East.function([StringType], NullType, ($, next) => {
-                $(modeBind.write(next));
+            const presets = $.const([
+                {
+                    label: "edit",
+                    people: ROSTER_EDIT_PEOPLE_DATA,
+                    shifts: ROSTER_EDIT_DATA,
+                    mode: variant("edit", null),
+                    summary: "3 dirty · 1 new · 2 model-ghost",
+                },
+                {
+                    label: "published",
+                    people: [
+                        { id: "patel", name: "Patel", target: "" },
+                        { id: "cho", name: "Cho", target: "" },
+                    ],
+                    shifts: ROSTER_PUBLISHED_DATA,
+                    mode: variant("published", null),
+                    summary: "published · wk of Sep 16",
+                },
+            ]);
+            const presetKeys = $.const(["edit", "published"], ArrayType(StringType));
+
+            const presetBind = $.let(State.bind([StringType], "roster_preset", "edit"));
+            const pKey = $.let(presetBind.read());
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => {
+                $(presetBind.write(next));
             }));
+            const sel = $.let(presets.filter((_$, o) => o.label.equal(pKey)).get(0n));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Preset", pKey,
+                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                    ]}
+                    preview={
+                        <Roster
+                            id="roster-variants"
+                            mode={sel.mode}
+                            sources={["people"]}
+                            people={sel.people}
+                            person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                            shifts={sel.shifts}
+                            shift={sh => ({ key: sh.id, person: sh.person, day: sh.day, hours: sh.hours, state: sh.state })}
+                            days={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}
+                            summary={sel.summary}
+                        />
+                    }
+                    spec={[
+                        Configurator.Spec("Shifts", East.print(sel.shifts.size())),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Review chrome (#265) — the shared Decision column + commitBar foot beside
+ * per-tile ghost accept: accept ONE ghost vs approve the LINE.
+ */
+export const rosterReview = example({
+    keywords: ["Roster", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "commitBar", "Reactive"],
+    description: "Review roster — the Decision column and commit-bar foot beside per-tile ghost accept",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
             const onApprove = $.const(East.function([Roster.Types.ApproveEvent], NullType, _$ => null));
             const onReject = $.const(East.function([Roster.Types.ApproveEvent], NullType, _$ => null));
             const onApproveAll = $.const(East.function([], NullType, _$ => null));
             const onRejectAll = $.const(East.function([], NullType, _$ => null));
             return (
-                <Configurator
-                    controls={[
-                        Configurator.Control("Mode", mode,
-                            <Select value={mode} onChange={onMode} size="sm"
-                                items={modes.map((_$, m) => Select.Item(m, m))} />),
+                <Roster
+                    id="roster-review"
+                    mode="edit"
+                    people={[
+                        { id: "patel", name: "Patel", flagged: false },
+                        { id: "cho", name: "Cho", flagged: true },
+                        { id: "kim", name: "Kim", flagged: false },
                     ]}
-                    preview={
-                        mode.equal("edit").ifElse(
-                            // Edit — committed, added, removed, and model-ghost
-                            // shifts with the status strip.
-                            _$ => (
-                                <Roster
-                                    id="roster-se"
-                                    sources={["people"]}
-                                    mode="edit"
-                                    people={ROSTER_EDIT_PEOPLE_DATA}
-                                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                                    shifts={ROSTER_EDIT_DATA}
-                                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                                    summary="3 dirty · 1 new · 2 model-ghost"
-                                />
-                            ),
-                            _$ => mode.equal("published").ifElse(
-                                // Published — committed shifts only, no grips.
-                                _$ => (
-                                    <Roster
-                                        id="roster-published"
-                                        people={ROSTER_PUBLISHED_PEOPLE_DATA}
-                                        person={p => ({ key: p.id, label: p.name })}
-                                        shifts={ROSTER_PUBLISHED_DATA}
-                                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                                        days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                                        summary="published · wk of Sep 16"
-                                    />
-                                ),
-                                _$ => mode.equal("review").ifElse(
-                                    // Review (#265) — the shared Decision column +
-                                    // commitBar foot beside per-tile ghost accept:
-                                    // accept ONE ghost vs approve the LINE.
-                                    _$ => (
-                                        <Roster
-                                            id="roster-review"
-                                            mode="edit"
-                                            people={[
-                                                { id: "patel", name: "Patel", flagged: false },
-                                                { id: "cho", name: "Cho", flagged: true },
-                                                { id: "kim", name: "Kim", flagged: false },
-                                            ]}
-                                            person={p => ({
-                                                key: p.id,
-                                                label: p.name,
-                                                status: p.flagged.ifElse(() => some(variant("warning", null)), () => none),
-                                                approval: p.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
-                                            })}
-                                            shifts={[
-                                                { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
-                                                { id: "c1", person: "cho", day: "Tue", hours: 6n, state: GHOST },
-                                                { id: "c2", person: "cho", day: "Thu", hours: 6n, state: ADDED },
-                                                { id: "k1", person: "kim", day: "Wed", hours: 8n, state: COMMITTED },
-                                            ]}
-                                            shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                                            days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                                            onAccept={onAccept}
-                                            review={{
-                                                summary: <Text color="fg.muted">3 lines · 1 flagged needs a call</Text>,
-                                                onApprove: onApprove,
-                                                onReject: onReject,
-                                                onApproveAll: onApproveAll,
-                                                onRejectAll: onRejectAll,
-                                            }}
-                                        />
-                                    ),
-                                    _$ => mode.equal("scroll").ifElse(
-                                        // Scroll (#320) — maxHeight caps the roster.
-                                        _$ => (
-                                            <Roster
-                                                id="roster-scroll"
-                                                people={ROSTER_SCROLL_PEOPLE_DATA}
-                                                person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                                                shifts={ROSTER_SCROLL_DATA}
-                                                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                                                maxHeight="180px"
-                                            />
-                                        ),
-                                        // Fill (#320) — height="fill" in a bounded Box
-                                        // virtualizes the 200 person rows.
-                                        _$ => (
-                                            <Box height="180px">
-                                                <Roster
-                                                    id="roster-fill"
-                                                    people={ROSTER_FILL_PEOPLE_DATA}
-                                                    person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
-                                                    shifts={ROSTER_FILL_DATA}
-                                                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
-                                                    height="fill"
-                                                />
-                                            </Box>
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        )
-                    }
+                    person={p => ({
+                        key: p.id,
+                        label: p.name,
+                        status: p.flagged.ifElse(() => some(variant("warning", null)), () => none),
+                        approval: p.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
+                    })}
+                    shifts={[
+                        { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+                        { id: "c1", person: "cho", day: "Tue", hours: 6n, state: GHOST },
+                        { id: "c2", person: "cho", day: "Thu", hours: 6n, state: ADDED },
+                        { id: "k1", person: "kim", day: "Wed", hours: 8n, state: COMMITTED },
+                    ]}
+                    shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                    days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                    onAccept={onAccept}
+                    review={{
+                        summary: <Text color="fg.muted">3 lines · 1 flagged needs a call</Text>,
+                        onApprove: onApprove,
+                        onReject: onReject,
+                        onApproveAll: onApproveAll,
+                        onRejectAll: onRejectAll,
+                    }}
                 />
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Fill (#320) — height="fill" in a bounded Box virtualizes the 200 person rows. */
+export const rosterFill = example({
+    keywords: ["Roster", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
+    description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 person rows",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Box height="180px">
+            <Roster
+                id="roster-fill"
+                people={ROSTER_FILL_PEOPLE_DATA}
+                person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                shifts={ROSTER_FILL_DATA}
+                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                height="fill"
+            />
+        </Box>
     )),
     inputs: [],
 });

@@ -11,40 +11,41 @@ import * as ex from "./table.examples.js";
 describeEast("Table", (test) => {
     Assert.examples(test, {
         tableBasic: ex.tableBasic,
-        tableColumnsVariants: ex.tableColumnsVariants,
-        tableStyleVariants: ex.tableStyleVariants,
+        tableRichColumns: ex.tableRichColumns,
+        tableFrozen: ex.tableFrozen,
+        tableGroupedColumns: ex.tableGroupedColumns,
+        tablePnl: ex.tablePnl,
+        tableVariants: ex.tableVariants,
+        tablePaginated: ex.tablePaginated,
+        tableExpandable: ex.tableExpandable,
+        tableReview: ex.tableReview,
     });
 
     // =========================================================================
-    // Panels — every merged example stays mounted as a captioned row (#458).
-    // The mono-uppercase Text captions are the stable per-mini anchors
-    // (probe-collections selects panel rows through them).
+    // Pass 5 — one live instance per configurator. The static column-system
+    // examples evaluate to Table values directly; the configurators are
+    // Reactive roots (TestImpl does not execute the inner body — shape
+    // coverage lives in the Table.Root tests below).
     // =========================================================================
 
-    test("tableColumnsVariants drives its preview from inline option tables", $ => {
-        // Everything the configurator needs — the column-preset axis and the
-        // frozen / groups / footer structure switches — is declared inside the
-        // example body, because the documentation capture only extracts `fn`.
-        // That puts the tables inside the Reactive body, which TestImpl does
-        // not execute, so they cannot be asserted from here; `Assert.examples`
-        // above still compiles and evaluates the outer function. Column /
-        // group / footer shape coverage lives in the Table.Root tests below,
-        // which construct each configuration directly.
-        const panel = $.const(ex.tableColumnsVariants.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    test("static column-system examples evaluate to Table values", $ => {
+        const rich = $.const(ex.tableRichColumns.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(rich.unwrap().hasTag("Table"), true));
+        const grouped = $.const(ex.tableGroupedColumns.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(grouped.unwrap().hasTag("Table"), true));
+        const pnl = $.const(ex.tablePnl.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(pnl.unwrap().hasTag("Table"), true));
+        const expandable = $.const(ex.tableExpandable.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(expandable.unwrap().hasTag("Table"), true));
     });
 
-    test("tableStyleVariants drives its preview from inline option tables", $ => {
-        // The density / badge / row-height tables and the striped / paginated /
-        // row-status switches are declared inside the example body, because
-        // the documentation capture only extracts `fn`. That puts the tables
-        // inside the Reactive body, which TestImpl does not execute, so they
-        // cannot be asserted from here; `Assert.examples` above still compiles
-        // and evaluates the outer function. Style / pagination / rowStatus
-        // shape coverage lives in the Table.Root tests below, which construct
-        // each configuration directly.
-        const panel = $.const(ex.tableStyleVariants.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    test("configurators host ONE live table under a Reactive root", $ => {
+        const variants = $.const(ex.tableVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(variants.unwrap().hasTag("ReactiveComponent"), true));
+        const paginated = $.const(ex.tablePaginated.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(paginated.unwrap().hasTag("ReactiveComponent"), true));
+        const review = $.const(ex.tableReview.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(review.unwrap().hasTag("ReactiveComponent"), true));
     });
 
 

@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Board, Box, Configurator, Library, Reactive, Select, Text, VStack } from "@elaraai/east-ui";
+import { Board, Box, Configurator, Library, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -71,26 +71,6 @@ const BOARD_OVERFLOW_DATA = [
     { id: "x4", person: "okafor", area: "maternity", shift: "am", state: COMMITTED },
     { id: "x5", person: "kim", area: "maternity", shift: "am", state: ADDED },
     { id: "x6", person: "patel", area: "maternity", shift: "pm", state: COMMITTED },
-];
-const BOARD_SCROLL_AREAS_DATA = [
-    { id: "emergency", name: "Emergency" }, { id: "icu", name: "ICU" },
-    { id: "warda", name: "Ward A" }, { id: "wardb", name: "Ward B" },
-    { id: "theatre", name: "Theatre" }, { id: "recovery", name: "Recovery" },
-    { id: "triage", name: "Triage" }, { id: "pharmacy", name: "Pharmacy" },
-];
-const BOARD_SCROLL_SHIFTS_DATA = [
-    { id: "am", name: "AM" }, { id: "pm", name: "PM" },
-];
-const BOARD_SCROLL_PEOPLE_DATA = [
-    { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
-    { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
-];
-const BOARD_SCROLL_DATA = [
-    { id: "a1", person: "patel", area: "emergency", shift: "am", state: COMMITTED },
-    { id: "a2", person: "cho", area: "icu", shift: "am", state: COMMITTED },
-    { id: "a3", person: "rivera", area: "warda", shift: "pm", state: COMMITTED },
-    { id: "a4", person: "okafor", area: "theatre", shift: "am", state: COMMITTED },
-    { id: "a5", person: "patel", area: "triage", shift: "pm", state: COMMITTED },
 ];
 const BOARD_FILL_AREAS_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
     id: East.str`area${i}`,
@@ -252,166 +232,172 @@ export const boardLibraryDnd = example({
     inputs: [],
 });
 
-export const boardModes = example({
-    keywords: ["Board", "assignment", "published", "committed", "read-only", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed", "maxVisible", "overflow", "popover", "multiple", "people", "review", "approve", "reject", "batch", "foot", "commitBar", "rerun", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "Box", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Board configurator — a mode preset axis (published / coverage / overflow / review / scroll / fill) over one live day board",
+/**
+ * THE Board configurator (pass 5) — ONE live day board; the preset axis is a
+ * pure DATA struct (areas / shifts / people / assignments / requirements /
+ * maxVisible / mode / summary), so published, coverage numerals and the +N
+ * overflow all flow through the same instance: an empty requirements array is
+ * "no coverage chrome" and a large maxVisible is "no cap".
+ */
+export const boardVariants = example({
+    keywords: ["Board", "assignment", "published", "committed", "read-only", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed", "maxVisible", "overflow", "popover", "multiple", "people", "mode", "edit", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Board configurator — a data-preset axis (published / coverage / overflow) driving one live day board; requirements, chip caps and mode all travel as data",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // The mode axis is a bare label array — each preset swaps the whole
-            // board (data, requirements, chrome), so the axis is a preset
-            // picker rather than a per-prop lookup.
-            const modes = $.const(["published", "coverage", "overflow", "review", "scroll", "fill"], ArrayType(StringType));
-            const modeBind = $.let(State.bind([StringType], "board_mode", "published"));
-            const mode = $.let(modeBind.read());
-            const onMode = $.const(East.function([StringType], NullType, ($, next) => {
-                $(modeBind.write(next));
+            // Every preset is DATA on the same board instance: requirements
+            // [] = no coverage chrome; maxVisible 99 = no overflow cap.
+            const RequirementType = StructType({ area: StringType, shift: StringType, count: IntegerType });
+            const presets = $.const([
+                {
+                    label: "published",
+                    areas: BOARD_PUBLISHED_AREAS_DATA,
+                    shifts: [{ id: "am", name: "AM", window: "" }, { id: "pm", name: "PM", window: "" }],
+                    people: BOARD_PUBLISHED_PEOPLE_DATA,
+                    assignments: BOARD_PUBLISHED_DATA,
+                    requirements: East.value([], ArrayType(RequirementType)),
+                    maxVisible: 99n,
+                    mode: variant("published", null),
+                    summary: "published · Tue 2 Jul",
+                },
+                {
+                    label: "coverage",
+                    areas: BOARD_COVERAGE_AREAS_DATA,
+                    shifts: BOARD_COVERAGE_SHIFTS_DATA,
+                    people: BOARD_COVERAGE_PEOPLE_DATA,
+                    assignments: BOARD_COVERAGE_DATA,
+                    requirements: BOARD_COVERAGE_REQUIREMENTS_DATA,
+                    maxVisible: 99n,
+                    mode: variant("edit", null),
+                    summary: "3 open · 1 over",
+                },
+                {
+                    label: "overflow",
+                    areas: [{ id: "maternity", name: "Maternity" }],
+                    shifts: [{ id: "am", name: "AM", window: "" }, { id: "pm", name: "PM", window: "" }],
+                    people: [
+                        { id: "patel", name: "Patel, R." },
+                        { id: "cho", name: "Cho, J." },
+                        { id: "rivera", name: "Rivera, M." },
+                        { id: "okafor", name: "Okafor, S." },
+                        { id: "kim", name: "Kim, A." },
+                    ],
+                    assignments: BOARD_OVERFLOW_DATA,
+                    requirements: East.value([], ArrayType(RequirementType)),
+                    maxVisible: 3n,
+                    mode: variant("edit", null),
+                    summary: "5 in AM · capped at 3",
+                },
+            ]);
+            const presetKeys = $.const(["published", "coverage", "overflow"], ArrayType(StringType));
+
+            const presetBind = $.let(State.bind([StringType], "board_preset", "published"));
+            const pKey = $.let(presetBind.read());
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => {
+                $(presetBind.write(next));
             }));
+            const sel = $.let(presets.filter((_$, o) => o.label.equal(pKey)).get(0n));
+
+            const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Preset", pKey,
+                            <SegmentGroup value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                    ]}
+                    preview={
+                        <Board
+                            id="board-variants"
+                            mode={sel.mode}
+                            areas={sel.areas}
+                            area={a => ({ key: a.id, label: a.name })}
+                            shifts={sel.shifts}
+                            shift={sh => ({ key: sh.id, label: sh.name, sublabel: sh.window })}
+                            people={sel.people}
+                            person={p => ({ key: p.id, label: p.name })}
+                            assignments={sel.assignments}
+                            assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                            requirements={sel.requirements}
+                            requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}
+                            maxVisible={sel.maxVisible}
+                            summary={sel.summary}
+                            onAccept={onAccept}
+                        />
+                    }
+                    spec={[
+                        Configurator.Spec("Assignments", East.print(sel.assignments.size())),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Review chrome (#265) — the shared commitBar foot (Approve all / Reject all /
+ * Rerun) beside per-tile ghost accept.
+ */
+export const boardReview = example({
+    keywords: ["Board", "review", "approve", "reject", "batch", "foot", "commitBar", "rerun", "accept", "ghost", "Reactive"],
+    description: "Review board — the commit-bar foot and per-tile ghost accept over staged proposals",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
             const onApproveAll = $.const(East.function([], NullType, _$ => null));
             const onRejectAll = $.const(East.function([], NullType, _$ => null));
             const onRerun = $.const(East.function([], NullType, _$ => null));
             return (
-                <Configurator
-                    controls={[
-                        Configurator.Control("Mode", mode,
-                            <Select value={mode} onChange={onMode} size="sm"
-                                items={modes.map((_$, m) => Select.Item(m, m))} />),
+                <Board
+                    id="board-review"
+                    mode="edit"
+                    areas={[{ id: "icu", name: "ICU" }, { id: "ed", name: "ED" }]}
+                    area={a => ({ key: a.id, label: a.name })}
+                    shifts={[{ id: "am", name: "AM" }, { id: "pm", name: "PM" }]}
+                    shift={sh => ({ key: sh.id, label: sh.name })}
+                    people={[{ id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." }]}
+                    person={p => ({ key: p.id, label: p.name })}
+                    assignments={[
+                        { id: "x1", person: "patel", area: "icu", shift: "am", state: COMMITTED },
+                        { id: "x2", person: "cho", area: "icu", shift: "pm", state: GHOST },
+                        { id: "x3", person: "cho", area: "ed", shift: "am", state: ADDED },
                     ]}
-                    preview={
-                        mode.equal("published").ifElse(
-                            // Published — committed assignments only, no grips,
-                            // pointer-immutable.
-                            _$ => (
-                                <Board
-                                    id="board-published"
-                                    areas={BOARD_PUBLISHED_AREAS_DATA}
-                                    area={a => ({ key: a.id, label: a.name })}
-                                    shifts={BOARD_PUBLISHED_SHIFTS_DATA}
-                                    shift={s => ({ key: s.id, label: s.name })}
-                                    people={BOARD_PUBLISHED_PEOPLE_DATA}
-                                    person={p => ({ key: p.id, label: p.name })}
-                                    assignments={BOARD_PUBLISHED_DATA}
-                                    assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                    summary="published · Tue 2 Jul"
-                                />
-                            ),
-                            _$ => mode.equal("coverage").ifElse(
-                                // Coverage — requirements render n/required numerals,
-                                // open-slot placeholders, and under/over tones.
-                                _$ => (
-                                    <Board
-                                        id="board-coverage"
-                                        mode="edit"
-                                        areas={BOARD_COVERAGE_AREAS_DATA}
-                                        area={a => ({ key: a.id, label: a.name })}
-                                        shifts={BOARD_COVERAGE_SHIFTS_DATA}
-                                        shift={s => ({ key: s.id, label: s.name, sublabel: s.window })}
-                                        people={BOARD_COVERAGE_PEOPLE_DATA}
-                                        person={p => ({ key: p.id, label: p.name })}
-                                        assignments={BOARD_COVERAGE_DATA}
-                                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                        requirements={BOARD_COVERAGE_REQUIREMENTS_DATA}
-                                        requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}
-                                        summary="3 open · 1 over"
-                                    />
-                                ),
-                                _$ => mode.equal("overflow").ifElse(
-                                    // Overflow — a cell past maxVisible collapses
-                                    // behind a +N chip.
-                                    _$ => (
-                                        <Board
-                                            id="board-overflow"
-                                            mode="edit"
-                                            areas={[{ id: "maternity", name: "Maternity" }]}
-                                            area={a => ({ key: a.id, label: a.name })}
-                                            shifts={[{ id: "am", name: "AM" }, { id: "pm", name: "PM" }]}
-                                            shift={s => ({ key: s.id, label: s.name })}
-                                            people={[
-                                                { id: "patel", name: "Patel, R." },
-                                                { id: "cho", name: "Cho, J." },
-                                                { id: "rivera", name: "Rivera, M." },
-                                                { id: "okafor", name: "Okafor, S." },
-                                                { id: "kim", name: "Kim, A." },
-                                            ]}
-                                            person={p => ({ key: p.id, label: p.name })}
-                                            assignments={BOARD_OVERFLOW_DATA}
-                                            assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                            maxVisible={3}
-                                        />
-                                    ),
-                                    _$ => mode.equal("review").ifElse(
-                                        // Review (#265) — the shared commitBar foot
-                                        // (Approve all / Reject all / Rerun) beside
-                                        // per-tile ghost accept.
-                                        _$ => (
-                                            <Board
-                                                id="board-review"
-                                                mode="edit"
-                                                areas={[{ id: "icu", name: "ICU" }, { id: "ed", name: "ED" }]}
-                                                area={a => ({ key: a.id, label: a.name })}
-                                                shifts={[{ id: "am", name: "AM" }, { id: "pm", name: "PM" }]}
-                                                shift={sh => ({ key: sh.id, label: sh.name })}
-                                                people={[{ id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." }]}
-                                                person={p => ({ key: p.id, label: p.name })}
-                                                assignments={[
-                                                    { id: "x1", person: "patel", area: "icu", shift: "am", state: COMMITTED },
-                                                    { id: "x2", person: "cho", area: "icu", shift: "pm", state: GHOST },
-                                                    { id: "x3", person: "cho", area: "ed", shift: "am", state: ADDED },
-                                                ]}
-                                                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                                summary="1 model ghost · 1 operator draft"
-                                                onAccept={onAccept}
-                                                review={{
-                                                    summary: <Text color="fg.muted">2 areas · 2 proposals staged</Text>,
-                                                    onApproveAll: onApproveAll,
-                                                    onRejectAll: onRejectAll,
-                                                    onRerun: onRerun,
-                                                }}
-                                            />
-                                        ),
-                                        _$ => mode.equal("scroll").ifElse(
-                                            // Scroll (#320) — maxHeight caps the board.
-                                            _$ => (
-                                                <Board
-                                                    id="board-scroll"
-                                                    areas={BOARD_SCROLL_AREAS_DATA}
-                                                    area={a => ({ key: a.id, label: a.name })}
-                                                    shifts={BOARD_SCROLL_SHIFTS_DATA}
-                                                    shift={s => ({ key: s.id, label: s.name })}
-                                                    people={BOARD_SCROLL_PEOPLE_DATA}
-                                                    person={p => ({ key: p.id, label: p.name })}
-                                                    assignments={BOARD_SCROLL_DATA}
-                                                    assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                                    maxHeight="180px"
-                                                />
-                                            ),
-                                            // Fill (#320) — height="fill" in a bounded
-                                            // Box virtualizes the 200 area rows.
-                                            _$ => (
-                                                <Box height="180px">
-                                                    <Board
-                                                        id="board-fill"
-                                                        areas={BOARD_FILL_AREAS_DATA}
-                                                        area={a => ({ key: a.id, label: a.name })}
-                                                        shifts={BOARD_FILL_SHIFTS_DATA}
-                                                        shift={s => ({ key: s.id, label: s.name })}
-                                                        people={BOARD_FILL_PEOPLE_DATA}
-                                                        person={p => ({ key: p.id, label: p.name })}
-                                                        assignments={BOARD_FILL_DATA}
-                                                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                                        height="fill"
-                                                    />
-                                                </Box>
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        )
-                    }
+                    assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                    summary="1 model ghost · 1 operator draft"
+                    onAccept={onAccept}
+                    review={{
+                        summary: <Text color="fg.muted">2 areas · 2 proposals staged</Text>,
+                        onApproveAll: onApproveAll,
+                        onRejectAll: onRejectAll,
+                        onRerun: onRerun,
+                    }}
                 />
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Fill (#320) — height="fill" in a bounded Box virtualizes the 200 area rows. */
+export const boardFill = example({
+    keywords: ["Board", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
+    description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 area rows",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Box height="180px">
+            <Board
+                id="board-fill"
+                areas={BOARD_FILL_AREAS_DATA}
+                area={a => ({ key: a.id, label: a.name })}
+                shifts={BOARD_FILL_SHIFTS_DATA}
+                shift={s => ({ key: s.id, label: s.name })}
+                people={BOARD_FILL_PEOPLE_DATA}
+                person={p => ({ key: p.id, label: p.name })}
+                assignments={BOARD_FILL_DATA}
+                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                height="fill"
+            />
+        </Box>
     )),
     inputs: [],
 });

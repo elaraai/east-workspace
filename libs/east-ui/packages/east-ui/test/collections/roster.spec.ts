@@ -11,7 +11,9 @@ import * as ex from "./roster.examples.js";
 
 describeEast("Roster", (test) => {
     Assert.examples(test, {
-        rosterModes: ex.rosterModes,
+        rosterVariants: ex.rosterVariants,
+        rosterReview: ex.rosterReview,
+        rosterFill: ex.rosterFill,
         rosterInteractive: ex.rosterInteractive,
         rosterLibraryDnd: ex.rosterLibraryDnd,
     });
@@ -21,14 +23,14 @@ describeEast("Roster", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("rosterModes drives its preview from inline option tables", $ => {
+    test("rosterVariants drives its preview from inline option tables", $ => {
         // The mode-preset axis is declared inside the example body, because
         // the documentation capture only extracts `fn`. That puts it inside
         // the Reactive body, which TestImpl does not execute, so it cannot be
         // asserted from here; `Assert.examples` above still compiles and
         // evaluates the outer function. Per-mode prop coverage lives in the
         // Roster.Root tests below.
-        const panel = $.const(ex.rosterModes.fn() as ExprType<UIComponentType>);
+        const panel = $.const(ex.rosterVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 

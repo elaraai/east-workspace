@@ -95,25 +95,21 @@ export const plannerVariants = example({
             const presetKeys = $.const([
                 "states", "stretch", "tones", "colors", "markers",
                 "buckets", "mixed", "percell", "popover", "hovercard",
-                "ordinal", "day", "hour", "horizon", "scroll", "span", "fill",
+                "ordinal", "day", "hour", "horizon", "scroll",
             ], ArrayType(StringType));
-            const columnSets = $.const(["simple", "detailed"], ArrayType(StringType));
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
             ], ArrayType(Style.Types.Density));
 
             const presetBind = $.let(State.bind([StringType], "planner_preset", "states"));
-            const columnsBind = $.let(State.bind([StringType], "planner_columns", "simple"));
             const densityBind = $.let(State.bind([StringType], "planner_density", "compact"));
             const hoverBind = $.let(State.bind([BooleanType], "planner_rowhover", false));
 
             const pKey = $.let(presetBind.read());
-            const cKey = $.let(columnsBind.read());
             const dKey = $.let(densityBind.read());
             const hoverOn = $.let(hoverBind.read());
 
             const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
-            const onColumns = $.const(East.function([StringType], NullType, ($, next) => { $(columnsBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
             const onHover = $.const(East.function([BooleanType], NullType, ($, next) => { $(hoverBind.write(next)); }));
 
@@ -354,21 +350,8 @@ export const plannerVariants = example({
                 Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "added" }),
             ], ArrayType(Planner.Types.Event));
 
-            // SPAN chassis — multi-slot start → end events on a months axis.
-            const spanAxis = $.let(Planner.axis.time({ format: "MMM" }));
-            const spanEvents = $.const([
-                Planner.event({
-                    slot: Planner.at.time(new Date("2024-01-01")), endSlot: Planner.at.time(new Date("2024-02-15")),
-                    label: "Phase one", state: "committed",
-                }),
-                Planner.event({
-                    slot: Planner.at.time(new Date("2024-02-15")), endSlot: Planner.at.time(new Date("2024-04-01")),
-                    label: "Phase two", state: "added",
-                }),
-            ], ArrayType(Planner.Types.Event));
-
-            // Prebuilt arms: chassis × column set (columns are build-time).
-            const pointSimple = $.const(
+            // ONE live Planner.Point — every preset flows through it as data.
+            const planner = $.const(
                 <Planner.Point
                     data={sel.rows}
                     axis={sel.axis}
@@ -386,77 +369,7 @@ export const plannerVariants = example({
                     maxHeight="320px"
                 />,
             );
-            const pointDetailed = $.const(
-                <Planner.Point
-                    data={sel.rows}
-                    axis={sel.axis}
-                    now={sel.now}
-                    density={densitySel}
-                    rowHover={hoverOn}
-                    groupBy={r => r.team}
-                    columns={[
-                        { key: "name", frozen: true, width: "120px", value: r => r.name, sublabel: r => r.role },
-                        { key: "hours", header: "Hours", align: "end", width: "96px", value: r => East.str`${r.used} / ${r.cap} h` },
-                    ]}
-                    events={r => pKey.equal("mixed").ifElse(
-                        _$ => r.team.equal("Daily").ifElse(_$ => dailyEvents, _$ => r.name.equal("Alice").ifElse(_$ => aliceEvents, _$ => bobEvents)),
-                        _$ => pKey.equal("percell").ifElse(
-                            _$ => r.role.equal("bucketed").ifElse(_$ => pressA, _$ => pressB),
-                            _$ => sel.events,
-                        ),
-                    )}
-                    maxHeight="320px"
-                />,
-            );
-            const spanSimple = $.const(
-                <Planner.Span
-                    data={PLANNER_CREW_DATA}
-                    axis={spanAxis}
-                    density={densitySel}
-                    rowHover={hoverOn}
-                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                    events={_r => spanEvents}
-                />,
-            );
-            const spanDetailed = $.const(
-                <Planner.Span
-                    data={PLANNER_CREW_DATA}
-                    axis={spanAxis}
-                    density={densitySel}
-                    rowHover={hoverOn}
-                    groupBy={r => r.team}
-                    columns={[
-                        { key: "name", frozen: true, width: "120px", value: r => r.name, sublabel: r => r.role },
-                        { key: "hours", header: "Hours", align: "end", width: "96px", value: r => East.str`${r.used} / ${r.cap} h` },
-                    ]}
-                    events={_r => spanEvents}
-                />,
-            );
-            // FILL (#320) — height="fill" resolves against the bounded Box and
-            // virtualizes the 200 rows.
-            const fillArm = $.const(
-                <Box height="200px">
-                    <Planner.Point
-                        data={PLANNER_FILL_DATA}
-                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
-                        density={densitySel}
-                        columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                        events={_r => [
-                            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "on", state: "committed" }),
-                            Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
-                        ]}
-                        height="fill"
-                    />
-                </Box>,
-            );
-
-            const preview = $.const(pKey.equal("span").ifElse(
-                _$ => cKey.equal("detailed").ifElse(_$ => spanDetailed, _$ => spanSimple),
-                _$ => pKey.equal("fill").ifElse(
-                    _$ => fillArm,
-                    _$ => cKey.equal("detailed").ifElse(_$ => pointDetailed, _$ => pointSimple),
-                ),
-            ), UIComponentType);
+            const preview = planner;
 
             return (
                 <Configurator
@@ -464,9 +377,6 @@ export const plannerVariants = example({
                         Configurator.Control("Preset", pKey,
                             <Select value={pKey} onChange={onPreset} size="sm"
                                 items={presetKeys.map((_$, s) => Select.Item(s, s))} />),
-                        Configurator.Control("Columns", cKey,
-                            <SegmentGroup value={cKey} onChange={onColumns} size="sm"
-                                items={columnSets.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
                         Configurator.Control("Density", dKey,
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
@@ -688,6 +598,86 @@ export const plannerLibraryDnd = example({
                 </VStack>
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Span chassis — multi-slot start → end events on a months axis, with the
+ * detailed column set (sublabel + derived hours) and team grouping.
+ */
+export const plannerSpan = example({
+    keywords: ["Planner", "Span", "span", "datetime", "duration", "timeline", "columns", "sublabel", "derived", "groupBy", "density", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Span planner configurator — start → end phases on a months axis with detailed columns; density stays live on the one instance",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const densities = $.const([
+                variant("condensed", null), variant("compact", null), variant("comfortable", null),
+            ], ArrayType(Style.Types.Density));
+            const densityBind = $.let(State.bind([StringType], "planner_span_density", "compact"));
+            const dKey = $.let(densityBind.read());
+            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+            const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+
+            const spanAxis = $.let(Planner.axis.time({ format: "MMM" }));
+            const spanEvents = $.const([
+                Planner.event({
+                    slot: Planner.at.time(new Date("2024-01-01")), endSlot: Planner.at.time(new Date("2024-02-15")),
+                    label: "Phase one", state: "committed",
+                }),
+                Planner.event({
+                    slot: Planner.at.time(new Date("2024-02-15")), endSlot: Planner.at.time(new Date("2024-04-01")),
+                    label: "Phase two", state: "added",
+                }),
+            ], ArrayType(Planner.Types.Event));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Density", dKey,
+                            <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                    ]}
+                    preview={
+                        <Planner.Span
+                            data={PLANNER_CREW_DATA}
+                            axis={spanAxis}
+                            density={densitySel}
+                            groupBy={r => r.team}
+                            columns={[
+                                { key: "name", frozen: true, width: "120px", value: r => r.name, sublabel: r => r.role },
+                                { key: "hours", header: "Hours", align: "end", width: "96px", value: r => East.str`${r.used} / ${r.cap} h` },
+                            ]}
+                            events={_r => spanEvents}
+                        />
+                    }
+                    spec={[
+                        Configurator.Spec("Chassis", "Span · time axis"),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Fill (#320) — height="fill" resolves against the bounded Box and virtualizes the 200 rows. */
+export const plannerFill = example({
+    keywords: ["Planner", "Point", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
+    description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 planner rows",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Box height="200px">
+            <Planner.Point
+                data={PLANNER_FILL_DATA}
+                axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "on", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
+                ]}
+                height="fill"
+            />
+        </Box>
     )),
     inputs: [],
 });

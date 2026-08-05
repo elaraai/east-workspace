@@ -41,7 +41,10 @@ const ListType = RecursiveType(self => VariantType({
 describeEast("ValueTree", (test) => {
     Assert.examples(test, {
         valueTreeBasic: ex.valueTreeBasic,
+        valueTreeInspect: ex.valueTreeInspect,
         valueTreeVariants: ex.valueTreeVariants,
+        valueTreeScoped: ex.valueTreeScoped,
+        valueTreePaths: ex.valueTreePaths,
     });
 
     test("valueTreeVariants is the live configurator", $ => {

@@ -13,7 +13,9 @@ describeEast("Board", (test) => {
     Assert.examples(test, {
         boardEdit: ex.boardEdit,
         boardLibraryDnd: ex.boardLibraryDnd,
-        boardModes: ex.boardModes,
+        boardVariants: ex.boardVariants,
+        boardReview: ex.boardReview,
+        boardFill: ex.boardFill,
     });
 
     // =========================================================================
@@ -28,7 +30,7 @@ describeEast("Board", (test) => {
         // asserted from here; `Assert.examples` above still compiles and
         // evaluates the outer function. Per-mode prop coverage lives in the
         // Board.Root tests below.
-        const panel = $.const(ex.boardModes.fn() as ExprType<UIComponentType>);
+        const panel = $.const(ex.boardVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 

@@ -13,6 +13,8 @@ describeEast("Planner", (test) => {
     Assert.examples(test, {
         plannerPoint: ex.plannerPoint,
         plannerVariants: ex.plannerVariants,
+        plannerSpan: ex.plannerSpan,
+        plannerFill: ex.plannerFill,
         plannerReview: ex.plannerReview,
         plannerLibraryDnd: ex.plannerLibraryDnd,
     });

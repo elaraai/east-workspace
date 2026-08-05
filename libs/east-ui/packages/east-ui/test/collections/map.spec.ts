@@ -12,7 +12,9 @@ import * as ex from "./map.examples.js";
 describeEast("Map", (test) => {
     Assert.examples(test, {
         mapBasic: ex.mapBasic,
-        mapOverlayVariants: ex.mapOverlayVariants,
+        mapVariants: ex.mapVariants,
+        mapRegions: ex.mapRegions,
+        mapHud: ex.mapHud,
     });
 
     // =========================================================================
@@ -20,7 +22,7 @@ describeEast("Map", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("mapOverlayVariants drives its preview from inline option tables", $ => {
+    test("mapVariants drives its preview from inline option tables", $ => {
         // Everything the configurator needs — the overlay-preset table
         // routing between the five canvases plus the area-click aside — is
         // declared inside the example body, because the documentation capture
@@ -29,7 +31,7 @@ describeEast("Map", (test) => {
         // here; `Assert.examples` above still compiles and evaluates the
         // outer function. The per-option coverage lives in the Map.Root tests
         // below, which construct each option directly.
-        const panel = $.const(ex.mapOverlayVariants.fn() as ExprType<UIComponentType>);
+        const panel = $.const(ex.mapVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 

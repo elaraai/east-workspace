@@ -5,32 +5,36 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, DictType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Matrix, Reactive, SegmentGroup, Select, Slider, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, Matrix, Reactive, SegmentGroup, Slider, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
-// Module-scope fixtures — one per merged example (consolidation epic #455).
+// Module-scope fixtures (consolidation epic #455, pass 5 — one live instance
+// per configurator; the controlled and pivot contracts are their own
+// examples).
 // ============================================================================
 
-const MATRIX_SEGMENTS_DATA = [
-    { sprint: "Sprint 1", committed: new Map([["design", 0.50], ["dev", 0.70], ["qa", 0.30]]), pending: new Map([["design", 0.30], ["dev", 0.20], ["qa", 0.40]]) },
-    { sprint: "Sprint 2", committed: new Map([["design", 0.45], ["dev", 0.80], ["qa", 0.25]]), pending: new Map([["design", 0.35], ["dev", 0.15], ["qa", 0.35]]) },
+/** 200 grouped rows over four booking shapes — big enough that the bounded
+ *  sizes virtualize, varied enough that the data-driven markers fire. */
+const MATRIX_BOOKED_SHAPES = [
+    new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]),
+    new Map([["mon", 0.90], ["tue", 0.30], ["wed", 0.55]]),
+    new Map([["mon", 0.20], ["tue", 0.95], ["wed", 0.40]]),
+    new Map([["mon", 0.60], ["tue", 0.50], ["wed", 0.75]]),
 ];
-const MATRIX_MARKERS_DATA = [
-    { name: "Alice", role: "PM", booked: new Map([["mon", 0.80], ["tue", 0.50], ["wed", 1.00]]) },
-    { name: "Bob", role: "Design", booked: new Map([["mon", 0.35], ["tue", 1.00], ["wed", 0.60]]) },
-];
-const MATRIX_POPOVER_DATA = [{ name: "Alice", booked: new Map([["mon", 0.7], ["tue", 0.4]]) }];
-const MATRIX_BOUNDED_DATA = [
-    { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]) },
-    { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30]]) },
-    { name: "Carol", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90]]) },
-    { name: "Dan", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.25], ["tue", 0.80], ["wed", 0.50]]) },
-];
-const MATRIX_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+const MATRIX_GRID_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
     name: East.str`Res ${i}`,
-    role: "Engineer",
+    role: i.remainder(3n).equals(0n).ifElse(() => "Senior PM", () => "Engineer"),
     team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
-    booked: East.value(new Map([["mon", 0.45], ["tue", 0.7], ["wed", 0.85]]), DictType(StringType, FloatType)),
+    booked: i.remainder(4n).equals(0n).ifElse(
+        () => MATRIX_BOOKED_SHAPES[0]!,
+        () => i.remainder(4n).equals(1n).ifElse(
+            () => MATRIX_BOOKED_SHAPES[1]!,
+            () => i.remainder(4n).equals(2n).ifElse(
+                () => MATRIX_BOOKED_SHAPES[2]!,
+                () => MATRIX_BOOKED_SHAPES[3]!,
+            ),
+        ),
+    ),
 }));
 
 /**
@@ -70,141 +74,171 @@ export const matrixHeatGrid = example({
     inputs: [],
 });
 
+/**
+ * THE Matrix configurator (pass 5) — ONE live 200-row allocation grid: the
+ * orientation axis feeds every cell's orientation override, the size axis
+ * feeds the maxHeight / height expressions (auto / bounded scroll / fill — an
+ * empty size reads as unbounded), markers fire from the DATA (overbooked
+ * cells), every cell composes a click popover, and segment drags log to the
+ * aside.
+ */
 export const matrixVariants = example({
-    keywords: ["Matrix", "segment", "committed", "pending", "slack", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "reactive", "bind", "onSegmentChange", "adjust", "edit", "controlled", "pivot", "data-driven", "threshold", "filter", "maxHeight", "bounded", "fill", "#320", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Matrix configurator — a cell-preset axis (segments / markers / popover / adjust / pivot / bounded / fill) and an orientation axis driving one live allocation grid",
+    keywords: ["Matrix", "segment", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "maxHeight", "bounded", "fill", "#320", "group", "groupBy", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Matrix configurator — orientation and size axes on one live 200-row grid; markers fire from the data, popovers compose on every cell, segment drags log to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // Enumerated axes are just their variants — `getTag()` gives the
-            // segment key AND its label, so there is no parallel table to
-            // keep in step.
             const orientations = $.const([
                 variant("horizontal", null), variant("vertical", null),
             ], ArrayType(Matrix.Types.Orientation));
+            const sizes = $.const(["auto", "bounded", "fill"], ArrayType(StringType));
 
-            // Each preset is its own build-time cell config (segment stacks,
-            // corner markers, click popovers, the two reactive contracts and
-            // the two #320 sizing arms), so the axis routes between complete
-            // matrices over the same orientation override.
-            const presets = $.const(["segments", "markers", "popover", "adjust", "pivot", "bounded", "fill"], ArrayType(StringType));
-
-            const presetBind      = $.let(State.bind([StringType], "matrix_preset", "segments"));
             const orientationBind = $.let(State.bind([StringType], "matrix_orientation", "horizontal"));
+            const sizeBind = $.let(State.bind([StringType], "matrix_size", "bounded"));
+            const lastBind = $.let(State.bind([StringType], "matrix_last_event", ""));
 
-            const pKey = $.let(presetBind.read());
             const oKey = $.let(orientationBind.read());
+            const sKey = $.let(sizeBind.read());
+            const last = $.let(lastBind.read());
 
-            const onPreset      = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
             const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+            const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+            const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {
+                $(lastBind.write(East.str`onSegmentChange: weight ${East.print(e.weight)}`));
+            }));
+            const onCellClick = $.const(East.function([Matrix.Types.CellClickEvent], NullType, ($, e) => {
+                $(lastBind.write(East.str`onCellClick: ${e.row} · ${e.column}`));
+            }));
 
             // Each selection is a lookup into the same array the control renders.
             const orientation = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
 
-            // Root `orientation` is a build-time literal, but the per-cell
-            // override is a live value — every cell carries the selected
-            // orientation, which is exactly what the root default would set.
-            const segments = $.const(
-                <Matrix
-                    data={MATRIX_SEGMENTS_DATA}
-                    columns={[
-                        Matrix.column({ key: "design", label: "Design" }),
-                        Matrix.column({ key: "dev", label: "Development" }),
-                        Matrix.column({ key: "qa", label: "QA" }),
+            // An empty size string reads as "unbounded"; the wrapper Box only
+            // bounds in fill mode.
+            const boxHeight = $.let(sKey.equal("fill").ifElse(_$ => "200px", _$ => ""));
+            const gridMaxHeight = $.let(sKey.equal("bounded").ifElse(_$ => "240", _$ => ""));
+            const gridHeight = $.let(sKey.equal("fill").ifElse(_$ => "fill", _$ => ""));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Orientation", oKey,
+                            <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
+                                items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Size", sKey,
+                            <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                items={sizes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
                     ]}
-                    rowKey={r => r.sprint}
-                    rowHeader="Sprint"
-                    minLabelSize={28.0}
-                    cell={(r, col) => Matrix.cell({ orientation, segments: [
-                        Matrix.segment({ fill: "success", weight: r.committed.get(col.key), label: East.str`${r.committed.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
-                        Matrix.segment({ fill: "warning", weight: r.pending.get(col.key), label: East.str`${r.pending.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
-                        Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.committed.get(col.key)).subtract(r.pending.get(col.key)) }),
-                    ] })}
-                    legend={[{ fill: "success", label: "Committed" }, { fill: "warning", label: "Pending" }, { fill: "slack", label: "Slack" }]}
-                    onSegmentChange={East.function([Matrix.Types.SegmentChangeEvent], NullType, _$ => null)}
-                />,
-            );
-            const markers = $.const(
-                <Matrix
-                    data={MATRIX_MARKERS_DATA}
-                    columns={[
-                        Matrix.column({ key: "mon", label: "Mon" }),
-                        Matrix.column({ key: "tue", label: "Tue" }),
-                        Matrix.column({ key: "wed", label: "Wed" }),
-                    ]}
-                    rowKey={r => r.name}
-                    rowHeader="Resource"
-                    rowSublabel={r => r.role}
-                    cell={(r, col) => Matrix.cell({
-                        orientation,
-                        segments: [
-                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key), label: East.str`${r.booked.get(col.key).multiply(8.0)}h` }),
-                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                        ],
-                        markers: [Matrix.marker({
-                            status: r.booked.get(col.key).greaterEqual(1.0).ifElse(
-                                _$ => variant("danger", null),
-                                _$ => r.booked.get(col.key).greaterEqual(0.75).ifElse(_$ => variant("warning", null), _$ => variant("success", null)),
-                            ),
-                            message: East.str`${r.booked.get(col.key).multiply(100.0)}% booked`,
-                            at: "tr",
-                        })],
-                    })}
-                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                />,
-            );
-            const popover = $.const(
-                <Matrix
-                    data={MATRIX_POPOVER_DATA}
-                    columns={[
-                        Matrix.column({ key: "mon", label: "Mon" }),
-                        Matrix.column({ key: "tue", label: "Tue" }),
-                    ]}
-                    rowKey={r => r.name}
-                    rowHeader="Resource"
-                    cell={(r, col) => Matrix.cell({
-                        orientation,
-                        segments: [
-                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                        ],
-                        popover: (
-                            <VStack gap="1">
-                                <Text fontWeight="semibold">Allocation</Text>
-                                <Text color="fg.muted">{East.str`${r.booked.get(col.key).multiply(100.0)}% booked`}</Text>
-                            </VStack>
+                    preview={
+                        <Box width="100%" height={boxHeight} overflow="hidden">
+                            <Matrix
+                                data={MATRIX_GRID_DATA}
+                                columns={[
+                                    Matrix.column({ key: "mon", label: "Mon" }),
+                                    Matrix.column({ key: "tue", label: "Tue" }),
+                                    Matrix.column({ key: "wed", label: "Wed" }),
+                                ]}
+                                rowKey={r => r.name}
+                                rowHeader="Resource"
+                                rowSublabel={r => r.role}
+                                groupBy={r => r.team}
+                                minLabelSize={28.0}
+                                cell={(r, col) => Matrix.cell({
+                                    orientation,
+                                    segments: [
+                                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key), label: East.str`${r.booked.get(col.key).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
+                                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                                    ],
+                                    // Data-driven markers: the single overbooked marker survives
+                                    // the filter only where the booking crosses the threshold.
+                                    markers: East.value([Matrix.marker({
+                                        status: r.booked.get(col.key).greaterEqual(0.85).ifElse(
+                                            (_$: unknown) => variant("danger", null),
+                                            (_$: unknown) => variant("warning", null),
+                                        ),
+                                        message: East.str`${r.booked.get(col.key).multiply(100.0)}% booked`,
+                                        at: "tr",
+                                    })], ArrayType(Matrix.Types.Marker)).filter((_$, _m) => r.booked.get(col.key).greaterEqual(0.7)),
+                                    popover: (
+                                        <VStack gap="1">
+                                            <Text fontWeight="semibold">Allocation</Text>
+                                            <Text color="fg.muted">{East.str`${r.booked.get(col.key).multiply(100.0)}% booked`}</Text>
+                                        </VStack>
+                                    ),
+                                })}
+                                legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                                onSegmentChange={onSegmentChange}
+                                onCellClick={onCellClick}
+                                maxHeight={gridMaxHeight}
+                                height={gridHeight}
+                            />
+                        </Box>
+                    }
+                    aside={{
+                        label: "Events · Reactive",
+                        body: (
+                            <Badge colorPalette="brand" variant="outline">
+                                {East.equal(last.length(), 0n).ifElse(_$ => "Drag a segment or click a cell", _$ => last)}
+                            </Badge>
                         ),
-                    })}
-                    onCellClick={East.function([Matrix.Types.CellClickEvent], NullType, _$ => null)}
-                />,
+                    }}
+                    spec={[
+                        Configurator.Spec("Rows", "200 · grouped"),
+                    ]}
+                />
             );
-            // ADJUST — dragging the committed segment fires onSegmentChange,
-            // which writes the new weight to bound State; the cell reads it
-            // back, so the grid is fully controlled.
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Controlled grid — dragging the committed segment fires `onSegmentChange`,
+ * which writes the new weight to bound State; the cell reads it back.
+ */
+export const matrixAdjust = example({
+    keywords: ["Matrix", "onSegmentChange", "adjust", "edit", "controlled", "drag", "resize", "State", "Reactive", "bind"],
+    description: "Controlled allocation — dragging the committed segment writes State and the cell reads it back",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const committedBind = $.let(State.bind([FloatType], "matrix_adjust_committed", 0.5));
             const committed = $.let(committedBind.read());
             const adjustData = $.const([{ team: "Squad", load: committed }], ArrayType(StructType({ team: StringType, load: FloatType })));
             const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {
                 $(committedBind.write(e.weight));
             }));
-            const adjust = $.const(
-                <Matrix
-                    data={adjustData}
-                    columns={[
-                        Matrix.column({ key: "load", label: "Allocation" }),
-                    ]}
-                    rowKey={r => r.team}
-                    rowHeader="Squad"
-                    cell={(r, _col) => Matrix.cell({ orientation, segments: [
-                        Matrix.segment({ fill: "success", weight: r.load, label: East.str`${r.load.multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
-                        Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.load) }),
-                    ] })}
-                    onSegmentChange={onSegmentChange}
-                />,
+            return (
+                <VStack gap="2" align="stretch">
+                    <Matrix
+                        data={adjustData}
+                        columns={[
+                            Matrix.column({ key: "load", label: "Allocation" }),
+                        ]}
+                        rowKey={r => r.team}
+                        rowHeader="Squad"
+                        cell={(r, _col) => Matrix.cell({ segments: [
+                            Matrix.segment({ fill: "success", weight: r.load, label: East.str`${r.load.multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
+                            Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.load) }),
+                        ] })}
+                        onSegmentChange={onSegmentChange}
+                    />
+                    <Text.MonoLabel>{East.str`COMMITTED · ${East.print(committed.multiply(100.0))}%`}</Text.MonoLabel>
+                </VStack>
             );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
 
-            // PIVOT — both axes derive from the surviving cell records; the
-            // threshold slider drops low bookings and whole rows / columns
-            // appear and disappear with them.
+/**
+ * Pivot — both axes derive from the surviving cell records; the threshold
+ * slider drops low bookings and whole rows / columns appear and disappear
+ * with them.
+ */
+export const matrixPivot = example({
+    keywords: ["Matrix", "pivot", "data-driven", "derive", "threshold", "filter", "Slider", "Reactive", "State"],
+    description: "Pivot grid — rows and columns derive from filtered records; the threshold slider reshapes both axes",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const BookingArrayType = ArrayType(StructType({ resource: StringType, day: StringType, load: FloatType }));
             const bookings = $.const([
                 { resource: "Alice", day: "Mon", load: 0.90 },
@@ -224,7 +258,7 @@ export const matrixVariants = example({
             const kept = $.let(bookings.filter(($, b) => b.load.greaterEqual(threshold)));
             const dayKeys = $.let(kept.toSet(($, b) => b.day).toArray());
             const resourceKeys = $.let(kept.toSet(($, b) => b.resource).toArray());
-            const pivot = $.const(
+            return (
                 <VStack gap="3" align="stretch">
                     <Slider value={threshold} min={0} max={1} step={0.05} onChange={onThreshold} />
                     {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}
@@ -239,93 +273,13 @@ export const matrixVariants = example({
                         columns={dayKeys.map(($, day) => Matrix.column({ key: day, label: day }))}
                         rowKey={r => r.name}
                         rowHeader="Resource"
-                        cell={(r, col) => Matrix.cell({ orientation, segments: [
+                        cell={(r, col) => Matrix.cell({ segments: [
                             Matrix.segment({ fill: "brand", weight: r.loads.get(col.key), label: East.str`${r.loads.get(col.key).multiply(100.0)}%` }),
                             Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.loads.get(col.key)) }),
                         ] })}
                         legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
                     />
-                </VStack>,
-            );
-
-            // BOUNDED / FILL (#320) — a bare-number maxHeight caps the grid;
-            // height="fill" resolves against the bounded Box and virtualizes.
-            const bounded = $.const(
-                <Matrix
-                    data={MATRIX_BOUNDED_DATA}
-                    columns={[
-                        Matrix.column({ key: "mon", label: "Mon" }),
-                        Matrix.column({ key: "tue", label: "Tue" }),
-                        Matrix.column({ key: "wed", label: "Wed" }),
-                    ]}
-                    rowKey={r => r.name}
-                    rowHeader="Resource"
-                    rowSublabel={r => r.role}
-                    groupBy={r => r.team}
-                    cell={(r, col) => Matrix.cell({ orientation, segments: [
-                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                    ] })}
-                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                    maxHeight="140"
-                />,
-            );
-            const fillArm = $.const(
-                <Box height="200px">
-                    <Matrix
-                        data={MATRIX_FILL_DATA}
-                        columns={[
-                            Matrix.column({ key: "mon", label: "Mon" }),
-                            Matrix.column({ key: "tue", label: "Tue" }),
-                            Matrix.column({ key: "wed", label: "Wed" }),
-                        ]}
-                        rowKey={r => r.name}
-                        rowHeader="Resource"
-                        rowSublabel={r => r.role}
-                        groupBy={r => r.team}
-                        cell={(r, col) => Matrix.cell({ orientation, segments: [
-                            Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
-                            Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
-                        ] })}
-                        legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                        height="fill"
-                    />
-                </Box>,
-            );
-
-            const grid = $.const(pKey.equal("markers").ifElse(
-                _$ => markers,
-                _$ => pKey.equal("popover").ifElse(
-                    _$ => popover,
-                    _$ => pKey.equal("adjust").ifElse(
-                        _$ => adjust,
-                        _$ => pKey.equal("pivot").ifElse(
-                            _$ => pivot,
-                            _$ => pKey.equal("bounded").ifElse(
-                                _$ => bounded,
-                                _$ => pKey.equal("fill").ifElse(_$ => fillArm, _$ => segments),
-                            ),
-                        ),
-                    ),
-                ),
-            ), UIComponentType);
-
-            return (
-                <Configurator
-                    controls={[
-                        Configurator.Control("Preset", pKey,
-                            <Select value={pKey} onChange={onPreset} size="sm"
-                                items={presets.map((_$, p) => Select.Item(p, p))} />),
-                        Configurator.Control("Orientation", oKey,
-                            <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
-                                items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                    ]}
-                    preview={grid}
-                    spec={[
-                        Configurator.Spec("Committed", East.str`${committed.multiply(100.0)}%`),
-                        Configurator.Spec("Pivot", East.str`${East.print(resourceKeys.size())} rows`),
-                    ]}
-                />
+                </VStack>
             );
         }}</Reactive>
     )),

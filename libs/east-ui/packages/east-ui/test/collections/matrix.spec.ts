@@ -13,6 +13,8 @@ describeEast("Matrix", (test) => {
     Assert.examples(test, {
         matrixHeatGrid: ex.matrixHeatGrid,
         matrixVariants: ex.matrixVariants,
+        matrixAdjust: ex.matrixAdjust,
+        matrixPivot: ex.matrixPivot,
     });
 
     // =========================================================================
