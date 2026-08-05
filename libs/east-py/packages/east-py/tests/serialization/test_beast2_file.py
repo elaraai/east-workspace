@@ -2,11 +2,14 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Beast2 managed file interface (issue #481 W1).
+"""Beast2 managed file interface (issue #481 W1 + W2).
 
 ``open_beast2_file`` / ``write_beast2_file`` own the fd + mmap and mirror the
 root collection's read surface; the writer re-batches into target-sized
-segments. Also pins the buffer-acceptance fixes this workstream shipped: the
+segments. W2 adds the keyed reads: Dict/Set point lookups and Array
+``find_sorted_*`` navigate by segment *fences* (each segment's first key,
+decoded from a bounded probe of its frame) and decode only the owning
+segment. Also pins the buffer-acceptance fixes this workstream shipped: the
 v5 entry points borrow mmaps zero-copy (previously ``_as_buffer`` treated an
 mmap as a stream — whole-file copy, and the advanced file position made a
 second call on the same mmap see empty bytes), and the full decoder accepts
@@ -147,9 +150,9 @@ def test_array_file_mirrors_the_eager_read_surface(array_path):
         # Streaming + whole-file forms agree.
         assert sum(len(batch) for batch in f.segments()) == 30_000
 
-        # W2 stubs are loud, not wrong.
-        with pytest.raises(NotImplementedError, match="481 W2"):
-            f.find_sorted_first(5, key=lambda r: r["id"])
+        # find_sorted pages by element order; a key= projection cannot.
+        with pytest.raises(ValueError, match="projections"):
+            f.find_sorted_first(table.get(0), key=lambda r: r["id"])
 
 
 # ── Beast2File: Dict + Set flavors ────────────────────────────────────────
@@ -179,18 +182,6 @@ def test_dict_file_rebatches_key_disjoint_and_streams(tmp_path):
         first_key, first_value = next(iter(d.items()))
         assert (first_key, first_value) == ("k00000", 0)
 
-        for hit in [
-            lambda: d["k00042"],
-            lambda: "k00042" in d,
-            lambda: d.get("k00042"),
-            lambda: d.get_or_default("k00042", 0),
-            lambda: d.try_get("k00042"),
-            lambda: d.has("k00042"),
-            lambda: d.get_keys(EastSet(StringType, ["k00042"]), lambda k: 0),
-        ]:
-            with pytest.raises(NotImplementedError, match="481 W2"):
-                hit()
-
 
 def test_set_file_streams_and_writer_takes_python_builtins(tmp_path):
     path = tmp_path / "set.beast2"
@@ -203,8 +194,126 @@ def test_set_file_streams_and_writer_takes_python_builtins(tmp_path):
     with open_beast2_file(path, st) as s:
         assert len(s) == 503
         assert sum(1 for _ in s) == 503
-        with pytest.raises(NotImplementedError, match="481 W2"):
-            _ = 42 in s
+        assert 42 in s and s.has(999)
+        assert 700 not in s and not s.has(-1)
+
+
+# ── Keyed reads (issue #481 W2) ───────────────────────────────────────────
+
+
+def test_dict_keyed_reads_match_the_eager_dict(tmp_path):
+    """Every keyed verb answers exactly like the eager EastDict over the same
+    pairs — probed at each segment's first and last key (the fence boundaries,
+    where an off-by-one search would land wrong) plus misses below the first
+    fence, between keys, and past the end."""
+    path = tmp_path / "keyed.beast2"
+    write_beast2_file(path, DT, EastDict(StringType, IntegerType,
+                                         {f"k{i:05d}": i * 3 for i in range(10_000)}),
+                      segment_rows=1000)
+    with open_beast2_file(path, DT) as d:
+        table = d.load()
+        boundaries = [f"k{i:05d}" for i in range(0, 10_000, 1000)]
+        boundaries += [f"k{i:05d}" for i in range(999, 10_000, 1000)]
+        for key in boundaries:
+            assert d[key] == table[key]
+            assert d.get(key) == table.get(key)
+            assert d.get_or_default(key, -1) == table.get_or_default(key, -1)
+            assert d.try_get(key).value == table.try_get(key).value
+            assert d.has(key) and key in d
+        for miss in ["a", "k00500x", "k10000", "zzz"]:
+            assert miss not in d and not d.has(miss)
+            assert d.get(miss) is None and d.get(miss, -1) == -1
+            assert d.get_or_default(miss, -1) == -1
+            assert d.try_get(miss).type == "none"
+        with pytest.raises(KeyError, match="Dict does not contain key"):
+            d["k99999"]
+
+        # Batched gather mirrors EastDict.get_keys exactly, fill included,
+        # decoding each owning segment once.
+        requested = EastSet(StringType, ["k00000", "k00999", "k01000", "absent-a",
+                                         "k09999", "absent-b"])
+        got = d.get_keys(requested, lambda k: -1)
+        want = table.get_keys(requested, lambda k: -1)
+        assert dict(got.items()) == dict(want.items())
+        # Plain iterables coerce like the eager surface's Set argument.
+        got_from_list = d.get_keys(["k00000", "absent-a"], lambda k: -1)
+        assert dict(got_from_list.items()) == {"k00000": 0, "absent-a": -1}
+
+
+def test_array_find_sorted_matches_the_eager_array(tmp_path):
+    """Global insertion indices agree with the eager builtins on every probe —
+    including duplicates spanning segment boundaries, targets below the first
+    row, between rows, and past the last."""
+    at = ArrayType(IntegerType)
+    rows = [1, 2, 2, 2, 3, 5, 5, 8, 8, 8, 13]
+    path = tmp_path / "sorted.beast2"
+    write_beast2_file(path, at, EastArray(IntegerType, rows), segment_rows=3)
+    with open_beast2_file(path, at) as f:
+        assert f.segment_count == 4
+        table = f.load()
+        for target in [0, 1, 2, 3, 4, 5, 8, 13, 99]:
+            assert f.find_sorted_first(target) == table.find_sorted_first(target)
+            assert f.find_sorted_last(target) == table.find_sorted_last(target)
+            span = f.find_sorted_range(target)
+            eager_span = table.find_sorted_range(target)
+            assert (span["start"], span["end"]) == (eager_span["start"], eager_span["end"])
+
+
+def test_keyed_reads_detect_non_disjoint_segments(tmp_path):
+    """Keyed reads require key-disjoint segments; a foreign writer that broke
+    the contract fails loudly instead of reporting false misses. Both shapes:
+    batches written out of key order (fences not ascending — caught by the
+    one-time fence verification) and overlapping ranges behind ascending
+    fences (caught by the decoded segment's tail guard)."""
+    unsorted_path = tmp_path / "unsorted.beast2"
+    with open(unsorted_path, "wb") as stream, Beast2Writer(DT, stream) as writer:
+        writer.write(EastDict(StringType, IntegerType, {"m": 1, "z": 2}))
+        writer.write(EastDict(StringType, IntegerType, {"a": 3, "b": 4}))
+    with (
+        open_beast2_file(unsorted_path, DT) as bad,
+        pytest.raises(RuntimeError, match="not key-disjoint"),
+    ):
+        bad.has("a")
+
+    overlap_path = tmp_path / "overlap.beast2"
+    with open(overlap_path, "wb") as stream, Beast2Writer(DT, stream) as writer:
+        writer.write(EastDict(StringType, IntegerType, {"a": 1, "m": 2}))
+        writer.write(EastDict(StringType, IntegerType, {"b": 3, "z": 4}))
+    with (
+        open_beast2_file(overlap_path, DT) as bad,
+        pytest.raises(RuntimeError, match="not key-disjoint"),
+    ):
+        bad.has("a")  # lands on segment 0, whose tail "m" >= next fence "b"
+
+
+def test_keyed_reads_refuse_non_self_contained_blobs(tmp_path):
+    path = tmp_path / "aliased.beast2"
+    with open(path, "wb") as stream, Beast2Writer(DT, stream, self_contained=False) as writer:
+        writer.write(EastDict(StringType, IntegerType, {"a": 1}))
+        writer.write(EastDict(StringType, IntegerType, {"b": 2}))
+    with (
+        open_beast2_file(path, DT) as d,
+        pytest.raises(RuntimeError, match="self-contained"),
+    ):
+        d.has("a")
+
+
+def test_empty_collection_files_answer_keyed_reads(tmp_path):
+    """Zero-segment files: every lookup misses, every insertion index is 0."""
+    dict_path = tmp_path / "empty_dict.beast2"
+    write_beast2_file(dict_path, DT, EastDict(StringType, IntegerType))
+    with open_beast2_file(dict_path, DT) as d:
+        assert "k" not in d and d.try_get("k").type == "none"
+        got = d.get_keys(["k"], lambda k: -1)
+        assert dict(got.items()) == {"k": -1}
+
+    at = ArrayType(IntegerType)
+    array_path = tmp_path / "empty_arr.beast2"
+    write_beast2_file(array_path, at, EastArray(IntegerType))
+    with open_beast2_file(array_path, at) as f:
+        assert f.find_sorted_first(5) == 0 and f.find_sorted_last(5) == 0
+        span = f.find_sorted_range(5)
+        assert (span["start"], span["end"]) == (0, 0)
 
 
 # ── Writer management ─────────────────────────────────────────────────────

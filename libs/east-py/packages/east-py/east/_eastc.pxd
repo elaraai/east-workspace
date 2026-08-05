@@ -411,6 +411,11 @@ cdef extern from "east/serialization.h":
     EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
     EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
     EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
+    int east_beast2_pages_get_key(Beast2Pages *p, EastValue *key, EastValue **value_out)
+    EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys,
+                                          EastValue **missing_out)
+    bint east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bint last,
+                                       size_t *index_out)
     void east_beast2_pages_free(Beast2Pages *p)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)

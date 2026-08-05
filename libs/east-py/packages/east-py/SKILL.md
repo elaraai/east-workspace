@@ -550,7 +550,11 @@ Task → What do you need?
     │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
     │   │   ├─ scan → for batch in f.segments():  — process each batch NATIVELY (eager methods)
     │   │   ├─ Array point reads → f[i] · f.get/get_or_default/try_get/has · f.slice(a,b) · f.get_keys(rows)
-    │   │   └─ Dict/Set keyed reads + find_sorted_* → #481 W2 (today the stubs raise NotImplementedError)
+    │   │   ├─ Dict keyed reads → f[k] ❗KeyError · f.get/get_or_default/try_get/has · k in f ·
+    │   │   │   f.get_keys(keys, fill)   (fence search in east-c; ONE segment decodes per lookup)
+    │   │   ├─ Set membership → x in f · f.has(x)
+    │   │   └─ Array sorted search → f.find_sorted_first/last/range(target) — GLOBAL insertion
+    │   │       indices; no key= projection (the file pages by element order)
     │   └─ Buffer-level (you hold the bytes, not a path):
     │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
@@ -827,7 +831,8 @@ name-for-name.
 | `f.segments()` | Yield one decoded collection per segment (process each batch with the native eager methods — never element-by-element from python) |
 | `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index (Array counts exact; Set/Dict exact when segments are key-disjoint, as our writers produce) |
 | Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` → `some`/`none` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | Same names, signatures and error semantics as `EastArray`; every point read decodes only the owning segment, `get_keys` decodes each owning segment once |
-| Dict: `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` | Keyed point reads (`get`/`get_or_default`/`try_get`/`has`/`get_keys`/`[]`/`in`) and Array `find_sorted_*` land with **#481 W2** — the stubs raise `NotImplementedError` naming it |
+| Dict: `f[k]` ❗KeyError · `f.get(k, default=None)` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads (#481 W2): east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Needs key-disjoint segments (what our writers produce): the first keyed read verifies the fences ascend, and violations raise `segments are not key-disjoint` instead of reporting false misses |
+| Array sorted search: `f.find_sorted_first/last(target)` → global index · `f.find_sorted_range(target)` → `{start, end}` | Same contract as the eager `EastArray` builtins over the whole file — the fences pick the boundary segment, its in-segment search adds the segment's base, and only that segment decodes. No `key=` projection (the file pages by element order); pair with `f.slice(start, end)` to fetch the matching rows |
 | Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
 
 ```python
@@ -1132,6 +1137,30 @@ them directly — same one-writer output guarantee, pure byte copy:
 
 ```python
 splice_beast2_files("orders.beast2", ArrayType(ROW), sorted(shard_paths), verify=True)
+```
+
+### Keyed lookups against a file too big to load
+
+A reference table exported as a Dict file answers point reads without ever
+being held in memory: east-c fence-searches the segment index and decodes
+one segment per lookup, so a sparse join against a multi-GB file stays
+cheap. (A *dense* join over most keys is still better as one `load()` or a
+`segments()` scan.)
+
+```python
+from east.serialization.beast2 import open_beast2_file
+
+with open_beast2_file("orders.beast2") as orders:   # Dict<String, Order>, type from header
+    order = orders[order_id]                        # fence search → ONE segment decode
+    hot = orders.get_keys(wanted_ids, lambda k: default_order)   # each owning segment
+    if candidate_id in orders:                      #   decodes once for the whole batch
+        ...
+
+# A sorted Array file answers range queries the same way — global insertion
+# indices, then slice exactly the covered rows:
+with open_beast2_file("events.beast2") as events:   # Array<Event> sorted by timestamp
+    span = events.find_sorted_range(cutoff_event)
+    window = events.slice(span["start"], span["end"])
 ```
 
 ### Sort uses East's total order

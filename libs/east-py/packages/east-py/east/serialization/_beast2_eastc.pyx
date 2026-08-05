@@ -449,6 +449,55 @@ cdef class _Beast2PagesCore:
         finally:
             _eastc.east_value_release(c_val)
 
+    def get_key(self, object key):
+        """Keyed lookup — ``(found, value)`` for Dict roots, ``(found, None)``
+        for Set membership. One fence binary search plus at most one cached
+        segment decode, all in east-c."""
+        cdef _eastc.EastType* kt = self._type.data.element
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            kt = self._type.data.dict.key
+        cdef _eastc.EastValue* c_key = py_value_to_c(key, kt)
+        cdef _eastc.EastValue* c_val = NULL
+        cdef int rc = _eastc.east_beast2_pages_get_key(self._p, c_key, &c_val)
+        _eastc.east_value_release(c_key)
+        if rc < 0:
+            _consume_eastc_error("east-c beast2 v5 keyed read failed")
+        if c_val == NULL:
+            return (rc == 1, None)
+        try:
+            return (True, c_value_to_py(c_val, self._type.data.dict.value))
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def get_keys(self, object keys):
+        """Batched Dict lookup — ``(found, missing)``: a dict of the present
+        pairs and the set of absent keys. east-c merges the sorted keys
+        against the fences, so each owning segment decodes exactly once."""
+        cdef _eastc.EastType* set_t = _eastc.east_set_type(self._type.data.dict.key)
+        cdef _eastc.EastValue* c_keys = py_value_to_c(keys, set_t)
+        cdef _eastc.EastValue* c_missing = NULL
+        cdef _eastc.EastValue* c_found = _eastc.east_beast2_pages_get_keys(
+            self._p, c_keys, &c_missing)
+        _eastc.east_value_release(c_keys)
+        if c_found == NULL:
+            _consume_eastc_error("east-c beast2 v5 batched keyed read failed")
+        try:
+            return (c_value_to_py(c_found, self._type), c_value_to_py(c_missing, set_t))
+        finally:
+            _eastc.east_value_release(c_found)
+            _eastc.east_value_release(c_missing)
+
+    def find_sorted(self, object target, bint last):
+        """Global insertion index for ``target`` over a sorted Array file —
+        fences pick the boundary segment, its in-segment search adds the base."""
+        cdef _eastc.EastValue* c_target = py_value_to_c(target, self._type.data.element)
+        cdef size_t idx = 0
+        cdef bint ok = _eastc.east_beast2_pages_find_sorted(self._p, c_target, last, &idx)
+        _eastc.east_value_release(c_target)
+        if not ok:
+            _consume_eastc_error("east-c beast2 v5 find_sorted failed")
+        return idx
+
     def __dealloc__(self):
         if self._p != NULL:
             _eastc.east_beast2_pages_free(self._p)
