@@ -553,8 +553,14 @@ Task → What do you need?
     │   │   ├─ Dict keyed reads → f[k] ❗KeyError · f.get/get_or_default/try_get/has · k in f ·
     │   │   │   f.get_keys(keys, fill)   (fence search in east-c; ONE segment decodes per lookup)
     │   │   ├─ Set membership → x in f · f.has(x)
-    │   │   └─ Array sorted search → f.find_sorted_first/last/range(target) — GLOBAL insertion
-    │   │       indices; no key= projection (the file pages by element order)
+    │   │   ├─ Array sorted search → f.find_sorted_first/last/range(target) — GLOBAL insertion
+    │   │   │   indices; no key= projection (the file pages by element order)
+    │   │   └─ whole-file compute → the FULL eager read surface runs on f directly: map · filter ·
+    │   │       filter_map · first_map · fold · map_reduce · sum · mean · maximum · minimum ·
+    │   │       every · some · find_first/all/maximum/minimum · is_sorted · to_set/unique ·
+    │   │       to_dict · to_array · to_columns · map_batches · string_join · flatten_* ·
+    │   │       the group_* family · Set algebra — segment folds, east-c per segment,
+    │   │       results == f.load() exactly (the file is never materialized)
     │   └─ Buffer-level (you hold the bytes, not a path):
     │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
@@ -833,6 +839,7 @@ name-for-name.
 | Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` → `some`/`none` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | Same names, signatures and error semantics as `EastArray`; every point read decodes only the owning segment, `get_keys` decodes each owning segment once |
 | Dict: `f[k]` ❗KeyError · `f.get(k, default=None)` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads (#481 W2): east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Needs key-disjoint segments (what our writers produce): the first keyed read verifies the fences ascend, and violations raise `segments are not key-disjoint` instead of reporting false misses |
 | Array sorted search: `f.find_sorted_first/last(target)` → global index · `f.find_sorted_range(target)` → `{start, end}` | Same contract as the eager `EastArray` builtins over the whole file — the fences pick the boundary segment, its in-segment search adds the segment's base, and only that segment decodes. No `key=` projection (the file pages by element order); pair with `f.slice(start, end)` to fetch the matching rows |
+| Compute (#481 W4): `f.map/filter/filter_map/first_map/fold/map_reduce/sum/mean/maximum/minimum/every/some/find_first/find_all/find_maximum/find_minimum/is_sorted/to_set/unique/to_dict/to_array/to_columns/map_batches/string_join/flatten_to_array/set/dict/for_each` · the full `group_*` family · Set algebra (`union/intersect/diff/sym_diff/is_subset/is_disjoint`) | The whole eager read surface, one segment decoded at a time: each segment runs the ordinary eager method — pure lambdas trace to kernels, precompiled kernels pass through — and partials combine through east-c containers in stream order. Order-dependent folds thread ONE accumulator and grouped folds SEED each segment's init from the running per-group accumulators, so results equal `load()` exactly, float ordering included. Array `(el, idx)` callbacks see GLOBAL row indices; `first_map`/`some`/`every` stop decoding at the answer. Dict/Set compute requires key-disjoint segments (verified, like keyed reads). Cross-segment key collisions in `to_dict`/`flatten_to_dict`/`group_to_dicts` combine left-associatively in stream order — use an associative `combine`. `sorted`/`reversed`/`copy`/`concat`/`merge` stay off the file (they materialize the whole collection — `load()` first) |
 | Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
 
 ```python
@@ -842,9 +849,11 @@ write_beast2_file(path, rows_t, rows)             # any size, one call
 
 with open_beast2_file(path) as f:                 # self-describing: type from the
     row = f[1_234_567]                            #   header (f.wire_type); pass rows_t
-    for batch in f.segments():                    #   instead to VALIDATE it at open
-        totals.merge_all(batch.group_sum(lambda r: r["sku"], lambda r: r["qty"]),
-                         lambda a, b, _k: a + b, lambda _k: 0)  # batch processed natively
+    totals = f.group_sum(lambda r: r["sku"],      #   instead to VALIDATE it at open
+                         lambda r: r["qty"])      # whole-file compute: segment folds,
+    top = f.maximum(by=lambda r: r["qty"])        #   never materialized, == load() exactly
+    for batch in f.segments():                    # custom folds still stream batches
+        consume(batch)                            #   (process each NATIVELY, never per row)
     table = f.load()                              # whole table when you truly need it
 ```
 
@@ -1144,8 +1153,9 @@ splice_beast2_files("orders.beast2", ArrayType(ROW), sorted(shard_paths), verify
 A reference table exported as a Dict file answers point reads without ever
 being held in memory: east-c fence-searches the segment index and decodes
 one segment per lookup, so a sparse join against a multi-GB file stays
-cheap. (A *dense* join over most keys is still better as one `load()` or a
-`segments()` scan.)
+cheap. (A *dense* pass over most keys is still better as whole-file compute
+— `f.group_sum(...)`, `f.filter(...)`, any read method directly on the file
+— or a `segments()` scan for a custom fold.)
 
 ```python
 from east.serialization.beast2 import open_beast2_file

@@ -15,6 +15,7 @@ mmap as a stream — whole-file copy, and the advanced file position made a
 second call on the same mmap see empty bytes), and the full decoder accepts
 any C-contiguous buffer instead of only ``bytes``."""
 
+import math
 import mmap
 
 import pytest
@@ -25,15 +26,21 @@ from east import (
     EastArray,
     EastDict,
     EastSet,
+    FloatType,
     IntegerType,
+    OptionType,
     SetType,
     StringType,
     StructType,
+    kernel,
+    none,
+    some,
 )
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
     Beast2ArrayFile,
     Beast2DictFile,
+    Beast2SetFile,
     Beast2Writer,
     decode_beast2_with_header_for,
     encode_beast2_v5_for,
@@ -314,6 +321,450 @@ def test_empty_collection_files_answer_keyed_reads(tmp_path):
         assert f.find_sorted_first(5) == 0 and f.find_sorted_last(5) == 0
         span = f.find_sorted_range(5)
         assert (span["start"], span["end"]) == (0, 0)
+
+
+# ── Segment-streamed compute (issue #481 W4) ──────────────────────────────
+#
+# Every compute method's oracle is exact: `f.method(...)` must produce what
+# `f.load().method(...)` produces — East equality, error type and message
+# included. The tables below are the hand-authored spec (one row per method
+# and argument shape); the harness just runs every row against every fixture
+# so no method or edge silently escapes.
+
+W4_ROW = StructType([("sku", StringType), ("qty", IntegerType), ("amt", FloatType)])
+W4_AT = ArrayType(W4_ROW)
+
+
+def _w4_rows(n):
+    return [{"sku": f"S{i % 5}", "qty": i, "amt": i * 0.37 - 3.0} for i in range(n)]
+
+
+def _outcome(run, collection):
+    """Run one case and capture its result OR its error — both are parity."""
+    try:
+        return ("ok", run(collection))
+    except Exception as exc:  # noqa: BLE001 — error parity is the point
+        return ("raise", type(exc).__name__, str(exc))
+
+
+def _same(a, b) -> bool:
+    """East-aware sameness for parity results.
+
+    Python ``==`` first; a miss retries under East equality (east-c's, where
+    NaN == NaN) so NaN-carrying containers compare the way the runtime does.
+    """
+    if isinstance(a, float) and isinstance(b, float):
+        return a == b or (math.isnan(a) and math.isnan(b))
+    if isinstance(a, tuple) and isinstance(b, tuple):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    if a == b:
+        return True
+    import east.types.values as _ev
+    from east.namespace import East
+
+    try:
+        return bool(East.equal(_ev.type_of(a), a, b))
+    except Exception:  # noqa: BLE001 — not an East value pair; == was the answer
+        return False
+
+
+ARRAY_COMPUTE_CASES = [
+    ("map", lambda c: c.map(lambda r: r["qty"] * 2)),
+    ("map_global_idx", lambda c: list(c.map(lambda r, i: r["qty"] + i * 1000))),
+    ("map_out", lambda c: c.map(lambda r: r["amt"], out=FloatType)),
+    ("filter", lambda c: c.filter(lambda r: r["amt"] > 3.0)),
+    ("filter_map", lambda c: c.filter_map(
+        lambda r: some(r["qty"]) if r["qty"] % 3 == 0 else none, out=IntegerType)),
+    ("first_map", lambda c: c.first_map(
+        lambda r: some(r["sku"]) if r["qty"] > 17 else none, out=StringType)),
+    ("fold_float", lambda c: c.fold(0.0, lambda a, r: a + r["amt"])),
+    ("fold_global_idx", lambda c: c.fold(0, lambda a, r, i: a + i)),
+    ("map_reduce_noncommutative", lambda c: c.map_reduce(
+        lambda r: r["sku"], lambda a, b: a + b)),
+    ("sum", lambda c: c.sum(lambda r: r["amt"])),
+    ("sum_no_fn", lambda c: c.map(lambda r: r["qty"], out=IntegerType)),
+    ("mean", lambda c: c.mean(lambda r: r["amt"])),
+    ("maximum", lambda c: c.maximum(by=lambda r: r["amt"])),
+    ("minimum", lambda c: c.minimum(by=lambda r: r["qty"])),
+    ("every", lambda c: c.every(lambda r: r["qty"] >= 0)),
+    ("some", lambda c: c.some(lambda r: r["qty"] > 33)),
+    ("find_first", lambda c: c.find_first("S3", key=lambda r: r["sku"])),
+    ("find_all", lambda c: list(c.find_all("S2", by=lambda r: r["sku"]))),
+    ("find_maximum", lambda c: c.find_maximum(by=lambda r: r["amt"])),
+    ("find_minimum", lambda c: c.find_minimum(by=lambda r: r["amt"])),
+    ("is_sorted", lambda c: c.is_sorted(key=lambda r: r["qty"])),
+    ("to_set", lambda c: c.to_set(lambda r: r["sku"])),
+    ("unique_skus", lambda c: c.map(lambda r: r["sku"], out=StringType)),
+    ("to_dict", lambda c: c.to_dict(lambda r: r["qty"])),
+    ("to_dict_combine", lambda c: c.to_dict(
+        lambda r: r["sku"], value=lambda r: r["qty"], combine=lambda a, b: a + b)),
+    ("to_dict_dup_error", lambda c: c.to_dict(lambda r: r["sku"])),
+    ("group_by", lambda c: {k: [r["qty"] for r in v]
+                            for k, v in c.group_by(lambda r: r["sku"]).items()}),
+    ("group_reduce", lambda c: c.group_reduce(
+        lambda r: r["sku"], lambda _k: 0.0, lambda a, r: a + r["amt"])),
+    ("group_size", lambda c: c.group_size(lambda r: r["sku"])),
+    ("group_sum_float", lambda c: c.group_sum(lambda r: r["sku"], lambda r: r["amt"])),
+    ("group_mean", lambda c: c.group_mean(lambda r: r["sku"], lambda r: r["amt"])),
+    ("group_maximum", lambda c: c.group_maximum(lambda r: r["sku"], by=lambda r: r["amt"])),
+    ("group_minimum", lambda c: c.group_minimum(lambda r: r["sku"], by=lambda r: r["amt"])),
+    ("group_every", lambda c: c.group_every(lambda r: r["sku"], lambda r: r["qty"] > 2)),
+    ("group_some", lambda c: c.group_some(lambda r: r["sku"], lambda r: r["qty"] > 30)),
+    ("group_to_arrays", lambda c: c.group_to_arrays(lambda r: r["sku"], lambda r: r["qty"])),
+    ("group_to_sets", lambda c: c.group_to_sets(lambda r: r["sku"], lambda r: r["qty"])),
+    ("group_to_dicts", lambda c: c.group_to_dicts(
+        lambda r: r["sku"], lambda r: r["qty"], lambda r: r["amt"])),
+    ("flatten_to_array", lambda c: list(c.flatten_to_array(
+        lambda r: EastArray(IntegerType, [r["qty"], -r["qty"]])))),
+    ("flatten_to_set", lambda c: c.flatten_to_set(
+        lambda r: EastSet(StringType, [r["sku"]]))),
+    ("flatten_to_dict", lambda c: c.flatten_to_dict(
+        lambda r: EastDict(IntegerType, StringType, {r["qty"]: r["sku"]}))),
+    ("iter_boxes", lambda c: [r["qty"] for r in c]),
+]
+
+
+def test_array_compute_matches_load(tmp_path):
+    for label, rows, seg in [
+        ("multi-segment", _w4_rows(40), 7),
+        ("single-segment", _w4_rows(9), 10_000),
+        ("empty", [], 7),
+    ]:
+        path = tmp_path / f"{label}.beast2"
+        write_beast2_file(path, W4_AT, EastArray(W4_ROW, rows), segment_rows=seg)
+        with open_beast2_file(path, W4_AT) as f:
+            table = f.load()
+            for name, run in ARRAY_COMPUTE_CASES:
+                got, want = _outcome(run, f), _outcome(run, table)
+                assert _same(got, want), f"{name} [{label}]: {got!r} != {want!r}"
+
+
+def test_array_compute_on_ordering_hostile_floats(tmp_path):
+    """NaN / signed zero / infinities exercise East's total order through
+    every merge path — any python comparison would diverge here."""
+    at = ArrayType(FloatType)
+    values = [float("nan"), -0.0, 0.0, float("inf"), float("-inf"), 1.5, -2.5, float("nan")]
+    path = tmp_path / "hostile.beast2"
+    write_beast2_file(path, at, EastArray(FloatType, values), segment_rows=3)
+    cases = [
+        ("maximum", lambda c: c.maximum()),
+        ("minimum", lambda c: c.minimum()),
+        ("sum", lambda c: c.sum()),
+        ("mean", lambda c: c.mean()),
+        ("unique", lambda c: c.unique()),
+        ("group_maximum", lambda c: c.group_maximum(lambda x: 0)),
+        ("group_minimum", lambda c: c.group_minimum(lambda x: 0)),
+        ("to_set", lambda c: c.to_set()),
+        ("find_maximum", lambda c: c.find_maximum()),
+    ]
+    with open_beast2_file(path, at) as f:
+        table = f.load()
+        for name, run in cases:
+            got, want = _outcome(run, f), _outcome(run, table)
+            assert _same(got, want), f"{name}: {got!r} != {want!r}"
+
+
+def test_array_compute_string_join_and_columns(tmp_path):
+    import numpy as np
+
+    st = ArrayType(StringType)
+    words = [f"w{i}" for i in range(11)]
+    path = tmp_path / "words.beast2"
+    write_beast2_file(path, st, EastArray(StringType, words), segment_rows=4)
+    with open_beast2_file(path, st) as f:
+        assert f.string_join("-") == f.load().string_join("-")
+
+    path2 = tmp_path / "cols.beast2"
+    write_beast2_file(path2, W4_AT, EastArray(W4_ROW, _w4_rows(23)), segment_rows=5)
+    with open_beast2_file(path2, W4_AT) as f:
+        table = f.load()
+        fc, tc = f.to_columns(), table.to_columns()
+        assert set(fc) == set(tc)
+        assert np.array_equal(fc["qty"], tc["qty"]) and np.array_equal(fc["amt"], tc["amt"])
+        assert fc["sku"] == tc["sku"]
+        got = f.map_batches(lambda cols: {**cols, "qty": cols["qty"] * 2}, batch_size=6)
+        want = table.map_batches(lambda cols: {**cols, "qty": cols["qty"] * 2}, batch_size=6)
+        assert list(got.map(lambda r: r["qty"], out=IntegerType)) == \
+            list(want.map(lambda r: r["qty"], out=IntegerType))
+
+
+DICT_COMPUTE_CASES = [
+    ("reduce", lambda c: c.reduce(0.0, lambda a, k, v: a + v)),
+    ("mean", lambda c: c.mean()),
+    ("mean_proj", lambda c: c.mean(lambda k, v: v * 2.0)),
+    ("map", lambda c: c.map(lambda v: v * 2)),
+    ("map_with_key", lambda c: c.map(lambda v, k: k)),
+    ("filter", lambda c: c.filter(lambda k, v: v > 5.0)),
+    ("filter_map", lambda c: c.filter_map(
+        lambda k, v: some(v) if v > 5.0 else none, out=FloatType)),
+    ("first_map", lambda c: c.first_map(
+        lambda k, v: some(k) if v > 5.0 else none, out=StringType)),
+    ("map_reduce", lambda c: c.map_reduce(lambda k, v: k, lambda a, b: a + b)),
+    ("to_array", lambda c: list(c.to_array(lambda k, v: k))),
+    ("to_set", lambda c: c.to_set(lambda k, v: k[:2])),
+    # Collision-heavy re-key: a COUNTING combine (1.0 sums are exact under
+    # any association) — cross-segment float-sum collisions carry the
+    # documented associativity caveat, pinned separately below.
+    ("to_dict", lambda c: c.to_dict(
+        lambda k, v: k[:2], lambda k, v: 1.0, lambda a, b, _k: a + b)),
+    ("flatten_to_array", lambda c: list(c.flatten_to_array(
+        lambda k, v: EastArray(FloatType, [v, v])))),
+    ("flatten_to_set", lambda c: c.flatten_to_set(lambda k, v: EastSet(StringType, [k]))),
+    ("flatten_to_dict", lambda c: c.flatten_to_dict(
+        lambda k, v: EastDict(StringType, FloatType, {k: v}))),
+    ("group_fold", lambda c: c.group_fold(
+        lambda k, v: k[:2], lambda _k: 0.0, lambda a, k, v: a + v)),
+    ("group_size", lambda c: c.group_size(lambda k, v: k[:2])),
+    ("group_sum", lambda c: c.group_sum(lambda k, v: k[:2])),
+    ("group_mean", lambda c: c.group_mean(lambda k, v: k[:2])),
+    ("group_every", lambda c: c.group_every(lambda k, v: k[:2], lambda k, v: v >= 0.0)),
+    ("group_some", lambda c: c.group_some(lambda k, v: k[:2], lambda k, v: v > 8.0)),
+    ("group_to_arrays", lambda c: c.group_to_arrays(lambda k, v: k[:2], lambda k, v: v)),
+    ("group_to_sets", lambda c: c.group_to_sets(lambda k, v: k[:2], lambda k, v: k)),
+    ("group_to_dicts", lambda c: c.group_to_dicts(
+        lambda k, v: k[:2], lambda k, v: k, lambda k, v: v)),
+]
+
+
+def test_dict_compute_matches_load(tmp_path):
+    dt = DictType(StringType, FloatType)
+    for label, data, seg in [
+        ("multi-segment", {f"k{i:03d}": i * 0.61 for i in range(37)}, 6),
+        ("empty", {}, 6),
+    ]:
+        path = tmp_path / f"{label}.beast2"
+        write_beast2_file(path, dt, EastDict(StringType, FloatType, data), segment_rows=seg)
+        with open_beast2_file(path, dt) as d:
+            table = d.load()
+            for name, run in DICT_COMPUTE_CASES:
+                got, want = _outcome(run, d), _outcome(run, table)
+                assert _same(got, want), f"{name} [{label}]: {got!r} != {want!r}"
+
+
+def test_cross_segment_float_collisions_carry_the_documented_caveat(tmp_path):
+    """A non-associative (float-sum) ``combine`` on keys colliding ACROSS
+    segments combines partials left-associatively in stream order — equal to
+    the eager element-order result up to float associativity, which is the
+    documented contract (same class as ``map_reduce``'s 'should be
+    associative'). Pin it as approximate so a real regression still fails."""
+    dt = DictType(StringType, FloatType)
+    data = {f"k{i:03d}": i * 0.61 for i in range(37)}
+    path = tmp_path / "collide.beast2"
+    write_beast2_file(path, dt, EastDict(StringType, FloatType, data), segment_rows=6)
+    with open_beast2_file(path, dt) as d:
+        table = d.load()
+        got = d.to_dict(lambda k, v: k[:2], lambda k, v: v, lambda a, b, _k: a + b)
+        want = table.to_dict(lambda k, v: k[:2], lambda k, v: v, lambda a, b, _k: a + b)
+        assert set(got.keys()) == set(want.keys())
+        for k in want.keys():  # noqa: SIM118 — EastDict, not a python dict
+            assert math.isclose(got[k], want[k], rel_tol=1e-12), k
+
+
+def test_dict_compute_with_variant_keys(tmp_path):
+    """Option-typed keys: any python-order fallback in a merge would break
+    here — East compares variants by case NAME."""
+    dt = DictType(OptionType(IntegerType), FloatType)
+    data = EastDict(OptionType(IntegerType), FloatType)
+    data[none] = 0.5
+    for i in range(9):
+        data[some(i)] = i * 1.5
+    path = tmp_path / "variant.beast2"
+    write_beast2_file(path, dt, data, segment_rows=3)
+    with open_beast2_file(path, dt) as d:
+        table = d.load()
+        assert d.reduce(0.0, lambda a, k, v: a + v) == table.reduce(0.0, lambda a, k, v: a + v)
+        got = d.group_fold(lambda k, v: k.type, lambda _k: 0.0, lambda a, k, v: a + v)
+        want = table.group_fold(lambda k, v: k.type, lambda _k: 0.0, lambda a, k, v: a + v)
+        assert dict(got.items()) == dict(want.items())
+
+
+SET_COMPUTE_CASES = [
+    ("reduce", lambda c: c.reduce(0, lambda a, el: a + el)),
+    ("sum", lambda c: c.sum()),
+    ("mean", lambda c: c.mean()),
+    ("map", lambda c: c.map(lambda el: el * 2)),
+    ("filter", lambda c: c.filter(lambda el: el % 2 == 0)),
+    ("filter_map", lambda c: c.filter_map(
+        lambda el: some(el) if el > 10 else none, out=IntegerType)),
+    ("first_map", lambda c: c.first_map(
+        lambda el: some(el) if el > 10 else none, out=IntegerType)),
+    ("map_reduce", lambda c: c.map_reduce(lambda el: el, lambda a, b: a + b)),
+    ("every", lambda c: c.every(lambda el: el >= 0)),
+    ("some", lambda c: c.some(lambda el: el > 50)),
+    ("to_array", lambda c: list(c.to_array())),
+    ("to_array_proj", lambda c: list(c.to_array(lambda el: el * 10))),
+    ("to_set", lambda c: c.to_set(lambda el: el % 7, out=IntegerType)),
+    ("to_dict", lambda c: c.to_dict(lambda el: el, lambda el: el * 2)),
+    ("flatten_to_array", lambda c: list(c.flatten_to_array(
+        lambda el: EastArray(IntegerType, [el, el])))),
+    ("flatten_to_set", lambda c: c.flatten_to_set(
+        lambda el: EastSet(IntegerType, [el, el + 1000]))),
+    ("group_fold", lambda c: c.group_fold(
+        lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)),
+    ("group_size", lambda c: c.group_size(lambda el: el % 3)),
+    ("group_sum", lambda c: c.group_sum(lambda el: el % 3)),
+    ("group_mean", lambda c: c.group_mean(lambda el: el % 3)),
+    ("group_every", lambda c: c.group_every(lambda el: el % 3, lambda el: el >= 0)),
+    ("group_some", lambda c: c.group_some(lambda el: el % 3, lambda el: el > 50)),
+    ("group_to_arrays", lambda c: c.group_to_arrays(lambda el: el % 3, lambda el: el)),
+    ("group_to_sets", lambda c: c.group_to_sets(lambda el: el % 3, lambda el: el)),
+    ("group_to_dicts", lambda c: c.group_to_dicts(
+        lambda el: el % 3, lambda el: el, lambda el: el * 2)),
+]
+
+
+def test_set_compute_matches_load(tmp_path):
+    st = SetType(IntegerType)
+    for label, data, seg in [
+        ("multi-segment", set(range(0, 90, 3)), 6),
+        ("empty", set(), 6),
+    ]:
+        path = tmp_path / f"{label}.beast2"
+        write_beast2_file(path, st, EastSet(IntegerType, data), segment_rows=seg)
+        with open_beast2_file(path, st) as s:
+            table = s.load()
+            for name, run in SET_COMPUTE_CASES:
+                got, want = _outcome(run, s), _outcome(run, table)
+                assert _same(got, want), f"{name} [{label}]: {got!r} != {want!r}"
+            other = EastSet(IntegerType, range(0, 90, 5))
+            for name, run in [
+                ("union", lambda c, o=other: c.union(o)),
+                ("intersect", lambda c, o=other: c.intersect(o)),
+                ("diff", lambda c, o=other: c.diff(o)),
+                ("sym_diff", lambda c, o=other: c.sym_diff(o)),
+                ("is_subset", lambda c, o=other: c.is_subset(o)),
+                ("is_disjoint", lambda c, o=other: c.is_disjoint(o)),
+            ]:
+                got, want = _outcome(run, s), _outcome(run, table)
+                assert _same(got, want), f"{name} [{label}]: {got!r} != {want!r}"
+
+
+def test_compute_callback_modes_stay_native(tmp_path):
+    """Traced lambdas and precompiled kernels must run ZERO python per
+    element across the whole file-level call; an impure callback keeps
+    per-element python semantics — all three modes agree with the oracle."""
+    from east.runtime.compiler import eager_stats
+
+    path = tmp_path / "modes.beast2"
+    rows = _w4_rows(40)
+    write_beast2_file(path, W4_AT, EastArray(W4_ROW, rows), segment_rows=7)
+    with open_beast2_file(path, W4_AT) as f:
+        table = f.load()
+        double = kernel(W4_ROW, lambda r: r.qty * 2)
+
+        before = eager_stats().get("trampoline_calls", 0)
+        via_kernel = list(f.map(double))
+        via_traced = list(f.map(lambda r: r.qty * 2))
+        traced_sum = f.sum(lambda r: r.amt)
+        assert eager_stats().get("trampoline_calls", 0) == before, \
+            "kernel/traced file compute trampolined into python"
+
+        assert via_kernel == via_traced == list(table.map(double))
+        assert traced_sum == table.sum(lambda r: r.amt)
+
+        seen = []
+
+        def impure(r):
+            seen.append(r["qty"])
+            return r["qty"] * 2
+
+        assert list(f.map(impure, out=IntegerType)) == via_kernel
+        assert len(seen) == len(rows)
+
+
+def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):
+    """A hit in the first segment must stop the scan — later segments never
+    decode (the whole point of streaming the fold)."""
+    path = tmp_path / "short.beast2"
+    write_beast2_file(path, W4_AT, EastArray(W4_ROW, _w4_rows(40)), segment_rows=7)
+    consumed = 0
+    original = Beast2ArrayFile.segments
+
+    def counting(self):
+        nonlocal consumed
+        for segment in original(self):
+            consumed += 1
+            yield segment
+
+    monkeypatch.setattr(Beast2ArrayFile, "segments", counting)
+    with open_beast2_file(path, W4_AT) as f:
+        hit = f.first_map(lambda r: some(r["qty"]) if r["qty"] >= 2 else none, out=IntegerType)
+        assert hit.value == 2
+        assert consumed == 1
+        consumed = 0
+        assert f.some(lambda r: r["qty"] >= 2)
+        assert consumed == 1
+
+
+def test_compute_works_without_an_index(tmp_path):
+    """Array compute needs only the sequential stream, so even an index-less
+    blob (random access refused) folds fine."""
+    at = ArrayType(IntegerType)
+    path = tmp_path / "noix.beast2"
+    path.write_bytes(encode_beast2_v5_for(at)(EastArray(IntegerType, [3, 1, 4, 1, 5])))
+    with open_beast2_file(path, at) as f:
+        assert f.indexed is False
+        assert f.sum() == 14
+        assert list(f.map(lambda x: x * 2)) == [6, 2, 8, 2, 10]
+
+
+def test_dict_set_compute_requires_disjoint_segments(tmp_path):
+    with open(tmp_path / "bad.beast2", "wb") as stream, Beast2Writer(DT, stream) as writer:
+        writer.write(EastDict(StringType, IntegerType, {"m": 1, "z": 2}))
+        writer.write(EastDict(StringType, IntegerType, {"a": 3, "b": 4}))
+    with (
+        open_beast2_file(tmp_path / "bad.beast2", DT) as bad,
+        pytest.raises(RuntimeError, match="not key-disjoint"),
+    ):
+        bad.reduce(0, lambda a, k, v: a + v)
+
+
+def test_file_surface_covers_the_eager_read_surface():
+    """The completeness gate: every public eager read method must be either
+    implemented on the file flavor or consciously excluded here with a
+    reason — a new eager method fails this test until W4 covers it."""
+    excluded = {
+        Beast2ArrayFile: {
+            # mutators — the file is read-only
+            "sort", "reverse", "insert", "append", "extend", "pop", "remove", "clear",
+            # whole-collection materializers/reorderers — load() first
+            "sorted", "reversed", "copy", "concat",
+            # constructors / statics
+            "generate", "range", "linspace", "from_columns",
+        },
+        Beast2SetFile: {
+            # mutators
+            "add", "insert", "try_insert", "remove", "delete", "try_delete",
+            "discard", "clear", "union_in_place",
+            # materializer / constructor
+            "copy", "generate",
+        },
+        Beast2DictFile: {
+            # mutators
+            "insert", "get_or_insert", "insert_or_update", "update", "swap",
+            "delete", "try_delete", "pop", "clear", "update_many", "merge_all",
+            # materializers / constructor
+            "merge", "copy", "generate",
+        },
+    }
+    pairs = [
+        (EastArray(IntegerType, []), Beast2ArrayFile),
+        (EastSet(IntegerType), Beast2SetFile),
+        (EastDict(StringType, IntegerType), Beast2DictFile),
+    ]
+    missing = []
+    for instance, file_cls in pairs:
+        names = set()
+        for klass in type(instance).__mro__:
+            if klass.__module__.startswith("east"):
+                names.update(
+                    name for name, member in vars(klass).items()
+                    if not name.startswith("_") and callable(member)
+                )
+        for name in sorted(names):
+            if not hasattr(file_cls, name) and name not in excluded[file_cls]:
+                missing.append(f"{file_cls.__name__}.{name}")
+    assert not missing, f"eager read methods without a file counterpart: {missing}"
 
 
 # ── Writer management ─────────────────────────────────────────────────────
