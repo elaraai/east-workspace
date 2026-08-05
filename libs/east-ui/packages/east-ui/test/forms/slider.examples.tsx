@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, FloatType, NullType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, FloatType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Slider, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, SegmentGroup, Slider, Switch, Text, VStack } from "@elaraai/east-ui";
 
 export const sliderBasic = example({
     keywords: ["Slider", "Root", "min", "max", "step"],
@@ -22,42 +22,68 @@ export const sliderBasic = example({
     inputs: [],
 });
 
-export const sliderInteractive = example({
-    keywords: ["Slider", "Root", "Reactive", "State", "onChange", "interactive"],
-    description: "Drag to see live value updates — paired with mono tabular readout",
+export const sliderVariants = example({
+    keywords: ["Slider", "Root", "step", "disabled", "Reactive", "State", "onChange", "onChangeEnd", "commit", "interactive", "SegmentGroup", "Switch", "Configurator", "configurator"],
+    description: "Slider configurator — a step axis plus disabled and commit-on-release switches on one live State-bound slider with a mono readout",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const sliderBind = $.let(State.bind([FloatType], "form_slider", 50.0));
-            const value = $.let(sliderBind.read());
-            const onChange = $.const(East.function([FloatType], NullType, ($, newValue) => {
-                $(sliderBind.write(newValue));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Slider value={value} min={0} max={100} onChange={onChange} />
-                    {<Text.MonoKpi>{East.str`${East.print(value)} %`}</Text.MonoKpi>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
+            const steps = $.const(["1", "5", "25"], ArrayType(StringType));
 
-export const sliderOnChangeEnd = example({
-    keywords: ["Slider", "Reactive", "State", "onChangeEnd", "commit", "interactive"],
-    description: "Slider that only commits on release via onChangeEnd",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const bind = $.let(State.bind([FloatType], "form_slider_commit", 50.0));
-            const value = $.let(bind.read());
-            const onChangeEnd = $.const(East.function([FloatType], NullType, ($, next) => {
-                $(bind.write(next));
-            }));
+            const stepBind = $.let(State.bind([StringType], "slider_step", "1"));
+            const disabledBind = $.let(State.bind([BooleanType], "slider_disabled", false));
+            const commitBind = $.let(State.bind([BooleanType], "slider_commit", false));
+            const valueBind = $.let(State.bind([FloatType], "form_slider", 50.0));
+
+            const stKey = $.let(stepBind.read());
+            const disabledOn = $.let(disabledBind.read());
+            const commitOn = $.let(commitBind.read());
+            const value = $.let(valueBind.read());
+
+            const onStep = $.const(East.function([StringType], NullType, ($, next) => { $(stepBind.write(next)); }));
+            const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+            const onCommit = $.const(East.function([BooleanType], NullType, ($, next) => { $(commitBind.write(next)); }));
+            const onChange = $.const(East.function([FloatType], NullType, ($, next) => { $(valueBind.write(next)); }));
+
+            // step is a build-time numeric and the commit switch swaps which
+            // callback is wired (onChange live vs onChangeEnd on release).
+            const preview = $.const(commitOn.ifElse(
+                _$ => stKey.equal("5").ifElse(
+                    _$ => <Slider value={value} min={0} max={100} step={5} disabled={disabledOn} onChangeEnd={onChange} />,
+                    _$ => stKey.equal("25").ifElse(
+                        _$ => <Slider value={value} min={0} max={100} step={25} disabled={disabledOn} onChangeEnd={onChange} />,
+                        _$ => <Slider value={value} min={0} max={100} disabled={disabledOn} onChangeEnd={onChange} />,
+                    ),
+                ),
+                _$ => stKey.equal("5").ifElse(
+                    _$ => <Slider value={value} min={0} max={100} step={5} disabled={disabledOn} onChange={onChange} />,
+                    _$ => stKey.equal("25").ifElse(
+                        _$ => <Slider value={value} min={0} max={100} step={25} disabled={disabledOn} onChange={onChange} />,
+                        _$ => <Slider value={value} min={0} max={100} disabled={disabledOn} onChange={onChange} />,
+                    ),
+                ),
+            ));
+
             return (
-                <VStack gap="3" align="stretch">
-                    <Slider value={value} min={0} max={100} onChangeEnd={onChangeEnd} />
-                    {<Text.MonoLabel>{East.str`COMMITTED · ${East.print(value)}`}</Text.MonoLabel>}
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Step", stKey,
+                            <SegmentGroup value={stKey} onChange={onStep} size="sm"
+                                items={steps.map((_$, v) => SegmentGroup.Item(v, <Text>{v}</Text>))} />),
+                        Configurator.Slot("Behaviour",
+                            <HStack gap="5" align="center">
+                                <Switch checked={commitOn} label="Commit on release" onChange={onCommit} />
+                                <Switch checked={disabledOn} label="Disabled" onChange={onDisabled} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "Value · Reactive",
+                        body: <Text.MonoKpi>{East.str`${East.print(value)} %`}</Text.MonoKpi>,
+                    }}
+                    spec={[
+                        Configurator.Spec("Callback", commitOn.ifElse(_$ => "onChangeEnd", _$ => "onChange")),
+                    ]}
+                />
             );
         }}</Reactive>
     )),

@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { FileUpload } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./file-upload.examples.js";
 
 describeEast("FileUpload", (test) => {
     Assert.examples(test, {
         fileUploadBasic: ex.fileUploadBasic,
-        fileUploadOrientation: ex.fileUploadOrientation,
-        fileUploadInteractive: ex.fileUploadInteractive,
-        fileUploadOnFileReject: ex.fileUploadOnFileReject,
+        fileUploadVariants: ex.fileUploadVariants,
+    });
+
+    test("fileUploadVariants is the live configurator", $ => {
+        const panel = $.const(ex.fileUploadVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

@@ -3,15 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Slider, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slider.examples.js";
 
 describeEast("Slider", (test) => {
     Assert.examples(test, {
         sliderBasic: ex.sliderBasic,
-        sliderInteractive: ex.sliderInteractive,
-        sliderOnChangeEnd: ex.sliderOnChangeEnd,
+        sliderVariants: ex.sliderVariants,
+    });
+
+    test("sliderVariants is the live configurator", $ => {
+        const panel = $.const(ex.sliderVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

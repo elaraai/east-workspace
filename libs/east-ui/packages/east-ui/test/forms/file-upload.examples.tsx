@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { FileUpload, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, FileUpload, HStack, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
 
 export const fileUploadBasic = example({
     keywords: ["FileUpload", "Root", "label", "dropzone", "maxFiles", "accept"],
@@ -16,61 +16,57 @@ export const fileUploadBasic = example({
     inputs: [],
 });
 
-export const fileUploadOrientation = example({
-    keywords: ["FileUpload", "Root", "orientation", "vertical", "horizontal", "stacked", "inline"],
-    description: "Both dropzone orientations — vertical (stacked, prominent drop target) and horizontal (inline, compact for a band)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="4" align="stretch" width="100%">
-                <FileUpload orientation="vertical" label="Retrain bundle (stacked)" dropzoneText="or drag and drop" triggerText="Choose file" accept=".tar.gz" />
-                <FileUpload orientation="horizontal" label="Evidence (inline)" dropzoneText="or drag and drop" triggerText="Attach file" />
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const fileUploadInteractive = example({
-    keywords: ["FileUpload", "Reactive", "State", "onFileAccept", "interactive"],
-    description: "FileUpload whose onFileAccept records the number of accepted files",
+export const fileUploadVariants = example({
+    keywords: ["FileUpload", "Root", "orientation", "vertical", "horizontal", "stacked", "inline", "maxFiles", "accept", "Reactive", "State", "onFileAccept", "onFileReject", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    description: "FileUpload configurator — an orientation axis on one live dropzone; the aside counts accepted and rejected files",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const FileInfoArrayType = ArrayType(StructType({ name: StringType, size: IntegerType, type: StringType }));
-            const bind = $.let(State.bind([IntegerType], "fileupload_count", 0n));
-            const value = $.let(bind.read());
-            const onFileAccept = $.const(East.function([FileInfoArrayType], NullType, ($, files) => {
-                $(bind.write(files.length()));
-            }));
-            return (
-                <VStack gap="3" align="stretch" width="100%">
-                    <FileUpload label="Upload Files" dropzoneText="or drag and drop" triggerText="Choose files" maxFiles={5} onFileAccept={onFileAccept} />
-                    {<Text.MonoLabel>{East.str`ACCEPTED · ${value} FILES`}</Text.MonoLabel>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
+            const RejectionArrayType = ArrayType(StructType({ file: StructType({ name: StringType, size: IntegerType, type: StringType }), errors: ArrayType(StringType) }));
+            const orientations = $.const(["vertical", "horizontal"], ArrayType(StringType));
 
-export const fileUploadOnFileReject = example({
-    keywords: ["FileUpload", "Reactive", "State", "onFileReject", "interactive"],
-    description: "FileUpload whose onFileReject records the number of rejected files (try uploading wrong type or oversize file)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const FileRejectionArrayType = ArrayType(StructType({
-                file: StructType({ name: StringType, size: IntegerType, type: StringType }),
-                errors: ArrayType(StringType),
+            const orientationBind = $.let(State.bind([StringType], "fileupload_orientation", "vertical"));
+            const acceptedBind = $.let(State.bind([IntegerType], "fileupload_count", 0n));
+            const rejectedBind = $.let(State.bind([IntegerType], "fileupload_rejected", 0n));
+
+            const oKey = $.let(orientationBind.read());
+            const accepted = $.let(acceptedBind.read());
+            const rejected = $.let(rejectedBind.read());
+
+            const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+            const onFileAccept = $.const(East.function([FileInfoArrayType], NullType, ($, files) => {
+                $(acceptedBind.write(files.length()));
             }));
-            const bind = $.let(State.bind([IntegerType], "fileupload_rejected", 0n));
-            const value = $.let(bind.read());
-            const onFileReject = $.const(East.function([FileRejectionArrayType], NullType, ($, files) => {
-                $(bind.write(files.length()));
+            const onFileReject = $.const(East.function([RejectionArrayType], NullType, ($, rejections) => {
+                $(rejectedBind.write(rejections.length()));
             }));
+
+            const preview = $.const(oKey.equal("horizontal").ifElse(
+                _$ => <FileUpload orientation="horizontal" label="Evidence (inline)" dropzoneText="or drag and drop" triggerText="Attach file" maxFiles={5} accept="image/*" onFileAccept={onFileAccept} onFileReject={onFileReject} />,
+                _$ => <FileUpload orientation="vertical" label="Upload Files" dropzoneText="or drag and drop" triggerText="Choose files" maxFiles={5} accept="image/*" onFileAccept={onFileAccept} onFileReject={onFileReject} />,
+            ));
+
             return (
-                <VStack gap="3" align="stretch" width="100%">
-                    <FileUpload label="Images Only (max 100KB)" dropzoneText="or drag and drop" triggerText="Choose files" accept="image/*" maxFileSize={100000} onFileReject={onFileReject} />
-                    {<Text.MonoLabel>{East.str`REJECTED · ${value} FILES`}</Text.MonoLabel>}
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Orientation", oKey,
+                            <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
+                                items={orientations.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "Files · Reactive",
+                        body: (
+                            <HStack gap="4" align="center">
+                                <Text.MonoLabel>{East.str`ACCEPTED · ${accepted}`}</Text.MonoLabel>
+                                <Text.MonoLabel>{East.str`REJECTED · ${rejected}`}</Text.MonoLabel>
+                            </HStack>
+                        ),
+                    }}
+                    spec={[
+                        Configurator.Spec("Accept", "image/* · max 5"),
+                    ]}
+                />
             );
         }}</Reactive>
     )),

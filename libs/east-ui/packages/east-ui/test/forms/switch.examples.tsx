@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, BooleanType, NullType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Status, Switch, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, SegmentGroup, Switch, Text, VStack } from "@elaraai/east-ui";
 
 export const switchBasic = example({
     keywords: ["Switch", "Root", "label", "toggle", "disabled"],
@@ -23,39 +23,49 @@ export const switchBasic = example({
     inputs: [],
 });
 
-export const switchSizes = example({
-    keywords: ["Switch", "Root", "size", "sm", "md", "lg"],
-    description: "Size variations: sm, md, lg",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Switch checked={true} label="SM" size="sm" />
-                <Switch checked={true} label="MD" size="md" />
-                <Switch checked={true} label="LG" size="lg" />
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const switchInteractive = example({
-    keywords: ["Switch", "Root", "Reactive", "State", "onChange", "interactive"],
-    description: "Toggle switch with live state feedback",
+export const switchVariants = example({
+    keywords: ["Switch", "Root", "size", "sm", "md", "lg", "disabled", "Reactive", "State", "onChange", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    description: "Switch configurator — a size axis plus a disabled switch on one live State-bound toggle",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const switchBind = $.let(State.bind([BooleanType], "form_switch", false));
-            const enabled = $.let(switchBind.read());
-            const onChange = $.const(East.function([BooleanType], NullType, ($, newValue) => {
-                $(switchBind.write(newValue));
-            }));
+            const sizes = $.const(["sm", "md", "lg"], ArrayType(StringType));
+
+            const sizeBind = $.let(State.bind([StringType], "switch_size", "md"));
+            const disabledBind = $.let(State.bind([BooleanType], "switch_disabled", false));
+            const onBind = $.let(State.bind([BooleanType], "form_switch", false));
+
+            const sKey = $.let(sizeBind.read());
+            const disabledOn = $.let(disabledBind.read());
+            const enabled = $.let(onBind.read());
+
+            const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+            const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+            const onChange = $.const(East.function([BooleanType], NullType, ($, next) => { $(onBind.write(next)); }));
+
+            const preview = $.const(sKey.equal("sm").ifElse(
+                _$ => <Switch checked={enabled} label="Auto-refresh" size="sm" disabled={disabledOn} onChange={onChange} />,
+                _$ => sKey.equal("lg").ifElse(
+                    _$ => <Switch checked={enabled} label="Auto-refresh" size="lg" disabled={disabledOn} onChange={onChange} />,
+                    _$ => <Switch checked={enabled} label="Auto-refresh" size="md" disabled={disabledOn} onChange={onChange} />,
+                ),
+            ));
+
             return (
-                <VStack gap="3" align="flex-start">
-                    <Switch checked={enabled} label="Enable feature" onChange={onChange} />
-                    {enabled.ifElse(
-                        _$ => <Status label="Feature on" value="success" />,
-                        _$ => <Status label="Feature off" value="neutral" />,
-                    )}
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Size", sKey,
+                            <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                items={sizes.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
+                        Configurator.Slot("State",
+                            <HStack gap="5" align="center">
+                                <Switch checked={disabledOn} label="Disabled" onChange={onDisabled} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Checked", enabled.ifElse(_$ => "on", _$ => "off")),
+                    ]}
+                />
             );
         }}</Reactive>
     )),

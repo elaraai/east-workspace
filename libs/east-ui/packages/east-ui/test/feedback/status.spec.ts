@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Status, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./status.examples.js";
 
 describeEast("Status", (test) => {
     Assert.examples(test, {
         statusBasic: ex.statusBasic,
-        statusPulsing: ex.statusPulsing,
-        statusRichLabel: ex.statusRichLabel,
-        statusCustomIcon: ex.statusCustomIcon,
+        statusVariants: ex.statusVariants,
+    });
+
+    test("statusVariants is the live configurator", $ => {
+        const panel = $.const(ex.statusVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
