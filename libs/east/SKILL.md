@@ -194,11 +194,11 @@ Task → What do you need?
             ├─ Whole value → encodeBeast2For(T)(value) / decodeBeast2For(T)(blob)
             │   └─ Don't know the type? → decodeBeast2(blob) → { type, value }
             ├─ Collection too big for memory
-            │   ├─ Write → new Beast2Writer(T, sink); w.write(batch); w.finish()  — memory is ONE batch
+            │   ├─ Write → new Beast2Writer(T, sink); w.write(batch); w.finish()  — memory is ONE batch; Set/Dict batches must ascend in East key order
             │   │   └─ already in memory → encodeBeast2SegmentsFor(T)(batches)
             │   ├─ Read a batch at a time → iterBeast2SegmentsFor(T)(blob)   — O(segment)
-            │   └─ Read whole (batches merge) → decodeBeast2For(T)(blob)
-            ├─ Random access by row → openBeast2PagesFor(T)(blob) → .elementCount, .segment(i), .element(row)
+            │   └─ Read whole (segments concatenate) → decodeBeast2For(T)(blob)
+            ├─ Random access by row → openBeast2PagesFor(T)(blob) → .elementCount, .segment(i), .element(row), .slice(offset, limit), .get(key)
             └─ In a browser → same sync API works (portable inflate); decodeBeast2ForAsync(T)(blob) is faster for large blobs
 ```
 
@@ -388,11 +388,11 @@ no call-site change to adopt a newer container.
 | `decodeBeast2ForAsync(T, opts?): (blob) => Promise<…>` | Same as `decodeBeast2For`, but decompresses via the platform's native `DecompressionStream` — an optional speed-up for large blobs in browsers |
 | `encodeEastIR(eastIR)` / `decodeEastIR(blob)` | A program plus its source map, so `loc_id`s stay resolvable across processes |
 | **Collections larger than memory** (v5) |
-| `new Beast2Writer(T, sink, opts?)` | Append-only writer. `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch, never the collection; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void` |
+| `new Beast2Writer(T, sink, opts?)` | Append-only writer. `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch, never the collection; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void`. Set/Dict batches must arrive in strict ascending East (key) order — segment content is the canonical value, so pre-sort, or model arrival order as an Array |
 | `encodeBeast2SegmentsFor(T, opts?): (batches) => Uint8Array` | In-memory convenience over the writer |
 | `encodeBeast2PagedFor(T, opts?): (value) => Uint8Array` | Encode ONE whole collection value segmented + indexed — the write-side sibling of `openBeast2PagesFor`, for values that will be read paged later. Batches adapt to `opts.targetSegmentBytes` of wire output (capped at `opts.batchSize` elements), so wide rows still yield right-sized segments. Same wire form as the writer; bytes differ from the whole-value encode of the same value |
 | `iterBeast2SegmentsFor(T, opts?): (blob) => Generator` | Yields one decoded collection per segment — O(segment) decoded memory |
-| `openBeast2PagesFor(T, opts?): (blob) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)`, `.element(row)` and `.slice(offset, limit)` (Array roots, clamps like `Array.slice`) decode only the segments they touch |
+| `openBeast2PagesFor(T, opts?): (blob) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)`, `.element(row)` (Array roots) and `.slice(offset, limit)` (every root kind — Set/Dict windows address the canonical sorted order; clamps like `Array.slice`) decode only the segments they touch; `.get(key)` looks up one Set element / Dict value via the verified segment fences |
 
 **Example:**
 ```typescript
@@ -425,8 +425,11 @@ pages.element(4_000_000);                           // decodes ONE segment
 ```
 
 **Notes:**
-- Merging on decode follows the collection: **Array** concatenates, **Set**
-  unions, **Dict** keeps the last occurrence of a key (update semantics).
+- Segments always **concatenate** — for Set/Dict the wire holds the canonical
+  value (strictly ascending, disjoint segments, no duplicate keys), so writers
+  reject out-of-order batches and decoders reject non-canonical blobs as
+  corrupt. Encoders sort plain `Map`/`Set` inputs, so the same logical value
+  always produces the same bytes.
 - `write()` skips empty batches, so a segment count is never zero.
 - Streaming and paging are v5-only — v4 cannot be appended to, by construction.
 - The writer defaults to self-contained segments plus an index, which is what

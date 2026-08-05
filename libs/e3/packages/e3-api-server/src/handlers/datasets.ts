@@ -157,9 +157,9 @@ export interface DatasetPageWindow {
 /**
  * Per-hash LRU of decoded dataset values.
  *
- * Backs the paths that need the whole (merged) value: un-indexed blobs and
- * Set/Dict element windows. Objects are immutable and content-addressed, so
- * entries never invalidate — capacity is the only bound.
+ * Backs the whole-decode fallback for blobs without a pageable segment
+ * index. Objects are immutable and content-addressed, so entries never
+ * invalidate — capacity is the only bound.
  */
 export class DecodedValueCache {
   private readonly map = new Map<string, unknown>();
@@ -190,37 +190,28 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
   });
 }
 
-/** Takes `limit` entries of an iterable starting at `offset` — the sorted
- *  Set/Dict element window over a merged (East-ordered) container. */
-function* iterWindow<E>(iterable: Iterable<E>, offset: number, limit: number): Generator<E> {
-  let index = 0;
-  let taken = 0;
-  for (const item of iterable) {
-    if (taken >= limit) return;
-    if (index++ < offset) continue;
-    taken++;
-    yield item;
-  }
-}
-
 /**
  * Get one window of a collection dataset as raw BEAST2 bytes.
  *
  * The body is a valid value of the dataset's own type holding only the
  * window; totals and window placement ride on `X-*` headers. Element windows
- * are exact for every collection kind: Array windows are in stream order,
- * Set/Dict windows are in East sort order over the merged value. Segment
- * windows return one writer batch verbatim and need an indexed blob.
+ * are exact for every collection kind: Array windows address stream order,
+ * Set/Dict windows the canonical East (key) order — which IS the wire order,
+ * since v5 Set/Dict segments hold the canonical value in disjoint ascending
+ * ranges. Segment windows return one writer batch verbatim and need an
+ * indexed blob.
  *
- * Strategy: indexed Array blobs slice via the trailing index (decoding only
- * the touched segments); everything else decodes the whole value once into
- * the per-hash LRU and slices per request.
+ * Strategy: indexed blobs of every kind slice via the trailing index,
+ * decoding only the touched segments (Set/Dict windows verify the segment
+ * fences first and reject non-canonical blobs as corrupt); blobs without a
+ * pageable index decode whole once into the per-hash LRU and slice per
+ * request.
  */
 /** Server-side limits for {@link getDatasetPage}. */
 export interface DatasetPageLimits {
   /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
   byteBudget?: number;
-  /** Whole-decode cap for un-indexed blobs and merged Set/Dict windows
+  /** Whole-decode cap for blobs without a pageable segment index
    *  (default {@link PAGE_UNINDEXED_MAX_BYTES_DEFAULT}). */
   unindexedMaxBytes?: number;
   /** Absolute blob-buffering cap (default {@link PAGE_READ_MAX_BYTES_DEFAULT}). */
@@ -308,7 +299,6 @@ export async function getDatasetPage(
 
     let windowValue: unknown;
     let totalElements: number;
-    let totalExact: boolean;
     let pageOffset: number;
     let pageCount: number;
 
@@ -326,16 +316,23 @@ export async function getDatasetPage(
         return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
       }
       totalElements = pages.elementCount;
-      totalExact = kind === 'Array';
       pageCount = pages.counts[seg]!;
       pageOffset = 0;
       for (let i = 0; i < seg; i++) pageOffset += pages.counts[i]!;
-    } else if (kind === 'Array' && pages !== null && pages.selfContained) {
+    } else if (pages !== null && pages.selfContained) {
+      // The indexed fast path, every collection kind: Array windows address
+      // stream order, Set/Dict windows the canonical key order (fences are
+      // verified on first access; a non-canonical blob is corrupt).
       totalElements = pages.elementCount;
-      totalExact = true;
       const limit = effectiveLimit(totalElements);
-      windowValue = pages.slice(offset, limit);
-      pageCount = (windowValue as unknown[]).length;
+      try {
+        windowValue = pages.slice(offset, limit);
+      } catch (err) {
+        return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
+      }
+      pageCount = kind === 'Array'
+        ? (windowValue as unknown[]).length
+        : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
       pageOffset = offset;
     } else {
       let merged = cache.get(status.hash);
@@ -344,15 +341,13 @@ export async function getDatasetPage(
       if (merged === undefined && data.byteLength > unindexedMaxBytes) {
         const mb = Math.round(data.byteLength / 1024 / 1024);
         const capMb = Math.round(unindexedMaxBytes / 1024 / 1024);
-        return pageError('dataset_too_large_unindexed', pages === null
-          ? `Dataset is ${mb} MB and stored without a segment index — beyond the ${capMb} MB whole-decode cap. Re-run the producing task (current runners store large collections segmented) or download it.`
-          : `Sorted element windows over this ${mb} MB ${kind} need a whole decode — beyond the ${capMb} MB cap. Address it by segment (?page=true&segment=K) or download it.`);
+        return pageError('dataset_too_large_unindexed',
+          `Dataset is ${mb} MB and stored without a pageable segment index — beyond the ${capMb} MB whole-decode cap. Re-run the producing task (current runners store large collections segmented) or download it.`);
       }
       if (merged === undefined) {
         merged = decodeBeast2For(typeValue)(data);
         cache.set(status.hash, merged);
       }
-      totalExact = true;
       if (kind === 'Array') {
         const arr = merged as unknown[];
         totalElements = arr.length;
@@ -363,14 +358,28 @@ export async function getDatasetPage(
         const set = merged as Set<unknown>;
         totalElements = set.size;
         const limit = effectiveLimit(totalElements);
-        windowValue = new Set(iterWindow(set, offset, limit));
-        pageCount = (windowValue as Set<unknown>).size;
+        const win = new Set<unknown>();
+        let i = 0;
+        for (const item of set) {
+          if (i >= offset + limit) break;
+          if (i >= offset) win.add(item);
+          i++;
+        }
+        windowValue = win;
+        pageCount = win.size;
       } else {
         const map = merged as Map<unknown, unknown>;
         totalElements = map.size;
         const limit = effectiveLimit(totalElements);
-        windowValue = new Map(iterWindow(map.entries(), offset, limit));
-        pageCount = (windowValue as Map<unknown, unknown>).size;
+        const win = new Map<unknown, unknown>();
+        let i = 0;
+        for (const [k, v] of map.entries()) {
+          if (i >= offset + limit) break;
+          if (i >= offset) win.set(k, v);
+          i++;
+        }
+        windowValue = win;
+        pageCount = win.size;
       }
       pageOffset = offset;
     }
@@ -391,7 +400,9 @@ export async function getDatasetPage(
         // line); Content-Length remains the page's own bytes.
         'X-Total-Bytes': String(data.byteLength),
         'X-Total-Elements': String(totalElements),
-        'X-Total-Exactness': totalExact ? 'exact' : 'upper-bound',
+        // Always exact: Array counts index stream order, and v5 Set/Dict
+        // segments are disjoint ranges of the canonical value.
+        'X-Total-Exactness': 'exact',
         'X-Segment-Count': String(pages ? pages.segmentCount : 0),
         'X-Page-Offset': String(pageOffset),
         'X-Page-Count': String(pageCount),

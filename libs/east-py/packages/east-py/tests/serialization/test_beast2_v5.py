@@ -6,8 +6,10 @@
 
 Bounded-memory encode via :class:`Beast2Writer` (one root segment per batch),
 whole decode through the ordinary entry points (magic dispatch), segment-wise
-decode via ``iter_beast2_segments_for``. Array segments concatenate, Set
-segments union, Dict segments keep the last occurrence of a key."""
+decode via ``iter_beast2_segments_for``. Segments always concatenate: Set/Dict
+wire content is the canonical value split at segment boundaries (strictly
+ascending, disjoint segments), writers reject out-of-order batches, and
+decoders reject non-canonical wire as corrupt."""
 
 import io
 
@@ -131,23 +133,64 @@ def test_ts_deflate_blob_decodes():
     assert list(decoded) == [i % 10 for i in range(100)]
 
 
-def test_set_segments_union_and_dict_segments_keep_the_last_occurrence():
+#: The canonical Dict sibling of SHARED_HEX — the SAME bytes are pinned in
+#: libs/east's v5/index.spec.ts and east-c's test_beast2_hardening.c, proving
+#: all three runtimes produce and accept identical canonical Set/Dict streams
+#: (codec "none", batches {a:1, b:2} + {c:3}).
+SHARED_DICT_HEX = (
+    "89456173740d0a050007020301020b0001010000010100000707020161020162040004040101630600"
+    "010100010217020a012c0000000000000089456173740d0af5"
+)
+
+
+def test_sorted_set_and_dict_batches_concatenate_canonically():
     st = SetType(IntegerType)
     s_blob = encode_beast2_segments_for(st)(
-        [EastSet(IntegerType, [3, 1]), EastSet(IntegerType, [1, 2])]
+        [EastSet(IntegerType, [1, 2]), EastSet(IntegerType, [3, 5])]
     )
-    assert sorted(decode_beast2_with_header_for(st)(s_blob)) == [1, 2, 3]
+    assert sorted(decode_beast2_with_header_for(st)(s_blob)) == [1, 2, 3, 5]
 
     dt = DictType(StringType, IntegerType)
-    d_blob = encode_beast2_segments_for(dt)(
+    d_blob = encode_beast2_segments_for(dt, codec="none")(
         [
             EastDict(StringType, IntegerType, {"a": 1, "b": 2}),
-            EastDict(StringType, IntegerType, {"b": 9}),
+            EastDict(StringType, IntegerType, {"c": 3}),
         ]
     )
-    merged = decode_beast2_with_header_for(dt)(d_blob)
-    assert merged["a"] == 1 and merged["b"] == 9
-    assert len(merged) == 2
+    assert d_blob.hex() == SHARED_DICT_HEX
+    d = decode_beast2_with_header_for(dt)(bytes.fromhex(SHARED_DICT_HEX))
+    assert d["a"] == 1 and d["b"] == 2 and d["c"] == 3
+    assert len(d) == 3
+
+
+def test_writer_rejects_out_of_order_batches():
+    """Set/Dict segment content is the canonical value split at segment
+    boundaries — a batch at or below the previous batch's greatest key
+    (overlap or duplicate) never reaches the wire."""
+    st = SetType(IntegerType)
+    with pytest.raises(RuntimeError, match="strictly ascending"):
+        encode_beast2_segments_for(st)(
+            [EastSet(IntegerType, [1, 2]), EastSet(IntegerType, [2, 3])]
+        )
+    dt = DictType(StringType, IntegerType)
+    with pytest.raises(RuntimeError, match="strictly ascending"):
+        encode_beast2_segments_for(dt)(
+            [
+                EastDict(StringType, IntegerType, {"a": 1, "b": 2}),
+                EastDict(StringType, IntegerType, {"b": 9}),
+            ]
+        )
+
+
+def test_decode_rejects_non_canonical_set_wire_as_corrupt():
+    """Reordering a canonical blob's elements makes it the encoding of no
+    East value — decoders validate, never repair."""
+    st = SetType(IntegerType)
+    blob = bytearray(encode_beast2_v5_for(st, codec="none")(EastSet(IntegerType, [1, 2])))
+    # Tail bytes: [.., NEW, n=2, zigzag(1), zigzag(2), terminator].
+    blob[-2], blob[-3] = blob[-3], blob[-2]
+    with pytest.raises((RuntimeError, ValueError), match="strictly ascending"):
+        decode_beast2_with_header_for(st)(bytes(blob))
 
 
 def test_zero_batches_decode_to_the_empty_collection_of_each_kind():
@@ -259,8 +302,9 @@ def test_paging_requires_an_index_and_a_collection_root():
 
 
 def test_paging_element_addresses_array_roots_only():
-    """Set/Dict roots have no stable row order across segments, so element()
-    refuses rather than inventing one; segment() still works."""
+    """element() is the Array row accessor; Set/Dict rows are keyed — the
+    keyed reads (Beast2File.has/get and friends) address them. segment()
+    works for every root kind."""
     st = SetType(StringType)
     blob = encode_beast2_segments_for(st, codec="none")(
         [EastSet(StringType, ["a", "b"]), EastSet(StringType, ["c"])]

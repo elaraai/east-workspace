@@ -23,6 +23,7 @@ struct Beast2StreamWriter {
     size_t *seg_counts;
     size_t seg_count;
     size_t seg_cap;
+    EastValue *last_key; /* retained; greatest Set element / Dict key written */
 };
 
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
@@ -96,6 +97,34 @@ bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
     /* Empty batches are skipped — segment counts are never zero, so the
      * stream terminator stays unambiguous. */
     if (n == 0) return true;
+
+    /* Set/Dict segment content is the canonical value split at segment
+     * boundaries. Batches are btrees (internally sorted by construction), so
+     * only the boundary needs checking: the batch must start strictly above
+     * the previous batch's greatest key. */
+    if (w->type->kind != EAST_TYPE_ARRAY) {
+        EastValue *first = w->type->kind == EAST_TYPE_SET ? east_set_at(batch, 0)
+                                                          : east_dict_key_at(batch, 0);
+        if (w->last_key && first && east_value_compare(w->last_key, first) >= 0) {
+            east_builtin_error(
+                w->type->kind == EAST_TYPE_SET
+                    ? "beast2 v5: Set stream batches must be strictly ascending in East element "
+                      "order — segment content is the canonical value; pre-sort batches, or "
+                      "encode arrival order as an Array"
+                    : "beast2 v5: Dict stream batches must be strictly ascending in East key "
+                      "order — segment content is the canonical value; pre-sort batches, or "
+                      "encode arrival order as an Array");
+            w->failed = true;
+            return false;
+        }
+        EastValue *last = w->type->kind == EAST_TYPE_SET ? east_set_at(batch, n - 1)
+                                                         : east_dict_key_at(batch, n - 1);
+        if (last) {
+            if (w->last_key) east_value_release(w->last_key);
+            w->last_key = last;
+            east_value_retain(last);
+        }
+    }
 
     b2v5_enc_ctx_begin_segment(&w->ctx);
 
@@ -193,6 +222,7 @@ void east_beast2_writer_free(Beast2StreamWriter *w)
 {
     if (!w) return;
     if (w->type) east_type_release(w->type);
+    if (w->last_key) east_value_release(w->last_key);
     b2v5_enc_ctx_free(&w->ctx);
     if (w->pending) byte_buffer_free(w->pending);
     free(w->seg_offsets);
@@ -210,6 +240,7 @@ struct Beast2SegmentReader {
     EastType *type; /* retained decode type */
     B2V5Frames frames;
     B2V5DecodeCtx ctx;
+    B2V5OrderCheck order;        /* strict ascent across segments (Set/Dict) */
     EastValue *root_placeholder; /* definition 0; owned, never returned */
     EastSourceMap sm;            /* owned (header + inline deltas) */
     B2V5Index index;
@@ -355,9 +386,18 @@ EastValue *east_beast2_reader_next(Beast2SegmentReader *r)
         return NULL;
     }
     if (!b2v5_decode_elements_into(segment, r->type, n, r->frames.chunk, r->frames.chunk_len,
-                                   &r->frames.chunk_off, &r->ctx)) {
+                                   &r->frames.chunk_off, &r->ctx,
+                                   r->type->kind == EAST_TYPE_ARRAY ? NULL : &r->order)) {
         east_value_release(segment);
-        east_builtin_error("beast2 v5: malformed segment");
+        /* Keep a specific posted message (e.g. the canonical-order
+         * violation) over the generic one. */
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
+            east_builtin_error("beast2 v5: malformed segment");
+        }
         r->failed = true;
         return NULL;
     }
@@ -382,6 +422,7 @@ void east_beast2_reader_free(Beast2SegmentReader *r)
     if (!r) return;
     if (r->type) east_type_release(r->type);
     if (r->root_placeholder) east_value_release(r->root_placeholder);
+    b2v5_order_check_dispose(&r->order);
     b2v5_frames_dispose(&r->frames);
     b2v5_dec_ctx_free(&r->ctx);
     beast2_source_map_free(&r->sm);
@@ -672,6 +713,7 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
 
     B2V5Frames f;
     B2V5DecodeCtx ctx;
+    B2V5OrderCheck order = {0};
     EastValue *segment = NULL;
     EastValue *result = NULL;
     uint64_t n = 0;
@@ -699,8 +741,17 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
     }
     segment = b2v5_new_segment_container(p->type, (size_t)n);
     if (!segment) goto done;
-    if (!b2v5_decode_elements_into(segment, p->type, n, f.chunk, f.chunk_len, &f.chunk_off, &ctx)) {
-        east_builtin_error("beast2 v5: malformed segment");
+    if (!b2v5_decode_elements_into(segment, p->type, n, f.chunk, f.chunk_len, &f.chunk_off, &ctx,
+                                   p->type->kind == EAST_TYPE_ARRAY ? NULL : &order)) {
+        /* Keep a specific posted message (e.g. the canonical-order
+         * violation) over the generic one. */
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
+            east_builtin_error("beast2 v5: malformed segment");
+        }
         goto done;
     }
     if (!b2v5_chunk_exhausted(&f)) {
@@ -721,6 +772,7 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
 
 done:
     if (segment) east_value_release(segment);
+    b2v5_order_check_dispose(&order);
     b2v5_dec_ctx_free(&ctx);
     b2v5_frames_dispose(&f);
     return result;
@@ -958,9 +1010,8 @@ static bool pages_fence_search(Beast2Pages *p, EastValue *key, bool or_equal, si
 
 static void pages_disjoint_error(void)
 {
-    east_builtin_error("beast2 v5: segments are not key-disjoint — keyed reads need "
-                       "segments split along sorted key order (what write_beast2_file "
-                       "and Beast2FileWriter produce)");
+    east_builtin_error("beast2 v5: segments are not disjoint ascending key ranges — the wire "
+                       "must hold the canonical value (corrupt or pre-contract blob)");
 }
 
 /* Keyed reads assume the fences ascend STRICTLY (unique keys, disjoint

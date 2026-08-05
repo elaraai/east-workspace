@@ -7,8 +7,9 @@
  * Paged dataset read test suite (`?page=true`).
  *
  * Element windows are exact for every collection kind — Array in stream
- * order, Set/Dict in East sort order over the merged value. Segment windows
- * need an indexed blob (large collections are stored segmented server-side).
+ * order, Set/Dict in the canonical East key order, which v5 blobs hold on
+ * the wire (sorted, disjoint segments). Segment windows need an indexed
+ * blob (large collections are stored segmented server-side).
  */
 
 import { describe, it } from 'node:test';
@@ -151,7 +152,8 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
 
-      // Insert keys in reverse so wire order differs from sort order.
+      // Insert keys in reverse — the encoder canonicalizes, so the stored
+      // wire is sorted regardless of the source container's iteration order.
       const entries = Array.from({ length: 100 }, (_, i) => [`k${String(i).padStart(3, '0')}`, BigInt(i)] as [string, bigint]);
       const lookup = new Map([...entries].reverse());
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(lookup), opts);
@@ -161,6 +163,34 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.equal(page.totalExact, true);
       const decoded = decodeBeast2For(LookupType)(page.data) as Map<string, bigint>;
       assert.deepEqual([...decoded.keys()], ['k010', 'k011', 'k012', 'k013', 'k014'], 'window is sorted by key');
+    });
+
+    it('large dict windows page via the segment index in canonical key order', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      // Above the segmentation threshold: stored segmented + indexed, so
+      // windows decode only the touched segments via the verified fences.
+      const entries = Array.from({ length: 2500 }, (_, i) => [`k${String(i).padStart(4, '0')}`, BigInt(i)] as [string, bigint]);
+      const lookup = new Map([...entries].reverse());
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(lookup), opts);
+
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { offset: 995, limit: 10 }, opts);
+      assert.equal(page.totalElements, 2500);
+      assert.equal(page.totalExact, true, 'segment counts are exact for Dict blobs');
+      assert.ok(page.segmentCount >= 2, `large dict should be stored segmented, got ${page.segmentCount} segments`);
+      assert.equal(page.offset, 995);
+      assert.equal(page.count, 10);
+      const decoded = decodeBeast2For(LookupType)(page.data) as Map<string, bigint>;
+      assert.deepEqual(
+        [...decoded.entries()],
+        entries.slice(995, 1005),
+        'window crosses the segment boundary in canonical key order');
+
+      // Segment windows of a dict report exact totals too.
+      const seg = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { segment: 0 }, opts);
+      assert.equal(seg.totalElements, 2500);
+      assert.equal(seg.totalExact, true);
     });
 
     it('non-collection datasets and bad windows are refused', async (t) => {

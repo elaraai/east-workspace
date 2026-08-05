@@ -116,7 +116,13 @@ class Beast2Writer:
     def __enter__(self) -> Beast2Writer:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, exc_type, *exc) -> None:
+        if exc_type is not None:
+            # The stream is already failed or abandoned mid-write; finishing
+            # would raise again and MASK the original error. Mark closed and
+            # let it propagate — the output is incomplete either way.
+            self._closed = True
+            return
         self.close()
 
 
@@ -209,8 +215,8 @@ def _as_buffer(source):
 def read_beast2_index(collection_type, source) -> tuple[int, int] | None:
     """Return ``(segment_count, element_count)`` from a v5 blob's trailing
     index, or ``None`` when the blob carries no index. ``element_count`` is
-    exact for Array roots and an upper bound for Set/Dict roots (cross-segment
-    duplicates collapse on merge)."""
+    exact for every root kind — Set/Dict segments are disjoint ranges of the
+    canonical value, so counts never overlap."""
     core = _Beast2ReaderCore(collection_type, _as_buffer(source))
     return core.counts()
 
@@ -238,8 +244,8 @@ class Beast2Pages:
         self.segment_count: int = self._core.segment_count()
         """Number of segments in the blob."""
         self.element_count: int = self._core.element_count()
-        """Sum of the per-segment counts. Exact for Array roots; an upper bound
-        for Set/Dict roots, where cross-segment duplicates collapse on merge."""
+        """Sum of the per-segment counts — exact for every root kind (Set/Dict
+        segments are disjoint ranges of the canonical value)."""
         self.self_contained: bool = self._core.self_contained()
         """Whether segments are independently decodable (required to seek)."""
         self.counts: tuple[int, ...] = self._core.counts()
@@ -528,12 +534,9 @@ class Beast2File:
         return decode_beast2_with_header_for(self.collection_type)(self._mm)
 
     def __len__(self) -> int:
-        """Element count from the index, O(1).
-
-        Exact for Array roots. For Set/Dict roots it is the sum of per-segment
-        counts — exact when segments are key-disjoint (what our writers
-        produce; keyed reads verify the boundaries they land on), an upper
-        bound otherwise.
+        """Element count from the index, O(1) — exact for every root kind
+        (Set/Dict segments are disjoint ranges of the canonical value; keyed
+        reads verify the boundaries they land on).
         """
         return self._require_pages().element_count
 
@@ -1445,9 +1448,10 @@ class Beast2DictFile(Beast2File):
     Keyed point reads decode only the owning segment: east-c binary-searches
     the segment *fences* (each segment's first key, decoded from a bounded
     probe of its frame and cached) to pick the segment, decodes it through a
-    small shared LRU, and answers from the in-segment b-tree. Requires the
-    key-disjoint segments our writers produce — a violated landing boundary
-    raises ``segments are not key-disjoint``.
+    small shared LRU, and answers from the in-segment b-tree. The wire
+    contract guarantees disjoint ascending segments; a corrupt (or
+    pre-contract) blob that violates it raises ``segments are not disjoint
+    ascending key ranges`` instead of reporting false misses.
     """
 
     @property
@@ -2428,7 +2432,13 @@ class Beast2FileWriter:
     def __enter__(self) -> Beast2FileWriter:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, exc_type, *exc) -> None:
+        if exc_type is not None:
+            # Same contract as Beast2Writer.__exit__: never mask the
+            # in-flight error with a finish failure.
+            self._closed = True
+            self._file.close()
+            return
         self.close()
 
     def _coerce(self, batch):
@@ -2589,8 +2599,10 @@ def splice_beast2_files(path, collection_type, sources, *, verify: bool = False)
     Keeps the first source's header, copies every source's segment frames
     through untouched (``os.sendfile`` — no decode, no re-encode), and writes
     one merged trailing index. The output is structurally indistinguishable
-    from a single writer's file; row order is source order, and Set/Dict
-    sources merge on decode with the ordinary segment semantics.
+    from a single writer's file; row order is source order. Set/Dict sources
+    must ascend disjointly in source order — segments concatenate into the
+    canonical value, and a splice whose sources overlap produces a blob the
+    strict readers reject as corrupt.
 
     ``sources`` is a sequence or any iterable of paths, **consumed lazily** —
     pass a generator that yields each shard as it completes and the
@@ -2610,8 +2622,7 @@ def splice_beast2_files(path, collection_type, sources, *, verify: bool = False)
             terminator, index consistency) at O(one segment) memory.
 
     Returns:
-        ``(segment_count, element_count)`` of the merged file (elements are
-        exact for Array roots; the per-segment sum for Set/Dict roots).
+        ``(segment_count, element_count)`` of the merged file.
     """
     _check_segmented(collection_type)
     dest = os.fspath(path)

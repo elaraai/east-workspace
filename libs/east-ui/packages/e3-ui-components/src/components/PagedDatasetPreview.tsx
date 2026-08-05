@@ -100,7 +100,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
 }: PagedDatasetPreviewProps) {
     const queryClient = useQueryClient();
     const [pages, setPages] = useState<ReadonlyMap<number, readonly ValueTreePagedRow[]>>(new Map());
-    const [totals, setTotals] = useState<{ elements: number; exact: boolean; bytes: number } | null>(null);
+    const [totals, setTotals] = useState<{ elements: number; bytes: number } | null>(null);
     const [loadingCount, setLoadingCount] = useState(0);
     const [error, setError] = useState<Error | null>(null);
     const inflightRef = useRef(new Set<number>());
@@ -130,12 +130,12 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         }).then((page) => {
             const decoded = decodeBeast2For(type)(page.data);
             const rows = pageRows(type, decoded, page.offset);
-            pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements}${page.totalExact ? '' : '+'} segs=${page.segmentCount}`,
+            pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements} segs=${page.segmentCount}`,
                 rows.length > 0 ? `first=${JSON.stringify(rows[0]!.label ?? '(derived)')}` : '(empty)');
             if (page.count < PAGE_SIZE && page.offset + page.count < page.totalElements) {
                 pagingDebug(`p${pageIdx} SHORT page: server clamped ${PAGE_SIZE} → ${page.count}`);
             }
-            setTotals({ elements: page.totalElements, exact: page.totalExact, bytes: page.totalBytes });
+            setTotals({ elements: page.totalElements, bytes: page.totalBytes });
             setPages((prev) => new Map(prev).set(pageIdx, rows));
         }).catch((err: unknown) => {
             pagingDebug(`p${pageIdx} FAILED:`, err);
@@ -205,7 +205,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         <Flex direction="column" height="100%" overflow="hidden">
             <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
                 <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">
-                    {totals.elements.toLocaleString()}{totals.exact ? '' : '+'} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes)}
+                    {totals.elements.toLocaleString()} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes)}
                 </Text>
                 {loadingCount > 0 && <Text fontSize="xs" color="fg.muted">Loading…</Text>}
                 <Flex flex={1} justify="flex-end">

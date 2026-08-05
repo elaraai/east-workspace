@@ -647,6 +647,10 @@ static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header
     size_t *seg_counts = NULL;
     size_t seg_count = 0, seg_cap = 0;
     bool segmented = b2v5_is_segmented_root(decode_type);
+    /* One strict-ascent state across all root segments: Set/Dict wire content
+     * is the canonical value, so segments concatenate in ascending order. */
+    B2V5OrderCheck order = {0};
+    B2V5OrderCheck *op = segmented && decode_type->kind != EAST_TYPE_ARRAY ? &order : NULL;
 
     if (!b2v5_frames_next(&frames)) goto done;
 
@@ -718,7 +722,7 @@ static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header
             }
             seg_counts[seg_count++] = (size_t)n;
             if (!b2v5_decode_elements_into(container, decode_type, n, frames.chunk,
-                                           frames.chunk_len, &frames.chunk_off, &ctx)) {
+                                           frames.chunk_len, &frames.chunk_off, &ctx, op)) {
                 east_value_release(container);
                 goto corrupt;
             }
@@ -755,10 +759,20 @@ static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header
     }
     goto done;
 
-corrupt:
-    east_builtin_error("beast2 v5: malformed value stream");
+corrupt: {
+    /* Keep a specific posted message (e.g. the canonical-order violation)
+     * over the generic one. */
+    char *specific = east_builtin_get_error();
+    if (specific) {
+        east_builtin_error(specific);
+        free(specific);
+    } else {
+        east_builtin_error("beast2 v5: malformed value stream");
+    }
+}
 
 done:
+    b2v5_order_check_dispose(&order);
     free(seg_counts);
     b2v5_frames_dispose(&frames);
     b2v5_dec_ctx_free(&ctx);

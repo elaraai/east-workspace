@@ -25,6 +25,9 @@ import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { SourceMap } from "../../../location.js";
+import { compareFor } from "../../../comparison.js";
+import { SortedSet } from "../../../containers/sortedset.js";
+import { SortedMap } from "../../../containers/sortedmap.js";
 import { type Beast2DecodeOptions, buildPlatformContext } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, writeFrame } from "./frames.js";
@@ -54,6 +57,16 @@ function checkSegmented(typeValue: EastTypeValue): SegmentedKind {
   }
   return typeValue.type as SegmentedKind;
 }
+
+/** The East comparator over a stream's order key — Set elements or Dict
+ *  keys; `null` for Array roots, which have no order contract. */
+function orderCmpFor(typeValue: EastTypeValue, kind: SegmentedKind): ((a: any, b: any) => number) | null {
+  if (kind === "Array") return null;
+  return compareFor(kind === "Set" ? (typeValue as any).value : (typeValue as any).value.key);
+}
+
+/** Running strict-ascent state threaded through ordered decodes. */
+type SegmentOrder = { prev: any; has: boolean };
 
 /** Options accepted by {@link Beast2Writer} and {@link encodeBeast2SegmentsFor}. */
 export type Beast2WriterOptions = {
@@ -105,6 +118,9 @@ export class Beast2Writer<T extends EastType = EastType> {
   private readonly ctx: V5EncodeContext;
   private readonly encodeElems: (value: any, logical: BufferWriter) => void;
   private readonly index: { offset: number; count: number }[] = [];
+  private readonly orderCmp: ((a: any, b: any) => number) | null;
+  private lastKey: any;
+  private hasLast = false;
   private bytesWritten = 0;
   private finished = false;
 
@@ -121,6 +137,7 @@ export class Beast2Writer<T extends EastType = EastType> {
     this.codec = options?.codec ?? "deflate";
     this.selfContained = options?.selfContained ?? true;
     this.withIndex = options?.index ?? true;
+    this.orderCmp = orderCmpFor(typeValue, this.kind);
 
     const sourceMap = options?.sourceMap ?? null;
     this.ctx = createV5EncodeContext(sourceMap, this.selfContained);
@@ -163,13 +180,21 @@ export class Beast2Writer<T extends EastType = EastType> {
    * Empty batches are skipped — a segment count is never zero, so the stream
    * terminator stays unambiguous.
    *
+   * Set/Dict batches must continue the stream's strict East (key) order:
+   * segment content is the canonical value split at segment boundaries, so
+   * each batch must be internally ascending and start above the previous
+   * batch's last key. Pre-sort into batches (a `SortedMap`/`SortedSet` slice,
+   * or an external sort), or encode arrival order as an Array of entries.
+   *
    * @param batch - a value of the declared collection type
-   * @throws {Error} When called after {@link finish}.
+   * @throws {Error} When called after {@link finish}, or when a Set/Dict
+   *   batch violates the stream's strict ascending (key) order.
    */
   write(batch: ValueTypeOf<T>): void {
     if (this.finished) throw new Error("write() after finish()");
     const count = this.kind === "Array" ? (batch as any[]).length : (batch as any).size;
     if (count === 0) return;
+    if (this.orderCmp) this.checkAscent(batch);
 
     if (this.selfContained) {
       this.ctx.containerIndex.clear();
@@ -203,6 +228,23 @@ export class Beast2Writer<T extends EastType = EastType> {
       writeIndexAndFooterAt(tail, this.bytesWritten + before, this.index, this.selfContained && !this.ctx.crossSegmentRef);
     }
     this.emit(tail.toUint8Array());
+  }
+
+  /** Validates that a Set/Dict batch continues the stream's strict ascent
+   *  in East (key) order — within the batch and against the previous batch. */
+  private checkAscent(batch: any): void {
+    const keys: Iterable<any> = this.kind === "Set" ? batch : (batch as Map<any, any>).keys();
+    for (const k of keys) {
+      if (this.hasLast && this.orderCmp!(this.lastKey, k) >= 0) {
+        throw new Error(
+          `beast2 v5: ${this.kind} stream batches must be strictly ascending in East ` +
+          `${this.kind === "Dict" ? "key" : "element"} order — segment content is the canonical value; ` +
+          `pre-sort batches, or encode arrival order as an Array`
+        );
+      }
+      this.lastKey = k;
+      this.hasLast = true;
+    }
   }
 
   private emit(bytes: Uint8Array): void {
@@ -314,6 +356,7 @@ export type Beast2PagedEncodeOptions = {
 export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2PagedEncodeOptions): (value: ValueTypeOf<T>) => Uint8Array {
   const typeValue = asTypeValue(type);
   const kind = checkSegmented(typeValue);
+  const cmp = orderCmpFor(typeValue, kind);
   const batchCap = Math.max(1, Math.floor(options?.batchSize ?? BEAST2_PAGED_BATCH_DEFAULT));
   const targetBytes = Math.max(1, Math.floor(options?.targetSegmentBytes ?? BEAST2_PAGED_TARGET_BYTES_DEFAULT));
   const writerOptions: Beast2WriterOptions = {
@@ -326,9 +369,18 @@ export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue
       kind === "Array" ? (items) => items as ValueTypeOf<EastType>
       : kind === "Set" ? (items) => new Set(items) as ValueTypeOf<EastType>
       : (items) => new Map(items as [unknown, unknown][]) as ValueTypeOf<EastType>;
+    // Canonical source order: SortedSet/SortedMap iterate in East order
+    // already; a plain Set/Map (insertion order) is sorted first — segments
+    // must hold the canonical value, and the writer validates the ascent.
     const iterable: Iterable<unknown> = kind === "Dict"
-      ? (value as Map<unknown, unknown>).entries()
-      : (value as Iterable<unknown>);
+      ? ((value as unknown) instanceof SortedMap
+          ? (value as SortedMap<unknown, unknown>).entries()
+          : [...(value as Map<unknown, unknown>).entries()].sort((a, b) => cmp!(a[0], b[0])))
+      : kind === "Set"
+        ? ((value as unknown) instanceof SortedSet
+            ? (value as Iterable<unknown>)
+            : [...(value as Set<unknown>)].sort(cmp!))
+        : (value as Iterable<unknown>);
 
     // Byte-adaptive batching: a throwaway scratch encode of the first few
     // elements measures the average wire size, and batches then target
@@ -420,16 +472,30 @@ function openSegmented(data: Uint8Array, typeValue: EastTypeValue): { kind: Segm
   return { kind, sourceMap, frameOffset: reader.offset };
 }
 
-/** Builds the per-segment decode closure shared by the iterator and pages. */
-function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (reader: BufferReader, ctx: V5DecodeContext, n: number) => any {
+/** Builds the per-segment decode closure shared by the iterator and pages.
+ *
+ *  For Set/Dict, an `order` state threads the strict-ascent validation: each
+ *  decoded element/key must exceed `order.prev`. Passing one state across
+ *  consecutive segments extends the check over the segment boundary; a fresh
+ *  state validates a single segment in isolation. Violations are corruption
+ *  (the wire must hold the canonical value), never data to repair. */
+function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (reader: BufferReader, ctx: V5DecodeContext, n: number, order?: SegmentOrder) => any {
   const typeCtx = new Map<bigint, any>();
+  const cmp = orderCmpFor(typeValue, kind);
   if (kind === "Dict") {
     const key = buildV5Decoder((typeValue as any).value.key, typeCtx);
     const val = buildV5Decoder((typeValue as any).value.value, typeCtx);
-    return (reader, ctx, n) => {
+    return (reader, ctx, n, order) => {
       const map = new Map<any, any>();
       for (let i = 0; i < n; i++) {
         const k = key(reader, ctx);
+        if (order) {
+          if (order.has && cmp!(order.prev, k) >= 0) {
+            throw new Error(`beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+          }
+          order.prev = k;
+          order.has = true;
+        }
         const v = val(reader, ctx);
         map.set(k, v);
       }
@@ -438,9 +504,19 @@ function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (re
   }
   const elem = buildV5Decoder((typeValue as any).value, typeCtx);
   if (kind === "Set") {
-    return (reader, ctx, n) => {
+    return (reader, ctx, n, order) => {
       const set = new Set<any>();
-      for (let i = 0; i < n; i++) set.add(elem(reader, ctx));
+      for (let i = 0; i < n; i++) {
+        const item = elem(reader, ctx);
+        if (order) {
+          if (order.has && cmp!(order.prev, item) >= 0) {
+            throw new Error(`beast2 v5: Set elements are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+          }
+          order.prev = item;
+          order.has = true;
+        }
+        set.add(item);
+      }
       return set;
     };
   }
@@ -480,11 +556,14 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
     // definition numbering must match the writer's.
     ctx.containers.push(kind === "Array" ? [] : kind === "Set" ? new Set() : new Map());
 
+    // One order state across all segments: Set/Dict streams must ascend
+    // strictly over the whole stream, including across segment boundaries.
+    const order: SegmentOrder | undefined = kind === "Array" ? undefined : { prev: undefined, has: false };
     for (;;) {
       if (reader.offset === reader.buffer.length) reader = cursor.next();
       const n = reader.readVarint();
       if (n === 0) break;
-      yield decodeSegment(reader, ctx, n);
+      yield decodeSegment(reader, ctx, n, order);
     }
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after the root terminator`);
@@ -507,23 +586,37 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
  * {@link segment} seeks to and decodes exactly one segment. Requires the blob
  * to carry an index (written by default by {@link Beast2Writer}); random
  * access additionally requires self-contained segments.
+ *
+ * Set/Dict blobs page like Arrays: the wire holds the canonical value split
+ * at segment boundaries (strictly ascending, disjoint segments), so row
+ * windows ({@link slice}) and key lookups ({@link get}) address the sorted
+ * order directly. The first Set/Dict access verifies the segment fences
+ * (each segment's first key, probed without decoding whole segments) ascend
+ * strictly, and every decoded segment is validated internally and against
+ * the next fence — a blob violating the canonical-order contract fails with
+ * a corruption error rather than mis-addressing rows.
  */
 export class Beast2Pages<T extends EastType = EastType> {
   /** Per-segment element counts from the index (pairs for Dict roots). */
   readonly counts: readonly number[];
-  /** Sum of all segment counts. For Array roots this is the exact element
-   *  count; for Set/Dict roots it is an upper bound (cross-segment duplicate
-   *  keys collapse on merge). */
+  /** Sum of all segment counts — the exact element (pair) count for every
+   *  root kind: Set/Dict segments are disjoint ranges of the canonical
+   *  value, so counts never overlap. */
   readonly elementCount: number;
   /** Whether segments are independently decodable. */
   readonly selfContained: boolean;
   private readonly data: Uint8Array;
   private readonly indexData: Beast2Index;
   private readonly kind: SegmentedKind;
+  private readonly typeValue: EastTypeValue;
   private readonly sourceMap: SourceMap;
-  private readonly decodeSegment: (reader: BufferReader, ctx: V5DecodeContext, n: number) => any;
+  private readonly decodeSegment: (reader: BufferReader, ctx: V5DecodeContext, n: number, order?: SegmentOrder) => any;
   private readonly platform: Beast2DecodeOptions | undefined;
   private readonly cumulative: number[];
+  private readonly orderCmp: ((a: any, b: any) => number) | null;
+  /** First key/element of each segment, in segment order (Set/Dict only). */
+  private fences: any[] | null = null;
+  private fenceDec: ((reader: BufferReader, ctx: V5DecodeContext) => any) | null = null;
 
   /** @internal Use {@link openBeast2PagesFor}. */
   constructor(data: Uint8Array, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
@@ -536,12 +629,14 @@ export class Beast2Pages<T extends EastType = EastType> {
     this.data = data;
     this.indexData = index;
     this.kind = kind;
+    this.typeValue = typeValue;
     this.sourceMap = sourceMap;
     this.decodeSegment = buildSegmentDecoder(typeValue, kind);
     this.platform = options;
     this.counts = index.counts;
     this.elementCount = index.totalCount;
     this.selfContained = index.selfContained;
+    this.orderCmp = orderCmpFor(typeValue, kind);
     this.cumulative = new Array(index.counts.length);
     let sum = 0;
     for (let i = 0; i < index.counts.length; i++) {
@@ -558,12 +653,23 @@ export class Beast2Pages<T extends EastType = EastType> {
   /**
    * Decodes one segment by index.
    *
+   * Set/Dict segments are validated for strict internal ascent as they
+   * decode (the canonical-order contract); a violation is a corruption
+   * error, not data.
+   *
    * @param i - zero-based segment index
    * @returns the segment's decoded collection
    * @throws {Error} When the blob is not self-contained (segments cannot be
-   *   decoded independently) or `i` is out of range.
+   *   decoded independently), `i` is out of range, or a Set/Dict segment
+   *   violates strict ascending order.
    */
   segment(i: number): ValueTypeOf<T> {
+    const order: SegmentOrder | undefined = this.kind === "Array" ? undefined : { prev: undefined, has: false };
+    return this.decodeSegmentCore(i, order);
+  }
+
+  /** Seeks to and decodes segment `i`, threading the caller's order state. */
+  private decodeSegmentCore(i: number, order: SegmentOrder | undefined): any {
     if (!this.selfContained) {
       throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
     }
@@ -577,9 +683,52 @@ export class Beast2Pages<T extends EastType = EastType> {
       throw new Error(`beast2 v5: segment ${i} declares ${n} elements, index says ${this.indexData.counts[i]}`);
     }
     const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, ...buildPlatformContext(this.platform) };
-    const value = this.decodeSegment(reader, ctx, n);
+    const value = this.decodeSegment(reader, ctx, n, order);
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after segment ${i}`);
+    }
+    return value;
+  }
+
+  /** Decodes just the first key/element of segment `i` — a bounded probe
+   *  (one frame inflate, one element decode), not a whole-segment decode. */
+  private firstKey(i: number): any {
+    if (!this.fenceDec) {
+      const keyType = this.kind === "Set" ? (this.typeValue as any).value : (this.typeValue as any).value.key;
+      this.fenceDec = buildV5Decoder(keyType);
+    }
+    const cursor = new FrameReader(this.data, this.indexData.offsets[i]!);
+    const reader = cursor.next();
+    reader.readVarint();  // element count — segments are never empty
+    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, ...buildPlatformContext(this.platform) };
+    return this.fenceDec(reader, ctx);
+  }
+
+  /** Probes and verifies the segment fences once: each segment's first
+   *  key/element must ascend strictly across segments. */
+  private verifyFences(): any[] {
+    if (this.fences) return this.fences;
+    if (!this.selfContained) {
+      throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
+    }
+    const n = this.indexData.offsets.length;
+    const fences: any[] = new Array(n);
+    for (let i = 0; i < n; i++) fences[i] = this.firstKey(i);
+    for (let i = 1; i < n; i++) {
+      if (this.orderCmp!(fences[i - 1], fences[i]) >= 0) {
+        throw new Error(`beast2 v5: segments ${i - 1} and ${i} are not disjoint ascending ${this.kind === "Dict" ? "key" : "element"} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+      }
+    }
+    this.fences = fences;
+    return fences;
+  }
+
+  /** Decodes segment `i` with order threading, then checks its tail stays
+   *  below the next segment's fence (segments must be disjoint ranges). */
+  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[]): any {
+    const value = this.decodeSegmentCore(i, order);
+    if (i + 1 < fences.length && order.has && this.orderCmp!(order.prev, fences[i + 1]) >= 0) {
+      throw new Error(`beast2 v5: segments ${i} and ${i + 1} are not disjoint ascending ${this.kind === "Dict" ? "key" : "element"} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
     }
     return value;
   }
@@ -617,37 +766,119 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /**
-   * Reads a window of elements by row range (Array roots only), decoding only
-   * the segments the window touches.
+   * Reads a window of the collection by row range, decoding only the
+   * segments the window touches.
+   *
+   * Rows address stream order — for Array roots the element order, for
+   * Set/Dict roots the canonical East (key) order, since segments are
+   * disjoint ascending ranges. Returns a collection value of the root kind
+   * holding the window (an array, `Set`, or `Map` in that order).
    *
    * Clamps like `Array.prototype.slice`: a window past the end returns the
-   * available tail (or an empty array), never throws for being short.
+   * available tail (or an empty collection), never throws for being short.
    *
    * @param offset - zero-based row of the window's first element
-   * @param limit - maximum number of elements to return
-   * @returns the decoded elements from `offset`, at most `limit` of them
-   * @throws {Error} When the root is not an Array, `offset`/`limit` are
-   *   negative or fractional, or the blob is not self-contained.
+   * @param limit - maximum number of elements (pairs) to return
+   * @returns a collection of the root kind with the window's contents
+   * @throws {Error} When `offset`/`limit` are negative or fractional, the
+   *   blob is not self-contained, or a Set/Dict blob violates the
+   *   canonical-order contract (non-ascending or overlapping segments).
    */
   slice(offset: number, limit: number): ValueTypeOf<T> {
-    if (this.kind !== "Array") {
-      throw new Error(`beast2 v5: slice() addresses Array roots; this blob holds ${this.kind}`);
-    }
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 0) {
       throw new Error(`beast2 v5: slice(${offset}, ${limit}) — offset and limit must be non-negative integers`);
     }
-    const out: any[] = [];
-    if (limit === 0 || offset >= this.elementCount) return out as ValueTypeOf<T>;
-    let { seg, base } = this.rowSegment(offset);
-    while (out.length < limit && seg < this.cumulative.length) {
-      const segment = this.segment(seg) as any[];
-      for (let i = Math.max(0, offset - base); i < segment.length && out.length < limit; i++) {
-        out.push(segment[i]);
+    const empty = (): any => this.kind === "Array" ? [] : this.kind === "Set" ? new Set() : new Map();
+    if (limit === 0 || offset >= this.elementCount) return empty() as ValueTypeOf<T>;
+
+    if (this.kind === "Array") {
+      const out: any[] = [];
+      let { seg, base } = this.rowSegment(offset);
+      while (out.length < limit && seg < this.cumulative.length) {
+        const segment = this.segment(seg) as any[];
+        for (let i = Math.max(0, offset - base); i < segment.length && out.length < limit; i++) {
+          out.push(segment[i]);
+        }
+        base += segment.length;
+        seg++;
       }
-      base += segment.length;
+      return out as ValueTypeOf<T>;
+    }
+
+    // Set/Dict: rows address the canonical sorted order. Verify the fence
+    // chain once, then decode the touched segments with one running order
+    // state (validating ascent inside and across them) and a tail check
+    // against the fence of the first untouched segment.
+    const fences = this.verifyFences();
+    const isSet = this.kind === "Set";
+    const out = (isSet ? new Set<any>() : new Map<any, any>());
+    let taken = 0;
+    let { seg, base } = this.rowSegment(offset);
+    const order: SegmentOrder = { prev: undefined, has: false };
+    while (taken < limit && seg < this.cumulative.length) {
+      const segment = this.decodeDisjoint(seg, order, fences);
+      let skip = Math.max(0, offset - base);
+      if (isSet) {
+        for (const item of segment as Set<any>) {
+          if (skip > 0) { skip--; continue; }
+          if (taken >= limit) break;
+          (out as Set<any>).add(item);
+          taken++;
+        }
+      } else {
+        for (const [k, v] of (segment as Map<any, any>).entries()) {
+          if (skip > 0) { skip--; continue; }
+          if (taken >= limit) break;
+          (out as Map<any, any>).set(k, v);
+          taken++;
+        }
+      }
+      base += (segment as Set<any> | Map<any, any>).size;
       seg++;
     }
     return out as ValueTypeOf<T>;
+  }
+
+  /**
+   * Looks up one Set element or Dict value by key (Set/Dict roots only):
+   * binary-searches the verified segment fences for the only segment whose
+   * range can hold the key, decodes it, and scans for an East-equal match.
+   *
+   * @param key - the Set element or Dict key to look up
+   * @returns the Dict value (or the stored Set element) for `key`, or
+   *   `undefined` when the collection does not contain it
+   * @throws {Error} When the root is an Array, the blob is not
+   *   self-contained, or the blob violates the canonical-order contract.
+   */
+  get(
+    key: ValueTypeOf<T> extends Map<infer K, any> ? K : ValueTypeOf<T> extends Set<infer E> ? E : never,
+  ): (ValueTypeOf<T> extends Map<any, infer V> ? V : ValueTypeOf<T> extends Set<infer E> ? E : never) | undefined {
+    if (this.kind === "Array") {
+      throw new Error(`beast2 v5: get() addresses Set and Dict roots; this blob holds Array — use element() or slice()`);
+    }
+    if (this.elementCount === 0) return undefined;
+    const fences = this.verifyFences();
+    // Greatest segment whose fence is <= key; a key below every fence is
+    // below the collection's minimum.
+    let lo = 0, hi = fences.length - 1;
+    if (this.orderCmp!(key, fences[0]) < 0) return undefined;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.orderCmp!(fences[mid], key) <= 0) lo = mid;
+      else hi = mid - 1;
+    }
+    const order: SegmentOrder = { prev: undefined, has: false };
+    const segment = this.decodeDisjoint(lo, order, fences);
+    if (this.kind === "Set") {
+      for (const item of segment as Set<any>) {
+        if (this.orderCmp!(item, key) === 0) return item;
+      }
+      return undefined;
+    }
+    for (const [k, v] of (segment as Map<any, any>).entries()) {
+      if (this.orderCmp!(k, key) === 0) return v;
+    }
+    return undefined;
   }
 }
 

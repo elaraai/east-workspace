@@ -159,8 +159,9 @@ export interface DatasetPage {
   /** Byte size of the whole stored blob (the page body's own size is
    *  `data.length`). */
   totalBytes: number;
-  /** Whether `totalElements` is exact. Segment windows of Set/Dict datasets
-   *  report an upper bound (cross-segment duplicates collapse on merge). */
+  /** Whether `totalElements` is exact. Always `true` against current
+   *  servers — v5 Set/Dict segments are disjoint ranges of the canonical
+   *  value, so counts never overlap. */
   totalExact: boolean;
   /** Segments in the stored blob; 0 when the blob carries no index. */
   segmentCount: number;
@@ -177,9 +178,9 @@ export interface DatasetPage {
  * Get one window of a collection (Array/Set/Dict) dataset.
  *
  * Element windows (`{ offset, limit }`) are exact for every collection kind:
- * Array windows in stream order, Set/Dict windows in East sort order over the
- * merged value. Segment windows (`{ segment }`) return one writer batch and
- * need a blob stored with a segment index.
+ * Array windows address stream order, Set/Dict windows the canonical East
+ * (key) order — the wire order of v5 blobs. Segment windows (`{ segment }`)
+ * return one writer batch and need a blob stored with a segment index.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name

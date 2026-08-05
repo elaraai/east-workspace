@@ -626,6 +626,163 @@ static void v5_gate(void)
         east_type_release(arr_int);
     }
 
+    /* 6g. Canonical Set/Dict segment order: the wire holds the canonical
+     * value split at segment boundaries. The canonical Dict fixture is
+     * pinned cross-runtime (same hex in libs/east v5/index.spec.ts and
+     * east-py's test_beast2_v5.py); writers reject out-of-order batches and
+     * decoders reject non-canonical wire as corrupt. */
+    {
+        static const char *dict_hex =
+            "89456173740d0a050007020301020b0001010000010100000707020161020162040004040101630600"
+            "010100010217020a012c0000000000000089456173740d0af5";
+        uint8_t dict_blob[128];
+        size_t dict_len = hex_to_bytes(dict_hex, dict_blob, sizeof dict_blob);
+
+        EastType *dict_t = east_dict_type(&east_string_type, &east_integer_type);
+
+        /* Writer parity: batches {a:1, b:2} + {c:3} produce the pinned bytes. */
+        Beast2StreamWriter *w = east_beast2_writer_new(dict_t, EAST_BEAST2_CODEC_NONE, true, true);
+        if (!w) {
+            printf("FAIL: v5 dict writer_new\n");
+            failures++;
+        } else {
+            const char *keys[2][2] = {{"a", "b"}, {"c", NULL}};
+            int64_t vals[2][2] = {{1, 2}, {3, 0}};
+            for (int b = 0; b < 2; b++) {
+                EastValue *batch = east_dict_new(&east_string_type, &east_integer_type);
+                for (int i = 0; i < 2 && keys[b][i]; i++) {
+                    EastValue *k = east_string(keys[b][i]);
+                    EastValue *v = east_integer(vals[b][i]);
+                    east_dict_set(batch, k, v);
+                    east_value_release(k);
+                    east_value_release(v);
+                }
+                if (!east_beast2_writer_write(w, batch)) {
+                    printf("FAIL: v5 dict writer_write batch %d: %s\n", b,
+                           east_builtin_get_error());
+                    failures++;
+                }
+                east_value_release(batch);
+            }
+            if (!east_beast2_writer_finish(w)) {
+                printf("FAIL: v5 dict writer_finish\n");
+                failures++;
+            }
+            ByteBuffer *out = east_beast2_writer_take(w);
+            if (!out || out->len != dict_len || memcmp(out->data, dict_blob, dict_len) != 0) {
+                printf("FAIL: v5 dict writer bytes differ from the cross-runtime fixture\n");
+                failures++;
+            } else {
+                printf("  [+] v5 dict writer matches the cross-runtime pinned bytes\n");
+            }
+            if (out) byte_buffer_free(out);
+            east_beast2_writer_free(w);
+        }
+
+        /* Whole decode concatenates the disjoint ascending segments. */
+        EastValue *decoded = east_beast2_decode_full(dict_blob, dict_len, dict_t);
+        if (!decoded || east_dict_len(decoded) != 3) {
+            printf("FAIL: v5 dict fixture whole decode\n");
+            failures++;
+        } else {
+            printf("  [+] v5 dict fixture whole decode (3 entries)\n");
+        }
+        if (decoded) east_value_release(decoded);
+
+        /* Keyed read through the pager (fences verify, then binary search). */
+        Beast2Pages *p = east_beast2_pages_new(dict_blob, dict_len, dict_t);
+        if (!p) {
+            printf("FAIL: v5 dict pages_new: %s\n", east_builtin_get_error());
+            failures++;
+        } else {
+            EastValue *bk = east_string("b");
+            EastValue *bv = NULL;
+            int found = east_beast2_pages_get_key(p, bk, &bv);
+            if (found != 1 || !bv || bv->data.integer != 2) {
+                printf("FAIL: v5 dict pages get_key(\"b\")\n");
+                failures++;
+            } else {
+                printf("  [+] v5 dict pages keyed read over verified fences\n");
+            }
+            if (bv) east_value_release(bv);
+            east_value_release(bk);
+            east_beast2_pages_free(p);
+        }
+
+        /* The writer refuses a batch that repeats or precedes written keys. */
+        w = east_beast2_writer_new(dict_t, EAST_BEAST2_CODEC_NONE, true, true);
+        if (w) {
+            EastValue *first = east_dict_new(&east_string_type, &east_integer_type);
+            EastValue *ka = east_string("a");
+            EastValue *kb = east_string("b");
+            EastValue *v1 = east_integer(1);
+            east_dict_set(first, ka, v1);
+            east_dict_set(first, kb, v1);
+            bool ok1 = east_beast2_writer_write(w, first);
+            EastValue *dup = east_dict_new(&east_string_type, &east_integer_type);
+            east_dict_set(dup, kb, v1);
+            bool ok2 = east_beast2_writer_write(w, dup);
+            char *err = east_builtin_get_error();
+            if (!ok1 || ok2 || !err || !strstr(err, "strictly ascending")) {
+                printf("FAIL: v5 dict writer accepted an out-of-order batch (%s)\n",
+                       err ? err : "(no error)");
+                failures++;
+            } else {
+                printf("  [+] v5 dict writer rejects out-of-order batches\n");
+            }
+            free(err);
+            east_value_release(dup);
+            east_value_release(first);
+            east_value_release(ka);
+            east_value_release(kb);
+            east_value_release(v1);
+            east_beast2_writer_free(w);
+        }
+
+        /* Strict decode: flipping the two elements of a canonical Set{1,2}
+         * blob (codec none tail: NEW, n=2, zigzag 1, zigzag 2, terminator)
+         * yields non-ascending wire, which is corruption, not data. */
+        EastType *set_t = east_set_type(&east_integer_type);
+        EastValue *sv = east_set_new(&east_integer_type);
+        EastValue *one = east_integer(1);
+        EastValue *two = east_integer(2);
+        east_set_insert(sv, one);
+        east_set_insert(sv, two);
+        east_value_release(one);
+        east_value_release(two);
+        ByteBuffer *sb = east_beast2_encode_v5(sv, set_t, EAST_BEAST2_CODEC_NONE, false);
+        if (!sb || sb->len < 5) {
+            printf("FAIL: v5 set encode for the order-corruption probe\n");
+            failures++;
+        } else {
+            EastValue *ok = east_beast2_decode_full(sb->data, sb->len, set_t);
+            if (!ok) {
+                printf("FAIL: v5 canonical set decode\n");
+                failures++;
+            }
+            if (ok) east_value_release(ok);
+            /* Tail bytes: [.., NEW, 02, 02, 04, 00] — swap the elements. */
+            uint8_t tmp = sb->data[sb->len - 2];
+            sb->data[sb->len - 2] = sb->data[sb->len - 3];
+            sb->data[sb->len - 3] = tmp;
+            EastValue *bad = east_beast2_decode_full(sb->data, sb->len, set_t);
+            char *err = east_builtin_get_error();
+            if (bad != NULL || !err || !strstr(err, "strictly ascending")) {
+                printf("FAIL: v5 non-canonical set wire was accepted (%s)\n",
+                       err ? err : "(no error)");
+                failures++;
+                if (bad) east_value_release(bad);
+            } else {
+                printf("  [+] v5 strict decode rejects non-canonical Set wire\n");
+            }
+            free(err);
+        }
+        if (sb) byte_buffer_free(sb);
+        east_value_release(sv);
+        east_type_release(set_t);
+        east_type_release(dict_t);
+    }
+
     east_type_release(arr_str);
 }
 
