@@ -93,10 +93,12 @@ export function createDatasetRoutes(
     if (list)                        return listDatasets(storage, repoPath, ws, treePath);
     if (status)                      return getDatasetStatus(storage, repoPath, ws, treePath);
     if (page) {
+      const hash = c.req.query('hash');
       const window = {
         ...(intParam(c.req.query('offset')) !== undefined && { offset: intParam(c.req.query('offset'))! }),
         ...(intParam(c.req.query('limit')) !== undefined && { limit: intParam(c.req.query('limit'))! }),
         ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
+        ...(hash !== undefined && hash !== '' && { hash }),
       };
       return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache, options?.pageByteBudget);
     }

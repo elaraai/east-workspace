@@ -127,11 +127,19 @@ const PAGE_MAX_LIMIT = 10_000;
 export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 
 /** Window addressing for {@link getDatasetPage}: an element window
- *  (`offset`/`limit`) or one writer segment (`segment`). */
+ *  (`offset`/`limit`) or one writer segment (`segment`), optionally pinned
+ *  to a content hash. */
 export interface DatasetPageWindow {
   offset?: number;
   limit?: number;
   segment?: number;
+  /** Content hash the window is addressed against. When it matches the
+   *  current value the response is immutable (`Cache-Control: immutable`) —
+   *  the URL is then a pure function of the bytes, so any HTTP cache (edge
+   *  CDN, browser) can hold it forever with zero staleness. A stale hash is
+   *  refused with 409 rather than answered with different bytes, keeping
+   *  caches sound. */
+  hash?: string;
 }
 
 /**
@@ -163,10 +171,10 @@ export class DecodedValueCache {
   }
 }
 
-function pageError(type: string, message: string, status: 400 | 404 = 400): Response {
+function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: { type, message } }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers },
   });
 }
 
@@ -216,6 +224,14 @@ export async function getDatasetPage(
     }
     if (status.refType === 'null' || !status.hash) {
       return pageError('dataset_null', 'Dataset is null', 404);
+    }
+    // A hash-pinned window must never answer with different bytes — refuse
+    // stale pins (the client refetches status for the current hash) so a
+    // hash-keyed URL is a pure function of the response and caches stay sound.
+    if (window.hash !== undefined && window.hash !== status.hash) {
+      return pageError('dataset_hash_mismatch',
+        `Dataset content is ${status.hash}, not ${window.hash} — refetch status and retry`,
+        409, { 'X-Content-SHA256': status.hash });
     }
 
     const typeValue: EastTypeValue = isVariant(status.datasetType)
@@ -322,6 +338,10 @@ export async function getDatasetPage(
       headers: {
         'Content-Type': BEAST2_CONTENT_TYPE,
         'Content-Length': String(body.byteLength),
+        // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
+        // forever — cacheable at any layer with no invalidation. Unpinned
+        // windows track the mutable current value and must not be cached.
+        'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
         'X-Content-SHA256': status.hash,
         'X-Total-Elements': String(totalElements),
         'X-Total-Exactness': totalExact ? 'exact' : 'upper-bound',

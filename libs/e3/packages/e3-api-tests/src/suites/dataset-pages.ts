@@ -27,10 +27,12 @@ import {
   variant,
 } from '@elaraai/east';
 import {
+  ApiError,
   packageImport,
   workspaceCreate,
   workspaceDeploy,
   datasetGetPage,
+  datasetGetStatus,
   datasetSet,
 } from '@elaraai/e3-api-client';
 
@@ -48,6 +50,17 @@ const labelPath = [variant('field', 'inputs'), variant('field', 'label')];
 
 function makeRows(n: number): { id: bigint; name: string }[] {
   return Array.from({ length: n }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
+}
+
+/** Asserts `fn` rejects with an {@link ApiError} whose server-side detail
+ *  text matches `detail` (the client keeps the error type in `message` and
+ *  the human text in `details`). */
+async function rejectsWithDetail(fn: () => Promise<unknown>, detail: RegExp): Promise<void> {
+  await assert.rejects(fn, (err: unknown) => {
+    assert.ok(err instanceof ApiError, `expected ApiError, got ${String(err)}`);
+    assert.match(String(err.details ?? ''), detail, `error type ${err.code}`);
+    return true;
+  });
 }
 
 /**
@@ -108,7 +121,7 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.equal(seg.count, 1000);
       assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(seg.data), rows.slice(1000, 2000)));
 
-      await assert.rejects(
+      await rejectsWithDetail(
         () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 99 }, opts),
         /out of range/
       );
@@ -128,7 +141,7 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(10, 30)));
 
       // Segment addressing needs an index.
-      await assert.rejects(
+      await rejectsWithDetail(
         () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 0 }, opts),
         /no segment index/
       );
@@ -155,21 +168,54 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       const opts = await ctx.opts();
 
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', labelPath, encodeBeast2For(StringType)('hello'), opts);
-      await assert.rejects(
+      await rejectsWithDetail(
         () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', labelPath, { offset: 0, limit: 10 }, opts),
         /Array, Set or Dict/
       );
 
       const rows = makeRows(10);
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType)(rows), opts);
-      await assert.rejects(
+      await rejectsWithDetail(
         () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: -1, limit: 10 }, opts),
         /non-negative/
       );
-      await assert.rejects(
+      await rejectsWithDetail(
         () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: 0, limit: 0 }, opts),
         /positive/
       );
+    });
+
+    it('hash-pinned windows are immutable-cacheable; stale pins are refused', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      const rows = makeRows(50);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType)(rows), opts);
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, opts);
+      assert.equal(status.hash.type, 'some');
+      const hash = status.hash.type === 'some' ? status.hash.value : '';
+
+      // Matching pin through the client: same page, plus the pin round-trips.
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: 0, limit: 10, hash }, opts);
+      assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(0, 10)));
+      assert.equal(page.hash, hash);
+
+      // Header semantics via raw fetch: pinned ⇒ immutable, unpinned ⇒
+      // no-store, stale pin ⇒ 409 carrying the current hash — a hash-keyed
+      // URL never answers with different bytes, so HTTP caches stay sound.
+      const base = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/pages-ws/datasets/inputs/rows?page=true&offset=0&limit=10`;
+      const pinned = await fetch(`${base}&hash=${hash}`);
+      assert.equal(pinned.status, 200);
+      assert.match(pinned.headers.get('Cache-Control') ?? '', /immutable/);
+
+      const unpinned = await fetch(base);
+      assert.equal(unpinned.status, 200);
+      assert.equal(unpinned.headers.get('Cache-Control'), 'no-store');
+
+      const stale = await fetch(`${base}&hash=${'0'.repeat(64)}`);
+      assert.equal(stale.status, 409);
+      assert.equal(stale.headers.get('X-Content-SHA256'), hash);
+      assert.equal(stale.headers.get('Cache-Control'), 'no-store');
     });
 
     it('the requested limit is clamped and the actual count reported', async (t) => {

@@ -120,7 +120,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         const reqOpts = requestOptions ?? { token: null };
         queryClient.fetchQuery({
             queryKey: ['datasetPage', apiUrl, repo, workspace, path, hash, `p${pageIdx}`],
-            queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * PAGE_SIZE, limit: PAGE_SIZE }, reqOpts),
+            // Hash-pinned: the URL is a pure function of the bytes, so any
+            // HTTP cache between here and the server can hold it immutably.
+            queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * PAGE_SIZE, limit: PAGE_SIZE, hash }, reqOpts),
             staleTime: Infinity, // pages of one content hash are immutable
         }).then((page) => {
             const decoded = decodeBeast2For(type)(page.data);

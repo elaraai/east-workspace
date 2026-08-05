@@ -71,7 +71,10 @@ export function useDatasetPage(
     return useQuery({
         queryKey: ['datasetPage', apiUrl, repo, workspace, datasetPath, hash ?? null, windowKey],
         queryFn: async (): Promise<DatasetPageResult> => {
-            const page = await datasetGetPage(apiUrl, repo, workspace!, pathParts, window, reqOpts);
+            // Pin the request to the hash: the URL becomes a pure function of
+            // the bytes, so edge/browser caches can hold pages immutably.
+            const pinned = hash != null ? { ...window, hash } : window;
+            const page = await datasetGetPage(apiUrl, repo, workspace!, pathParts, pinned, reqOpts);
             const decoded = decodeBeast2For(type)(page.data);
             return {
                 decoded,

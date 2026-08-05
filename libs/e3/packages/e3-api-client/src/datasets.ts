@@ -143,8 +143,11 @@ export async function datasetGet(
 }
 
 /** Window addressing for {@link datasetGetPage}: an element window or one
- *  writer segment. */
-export type DatasetPageWindow = { offset: number; limit: number } | { segment: number };
+ *  writer segment, optionally pinned to a content hash. Pinned windows are
+ *  immutable-cacheable (same URL ⇒ same bytes); a stale pin is refused with
+ *  an error rather than answered with different bytes — refetch the status
+ *  for the current hash and retry. */
+export type DatasetPageWindow = ({ offset: number; limit: number } | { segment: number }) & { hash?: string };
 
 /** One page of a collection dataset. */
 export interface DatasetPage {
@@ -200,6 +203,9 @@ export async function datasetGetPage(
   } else {
     params.set('offset', String(window.offset));
     params.set('limit', String(window.limit));
+  }
+  if (window.hash !== undefined) {
+    params.set('hash', window.hash);
   }
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
