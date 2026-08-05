@@ -313,7 +313,7 @@ export const valueTreeVariants = example({
                 $(fillBind.write(next));
             }));
             const fillArm = $.const(
-                <Box height="280px" overflow="hidden">
+                <Box width="100%" height="280px" overflow="hidden">
                     <ValueTree value={fillSeries} onUpdate={onFillSeries} style={{ height: "100%" }} />
                 </Box>,
             );
