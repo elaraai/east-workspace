@@ -3,12 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./hover-card.examples.js";
 
 describeEast("HoverCard", (test) => {
     Assert.examples(test, {
         hoverCardProfile: ex.hoverCardProfile,
-        hoverCardLink: ex.hoverCardLink,
+        hoverCardVariants: ex.hoverCardVariants,
+    });
+
+    test("hoverCardVariants is the live configurator", $ => {
+        const panel = $.const(ex.hoverCardVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 }, { platformFns: TestImpl });

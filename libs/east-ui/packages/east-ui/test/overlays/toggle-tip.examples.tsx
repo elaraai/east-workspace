@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { HStack, IconButton, Reactive, Text, ToggleTip, VStack } from "@elaraai/east-ui";
+import { Configurator, HStack, IconButton, Reactive, SegmentGroup, Text, ToggleTip } from "@elaraai/east-ui";
 
 export const toggleTipBasic = example({
     keywords: ["ToggleTip", "Root", "Icon", "accessible", "click"],
@@ -25,40 +25,59 @@ export const toggleTipBasic = example({
     inputs: [],
 });
 
-export const toggleTipInfo = example({
-    keywords: ["ToggleTip", "Root", "info", "help"],
-    description: "Help affordance — circular ink-4 ring",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <ToggleTip
-                trigger={<IconButton prefix="fas" name="circle-info" label="Help" variant="ghost" size="xs" color="fg.muted" />}
-                placement="bottom"
-            >Click the info button for help. This is useful for touch and keyboard users.</ToggleTip>
-        );
-    }),
-    inputs: [],
-});
-
-export const toggleTipInteractive = example({
-    keywords: ["ToggleTip", "Reactive", "State", "interactive", "onOpenChange"],
-    description: "ToggleTip whose onOpenChange counts open/close transitions",
+export const toggleTipVariants = example({
+    keywords: ["ToggleTip", "Root", "info", "help", "placement", "hasArrow", "Reactive", "State", "onOpenChange", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    description: "ToggleTip configurator — a placement axis on one live tip; the aside counts open/close transitions",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const bind = $.let(State.bind([IntegerType], "toggletip_toggles", 0n));
-            const value = $.let(bind.read());
+            const placements = $.const(["top", "bottom"], ArrayType(StringType));
+
+            const placementBind = $.let(State.bind([StringType], "toggletip_placement", "top"));
+            const togglesBind = $.let(State.bind([IntegerType], "toggletip_toggles", 0n));
+
+            const pKey = $.let(placementBind.read());
+            const toggles = $.let(togglesBind.read());
+
+            const onPlacement = $.const(East.function([StringType], NullType, ($, next) => { $(placementBind.write(next)); }));
             const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
-                const cur = $.let(bind.read());
-                $(bind.write(cur.add(1n)));
+                const cur = $.let(togglesBind.read());
+                $(togglesBind.write(cur.add(1n)));
             }));
-            return (
-                <VStack gap="3" align="flex-start">
+
+            const preview = $.const(pKey.equal("bottom").ifElse(
+                _$ => (
+                    <ToggleTip
+                        trigger={<IconButton prefix="fas" name="circle-info" label="Help" variant="ghost" size="xs" color="fg.muted" />}
+                        placement="bottom"
+                        onOpenChange={onOpenChange}
+                    >Click the info button for help. This is useful for touch and keyboard users.</ToggleTip>
+                ),
+                _$ => (
                     <ToggleTip
                         trigger={<IconButton prefix="fas" name="circle-info" label="Toggle me" variant="ghost" size="xs" color="fg.muted" />}
                         placement="top"
+                        hasArrow={true}
                         onOpenChange={onOpenChange}
-                    >ToggleTip content</ToggleTip>
-                    {<Text.MonoLabel>{East.str`TOGGLED · ${East.print(value)}`}</Text.MonoLabel>}
-                </VStack>
+                    >ToggleTip is an accessible alternative to hover tooltips. Click to toggle!</ToggleTip>
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Placement", pKey,
+                            <SegmentGroup value={pKey} onChange={onPlacement} size="sm"
+                                items={placements.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "onOpenChange · Reactive",
+                        body: <Text.MonoLabel>{East.str`TOGGLED · ${East.print(toggles)}`}</Text.MonoLabel>,
+                    }}
+                    spec={[
+                        Configurator.Spec("Arrow", pKey.equal("top").ifElse(_$ => "on", _$ => "off")),
+                    ]}
+                />
             );
         }}</Reactive>
     )),

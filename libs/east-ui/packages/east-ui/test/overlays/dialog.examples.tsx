@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, example, some, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Card, Dialog, HStack, Reactive, Status, Text, VStack } from "@elaraai/east-ui";
+import { Button, Card, Configurator, Dialog, HStack, Reactive, Status, Switch, Text, VStack } from "@elaraai/east-ui";
 
 export const dialogBasic = example({
     keywords: ["Dialog", "Root", "title", "description", "modal"],
@@ -24,55 +24,74 @@ export const dialogBasic = example({
     inputs: [],
 });
 
-export const dialogLarge = example({
-    keywords: ["Dialog", "Root", "size", "lg", "Card"],
-    description: "Dialog with more content",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Dialog trigger={<Button variant="outline">Open Settings</Button>} title="Settings" size="lg">
-                <VStack gap="4">
-                    <Text>Configure your preferences below. Changes will be saved automatically.</Text>
-                    <Card>
-                        <Text>Notification settings, privacy options, and more would go here.</Text>
-                    </Card>
-                </VStack>
-            </Dialog>
-        );
-    }),
-    inputs: [],
-});
-
-export const dialogInteractive = example({
-    keywords: ["Dialog", "Root", "Reactive", "State", "onOpenChange", "interactive"],
-    description: "Dialog with onOpenChange callback",
+export const dialogVariants = example({
+    keywords: ["Dialog", "Root", "size", "lg", "Card", "Reactive", "State", "onOpenChange", "interactive", "Switch", "Configurator", "configurator"],
+    description: "Dialog configurator — a large-size switch on one live dialog; the aside counts opens and closes via onOpenChange",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            const largeBind = $.let(State.bind([BooleanType], "dialog_large", false));
             const openCountBind = $.let(State.bind([IntegerType], "dialog_open_count", 0n));
             const closeCountBind = $.let(State.bind([IntegerType], "dialog_close_count", 0n));
-            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {
-                const openCount = $.let(openCountBind.read());
-                const closeCount = $.let(closeCountBind.read());
-                $.if(isOpen, $ => {
-                    $(openCountBind.write(openCount.add(1n)));
-                }).else($ => {
-                    $(closeCountBind.write(closeCount.add(1n)));
-                });
-            }));
+
+            const largeOn = $.let(largeBind.read());
             const openCount = $.let(openCountBind.read());
             const closeCount = $.let(closeCountBind.read());
-            return (
-                <VStack gap="3" align="flex-start">
+
+            const onLarge = $.const(East.function([BooleanType], NullType, ($, next) => { $(largeBind.write(next)); }));
+            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {
+                const oc = $.let(openCountBind.read());
+                const cc = $.let(closeCountBind.read());
+                $.if(isOpen, $ => {
+                    $(openCountBind.write(oc.add(1n)));
+                }).else($ => {
+                    $(closeCountBind.write(cc.add(1n)));
+                });
+            }));
+
+            // size is presence-typed, so the switch picks between two dialogs.
+            const preview = $.const(largeOn.ifElse(
+                _$ => (
+                    <Dialog trigger={<Button variant="outline">Open Settings</Button>} title="Settings" size="lg" onOpenChange={onOpenChange}>
+                        <VStack gap="4">
+                            <Text>Configure your preferences below. Changes will be saved automatically.</Text>
+                            <Card>
+                                <Text>Notification settings, privacy options, and more would go here.</Text>
+                            </Card>
+                        </VStack>
+                    </Dialog>
+                ),
+                _$ => (
                     <Dialog trigger={<Button>Open Dialog</Button>} title="Interactive Dialog" onOpenChange={onOpenChange}>
                         <Text>This dialog tracks when it’s opened and closed.</Text>
                         <HStack gap="2" justify="flex-end">
                             <Button variant="solid">Got it!</Button>
                         </HStack>
                     </Dialog>
-                    <HStack gap="3">
-                        <Status label={<Text>{East.str`OPENED · ${East.print(openCount)}`}</Text>} value="success" />
-                        <Status label={<Text>{East.str`CLOSED · ${East.print(closeCount)}`}</Text>} value="danger" />
-                    </HStack>
-                </VStack>
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Slot("Size",
+                            <HStack gap="5" align="center">
+                                <Switch checked={largeOn} label="Large" onChange={onLarge} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "onOpenChange · Reactive",
+                        body: (
+                            <HStack gap="3">
+                                <Status label={<Text>{East.str`OPENED · ${East.print(openCount)}`}</Text>} value="success" />
+                                <Status label={<Text>{East.str`CLOSED · ${East.print(closeCount)}`}</Text>} value="danger" />
+                            </HStack>
+                        ),
+                    }}
+                    spec={[
+                        Configurator.Spec("Size", largeOn.ifElse(_$ => "lg", _$ => "md")),
+                    ]}
+                />
             );
         }}</Reactive>
     )),
