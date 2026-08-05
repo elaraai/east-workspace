@@ -23,6 +23,10 @@ export interface DatasetRouteOptions {
   /** Decoded-value LRU entries backing paged reads of un-indexed blobs.
    *  Defaults to 4. */
   pageCacheEntries?: number;
+  /** Byte budget clamping each page's share of the source blob. Defaults to
+   *  4 MiB; deployments with tighter response limits (e.g. Lambda proxy's
+   *  6 MB, base64-inflated) pass a smaller budget. */
+  pageByteBudget?: number;
 }
 
 /** Parses an integer query param; `undefined` when absent, `NaN` when
@@ -94,7 +98,7 @@ export function createDatasetRoutes(
         ...(intParam(c.req.query('limit')) !== undefined && { limit: intParam(c.req.query('limit'))! }),
         ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
       };
-      return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache);
+      return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache, options?.pageByteBudget);
     }
 
     return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend);

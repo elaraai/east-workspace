@@ -119,10 +119,12 @@ const PAGE_DEFAULT_LIMIT = 1_000;
 /** Hard cap on elements per page. */
 const PAGE_MAX_LIMIT = 10_000;
 
-/** Approximate cap on a page's share of the source blob, in bytes. The
- *  effective limit shrinks so `limit × avgElementBytes` stays under this,
- *  bounding page payloads even for very wide rows. */
-const PAGE_BYTE_BUDGET = 4 * 1024 * 1024;
+/** Default cap on a page's share of the source blob, in bytes. The
+ *  effective limit shrinks so `limit × avgElementBytes` stays under the
+ *  budget, bounding page payloads even for very wide rows. Deployments with
+ *  tighter response limits (e.g. Lambda proxy's 6 MB, base64-inflated) pass
+ *  a smaller budget through the route options. */
+export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 
 /** Window addressing for {@link getDatasetPage}: an element window
  *  (`offset`/`limit`) or one writer segment (`segment`). */
@@ -201,6 +203,7 @@ export async function getDatasetPage(
   treePath: TreePath,
   window: DatasetPageWindow,
   cache: DecodedValueCache,
+  byteBudget: number = PAGE_BYTE_BUDGET_DEFAULT,
 ): Promise<Response> {
   try {
     if (treePath.length === 0) {
@@ -249,7 +252,7 @@ export async function getDatasetPage(
     // very wide rows.
     const effectiveLimit = (totalElements: number): number => {
       const avgBytes = totalElements > 0 ? data.byteLength / totalElements : 1;
-      const byBudget = Math.max(1, Math.floor(PAGE_BYTE_BUDGET / Math.max(1, avgBytes)));
+      const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
       return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
     };
 
