@@ -16,6 +16,7 @@ describeEast("Dock", (test) => {
         dockVariants: ex.dockVariants,
         dockBesidePlanner: ex.dockBesidePlanner,
         dockNested: ex.dockNested,
+        dockVertical: ex.dockVertical,
     });
 
     test("dockVariants drives its preview from inline option tables", $ => {

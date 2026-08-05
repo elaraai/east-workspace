@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, NullType, StringType, example } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Configurator, HStack, Image, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
 
@@ -39,8 +39,17 @@ export const imageVariants = example({
     description: "Image configurator — source (dataUri / blob / url) and fit (contain / cover) axes in a fixed 112×64 box",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const sources = $.const(["dataUri", "blob", "url"], ArrayType(StringType));
-            const fits = $.const(["contain", "cover"], ArrayType(StringType));
+            // Source structs and the fit variant are VALUES — one image,
+            // both axes expression-fed (a lookup into the same arrays the
+            // controls render).
+            const sources = $.const([
+                { label: "dataUri", src: Image.dataUri(WIDE_DATA_URI), alt: "data-uri logo" },
+                { label: "blob", src: Image.blob(LOGO_BYTES, "svg"), alt: "embedded logo" },
+                { label: "url", src: Image.url("https://example.com/logo.svg"), alt: "hosted logo" },
+            ]);
+            const fits = $.const([
+                variant("contain", null), variant("cover", null),
+            ], ArrayType(Image.Types.Fit));
 
             const sourceBind = $.let(State.bind([StringType], "image_source", "dataUri"));
             const fitBind = $.let(State.bind([StringType], "image_fit", "contain"));
@@ -51,37 +60,22 @@ export const imageVariants = example({
             const onSource = $.const(East.function([StringType], NullType, ($, next) => { $(sourceBind.write(next)); }));
             const onFit = $.const(East.function([StringType], NullType, ($, next) => { $(fitBind.write(next)); }));
 
-            const isCover = $.let(fKey.equal("cover"));
+            const sel = $.let(sources.filter((_$, o) => o.label.equal(sKey)).get(0n));
+            const fitSel = $.let(fits.filter((_$, v) => v.getTag().equal(fKey)).get(0n));
 
-            // Source constructors and fit are build-time, so the axes pick
-            // between prebuilt images; the url arm shows alt-text fallback
-            // (the value doesn't carry the pixels).
-            const preview = $.const(sKey.equal("blob").ifElse(
-                _$ => isCover.ifElse(
-                    _$ => <Image source={Image.blob(LOGO_BYTES, "svg")} width="112px" height="64px" fit="cover" borderRadius="8px" alt="embedded logo" />,
-                    _$ => <Image source={Image.blob(LOGO_BYTES, "svg")} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="embedded logo" />,
-                ),
-                _$ => sKey.equal("url").ifElse(
-                    _$ => isCover.ifElse(
-                        _$ => <Image source={Image.url("https://example.com/logo.svg")} width="112px" height="64px" fit="cover" borderRadius="8px" alt="hosted logo" />,
-                        _$ => <Image source={Image.url("https://example.com/logo.svg")} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="hosted logo" />,
-                    ),
-                    _$ => isCover.ifElse(
-                        _$ => <Image source={Image.dataUri(WIDE_DATA_URI)} width="112px" height="64px" fit="cover" borderRadius="8px" alt="cover" />,
-                        _$ => <Image source={Image.dataUri(WIDE_DATA_URI)} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="contain" />,
-                    ),
-                ),
-            ));
+            const preview = $.const(
+                <Image source={sel.src} width="112px" height="64px" fit={fitSel} borderRadius="8px" background="bg.subtle" alt={sel.alt} />,
+            );
 
             return (
                 <Configurator
                     controls={[
                         Configurator.Control("Source", sKey,
                             <SegmentGroup value={sKey} onChange={onSource} size="sm"
-                                items={sources.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                                items={sources.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                         Configurator.Control("Fit", fKey,
                             <SegmentGroup value={fKey} onChange={onFit} size="sm"
-                                items={fits.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                                items={fits.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                     ]}
                     preview={preview}
                     spec={[

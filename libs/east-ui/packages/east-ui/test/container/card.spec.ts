@@ -13,6 +13,7 @@ describeEast("Card", (test) => {
     Assert.examples(test, {
         cardBasic: ex.cardBasic,
         cardVariants: ex.cardVariants,
+        cardHeaderForms: ex.cardHeaderForms,
     });
 
     // =========================================================================

@@ -23,116 +23,55 @@ export const dockVariants = example({
             <Reactive>{$ => {
                 // The orientation axis is just its variants — `getTag()` gives
                 // the segment key AND its label.
-                const orientations = $.const([
-                    variant("horizontal", null), variant("vertical", null),
-                ], ArrayType(Dock.Types.Orientation));
 
-                const orientationBind = $.let(State.bind([StringType], "dock_orientation", "horizontal"));
                 const collapsedBind   = $.let(State.bind([BooleanType], "dock_collapsed", false));
-                const badgeBind       = $.let(State.bind([BooleanType], "dock_badge", true));
 
-                const oKey        = $.let(orientationBind.read());
+
                 const collapsedOn = $.let(collapsedBind.read());
-                const badgeOn     = $.let(badgeBind.read());
 
-                const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+
                 const onCollapsedSw = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsedBind.write(next)); }));
-                const onBadge       = $.const(East.function([BooleanType], NullType, ($, next) => { $(badgeBind.write(next)); }));
+
                 // The dock's own chevron writes the same bind — the controlled
                 // `collapsed` contract, with the switch as the second surface.
                 const onCollapsed   = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsedBind.write(next)); }));
 
-                // One prebuilt leaf per orientation × badge presence — the two
-                // orientations differ structurally (an HStack sibling reclaims
-                // width; a VStack sibling reclaims height), and `badge` is an
-                // optional slot, so presence is composed at build time. The
-                // controlled `collapsed` expression threads into every leaf.
-                const preview = $.const(oKey.equal("horizontal").ifElse(
-                    _$ => badgeOn.ifElse(
-                        _$ => (
-                            <Box height="220px" width="320px">
-                                <HStack gap="3" width="100%" height="100%">
-                                    <Dock icon="book" label="Bookings" badge="3" railSize="44px" expandedSize="200px"
-                                          collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
-                                        <Stack gap="2" padding="3">
-                                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
-                                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
-                                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
-                                        </Stack>
-                                    </Dock>
-                                    <Box flex="1" minWidth="0" padding="3" background="bg.subtle" borderRadius="md">
-                                        <Text>Board reclaims the freed width</Text>
-                                    </Box>
-                                </HStack>
+                // ONE dock — the badge slot composes on permanently and the
+                // controlled `collapsed` expression threads through; the
+                // sibling board reclaims the freed width.
+                const preview = $.const(
+                    <Box height="220px" width="320px">
+                        <HStack gap="3" width="100%" height="100%">
+                            <Dock icon="book" label="Bookings" badge="3" railSize="44px" expandedSize="200px"
+                                  collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
+                                <Stack gap="2" padding="3">
+                                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
+                                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
+                                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
+                                </Stack>
+                            </Dock>
+                            <Box flex="1" minWidth="0" padding="3" background="bg.subtle" borderRadius="md">
+                                <Text>Board reclaims the freed width</Text>
                             </Box>
-                        ),
-                        _$ => (
-                            <Box height="220px" width="320px">
-                                <HStack gap="3" width="100%" height="100%">
-                                    <Dock icon="book" label="Bookings" railSize="44px" expandedSize="200px"
-                                          collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
-                                        <Stack gap="2" padding="3">
-                                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
-                                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
-                                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
-                                        </Stack>
-                                    </Dock>
-                                    <Box flex="1" minWidth="0" padding="3" background="bg.subtle" borderRadius="md">
-                                        <Text>Board reclaims the freed width</Text>
-                                    </Box>
-                                </HStack>
-                            </Box>
-                        ),
-                    ),
-                    _$ => badgeOn.ifElse(
-                        _$ => (
-                            <Box height="240px" width="360px">
-                                <VStack gap="3" width="100%" height="100%">
-                                    <Box flex="1" minHeight="0" width="100%" padding="3" background="bg.subtle" borderRadius="md">
-                                        <Text>Main board grows into the freed height</Text>
-                                    </Box>
-                                    <Dock icon="chart-line" label="Metrics" badge="3" orientation="vertical" side="end" expandedSize="120px"
-                                          collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
-                                        <Box padding="3"><Text>KPI tray content</Text></Box>
-                                    </Dock>
-                                </VStack>
-                            </Box>
-                        ),
-                        _$ => (
-                            <Box height="240px" width="360px">
-                                <VStack gap="3" width="100%" height="100%">
-                                    <Box flex="1" minHeight="0" width="100%" padding="3" background="bg.subtle" borderRadius="md">
-                                        <Text>Main board grows into the freed height</Text>
-                                    </Box>
-                                    <Dock icon="chart-line" label="Metrics" orientation="vertical" side="end" expandedSize="120px"
-                                          collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
-                                        <Box padding="3"><Text>KPI tray content</Text></Box>
-                                    </Dock>
-                                </VStack>
-                            </Box>
-                        ),
-                    ),
-                ));
+                        </HStack>
+                    </Box>,
+                );
 
                 return (
                     <Configurator
                         controls={[
-                            Configurator.Control("Orientation", oKey,
-                                <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
-                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the two switches report as
                             // the Rail / Badge spec rows below rather than as one
                             // value.
                             Configurator.Slot("Chrome",
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={collapsedOn} label="Collapsed" onChange={onCollapsedSw} />
-                                    <Switch checked={badgeOn} label="Badge" onChange={onBadge} />
                                 </HStack>),
                         ]}
                         preview={preview}
                         spec={[
                             Configurator.Spec("Rail", collapsedOn.ifElse(_$ => "44px icon rail", _$ => "expanded")),
-                            Configurator.Spec("Badge", badgeOn.ifElse(_$ => "3", _$ => "none")),
+                            Configurator.Spec("Badge", "3"),
                         ]}
                     />
                 );
@@ -212,6 +151,33 @@ export const dockNested = example({
                 </Stack>
             </Dock>
         </Box>
+    )),
+    inputs: [],
+});
+
+/** Vertical dock — a bottom KPI tray; the main board grows into the freed height. */
+export const dockVertical = example({
+    keywords: ["Dock", "orientation", "vertical", "side", "end", "tray", "badge", "collapsed", "Reactive", "State"],
+    description: "Vertical dock — a bottom tray with badge; collapsing frees height for the board above",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const collapsedBind = $.let(State.bind([BooleanType], "dock_vertical_collapsed", false));
+            const collapsedOn = $.let(collapsedBind.read());
+            const onCollapsed = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsedBind.write(next)); }));
+            return (
+                <Box height="240px" width="360px">
+                    <VStack gap="3" width="100%" height="100%">
+                        <Box flex="1" minHeight="0" width="100%" padding="3" background="bg.subtle" borderRadius="md">
+                            <Text>Main board grows into the freed height</Text>
+                        </Box>
+                        <Dock icon="chart-line" label="Metrics" badge="3" orientation="vertical" side="end" expandedSize="120px"
+                              collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
+                            <Box padding="3"><Text>KPI tray content</Text></Box>
+                        </Dock>
+                    </VStack>
+                </Box>
+            );
+        }}</Reactive>
     )),
     inputs: [],
 });

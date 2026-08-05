@@ -38,7 +38,6 @@ export const cardVariants = example({
                 // header axis is a plain key array and the preview picks the
                 // matching prebuilt card below (the chip-rail presence
                 // precedent); the slot content itself never changes.
-                const headers = $.const(["none", "eyebrow", "full", "compound"], ArrayType(StringType));
 
                 // Body is a preset axis — flush and bodyPadding only read
                 // against each other (flush overrides the padding).
@@ -97,26 +96,17 @@ export const cardVariants = example({
                     </HStack>,
                     <Text>This card demonstrates how multiple components can be nested inside a card body.</Text>,
                 ], ArrayType(UIComponentType));
-
-                const headerBind   = $.let(State.bind([StringType], "card_header", "full"));
                 const bodyBind     = $.let(State.bind([StringType], "card_body", "default"));
                 const sizingBind   = $.let(State.bind([StringType], "card_sizing", "flexible"));
                 const stateBind    = $.let(State.bind([StringType], "card_state", "ready"));
-                const footerBind   = $.let(State.bind([BooleanType], "card_footer", true));
                 const sectionsBind = $.let(State.bind([BooleanType], "card_sections", false));
-
-                const hKey       = $.let(headerBind.read());
                 const bKey       = $.let(bodyBind.read());
                 const sKey       = $.let(sizingBind.read());
                 const stKey      = $.let(stateBind.read());
-                const footerOn   = $.let(footerBind.read());
                 const sectionsOn = $.let(sectionsBind.read());
-
-                const onHeader   = $.const(East.function([StringType], NullType, ($, next) => { $(headerBind.write(next)); }));
                 const onBody     = $.const(East.function([StringType], NullType, ($, next) => { $(bodyBind.write(next)); }));
                 const onSizing   = $.const(East.function([StringType], NullType, ($, next) => { $(sizingBind.write(next)); }));
                 const onState    = $.const(East.function([StringType], NullType, ($, next) => { $(stateBind.write(next)); }));
-                const onFooter   = $.const(East.function([BooleanType], NullType, ($, next) => { $(footerBind.write(next)); }));
                 const onSections = $.const(East.function([BooleanType], NullType, ($, next) => { $(sectionsBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
@@ -129,114 +119,26 @@ export const cardVariants = example({
                     _$ => sectionsOn.ifElse(_$ => sectionedBody, _$ => richBody),
                 ));
 
-                // One prebuilt card per header form × footer presence; every
-                // leaf shares the same East-driven body and style expressions.
-                // The compound leaf keeps the content + actions footer so both
-                // footer compositions stay reachable.
-                const preview = $.const(hKey.equal("none").ifElse(
-                    _$ => footerOn.ifElse(
-                        _$ => (
-                            <Card
-                                footer={{ actions: [
-                                    <Button variant="outline" size="sm">Cancel</Button>,
-                                    <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
-                                ] }}
-                                flush={body.flush} bodyPadding={body.pad}
-                                height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                            >
-                                {kids}
-                            </Card>
-                        ),
-                        _$ => (
-                            <Card
-                                flush={body.flush} bodyPadding={body.pad}
-                                height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                            >
-                                {kids}
-                            </Card>
-                        ),
-                    ),
-                    _$ => hKey.equal("eyebrow").ifElse(
-                        _$ => footerOn.ifElse(
-                            _$ => (
-                                <Card
-                                    header={{ eyebrow: "Run summary" }}
-                                    footer={{ actions: [
-                                        <Button variant="outline" size="sm">Cancel</Button>,
-                                        <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
-                                    ] }}
-                                    flush={body.flush} bodyPadding={body.pad}
-                                    height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                                >
-                                    {kids}
-                                </Card>
-                            ),
-                            _$ => (
-                                <Card
-                                    header={{ eyebrow: "Run summary" }}
-                                    flush={body.flush} bodyPadding={body.pad}
-                                    height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                                >
-                                    {kids}
-                                </Card>
-                            ),
-                        ),
-                        _$ => hKey.equal("full").ifElse(
-                            _$ => footerOn.ifElse(
-                                _$ => (
-                                    <Card
-                                        header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}
-                                        footer={{ actions: [
-                                            <Button variant="outline" size="sm">Cancel</Button>,
-                                            <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
-                                        ] }}
-                                        flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                                    >
-                                        {kids}
-                                    </Card>
-                                ),
-                                _$ => (
-                                    <Card
-                                        header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}
-                                        flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                                    >
-                                        {kids}
-                                    </Card>
-                                ),
-                            ),
-                            _$ => footerOn.ifElse(
-                                _$ => (
-                                    <Card
-                                        header={{ eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" }}
-                                        footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant="subtle">Export</Button>] }}
-                                        flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                                    >
-                                        {kids}
-                                    </Card>
-                                ),
-                                _$ => (
-                                    <Card
-                                        header={{ eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" }}
-                                        flush={body.flush} bodyPadding={body.pad}
-                                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
-                                    >
-                                        {kids}
-                                    </Card>
-                                ),
-                            ),
-                        ),
-                    ),
-                ));
+                // ONE card — the full header + actions footer compose on
+                // permanently (presence-typed chrome); the body / sizing /
+                // state axes and the section children all feed as values.
+                const preview = $.const(
+                    <Card
+                        header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}
+                        footer={{ actions: [
+                            <Button variant="outline" size="sm">Cancel</Button>,
+                            <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
+                        ] }}
+                        flush={body.flush} bodyPadding={body.pad}
+                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
+                    >
+                        {kids}
+                    </Card>,
+                );
 
                 return (
                     <Configurator
                         controls={[
-                            Configurator.Control("Header", hKey,
-                                <Select value={hKey} onChange={onHeader} size="sm"
-                                    items={headers.map((_$, s) => Select.Item(s, s))} />),
                             Configurator.Control("Body", bKey,
                                 <SegmentGroup value={bKey} onChange={onBody} size="sm"
                                     items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
@@ -251,7 +153,6 @@ export const cardVariants = example({
                             // as one value.
                             Configurator.Slot("Slots",
                                 <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={footerOn} label="Footer" onChange={onFooter} />
                                     <Switch checked={sectionsOn} label="Sections" onChange={onSections} />
                                 </HStack>),
                         ]}
@@ -270,9 +171,7 @@ export const cardVariants = example({
                             ),
                         }}
                         spec={[
-                            Configurator.Spec("Footer", footerOn.ifElse(
-                                _$ => hKey.equal("compound").ifElse(_$ => "content + actions", _$ => "actions"),
-                                _$ => "none")),
+                            Configurator.Spec("Footer", "actions"),
                             Configurator.Spec("Sections", sKey.equal("fill-body").ifElse(
                                 _$ => "fill scrollY body",
                                 _$ => sectionsOn.ifElse(_$ => "2 hairline", _$ => "inline body"))),
@@ -285,5 +184,35 @@ export const cardVariants = example({
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/**
+ * The four header forms side by side — none, eyebrow-only, full
+ * (eyebrow + title + description) and the compound meta header with a
+ * content + actions footer.
+ */
+export const cardHeaderForms = example({
+    keywords: ["Card", "header", "eyebrow", "title", "description", "meta", "footer", "content", "actions", "forms"],
+    description: "Header forms — none, eyebrow, full and compound-meta cards side by side",
+    fn: East.function([], UIComponentType, (_$) => (
+        <VStack gap="4" align="stretch">
+            <Card>
+                <Text>No header — body only.</Text>
+            </Card>
+            <Card header={{ eyebrow: "Run summary" }}>
+                <Text>Eyebrow-only header.</Text>
+            </Card>
+            <Card header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}>
+                <Text>Full header.</Text>
+            </Card>
+            <Card
+                header={{ eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" }}
+                footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant="subtle">Export</Button>] }}
+            >
+                <Text>Compound meta header with a content + actions footer.</Text>
+            </Card>
+        </VStack>
+    )),
     inputs: [],
 });

@@ -15,6 +15,7 @@ describeEast("Story", (test) => {
         storyStacked: ex.storyStacked,
         storyChromeVariants: ex.storyChromeVariants,
         storyAuthoring: ex.storyAuthoring,
+        storyBound: ex.storyBound,
     });
 
     // =========================================================================
