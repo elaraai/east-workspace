@@ -1147,6 +1147,35 @@ fail:
     return NULL;
 }
 
+EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
+{
+    if (!p) return NULL;
+    if (p->type->kind == EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: disjoint segment reads address Set and Dict roots");
+        return NULL;
+    }
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return NULL;
+    }
+    if (i >= p->index.count) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "beast2 v5: segment %zu out of range (%zu segments)", i,
+                 p->index.count);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    if (!pages_verify_fences(p)) return NULL;
+    EastValue *seg = pages_segment_cached(p, i);
+    if (!seg) return NULL;
+    if (!pages_tail_guard(p, i, seg)) {
+        east_value_release(seg);
+        return NULL;
+    }
+    return seg;
+}
+
 bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out)
 {
     if (!p || !target || !index_out) {

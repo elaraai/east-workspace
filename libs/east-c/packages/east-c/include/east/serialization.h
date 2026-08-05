@@ -156,6 +156,14 @@ EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys, EastValue
 // fences pick the boundary segment, its in-segment binary search adds the
 // base. Sortedness is the caller's contract, as in the eager builtins.
 bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out);
+// Segment i for the streamed compute family over Set/Dict roots (#481 W4):
+// the same disjointness contract as the keyed reads — fences verified
+// strictly ascending on first use, the segment decoded through the shared
+// LRU, and its greatest key checked against the next fence — so a
+// cross-segment fold sees exactly the key-disjoint stream a whole-value
+// decode would produce. Returns a retained value or NULL (message via
+// east_builtin_get_error).
+EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i);
 void east_beast2_pages_free(Beast2Pages *p);
 
 // Byte extents of an indexed v5 collection blob, for splicing (issue #484):

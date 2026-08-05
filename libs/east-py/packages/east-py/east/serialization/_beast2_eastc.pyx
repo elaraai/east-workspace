@@ -498,6 +498,19 @@ cdef class _Beast2PagesCore:
             _consume_eastc_error("east-c beast2 v5 find_sorted failed")
         return idx
 
+    def segment_disjoint(self, object i):
+        """Segment ``i`` under the keyed-read disjointness contract (Set/Dict
+        roots): fences verified ascending, the decoded segment's greatest key
+        checked against the next fence — the stream the W4 folds consume."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_segment_disjoint(
+            self._p, <size_t>i)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 disjoint segment read failed")
+        try:
+            return c_value_to_py(c_val, self._type)
+        finally:
+            _eastc.east_value_release(c_val)
+
     def __dealloc__(self):
         if self._p != NULL:
             _eastc.east_beast2_pages_free(self._p)
