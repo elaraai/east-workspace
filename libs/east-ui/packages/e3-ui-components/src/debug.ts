@@ -4,17 +4,19 @@
  */
 
 /**
- * Debug logging for the paged dataset preview (#497).
+ * Opt-in debug logging for the paged dataset preview (#497).
  *
- * On by default while the feature stabilizes; silence with
- * `localStorage['e3-paging-debug'] = 'off'` (or set any other value to
- * force it on). Everything is prefixed `[e3-paging]` for easy filtering.
+ * Silent by default. Enable with `localStorage['e3-paging-debug'] = '1'`
+ * (any value except 'off') to trace page fetches, resets, and short-page
+ * clamps in the console — everything is prefixed `[e3-paging]`.
  */
 export function pagingDebug(...args: unknown[]): void {
     try {
-        if (typeof localStorage !== 'undefined' && localStorage.getItem('e3-paging-debug') === 'off') return;
+        if (typeof localStorage === 'undefined') return;
+        const flag = localStorage.getItem('e3-paging-debug');
+        if (flag === null || flag === 'off') return;
     } catch {
-        // No localStorage (tests/SSR) — log anyway.
+        return;
     }
     console.info('[e3-paging]', ...args);
 }

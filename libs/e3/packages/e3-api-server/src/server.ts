@@ -124,7 +124,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       origin: '*',
       exposeHeaders: [
         'X-Content-SHA256', 'X-Content-Length',
-        'X-Total-Elements', 'X-Total-Exactness', 'X-Segment-Count', 'X-Page-Offset', 'X-Page-Count',
+        'X-Total-Bytes', 'X-Total-Elements', 'X-Total-Exactness', 'X-Segment-Count', 'X-Page-Offset', 'X-Page-Count',
       ],
     }));
     // Allow Private Network Access (required for extension webviews on WiFi)

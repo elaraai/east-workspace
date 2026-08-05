@@ -453,6 +453,20 @@ describe("Beast2 v5 — Paging", () => {
     assert.equal([...dPages.counts].reduce((a, b) => a + b, 0), 250);
   });
 
+  test("segments adapt to the byte target for wide rows", () => {
+    const AT = ArrayType(StringType);
+    const rows = Array.from({ length: 40 }, (_, i) => `row-${i}-` + String(i).padStart(4, "0").repeat(50));
+    // A 1-byte target forces one element per segment — the adaptation floor.
+    const tiny = encodeBeast2PagedFor(AT, { targetSegmentBytes: 1 })(rows);
+    const tp = openBeast2PagesFor(AT)(tiny);
+    assert.equal(tp.segmentCount, 40);
+    assert.ok(equalFor(AT)(decodeBeast2For(AT)(tiny), rows));
+    // Small data under the default target stays at the element cap.
+    assert.equal(openBeast2PagesFor(AT)(encodeBeast2PagedFor(AT)(rows)).segmentCount, 1);
+    // Batching is a pure function of the value — bytes are deterministic.
+    assert.deepEqual(Array.from(encodeBeast2PagedFor(AT, { targetSegmentBytes: 1 })(rows)), Array.from(tiny));
+  });
+
   test("non-collection types are refused by the paged encoder", () => {
     assert.throws(() => encodeBeast2PagedFor(StringType as any), /Array, Set or Dict/);
   });

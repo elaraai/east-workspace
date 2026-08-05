@@ -262,17 +262,31 @@ export function encodeBeast2SegmentsFor<T extends EastType>(type: T | EastTypeVa
 // Paged whole-value encode
 // =============================================================================
 
-/** Default elements per segment for {@link encodeBeast2PagedFor}. Small enough
- *  that one segment decodes cheaply even for wide rows, large enough that
- *  frames stay far above the compression threshold and per-segment overhead
- *  (frame header + index entry) is negligible. */
+/** Default element cap per segment for {@link encodeBeast2PagedFor}. Small
+ *  enough that one segment decodes cheaply, large enough that frames stay far
+ *  above the compression threshold and per-segment overhead (frame header +
+ *  index entry) is negligible. */
 export const BEAST2_PAGED_BATCH_DEFAULT = 1_000;
+
+/** Default wire-byte target per segment for {@link encodeBeast2PagedFor}.
+ *  Wide rows would otherwise make element-capped segments arbitrarily large —
+ *  and a paging reader decodes whole segments, so segment size IS the random-
+ *  access cost. Batching adapts toward this target from measured output. */
+export const BEAST2_PAGED_TARGET_BYTES_DEFAULT = 2 * 1024 * 1024;
+
+/** The probe batch that seeds the byte-adaptive batching — small, so one
+ *  pathologically wide first batch cannot blow past the target unmeasured. */
+const PAGED_PROBE_BATCH = 16;
 
 /** Options accepted by {@link encodeBeast2PagedFor}. */
 export type Beast2PagedEncodeOptions = {
-  /** Elements (pairs for Dict roots) per segment. Defaults to
+  /** Element (pair for Dict roots) cap per segment. Defaults to
    *  {@link BEAST2_PAGED_BATCH_DEFAULT}. */
   batchSize?: number;
+  /** Wire-byte target per segment — batches shrink below `batchSize` when
+   *  measured element size would exceed it. Defaults to
+   *  {@link BEAST2_PAGED_TARGET_BYTES_DEFAULT}. */
+  targetSegmentBytes?: number;
   /** Per-frame codec. Defaults to `"deflate"`. */
   codec?: Beast2Codec;
   /** Source map for function values in the stream, written to the header. */
@@ -300,45 +314,74 @@ export type Beast2PagedEncodeOptions = {
 export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2PagedEncodeOptions): (value: ValueTypeOf<T>) => Uint8Array {
   const typeValue = asTypeValue(type);
   const kind = checkSegmented(typeValue);
-  const batchSize = Math.max(1, Math.floor(options?.batchSize ?? BEAST2_PAGED_BATCH_DEFAULT));
+  const batchCap = Math.max(1, Math.floor(options?.batchSize ?? BEAST2_PAGED_BATCH_DEFAULT));
+  const targetBytes = Math.max(1, Math.floor(options?.targetSegmentBytes ?? BEAST2_PAGED_TARGET_BYTES_DEFAULT));
   const writerOptions: Beast2WriterOptions = {
     ...(options?.codec !== undefined && { codec: options.codec }),
     ...(options?.sourceMap !== undefined && { sourceMap: options.sourceMap }),
   };
 
   return (value) => {
-    const chunks: Uint8Array[] = [];
-    const writer = new Beast2Writer(typeValue, (b) => chunks.push(b), writerOptions);
-    if (kind === "Array") {
-      const arr = value as unknown[];
-      for (let i = 0; i < arr.length; i += batchSize) {
-        writer.write(arr.slice(i, i + batchSize) as ValueTypeOf<EastType>);
-      }
-    } else if (kind === "Set") {
-      let batch: unknown[] = [];
-      for (const item of value as Iterable<unknown>) {
-        batch.push(item);
-        if (batch.length === batchSize) {
-          writer.write(new Set(batch) as ValueTypeOf<EastType>);
-          batch = [];
-        }
-      }
-      if (batch.length > 0) writer.write(new Set(batch) as ValueTypeOf<EastType>);
-    } else {
-      let batch: [unknown, unknown][] = [];
-      for (const entry of value as Iterable<[unknown, unknown]>) {
-        batch.push(entry);
-        if (batch.length === batchSize) {
-          writer.write(new Map(batch) as ValueTypeOf<EastType>);
-          batch = [];
-        }
-      }
-      if (batch.length > 0) writer.write(new Map(batch) as ValueTypeOf<EastType>);
+    const makeBatch: (items: unknown[]) => ValueTypeOf<EastType> =
+      kind === "Array" ? (items) => items as ValueTypeOf<EastType>
+      : kind === "Set" ? (items) => new Set(items) as ValueTypeOf<EastType>
+      : (items) => new Map(items as [unknown, unknown][]) as ValueTypeOf<EastType>;
+    const iterable: Iterable<unknown> = kind === "Dict"
+      ? (value as Map<unknown, unknown>).entries()
+      : (value as Iterable<unknown>);
+
+    // Byte-adaptive batching: a throwaway scratch encode of the first few
+    // elements measures the average wire size, and batches then target
+    // `targetSegmentBytes` (never above the element cap). Re-encoding the
+    // probe costs a handful of elements; the real stream starts with
+    // full-size, right-sized segments. Batching is a pure function of the
+    // value, so the bytes stay deterministic for content-addressing.
+    const items = iterable[Symbol.iterator]();
+    const probe: unknown[] = [];
+    while (probe.length < PAGED_PROBE_BATCH) {
+      const n = items.next();
+      if (n.done) break;
+      probe.push(n.value);
     }
+    let nextBatch = batchCap;
+    if (probe.length > 0) {
+      let scratchBytes = 0;
+      let scratchHeader = 0;
+      const scratch = new Beast2Writer(typeValue, (b) => { scratchBytes += b.length; }, writerOptions);
+      scratchHeader = scratchBytes;
+      scratch.write(makeBatch(probe));
+      const avg = Math.max(1, (scratchBytes - scratchHeader) / probe.length);
+      nextBatch = Math.max(1, Math.min(batchCap, Math.floor(targetBytes / avg)));
+    }
+
+    const chunks: Uint8Array[] = [];
+    let bodyBytes = 0;
+    const writer = new Beast2Writer(typeValue, (b) => {
+      chunks.push(b);
+      bodyBytes += b.length;
+    }, writerOptions);
+    const headerBytes = bodyBytes;
+    let written = 0;
+    let batch: unknown[] = [];
+    const flush = (): void => {
+      if (batch.length === 0) return;
+      writer.write(makeBatch(batch));
+      written += batch.length;
+      batch = [];
+      // Refine toward the target as real output accumulates (drifting data).
+      const avg = Math.max(1, (bodyBytes - headerBytes) / written);
+      nextBatch = Math.max(1, Math.min(batchCap, Math.floor(targetBytes / avg)));
+    };
+    const pump = (item: unknown): void => {
+      batch.push(item);
+      if (batch.length >= nextBatch) flush();
+    };
+    for (const p of probe) pump(p);
+    for (let n = items.next(); !n.done; n = items.next()) pump(n.value);
+    flush();
     writer.finish();
-    let total = 0;
-    for (const c of chunks) total += c.length;
-    const out = new Uint8Array(total);
+
+    const out = new Uint8Array(bodyBytes);
     let pos = 0;
     for (const c of chunks) {
       out.set(c, pos);

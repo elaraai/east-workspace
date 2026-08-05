@@ -156,6 +156,9 @@ export interface DatasetPage {
   data: Uint8Array;
   /** Total elements in the dataset (pairs for Dict datasets). */
   totalElements: number;
+  /** Byte size of the whole stored blob (the page body's own size is
+   *  `data.length`). */
+  totalBytes: number;
   /** Whether `totalElements` is exact. Segment windows of Set/Dict datasets
    *  report an upper bound (cross-segment duplicates collapse on merge). */
   totalExact: boolean;
@@ -233,6 +236,7 @@ export async function datasetGetPage(
   return {
     data: new Uint8Array(buffer),
     totalElements: intHeader('X-Total-Elements'),
+    totalBytes: intHeader('X-Total-Bytes'),
     totalExact: response.headers.get('X-Total-Exactness') !== 'upper-bound',
     segmentCount: intHeader('X-Segment-Count'),
     offset: intHeader('X-Page-Offset'),

@@ -30,7 +30,7 @@
  */
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
@@ -105,8 +105,9 @@ type SlotStyles = Record<string, SystemStyleObject>;
 /** Estimated row height (px) — sm editors measure a little taller; the
  *  virtualizer corrects per row, this also scales scroll persistence. */
 const ROW_H = 32;
-/** Rows at depth < this start expanded (overridable, persisted). */
-const DEFAULT_OPEN_DEPTH = 2;
+/** Rows at depth < this start expanded when the payload sets no
+ *  `style.openDepth` (per-row toggles and the toolbar override it). */
+const DEFAULT_OPEN_DEPTH = 1;
 /** Indent per depth level (px). */
 const INDENT = 18;
 /** Leaf preview parts a struct row surfaces. */
@@ -115,6 +116,9 @@ const PREVIEW_PARTS = 3;
 interface ValueTreePersisted {
     open: Record<string, boolean>;
     topRow: number;
+    /** Collapse-all / expand-all override of the payload's `openDepth`
+     *  (0 = everything collapsed; large = everything expanded). */
+    baseDepth?: number;
 }
 
 /** Row callbacks decoded from the payload (undefined ⇒ read-only). */
@@ -334,6 +338,8 @@ function childrenOf(node: ValueTreeNodeValue): ChildEntry[] {
 /** Shared flatten context: expansion state, edit capabilities, output. */
 interface FlattenCtx {
     open: Record<string, boolean>;
+    /** Rows at depth < this start expanded (per-row `open` overrides). */
+    openDepth: number;
     canRemove: boolean;
     canInsert: boolean;
     rows: RowModel[];
@@ -380,7 +386,7 @@ function visitNode(
         (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
     );
     const expandable = kids.length > 0 || insertable;
-    const expanded = expandable && (ctx.open[id] ?? depth < DEFAULT_OPEN_DEPTH);
+    const expanded = expandable && (ctx.open[id] ?? depth < ctx.openDepth);
     let summary = r.kind === "emptyOption" ? "Not set"
         : (r.kind === "struct" || r.kind === "array" || r.kind === "dict") ? summaryOf(r.node)
         : undefined;
@@ -423,10 +429,11 @@ function visitNode(
 function flattenRows(
     root: ValueTreeNodeValue,
     open: Record<string, boolean>,
+    openDepth: number,
     canRemove: boolean,
     canInsert: boolean,
 ): RowModel[] {
-    const ctx: FlattenCtx = { open, canRemove, canInsert, rows: [] };
+    const ctx: FlattenCtx = { open, openDepth, canRemove, canInsert, rows: [] };
     const visit = (
         label: string,
         raw: ValueTreeNodeValue,
@@ -474,12 +481,16 @@ function flattenRows(
     return rows;
 }
 
-/** Paged-mode debug logging (#497) — on while the feature stabilizes;
- *  silence with `localStorage['e3-paging-debug'] = 'off'`. */
+/** Opt-in paged-mode debug logging (#497) — silent unless
+ *  `localStorage['e3-paging-debug']` is set (and not 'off'). */
 function pagedDebug(...args: unknown[]): void {
     try {
-        if (typeof localStorage !== "undefined" && localStorage.getItem("e3-paging-debug") === "off") return;
-    } catch { /* no localStorage — log anyway */ }
+        if (typeof localStorage === "undefined") return;
+        const flag = localStorage.getItem("e3-paging-debug");
+        if (flag === null || flag === "off") return;
+    } catch {
+        return;
+    }
     console.info("[e3-paging:tree]", ...args);
 }
 
@@ -501,6 +512,7 @@ interface PagedFlat {
 function flattenPaged(
     paging: ValueTreePaging,
     open: Record<string, boolean>,
+    openDepth: number,
 ): PagedFlat {
     const { totalRows, pageSize, pages } = paging;
     const pageCount = Math.max(0, Math.ceil(totalRows / pageSize));
@@ -519,7 +531,7 @@ function flattenPaged(
         // Paged roots are read-only at the row level (no append ghost, no
         // row removal) — leaf edits inside a loaded row still work through
         // the ordinary callbacks, with global path steps.
-        const ctx: FlattenCtx = { open, canRemove: false, canInsert: false, rows: [] };
+        const ctx: FlattenCtx = { open, openDepth, canRemove: false, canInsert: false, rows: [] };
         loaded.forEach((r, i) => {
             const globalRow = p * pageSize + i;
             const label = r.label ?? itemTitle(r.node, globalRow);
@@ -659,7 +671,7 @@ function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
     styles: SlotStyles;
     cbs: TreeCallbacks;
     tabbable: boolean;
-    onToggle: (id: string, expanded: boolean) => void;
+    onToggle: (id: string, expanded: boolean, deep?: boolean) => void;
     onKeyNav: (rowId: string, key: string) => boolean;
     onFocusRow: (rowId: string) => void;
 }): ReactNode {
@@ -747,7 +759,8 @@ function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
                     css={styles["twist"]}
                     tabIndex={-1}
                     aria-label={row.expanded ? "Collapse" : "Expand"}
-                    onClick={() => onToggle(row.id, !row.expanded)}
+                    title={row.expanded ? "Collapse (Alt: entire subtree)" : "Expand"}
+                    onClick={(e) => onToggle(row.id, !row.expanded, e.altKey)}
                 >
                     <FontAwesomeIcon icon={row.expanded ? faChevronDown : faChevronRight} />
                 </chakra.button>
@@ -808,25 +821,59 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const { state: persisted, setState: setPersisted } = usePersistedState<ValueTreePersisted>(
         storageKey, { open: {}, topRow: 0 },
     );
+
+    const style = getSomeorUndefined(value.style);
+    // Style fields are read defensively: host-constructed payloads (decoded
+    // shapes built in TS) may predate a field.
+    const styleOpenDepth = style !== undefined && style.openDepth !== undefined
+        ? getSomeorUndefined(style.openDepth) : undefined;
+    const showToolbar = (style !== undefined && style.toolbar !== undefined
+        ? getSomeorUndefined(style.toolbar) : undefined) === true;
+    // Collapse-all / expand-all override → payload openDepth → default.
+    const openDepth = persisted.baseDepth
+        ?? (styleOpenDepth !== undefined ? Number(styleOpenDepth) : DEFAULT_OPEN_DEPTH);
+
     const pagedFlat = useMemo(
         () => {
             if (paging === undefined) return undefined;
-            const flat = flattenPaged(paging, persisted.open);
+            const flat = flattenPaged(paging, persisted.open, openDepth);
             pagedDebug(`flatten: totalRows=${paging.totalRows} pageSize=${paging.pageSize} totalFlat=${flat.totalFlat} loaded=[${[...flat.pageModels.entries()].map(([p, m]) => `p${p}:${m.length}`).join(' ')}]`);
             return flat;
         },
-        [paging, persisted.open],
+        [paging, persisted.open, openDepth],
     );
     const rows = useMemo(
         () => (pagedFlat !== undefined
             ? pagedFlat.loadedRows
-            : flattenRows(value.root, persisted.open, cbs.onRemove !== undefined, cbs.onInsert !== undefined)),
-        [pagedFlat, value.root, persisted.open, cbs.onRemove, cbs.onInsert],
+            : flattenRows(value.root, persisted.open, openDepth, cbs.onRemove !== undefined, cbs.onInsert !== undefined)),
+        [pagedFlat, value.root, persisted.open, openDepth, cbs.onRemove, cbs.onInsert],
     );
     const rowCount = pagedFlat !== undefined ? pagedFlat.totalFlat : rows.length;
 
-    const onToggle = useCallback((id: string, expanded: boolean) => {
-        setPersisted(prev => ({ ...prev, open: { ...prev.open, [id]: expanded } }));
+    const onToggle = useCallback((id: string, expanded: boolean, deep = false) => {
+        setPersisted(prev => {
+            if (!deep || expanded) {
+                return { ...prev, open: { ...prev.open, [id]: expanded } };
+            }
+            // Deep collapse (Alt-click): close the row AND every currently
+            // rendered descendant, so re-expanding shows a collapsed subtree.
+            const open = { ...prev.open, [id]: false };
+            const idx = rows.findIndex(r => r.id === id);
+            if (idx >= 0) {
+                const rootDepth = rows[idx]!.depth;
+                for (let i = idx + 1; i < rows.length && rows[i]!.depth > rootDepth; i++) {
+                    if (rows[i]!.expandable) open[rows[i]!.id] = false;
+                }
+            }
+            return { ...prev, open };
+        });
+    }, [setPersisted, rows]);
+
+    const collapseAll = useCallback(() => {
+        setPersisted(prev => ({ ...prev, open: {}, baseDepth: 0 }));
+    }, [setPersisted]);
+    const expandAll = useCallback(() => {
+        setPersisted(prev => ({ ...prev, open: {}, baseDepth: Number.MAX_SAFE_INTEGER }));
     }, [setPersisted]);
 
     // Roving tab index + arrow-key traversal (transient, not persisted).
@@ -916,7 +963,6 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         requestVisibleRows();
     }, [setPersisted, requestVisibleRows]);
 
-    const style = getSomeorUndefined(value.style);
     const height = style !== undefined ? getSomeorUndefined(style.height) : undefined;
     const maxHeight = style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined;
 
@@ -937,6 +983,17 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const heightCss = parseCssSize(height);
     const maxHeightCss = parseCssSize(maxHeight);
     const frameFills = heightCss !== undefined || maxHeightCss !== undefined;
+    // Sticky in bounded mode via the VirtualRows header slot.
+    const toolbar = showToolbar ? (
+        <Box css={styles["toolbar"]}>
+            <chakra.button type="button" css={styles["toolbarBtn"]} onClick={collapseAll}>
+                Collapse all
+            </chakra.button>
+            <chakra.button type="button" css={styles["toolbarBtn"]} onClick={expandAll}>
+                Expand all
+            </chakra.button>
+        </Box>
+    ) : undefined;
     return (
         <Box
             role="tree"
@@ -954,6 +1011,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                 height={frameFills ? undefined : height}
                 maxHeight={frameFills ? undefined : maxHeight}
                 fillParent={frameFills}
+                header={toolbar}
                 count={rowCount}
                 estimateSize={() => ROW_H}
                 overscan={8}
@@ -965,16 +1023,16 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                     if (pagedFlat !== undefined && paging !== undefined) {
                         const at = pagedRowAt(pagedFlat, paging, i);
                         if (at.kind === "placeholder") {
+                            // Unloaded rows render as whole-row skeletons —
+                            // the same loading language as the Table.
                             return (
                                 <Box css={styles["row"]} data-part="row" data-placeholder-row={at.globalRow}
                                     role="treeitem" aria-level={1} aria-posinset={at.globalRow + 1}
-                                    aria-setsize={paging.totalRows}
+                                    aria-setsize={paging.totalRows} aria-busy="true"
                                     style={{ paddingLeft: "12px" }}>
                                     <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
-                                    <Box as="span" css={styles["label"]}>{`Item ${(at.globalRow + 1).toLocaleString()}`}</Box>
-                                    <Box css={styles["value"]}>
-                                        <Box as="span" css={styles["summary"]}>Loading…</Box>
-                                    </Box>
+                                    <Skeleton height="14px" flex="0 1 160px" />
+                                    <Skeleton height="14px" flex="0 1 90px" opacity={0.6} />
                                 </Box>
                             );
                         }

@@ -126,6 +126,18 @@ const PAGE_MAX_LIMIT = 10_000;
  *  a smaller budget through the route options. */
 export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 
+/** Largest un-indexed blob the fallback will whole-decode. The decode runs
+ *  synchronously in the server process — an unbounded one wedges the event
+ *  loop (or the whole process) and takes every other request down with it,
+ *  which is fatal for in-process hosts like the VS Code extension. Above
+ *  this, paging an un-indexed blob is refused with a clear remedy. */
+export const PAGE_UNINDEXED_MAX_BYTES_DEFAULT = 64 * 1024 * 1024;
+
+/** Largest blob the page endpoint will buffer at all. Indexed blobs decode
+ *  O(segment) but are still read whole today (a transient allocation);
+ *  above this cap even that is refused until range reads land. */
+export const PAGE_READ_MAX_BYTES_DEFAULT = 512 * 1024 * 1024;
+
 /** Window addressing for {@link getDatasetPage}: an element window
  *  (`offset`/`limit`) or one writer segment (`segment`), optionally pinned
  *  to a content hash. */
@@ -204,6 +216,17 @@ function* iterWindow<E>(iterable: Iterable<E>, offset: number, limit: number): G
  * the touched segments); everything else decodes the whole value once into
  * the per-hash LRU and slices per request.
  */
+/** Server-side limits for {@link getDatasetPage}. */
+export interface DatasetPageLimits {
+  /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
+  byteBudget?: number;
+  /** Whole-decode cap for un-indexed blobs and merged Set/Dict windows
+   *  (default {@link PAGE_UNINDEXED_MAX_BYTES_DEFAULT}). */
+  unindexedMaxBytes?: number;
+  /** Absolute blob-buffering cap (default {@link PAGE_READ_MAX_BYTES_DEFAULT}). */
+  readMaxBytes?: number;
+}
+
 export async function getDatasetPage(
   storage: StorageBackend,
   repoPath: string,
@@ -211,8 +234,11 @@ export async function getDatasetPage(
   treePath: TreePath,
   window: DatasetPageWindow,
   cache: DecodedValueCache,
-  byteBudget: number = PAGE_BYTE_BUDGET_DEFAULT,
+  limits?: DatasetPageLimits,
 ): Promise<Response> {
+  const byteBudget = limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
+  const unindexedMaxBytes = limits?.unindexedMaxBytes ?? PAGE_UNINDEXED_MAX_BYTES_DEFAULT;
+  const readMaxBytes = limits?.readMaxBytes ?? PAGE_READ_MAX_BYTES_DEFAULT;
   try {
     if (treePath.length === 0) {
       return pageError('bad_request', 'Path required for paged get');
@@ -253,6 +279,14 @@ export async function getDatasetPage(
     const requestedLimit = window.limit ?? PAGE_DEFAULT_LIMIT;
     if (!segmentMode && (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(requestedLimit) || requestedLimit < 1)) {
       return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
+    }
+
+    // The absolute buffering cap protects the server process itself — the
+    // endpoint reads the whole blob today (range reads are the follow-up).
+    const statSize = status.size ?? 0;
+    if (statSize > readMaxBytes) {
+      return pageError('dataset_too_large',
+        `Dataset is ${Math.round(statSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
     }
 
     const data = await storage.objects.read(repoPath, status.hash);
@@ -305,6 +339,15 @@ export async function getDatasetPage(
       pageOffset = offset;
     } else {
       let merged = cache.get(status.hash);
+      // The whole-decode guardrail: a huge synchronous decode wedges the
+      // server for every caller. Already-cached values serve for free.
+      if (merged === undefined && data.byteLength > unindexedMaxBytes) {
+        const mb = Math.round(data.byteLength / 1024 / 1024);
+        const capMb = Math.round(unindexedMaxBytes / 1024 / 1024);
+        return pageError('dataset_too_large_unindexed', pages === null
+          ? `Dataset is ${mb} MB and stored without a segment index — beyond the ${capMb} MB whole-decode cap. Re-run the producing task (current runners store large collections segmented) or download it.`
+          : `Sorted element windows over this ${mb} MB ${kind} need a whole decode — beyond the ${capMb} MB cap. Address it by segment (?page=true&segment=K) or download it.`);
+      }
       if (merged === undefined) {
         merged = decodeBeast2For(typeValue)(data);
         cache.set(status.hash, merged);
@@ -343,6 +386,10 @@ export async function getDatasetPage(
         // windows track the mutable current value and must not be cached.
         'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
         'X-Content-SHA256': status.hash,
+        // The stored blob's full byte size — the page endpoint is then
+        // self-describing (no separate status call needed for the header
+        // line); Content-Length remains the page's own bytes.
+        'X-Total-Bytes': String(data.byteLength),
         'X-Total-Elements': String(totalElements),
         'X-Total-Exactness': totalExact ? 'exact' : 'upper-bound',
         'X-Segment-Count': String(pages ? pages.segmentCount : 0),

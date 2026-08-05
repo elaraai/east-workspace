@@ -34,6 +34,8 @@ export interface DatasetPageResult {
     decoded: unknown;
     /** Total elements in the dataset (pairs for Dict datasets). */
     totalElements: number;
+    /** Byte size of the whole stored blob. */
+    totalBytes: number;
     /** Whether `totalElements` is exact (segment windows of Set/Dict
      *  datasets report an upper bound). */
     totalExact: boolean;
@@ -79,6 +81,7 @@ export function useDatasetPage(
             return {
                 decoded,
                 totalElements: page.totalElements,
+                totalBytes: page.totalBytes,
                 totalExact: page.totalExact,
                 segmentCount: page.segmentCount,
                 offset: page.offset,

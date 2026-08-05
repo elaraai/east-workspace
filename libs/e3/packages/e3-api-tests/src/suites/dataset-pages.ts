@@ -199,6 +199,10 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: 0, limit: 10, hash }, opts);
       assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(0, 10)));
       assert.equal(page.hash, hash);
+      // The page is self-describing about the WHOLE dataset: totalBytes is
+      // the stored blob's size (what status reports), not the page's own.
+      assert.equal(BigInt(page.totalBytes), status.size.type === 'some' ? status.size.value : -1n);
+      assert.ok(page.totalBytes > page.data.length, 'whole-blob bytes exceed one page');
 
       // Header semantics via raw fetch: pinned ⇒ immutable, unpinned ⇒
       // no-store, stale pin ⇒ 409 carrying the current hash — a hash-keyed

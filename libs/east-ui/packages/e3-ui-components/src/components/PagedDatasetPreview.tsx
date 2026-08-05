@@ -21,7 +21,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { datasetGetPage } from '@elaraai/e3-api-client';
+import { ApiError, datasetGetPage } from '@elaraai/e3-api-client';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { none, printFor, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
@@ -100,7 +100,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
 }: PagedDatasetPreviewProps) {
     const queryClient = useQueryClient();
     const [pages, setPages] = useState<ReadonlyMap<number, readonly ValueTreePagedRow[]>>(new Map());
-    const [totals, setTotals] = useState<{ elements: number; exact: boolean } | null>(null);
+    const [totals, setTotals] = useState<{ elements: number; exact: boolean; bytes: number } | null>(null);
     const [loadingCount, setLoadingCount] = useState(0);
     const [error, setError] = useState<Error | null>(null);
     const inflightRef = useRef(new Set<number>());
@@ -135,7 +135,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             if (page.count < PAGE_SIZE && page.offset + page.count < page.totalElements) {
                 pagingDebug(`p${pageIdx} SHORT page: server clamped ${PAGE_SIZE} → ${page.count}`);
             }
-            setTotals({ elements: page.totalElements, exact: page.totalExact });
+            setTotals({ elements: page.totalElements, exact: page.totalExact, bytes: page.totalBytes });
             setPages((prev) => new Map(prev).set(pageIdx, rows));
         }).catch((err: unknown) => {
             pagingDebug(`p${pageIdx} FAILED:`, err);
@@ -168,7 +168,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         onInsert: none,
         onRemove: none,
         onTag: none,
-        style: some({ height: some('100%'), maxHeight: none }),
+        style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(true) }),
     }) as unknown as ValueTreeValue, [type]);
 
     const paging = useMemo<ValueTreePaging | null>(() => (
@@ -181,6 +181,19 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     ), [totals, pages, onNeedRows]);
 
     if (error !== null) {
+        // The server refusing for its own safety (huge un-indexed blob) is
+        // not a failure — show the remedy and the download escape hatch.
+        if (error instanceof ApiError && (error.code === 'dataset_too_large_unindexed' || error.code === 'dataset_too_large')) {
+            return (
+                <Flex height="100%" direction="column" align="center" justify="center" gap={3} p={6}>
+                    <Text fontSize="lg" color="fg.warning" fontWeight="bold">Too large to page</Text>
+                    <Text color="fg.muted" fontSize="sm" textAlign="center" maxW="32rem">
+                        {typeof error.details === 'string' ? error.details : 'This dataset cannot be paged server-side.'}
+                    </Text>
+                    <DownloadButton onClick={onDownload} label="Download value" />
+                </Flex>
+            );
+        }
         return <StatusDisplay variant="error" title="Paged load failed" message={error.message} />;
     }
     if (paging === null || totals === null) {
@@ -192,7 +205,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         <Flex direction="column" height="100%" overflow="hidden">
             <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
                 <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">
-                    {totals.elements.toLocaleString()}{totals.exact ? '' : '+'} {itemNoun} · {formatSize(sizeBytes)}
+                    {totals.elements.toLocaleString()}{totals.exact ? '' : '+'} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes)}
                 </Text>
                 {loadingCount > 0 && <Text fontSize="xs" color="fg.muted">Loading…</Text>}
                 <Flex flex={1} justify="flex-end">

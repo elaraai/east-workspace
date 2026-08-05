@@ -39,10 +39,12 @@ import {
     type ValueTypeOf,
     ArrayType,
     type AsyncFunctionType,
+    type BooleanType,
     type DictType,
     East,
     Expr,
     FunctionType,
+    type IntegerType,
     NullType,
     RecursiveExpr,
     type RecursiveType,
@@ -746,12 +748,17 @@ export interface ValueTreeOptions<T extends EastType = EastType> {
     /** RAW variant tag switch / option toggle callback */
     onTag?: SubtypeExprOrValue<FunctionType<[ValueTreePathType, StringType], NullType>>
         | SubtypeExprOrValue<AsyncFunctionType<[ValueTreePathType, StringType], NullType>>;
-    /** Layout style (height / maxHeight) */
+    /** Layout style (height / maxHeight / openDepth / toolbar) */
     style?: {
         /** Pinned height (CSS length; rows virtualize within) */
         height?: SubtypeExprOrValue<StringType>;
         /** Height cap (content-sized up to it, then scrolls) */
         maxHeight?: SubtypeExprOrValue<StringType>;
+        /** Levels that start expanded (deeper rows start collapsed;
+         *  per-row toggles persist over this baseline). Default 1. */
+        openDepth?: SubtypeExprOrValue<IntegerType>;
+        /** Show the collapse-all / expand-all toolbar. Default off. */
+        toolbar?: SubtypeExprOrValue<BooleanType>;
     };
 }
 
@@ -864,6 +871,8 @@ function createValueTree<T extends EastType>(
         style: style !== undefined ? some(East.value({
             height: style.height !== undefined ? some(style.height) : none,
             maxHeight: style.maxHeight !== undefined ? some(style.maxHeight) : none,
+            openDepth: style.openDepth !== undefined ? some(style.openDepth) : none,
+            toolbar: style.toolbar !== undefined ? some(style.toolbar) : none,
         }, ValueTreeStyleType)) : none,
     }), UIComponentType);
 }

@@ -140,7 +140,7 @@ export const DatasetPreview = memo(function DatasetPreview({
                 onTag: some((p: ValueTreeStepValue[], tag: string) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'tag', tag }))),
             }
             : { onEdit: none, onInsert: none, onRemove: none, onTag: none };
-        return { root, ...wire, style: some({ height: some('100%'), maxHeight: none }) } as unknown as ValueTreeValue;
+        return { root, ...wire, style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(true) }) } as unknown as ValueTreeValue;
     }, [type, decoded, editable, write]);
 
     if (statusQuery.isLoading) return <StatusDisplay variant="loading" title="Loading..." />;
@@ -184,10 +184,20 @@ export const DatasetPreview = memo(function DatasetPreview({
     if (valueQuery.isLoading || !valueQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
     if (valueQuery.error) return <StatusDisplay variant="error" title="Decode failed" message={valueQuery.error.message} />;
 
+    // Collection roots show their entry count beside the byte size — the
+    // same header the paged view renders, so small and large datasets read
+    // identically.
+    const count = type === undefined || decoded === undefined ? null
+        : type.type === 'Array' ? (decoded as unknown[]).length
+        : type.type === 'Set' || type.type === 'Dict' ? (decoded as { size: number }).size
+        : null;
+    const countText = count === null ? ''
+        : `${count.toLocaleString()} ${type?.type === 'Dict' ? 'entries' : 'items'} · `;
+
     return (
         <Flex direction="column" height="100%" overflow="hidden">
             <Flex px={4} py={2} justify="flex-end" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
-                <Text fontSize="xs" color="fg.muted" mr={2} alignSelf="center">{formatSize(sizeBytes)}</Text>
+                <Text fontSize="xs" color="fg.muted" mr={2} alignSelf="center">{countText}{formatSize(sizeBytes)}</Text>
                 <DownloadButton onClick={download} />
             </Flex>
             <Box flex={1} minHeight={0} overflow="hidden">

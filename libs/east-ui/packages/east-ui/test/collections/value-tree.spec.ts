@@ -49,6 +49,7 @@ describeEast("ValueTree", (test) => {
         valueTreeKitchenSinkEditable: ex.valueTreeKitchenSinkEditable,
         valueTreeVirtualized: ex.valueTreeVirtualized,
         valueTreeFillsBoundedParent: ex.valueTreeFillsBoundedParent,
+        valueTreeControls: ex.valueTreeControls,
     });
 
     // ------------------------------------------------------------------
@@ -157,6 +158,14 @@ describeEast("ValueTree", (test) => {
         const payload = $.let(ui.unwrap().unwrap("ValueTree"));
         $(Assert.equal(payload.onEdit.hasTag("none"), true));
         $(Assert.equal(payload.style.unwrap("some").height.unwrap("some"), "320px"));
+    });
+
+    test("carries the expansion controls through the style payload", $ => {
+        const ui = $.let(ValueTree.Root({ n: 1n }, { style: { openDepth: 0n, toolbar: true } }));
+        const style = $.let(ui.unwrap().unwrap("ValueTree").style.unwrap("some"));
+        $(Assert.equal(style.openDepth.unwrap("some"), 0n));
+        $(Assert.equal(style.toolbar.unwrap("some"), true));
+        $(Assert.equal(style.height.hasTag("none"), true));
     });
 
     test("zero delegates to east's defaultValue across every data type", $ => {

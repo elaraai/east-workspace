@@ -27,6 +27,13 @@ export interface DatasetRouteOptions {
    *  4 MiB; deployments with tighter response limits (e.g. Lambda proxy's
    *  6 MB, base64-inflated) pass a smaller budget. */
   pageByteBudget?: number;
+  /** Whole-decode cap for paging un-indexed blobs (and sorted Set/Dict
+   *  windows). Defaults to 64 MiB — a synchronous decode beyond this would
+   *  wedge the server process for every caller. */
+  pageUnindexedMaxBytes?: number;
+  /** Absolute blob-buffering cap for the page endpoint. Defaults to
+   *  512 MiB, until range reads land. */
+  pageReadMaxBytes?: number;
 }
 
 /** Parses an integer query param; `undefined` when absent, `NaN` when
@@ -100,7 +107,11 @@ export function createDatasetRoutes(
         ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
         ...(hash !== undefined && hash !== '' && { hash }),
       };
-      return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache, options?.pageByteBudget);
+      return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache, {
+        ...(options?.pageByteBudget !== undefined && { byteBudget: options.pageByteBudget }),
+        ...(options?.pageUnindexedMaxBytes !== undefined && { unindexedMaxBytes: options.pageUnindexedMaxBytes }),
+        ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
+      });
     }
 
     return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend);

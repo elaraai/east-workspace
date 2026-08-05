@@ -57,14 +57,20 @@ interface Cbs {
     onTag?: (path: unknown[], tag: string) => void;
 }
 
-function rootValue(root: ValueTreeNodeValue, cbs: Cbs = {}): ValueTreeValue {
+function rootValue(root: ValueTreeNodeValue, cbs: Cbs = {}, style?: { openDepth?: bigint; toolbar?: boolean }): ValueTreeValue {
     return {
         root,
         onEdit: cbs.onEdit !== undefined ? some(cbs.onEdit) : none,
         onInsert: cbs.onInsert !== undefined ? some(cbs.onInsert) : none,
         onRemove: cbs.onRemove !== undefined ? some(cbs.onRemove) : none,
         onTag: cbs.onTag !== undefined ? some(cbs.onTag) : none,
-        style: none,
+        style: style !== undefined
+            ? some({
+                height: none, maxHeight: none,
+                openDepth: style.openDepth !== undefined ? some(style.openDepth) : none,
+                toolbar: style.toolbar !== undefined ? some(style.toolbar) : none,
+            })
+            : none,
     } as unknown as ValueTreeValue;
 }
 
@@ -137,8 +143,12 @@ describe("EastChakraValueTree", () => {
                 ["inner", structN([["deep", structN([["n", int(7n)]])]])],
             ])],
         ])));
-        // Rows at depth < 2 start expanded, so `deep` (depth 2) is visible
-        // but collapsed — its child `n` is not.
+        // One level starts expanded: `outer` (depth 0) is open, so `inner`
+        // (depth 1) is visible but collapsed — `deep` is not.
+        expect(screen.getByText("Inner")).toBeTruthy();
+        expect(screen.queryByText("Deep")).toBeNull();
+        const innerRow = screen.getByText("Inner").closest("[data-part=row]")!;
+        fireEvent.click(innerRow.querySelector("button[aria-label=Expand]")!);
         expect(screen.getByText("Deep")).toBeTruthy();
         expect(screen.queryByText("N")).toBeNull();
         const deepRow = screen.getByText("Deep").closest("[data-part=row]")!;
@@ -146,6 +156,43 @@ describe("EastChakraValueTree", () => {
         expect(screen.getByText("N")).toBeTruthy();
         fireEvent.click(deepRow.querySelector("button[aria-label=Collapse]")!);
         expect(screen.queryByText("N")).toBeNull();
+    });
+
+    test("style.openDepth overrides the default and 0 starts fully collapsed", () => {
+        renderTree(rootValue(structN([
+            ["outer", structN([["inner", int(1n)]])],
+        ]), {}, { openDepth: 0n }));
+        expect(screen.getByText("Outer")).toBeTruthy();
+        expect(screen.queryByText("Inner")).toBeNull();
+    });
+
+    test("the toolbar collapses and expands everything", () => {
+        renderTree(rootValue(structN([
+            ["outer", structN([["inner", structN([["deep", int(7n)]])]])],
+        ]), {}, { toolbar: true }));
+        // Default: outer open, inner visible-collapsed.
+        expect(screen.getByText("Inner")).toBeTruthy();
+        fireEvent.click(screen.getByText("Expand all"));
+        expect(screen.getByText("Deep")).toBeTruthy();
+        fireEvent.click(screen.getByText("Collapse all"));
+        expect(screen.queryByText("Inner")).toBeNull();
+        expect(screen.getByText("Outer")).toBeTruthy();
+    });
+
+    test("Alt-click collapses the entire subtree, not just the row", () => {
+        renderTree(rootValue(structN([
+            ["outer", structN([["inner", structN([["deep", int(7n)]])]])],
+        ]), {}, { toolbar: true }));
+        fireEvent.click(screen.getByText("Expand all"));
+        expect(screen.getByText("Deep")).toBeTruthy();
+        const outerRow = screen.getByText("Outer").closest("[data-part=row]")!;
+        // Alt-collapse the root row: descendants close too, so a plain
+        // re-expand shows a collapsed subtree (inner visible, deep hidden).
+        fireEvent.click(outerRow.querySelector("button[aria-label=Collapse]")!, { altKey: true });
+        expect(screen.queryByText("Inner")).toBeNull();
+        fireEvent.click(outerRow.querySelector("button[aria-label=Expand]")!);
+        expect(screen.getByText("Inner")).toBeTruthy();
+        expect(screen.queryByText("Deep")).toBeNull();
     });
 
     test("onEdit reports the path and new leaf from a string editor", async () => {
@@ -313,6 +360,9 @@ describe("EastChakraValueTree", () => {
         fireEvent.keyDown(outer, { key: "ArrowDown" });
         const inner = screen.getByText("Inner").closest("[data-part=row]") as HTMLElement;
         expect(document.activeElement).toBe(inner);
+        // Inner starts collapsed (one level open) — Right expands it.
+        expect(inner.getAttribute("aria-expanded")).toBe("false");
+        fireEvent.keyDown(inner, { key: "ArrowRight" });
         fireEvent.keyDown(inner, { key: "ArrowDown" });
         const deep = screen.getByText("Deep").closest("[data-part=row]") as HTMLElement;
         expect(document.activeElement).toBe(deep);
@@ -357,7 +407,7 @@ describe("EastChakraValueTree — remote paging", () => {
 
     test("spans totalRows, renders placeholders, and requests the visible window", () => {
         const onNeedRows = vi.fn();
-        renderPaged({
+        const view = renderPaged({
             totalRows: 6,
             pageSize: 2,
             pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
@@ -367,10 +417,10 @@ describe("EastChakraValueTree — remote paging", () => {
         const press = screen.getAllByText("Press")[0]!.closest("[data-part=row]")!;
         expect(press.getAttribute("aria-setsize")).toBe("6");
         expect(press.getAttribute("aria-posinset")).toBe("1");
-        // Unloaded rows (2..5) are placeholders with 1-based item labels.
-        expect(screen.getAllByText("Loading…").length).toBe(4);
-        expect(screen.getByText("Item 3")).toBeTruthy();
-        expect(screen.getByText("Item 6")).toBeTruthy();
+        // Unloaded rows (2..5) render as skeleton placeholder rows.
+        expect(view.container.querySelectorAll("[data-placeholder-row]").length).toBe(4);
+        expect(view.container.querySelector('[data-placeholder-row="2"]')).toBeTruthy();
+        expect(view.container.querySelector('[data-placeholder-row="5"]')).toBeTruthy();
         // The mount effect asks the host for the window starting at the top.
         expect(onNeedRows).toHaveBeenCalled();
         expect(onNeedRows.mock.calls[0]?.[0]).toBe(0);
@@ -380,14 +430,14 @@ describe("EastChakraValueTree — remote paging", () => {
         const onNeedRows = vi.fn();
         const page0: [number, ValueTreePagedRow[]] = [0, [pagedItem("Press", 0), pagedItem("Mill", 1)]];
         const view = renderPaged({ totalRows: 4, pageSize: 2, pages: new Map([page0]), onNeedRows });
-        expect(screen.getAllByText("Loading…").length).toBe(2);
+        expect(view.container.querySelectorAll("[data-placeholder-row]").length).toBe(2);
         view.rerenderPaging({
             totalRows: 4,
             pageSize: 2,
             pages: new Map([page0, [1, [pagedItem("Wrapper", 2), pagedItem("Oven", 3)]]]),
             onNeedRows,
         });
-        expect(screen.queryByText("Loading…")).toBeNull();
+        expect(view.container.querySelectorAll("[data-placeholder-row]").length).toBe(0);
         expect(screen.getAllByText("Wrapper").length).toBeGreaterThan(0);
         const oven = screen.getAllByText("Oven")[0]!.closest("[data-part=row]")!;
         expect(oven.getAttribute("aria-posinset")).toBe("4");
