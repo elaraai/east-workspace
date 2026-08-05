@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { HStack, Image, Text, VStack } from "@elaraai/east-ui";
+import { ArrayType, East, NullType, StringType, example } from "@elaraai/east";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { Configurator, HStack, Image, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
 
 // Tiny self-contained brandmark (a rounded teal tile with a bolt) — kept inline
 // so the examples render with no external asset.
@@ -34,38 +34,62 @@ export const imageLogo = example({
     inputs: [],
 });
 
-export const imageFit = example({
-    keywords: ["Image", "fit", "objectFit", "contain", "cover", "aspectRatio", "borderRadius", "background"],
-    description: "object-fit in a fixed 112×64 box — `contain` letterboxes (over a background), `cover` crops to fill",
+export const imageVariants = example({
+    keywords: ["Image", "source", "dataUri", "blob", "BlobType", "bytes", "url", "hosted", "fit", "objectFit", "contain", "cover", "aspectRatio", "borderRadius", "background", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Image configurator — source (dataUri / blob / url) and fit (contain / cover) axes in a fixed 112×64 box",
     fn: East.function([], UIComponentType, (_$) => (
-        <HStack gap="6" align="flex-start">
-            <VStack gap="1" align="center">
-                <Image source={Image.dataUri(WIDE_DATA_URI)} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="contain" />
-                <Text textStyle="body-sm" color="fg.muted">contain</Text>
-            </VStack>
-            <VStack gap="1" align="center">
-                <Image source={Image.dataUri(WIDE_DATA_URI)} width="112px" height="64px" fit="cover" borderRadius="8px" alt="cover" />
-                <Text textStyle="body-sm" color="fg.muted">cover</Text>
-            </VStack>
-        </HStack>
-    )),
-    inputs: [],
-});
+        <Reactive>{$ => {
+            const sources = $.const(["dataUri", "blob", "url"], ArrayType(StringType));
+            const fits = $.const(["contain", "cover"], ArrayType(StringType));
 
-export const imageBlob = example({
-    keywords: ["Image", "blob", "BlobType", "bytes", "format", "svg", "embed", "self-contained"],
-    description: "An embedded image from raw bytes — Image.blob(bytes, \"svg\") builds a revocable object URL (no hosting, no base64)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Image source={Image.blob(LOGO_BYTES, "svg")} height="48px" fit="contain" alt="embedded logo" />
-    )),
-    inputs: [],
-});
+            const sourceBind = $.let(State.bind([StringType], "image_source", "dataUri"));
+            const fitBind = $.let(State.bind([StringType], "image_fit", "contain"));
 
-export const imageUrl = example({
-    keywords: ["Image", "url", "hosted", "external", "src"],
-    description: "A hosted image referenced by URL (not self-contained — the value doesn't carry the pixels)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Image source={Image.url("https://example.com/logo.svg")} height="36px" fit="contain" alt="hosted logo" />
+            const sKey = $.let(sourceBind.read());
+            const fKey = $.let(fitBind.read());
+
+            const onSource = $.const(East.function([StringType], NullType, ($, next) => { $(sourceBind.write(next)); }));
+            const onFit = $.const(East.function([StringType], NullType, ($, next) => { $(fitBind.write(next)); }));
+
+            const isCover = $.let(fKey.equal("cover"));
+
+            // Source constructors and fit are build-time, so the axes pick
+            // between prebuilt images; the url arm shows alt-text fallback
+            // (the value doesn't carry the pixels).
+            const preview = $.const(sKey.equal("blob").ifElse(
+                _$ => isCover.ifElse(
+                    _$ => <Image source={Image.blob(LOGO_BYTES, "svg")} width="112px" height="64px" fit="cover" borderRadius="8px" alt="embedded logo" />,
+                    _$ => <Image source={Image.blob(LOGO_BYTES, "svg")} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="embedded logo" />,
+                ),
+                _$ => sKey.equal("url").ifElse(
+                    _$ => isCover.ifElse(
+                        _$ => <Image source={Image.url("https://example.com/logo.svg")} width="112px" height="64px" fit="cover" borderRadius="8px" alt="hosted logo" />,
+                        _$ => <Image source={Image.url("https://example.com/logo.svg")} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="hosted logo" />,
+                    ),
+                    _$ => isCover.ifElse(
+                        _$ => <Image source={Image.dataUri(WIDE_DATA_URI)} width="112px" height="64px" fit="cover" borderRadius="8px" alt="cover" />,
+                        _$ => <Image source={Image.dataUri(WIDE_DATA_URI)} width="112px" height="64px" fit="contain" borderRadius="8px" background="bg.subtle" alt="contain" />,
+                    ),
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Source", sKey,
+                            <SegmentGroup value={sKey} onChange={onSource} size="sm"
+                                items={sources.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                        Configurator.Control("Fit", fKey,
+                            <SegmentGroup value={fKey} onChange={onFit} size="sm"
+                                items={fits.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Self-contained", sKey.equal("url").ifElse(_$ => "no · alt fallback", _$ => "yes")),
+                    ]}
+                />
+            );
+        }}</Reactive>
     )),
     inputs: [],
 });

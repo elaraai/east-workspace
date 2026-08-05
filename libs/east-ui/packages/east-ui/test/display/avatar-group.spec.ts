@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { AvatarGroup } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./avatar-group.examples.js";
 
 describeEast("AvatarGroup", (test) => {
     Assert.examples(test, {
         avatarGroupBasic: ex.avatarGroupBasic,
-        avatarGroupOverflow: ex.avatarGroupOverflow,
-        avatarGroupLarge: ex.avatarGroupLarge,
-        avatarGroupDensities: ex.avatarGroupDensities,
+        avatarGroupVariants: ex.avatarGroupVariants,
+    });
+
+    test("avatarGroupVariants is the live configurator", $ => {
+        const panel = $.const(ex.avatarGroupVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates an AvatarGroup with three avatars", $ => {

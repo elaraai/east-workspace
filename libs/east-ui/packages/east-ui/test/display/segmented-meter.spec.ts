@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { SegmentedMeter } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./segmented-meter.examples.js";
 
 describeEast("SegmentedMeter", (test) => {
     Assert.examples(test, {
         segmentedMeterBasic: ex.segmentedMeterBasic,
-        segmentedMeterOutsideLabels: ex.segmentedMeterOutsideLabels,
-        segmentedMeterDensities: ex.segmentedMeterDensities,
-        segmentedMeterResidual: ex.segmentedMeterResidual,
+        segmentedMeterVariants: ex.segmentedMeterVariants,
+    });
+
+    test("segmentedMeterVariants is the live configurator", $ => {
+        const panel = $.const(ex.segmentedMeterVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a three-segment meter", $ => {

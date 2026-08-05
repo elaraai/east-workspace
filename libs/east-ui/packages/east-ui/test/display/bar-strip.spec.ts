@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { BarStrip, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./bar-strip.examples.js";
 
 describeEast("BarStrip", (test) => {
     Assert.examples(test, {
         barStripBasic: ex.barStripBasic,
-        barStripSorted: ex.barStripSorted,
-        barStripDensities: ex.barStripDensities,
-        barStripMaxItems: ex.barStripMaxItems,
+        barStripVariants: ex.barStripVariants,
+    });
+
+    test("barStripVariants is the live configurator", $ => {
+        const panel = $.const(ex.barStripVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a BarStrip with three items", $ => {

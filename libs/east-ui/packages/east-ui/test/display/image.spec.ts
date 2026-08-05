@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Image } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./image.examples.js";
 
 describeEast("Image", (test) => {
     Assert.examples(test, {
         imageLogo: ex.imageLogo,
-        imageFit: ex.imageFit,
-        imageBlob: ex.imageBlob,
-        imageUrl: ex.imageUrl,
+        imageVariants: ex.imageVariants,
+    });
+
+    test("imageVariants is the live configurator", $ => {
+        const panel = $.const(ex.imageVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("url source round-trips", $ => {
