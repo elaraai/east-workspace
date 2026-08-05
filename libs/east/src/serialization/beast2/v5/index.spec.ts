@@ -38,7 +38,10 @@ import {
 } from "../index.js";
 import { writeTypeSection } from "./type-section.js";
 import { writeSourceMapSectionV5, FOOTER_MAGIC_V5 } from "./codec.js";
-import { writeFrame } from "./frames.js";
+import { writeFrame, inflateRawSync } from "./frames.js";
+import { deterministicDeflateRaw } from "./deflate.js";
+import { inflateRawPure } from "./inflate.js";
+import { deflateRawSync as zlibDeflateRawSync } from "node:zlib";
 
 const V5 = { version: 5 as const };
 const V5_PLAIN = { version: 5 as const, codec: "none" as const };
@@ -545,5 +548,74 @@ describe("Beast2 v5 — Hardening", () => {
     const unknownId = Uint8Array.from(blob);
     unknownId[9] = 0x60;  // an id not in this runtime's format registry
     assert.throws(() => decodeEastIR(unknownId), /unknown well-known type id/);
+  });
+});
+
+// =============================================================================
+// 7. Pure inflate — the browser synchronous decode path
+// =============================================================================
+
+describe("Beast2 v5 — Pure inflate (browser sync path)", () => {
+  // Deterministic pseudo-random bytes so fixtures are reproducible.
+  function randomBytes(n: number, seed: number): Uint8Array {
+    let s = seed >>> 0;
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      out[i] = s >>> 24;
+    }
+    return out;
+  }
+  function repetitiveBytes(n: number): Uint8Array {
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) out[i] = i % 7 === 0 ? 0x41 : i % 13;
+    return out;
+  }
+
+  test("inflates our own deterministic encoder (fixed-Huffman blocks)", () => {
+    for (const data of [
+      new Uint8Array(0),
+      new Uint8Array([1, 2, 3]),
+      repetitiveBytes(1000),
+      repetitiveBytes(100_000),   // matches span beyond the 32 KiB window
+      randomBytes(5000, 42),      // incompressible: mostly literals
+    ]) {
+      const compressed = deterministicDeflateRaw(data);
+      assert.deepEqual(inflateRawPure(compressed, data.length), data, `size ${data.length}`);
+    }
+  });
+
+  test("inflates foreign zlib streams (stored and dynamic-Huffman blocks)", () => {
+    // Level 0 emits stored blocks (multiple, above the 64 KiB block cap);
+    // higher levels emit fixed/dynamic blocks as zlib sees fit. A correct
+    // inflate must accept them all — the format pins the encoder only.
+    for (const level of [0, 1, 6, 9]) {
+      for (const data of [repetitiveBytes(200_000), randomBytes(70_000, 7)]) {
+        const compressed = new Uint8Array(zlibDeflateRawSync(data, { level }));
+        assert.deepEqual(inflateRawPure(compressed, data.length), data, `level ${level}, size ${data.length}`);
+      }
+    }
+  });
+
+  test("agrees with the zlib-backed sync inflate", () => {
+    const data = repetitiveBytes(50_000);
+    const compressed = deterministicDeflateRaw(data);
+    // zlib returns a Buffer (a Uint8Array subclass) — normalize for deepEqual.
+    assert.deepEqual(inflateRawPure(compressed, data.length), new Uint8Array(inflateRawSync(compressed, data.length)));
+  });
+
+  test("corrupt streams fail loudly", () => {
+    const data = repetitiveBytes(1000);
+    const compressed = deterministicDeflateRaw(data);
+    // Truncated input.
+    assert.throws(() => inflateRawPure(compressed.subarray(0, compressed.length - 5), data.length), /truncated/i);
+    // Declared length disagrees with the stream in both directions.
+    assert.throws(() => inflateRawPure(compressed, data.length - 1), /past the declared/);
+    assert.throws(() => inflateRawPure(compressed, data.length + 1), /inflated to/);
+    // A match whose distance reaches before the start of output: a fixed
+    // block whose first symbol is a length/distance pair (len 3, dist 1).
+    assert.throws(() => inflateRawPure(new Uint8Array([0x03, 0x02]), 3), /distance/);
+    // Reserved block type 3.
+    assert.throws(() => inflateRawPure(new Uint8Array([0x07]), 1), /block type/);
   });
 });

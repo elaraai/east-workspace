@@ -199,7 +199,7 @@ Task → What do you need?
             │   ├─ Read a batch at a time → iterBeast2SegmentsFor(T)(blob)   — O(segment)
             │   └─ Read whole (batches merge) → decodeBeast2For(T)(blob)
             ├─ Random access by row → openBeast2PagesFor(T)(blob) → .elementCount, .segment(i), .element(row)
-            └─ In a browser (no node:zlib) → decodeBeast2ForAsync(T)(blob)
+            └─ In a browser → same sync API works (portable inflate); decodeBeast2ForAsync(T)(blob) is faster for large blobs
 ```
 
 ## Type System Summary
@@ -382,10 +382,10 @@ no call-site change to adopt a newer container.
 | Signature | Description |
 |-----------|-------------|
 | **Whole value** |
-| `encodeBeast2For(T, opts?): (value) => Uint8Array` | Curried encoder. `opts.version` picks the container (`4` default, `5`); `opts.codec` (`"deflate"` default \| `"none"`) and `opts.index` apply to v5 |
-| `decodeBeast2For(T, opts?): (blob) => ValueTypeOf<T>` | Curried decoder; accepts **any** container version. `opts.platform` supplies platform fns for decoded East functions |
+| `encodeBeast2For(T, opts?): (value) => Uint8Array` | Curried encoder. `opts.version` picks the container (`5` default, `4` for legacy readers); `opts.codec` (`"deflate"` default \| `"none"`) and `opts.index` apply to v5 |
+| `decodeBeast2For(T, opts?): (blob) => ValueTypeOf<T>` | Curried decoder; accepts **any** container version and works in every runtime (browsers use a portable inflate). `opts.platform` supplies platform fns for decoded East functions |
 | `decodeBeast2(blob, opts?): { type, value }` | Decode without knowing the type — reads the type embedded in the blob |
-| `decodeBeast2ForAsync(T, opts?): (blob) => Promise<…>` | Same as `decodeBeast2For`, but decompresses via `DecompressionStream` — use in browsers, where `node:zlib` is unavailable |
+| `decodeBeast2ForAsync(T, opts?): (blob) => Promise<…>` | Same as `decodeBeast2For`, but decompresses via the platform's native `DecompressionStream` — an optional speed-up for large blobs in browsers |
 | `encodeEastIR(eastIR)` / `decodeEastIR(blob)` | A program plus its source map, so `loc_id`s stay resolvable across processes |
 | **Collections larger than memory** (v5) |
 | `new Beast2Writer(T, sink, opts?)` | Append-only writer. `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch, never the collection; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void` |

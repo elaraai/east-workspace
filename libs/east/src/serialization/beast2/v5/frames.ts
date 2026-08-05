@@ -17,14 +17,16 @@
  * reserved for zstd. Writers choose a codec per frame, so a blob may mix
  * compressed and uncompressed frames.
  *
- * Deflate uses Node's zlib when available (loaded via
- * `process.getBuiltinModule`, which browser bundlers ignore); browsers fall
- * back to the async `CompressionStream`/`DecompressionStream` path used by
- * the async decode entry points.
+ * Inflate uses Node's zlib when available (loaded via
+ * `process.getBuiltinModule`, which browser bundlers ignore); without it the
+ * sync path falls back to the portable decoder in `./inflate.ts`, so
+ * synchronous decode works in every runtime. The async decode entry points
+ * prefer the platform's native `DecompressionStream` for throughput.
  */
 
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { deterministicDeflateRaw } from "./deflate.js";
+import { inflateRawPure } from "./inflate.js";
 
 /** Codec id: store logical bytes uncompressed. */
 export const CODEC_NONE = 0;
@@ -80,15 +82,17 @@ export function deflateRawSync(data: Uint8Array): Uint8Array {
 /**
  * Decompresses a raw DEFLATE frame payload synchronously.
  *
+ * Prefers Node's zlib (native code); without it — browsers — falls back to
+ * the portable pure-TS inflate, so synchronous decode works everywhere.
+ *
  * @param payload - the compressed frame payload
  * @param uncompressedLen - the expected logical byte length from the frame header
  * @returns the logical bytes
- * @throws {Error} When zlib is unavailable (browsers — use the async decode
- *   entry points), the stream is corrupt, or the output length mismatches.
+ * @throws {Error} When the stream is corrupt or the output length mismatches.
  */
 export function inflateRawSync(payload: Uint8Array, uncompressedLen: number): Uint8Array {
   if (!zlib) {
-    throw new Error(`beast2 v5: synchronous inflate needs Node's zlib; use the async decode entry points in browsers`);
+    return inflateRawPure(payload, uncompressedLen);
   }
   const out = zlib.inflateRawSync(payload, { maxOutputLength: uncompressedLen });
   if (out.length !== uncompressedLen) {
@@ -98,8 +102,10 @@ export function inflateRawSync(payload: Uint8Array, uncompressedLen: number): Ui
 }
 
 /**
- * Decompresses a raw DEFLATE frame payload asynchronously via
- * `DecompressionStream("deflate-raw")` — the browser path.
+ * Decompresses a raw DEFLATE frame payload asynchronously, preferring the
+ * platform's native decompressor (`DecompressionStream("deflate-raw")`) in
+ * browsers; falls back to the portable pure-TS inflate when neither zlib nor
+ * `DecompressionStream` exists.
  *
  * @param payload - the compressed frame payload
  * @param uncompressedLen - the expected logical byte length from the frame header
@@ -110,7 +116,7 @@ export async function inflateRawAsync(payload: Uint8Array, uncompressedLen: numb
   if (zlib) return inflateRawSync(payload, uncompressedLen);
   const DS = (globalThis as any).DecompressionStream as (new (format: string) => { writable: WritableStream<Uint8Array>; readable: ReadableStream<Uint8Array> }) | undefined;
   if (!DS) {
-    throw new Error(`beast2 v5: no inflate available (neither Node's zlib nor DecompressionStream)`);
+    return inflateRawPure(payload, uncompressedLen);
   }
   const source = new ReadableStream<Uint8Array>({
     start(controller) {

@@ -155,8 +155,10 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
  * Builds an async decoder closure for the given type.
  *
  * Identical to {@link decodeBeast2For} but decompresses v5 deflate frames with
- * the platform's async decompressor (`DecompressionStream`), so it works in
- * browsers where Node's zlib is unavailable. v4 blobs decode synchronously.
+ * the platform's native async decompressor (`DecompressionStream`). The sync
+ * entry points work everywhere too (browsers fall back to a portable inflate);
+ * prefer this variant for large blobs in browsers, where the native
+ * decompressor is faster. v4 blobs decode synchronously.
  *
  * @param type - the expected root East type (as `EastType` or `EastTypeValue`)
  * @param options - decode options (platform functions for decoded functions)

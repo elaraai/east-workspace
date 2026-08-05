@@ -125,9 +125,11 @@ frame:  varint(codec_id) varint(uncompressed_len) varint(payload_len) payload
 
 - Codec ids: `0 = none` (payload_len MUST equal uncompressed_len),
   `1 = deflate` — raw DEFLATE per RFC 1951, the mandatory baseline (zlib in
-  C, `node:zlib` in Node, `DecompressionStream("deflate-raw")` in browsers,
-  stdlib `zlib` in Python), `2 = zstd` (reserved; readers that meet it fail
-  with a clear message naming the codec). The codec is a per-frame writer
+  C, stdlib `zlib` in Python, `node:zlib` in Node; in browsers the TS runtime
+  ships a portable inflate for the sync decode path and prefers
+  `DecompressionStream("deflate-raw")` on the async path), `2 = zstd`
+  (reserved; readers that meet it fail with a clear message naming the
+  codec). The codec is a per-frame writer
   choice — a blob may mix compressed and uncompressed frames. Writers store
   tiny or incompressible payloads with codec 0.
 - A deflate frame MUST inflate to exactly `uncompressed_len` bytes.
