@@ -39,9 +39,12 @@
  * `localSource()`), which breaks member resolution.
  *
  * A **named flat index** is classified by uv as a `registry` source
- * (`source = { registry = "<dir>" }` in the lock), so `uv sync` installs it
+ * (`source = { registry = "<url>" }` in the lock), so `uv sync` installs it
  * normally and `localSource()` — which matches only editable/directory/virtual
  * — never sees it. That single classification difference is the whole trick.
+ * The index is served over http (never `file://`): uv writes a `file://`
+ * flat-index registry into the lock as a path RELATIVE to the project, which
+ * dangles when e3 materializes the captured lock at another directory depth.
  *
  * npm has no `--no-install-local` analogue; the lock's `resolved` URL for
  * `@elaraai` names points at this server and `npm ci` uses it verbatim (npm
@@ -58,7 +61,6 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 /** The workspace `libs/` directory (…/libs/e3/test/integration/dist → …/libs). */
 const WORKSPACE_LIBS = join(import.meta.dirname, '..', '..', '..', '..');
@@ -99,9 +101,13 @@ const NPM_PACKAGES = [
 
 /** Handle onto the running stand-in registry pair. */
 export interface LocalStack {
-  /** Absolute path to the flat wheel index, for `[[tool.uv.index]]`. */
+  /** Absolute path to the flat wheel index directory. */
   pypiDir: string;
-  /** `file://` URL of the same, safe to embed in TOML on Windows. */
+  /** `http://127.0.0.1:<port>/pypi/` — the flat index for
+   *  `[[tool.uv.index]]`. Served over HTTP (never `file://`): uv records a
+   *  `file://` flat index as a PROJECT-RELATIVE registry path in `uv.lock`,
+   *  which breaks when e3 materializes the captured lock at a different
+   *  directory depth; an http URL locks absolutely. */
   pypiIndexUrl: string;
   /** `http://127.0.0.1:<port>` — the value for `@elaraai:registry`. */
   npmRegistryUrl: string;
@@ -157,14 +163,15 @@ function buildNpmTarballs(): string[] {
  * It must not share this process: the suite drives npm/uv through
  * `execFileSync`, which blocks the event loop, so an in-process server cannot
  * answer the very install that is blocking it — npm waits on the registry, the
- * registry waits on npm, and the run deadlocks. (Exactly that was observed: the
- * python cases passed, because a `file://` flat index needs no server, while
- * every node case hung.)
+ * registry waits on npm, and the run deadlocks. The server also carries the
+ * python flat index (`/pypi/`) so `uv.lock` records an ABSOLUTE registry URL —
+ * a `file://` flat index locks as a project-relative path, which breaks when
+ * e3 materializes the captured lock at a different directory depth.
  */
 function startNpmRegistry(): Promise<string> {
   return new Promise((resolve, reject) => {
     const script = join(import.meta.dirname, 'localRegistry.js');
-    const child = spawn(process.execPath, [script, NPM_DIR], {
+    const child = spawn(process.execPath, [script, NPM_DIR, PYPI_DIR], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     registry = child;
@@ -232,12 +239,12 @@ export async function ensureLocalStack(): Promise<LocalStack | null> {
     buildPythonWheels();
     step = 'packing @elaraai npm tarballs (pnpm pack)';
     const tarballs = buildNpmTarballs();
-    step = 'starting the stand-in npm registry';
+    step = 'starting the stand-in registry';
     const npmRegistryUrl = await startNpmRegistry();
     step = 'reading packed manifests (tar)';
     cached = {
       pypiDir: PYPI_DIR,
-      pypiIndexUrl: pathToFileURL(PYPI_DIR).href,
+      pypiIndexUrl: `${npmRegistryUrl}/pypi/`,
       npmRegistryUrl,
       servedNpmNames: servedNames(tarballs),
     };
