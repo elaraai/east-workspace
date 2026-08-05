@@ -54,6 +54,18 @@ test.describe("AlignedStack shares one column axis (#147)", () => {
             const a = document.querySelector(`a[href="#${key}"]`);
             const card = a?.closest("[data-index]") ?? document.body;
 
+            // The page now hosts THIRTEEN captioned groups (the folded-in
+            // pairs / density / axis catalogues) — each its own AlignedStack
+            // with its own axis. The shared-axis assertion applies WITHIN one
+            // stack, so scope every measurement to the flagship group: the
+            // band between the first two Separator rules.
+            const seps = [...card.querySelectorAll("[class*='elara-separator']")]
+                .map((el) => el.getBoundingClientRect().top)
+                .sort((x, y) => x - y);
+            const bandTop = seps[0] ?? -Infinity;
+            const bandBottom = seps[1] ?? Infinity;
+            const inBand = (cy: number) => cy > bandTop && cy < bandBottom;
+
             // Glyph centre of an element's own digit text — a Range over the TEXT
             // NODE only, so sibling sort-icons / pseudo-elements don't skew it.
             const textCX = (el: Element): number | null => {
@@ -76,7 +88,9 @@ test.describe("AlignedStack shares one column axis (#147)", () => {
                 const s = (t.textContent ?? "").trim();
                 if (/^[0-6]$/.test(s)) {
                     const b = t.getBoundingClientRect();
-                    raw.push({ d: +s, cx: (b.left + b.right) / 2, cy: (b.top + b.bottom) / 2 });
+                    const cy = (b.top + b.bottom) / 2;
+                    if (!inBand(cy)) continue;
+                    raw.push({ d: +s, cx: (b.left + b.right) / 2, cy });
                 }
             }
             const bands: { cy: number; items: typeof raw }[] = [];
@@ -107,7 +121,9 @@ test.describe("AlignedStack shares one column axis (#147)", () => {
                 const cx = textCX(el);
                 if (cx == null) continue;
                 const b = el.getBoundingClientRect();
-                digits.push({ d: +own, cx, cy: (b.top + b.bottom) / 2 });
+                const cy = (b.top + b.bottom) / 2;
+                if (!inBand(cy)) continue;
+                digits.push({ d: +own, cx, cy });
             }
             digits.sort((x, y) => x.cy - y.cy || x.cx - y.cx);
             const rows: { cy: number; items: typeof digits }[] = [];
@@ -147,6 +163,8 @@ test.describe("AlignedStack shares one column axis (#147)", () => {
                 if (!direct) continue;
                 const cx = textCX(el);
                 if (cx == null) continue;
+                const br = el.getBoundingClientRect();
+                if (!inBand((br.top + br.bottom) / 2)) continue;
                 dayCX[di] = round(cx);
                 seenDay.add(di);
             }
