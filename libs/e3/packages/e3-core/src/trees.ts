@@ -24,8 +24,11 @@ import {
   decodeBeast2,
   decodeBeast2For,
   encodeBeast2For,
+  encodeBeast2PagedFor,
+  isVariant,
   printIdentifier,
   StructType,
+  toEastTypeValue,
   variant,
   type EastType,
   type EastTypeValue,
@@ -142,8 +145,33 @@ export async function datasetRead(
   return { type: result.type as EastType, value: result.value };
 }
 
+/** Collection values above this element count are stored segmented + indexed
+ *  (via `encodeBeast2PagedFor`) so paging readers — the `?page=true` dataset
+ *  API — can seek instead of whole-decoding. At or below it, the whole-value
+ *  encode is kept byte-for-byte, so small values' content hashes are
+ *  unaffected. */
+export const DATASET_SEGMENT_THRESHOLD = 1_000;
+
+/** Element count of an Array/Set/Dict value for a collection root type,
+ *  or null when the type is not a collection root. */
+function collectionElementCount(value: unknown, typeValue: EastTypeValue): number | null {
+  switch (typeValue.type) {
+    case 'Array':
+      return (value as unknown[]).length;
+    case 'Set':
+    case 'Dict':
+      return (value as { size: number }).size;
+    default:
+      return null;
+  }
+}
+
 /**
  * Encode and write a dataset value to the object store.
+ *
+ * Collections above {@link DATASET_SEGMENT_THRESHOLD} elements are stored
+ * segmented with a trailing index, so the paged read API decodes only the
+ * segments a window touches. Everything else keeps the whole-value encode.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -157,10 +185,12 @@ export async function datasetWrite(
   value: unknown,
   type: EastType | EastTypeValue
 ): Promise<string> {
-  // encodeBeast2For accepts both EastType and EastTypeValue, but TypeScript
-  // overloads don't support union types directly. Cast to EastTypeValue since
-  // that's the more general case and the runtime handles both.
-  const encoder = encodeBeast2For(type as EastTypeValue);
+  const typeValue: EastTypeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
+  const count = collectionElementCount(value, typeValue);
+  if (count !== null && count > DATASET_SEGMENT_THRESHOLD) {
+    return storage.objects.write(repo, encodeBeast2PagedFor(typeValue)(value));
+  }
+  const encoder = encodeBeast2For(typeValue);
   const data = encoder(value);
   return storage.objects.write(repo, data);
 }

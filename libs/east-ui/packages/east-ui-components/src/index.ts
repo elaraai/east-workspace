@@ -490,7 +490,7 @@ export {
     type DeckRowsValue,
     type DeckNoteValue,
 } from "./collections/deck";
-export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue } from "./collections/value-tree";
+export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow } from "./collections/value-tree";
 export { LoadingIcon, type LoadingIconProps } from "./LoadingIcon.js";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment

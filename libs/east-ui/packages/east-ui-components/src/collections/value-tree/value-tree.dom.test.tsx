@@ -25,7 +25,7 @@ import {
 } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
 import { system } from "../../theme/index.js";
-import { EastChakraValueTree, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeLeafValue } from "./index.js";
+import { EastChakraValueTree, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow } from "./index.js";
 
 afterEach(cleanup);
 
@@ -325,6 +325,86 @@ describe("EastChakraValueTree", () => {
         // ArrowUp walks back to the parent row.
         fireEvent.keyDown(deep, { key: "ArrowUp" });
         expect(document.activeElement).toBe(inner);
+    });
+});
+
+// Remote paging (#497): the tree's root rows come from a host-owned page
+// map; the extent spans totalRows, unloaded rows render placeholders, and
+// the visible window is requested from the host.
+describe("EastChakraValueTree — remote paging", () => {
+    const pagedItem = (name: string, i: number): ValueTreePagedRow => ({
+        node: structN([["name", str(name)], ["n", int(BigInt(i))]]),
+        step: variant("index", BigInt(i)),
+    });
+
+    function renderPaged(paging: ValueTreePaging) {
+        keyCounter += 1;
+        const value = rootValue(arrN([]));
+        const view = render(
+            <ChakraProvider value={system}>
+                <EastChakraValueTree value={value} storageKey={`vt-paged-${keyCounter}`} paging={paging} />
+            </ChakraProvider>,
+        );
+        return {
+            ...view,
+            rerenderPaging: (next: ValueTreePaging) => view.rerender(
+                <ChakraProvider value={system}>
+                    <EastChakraValueTree value={value} storageKey={`vt-paged-${keyCounter}`} paging={next} />
+                </ChakraProvider>,
+            ),
+        };
+    }
+
+    test("spans totalRows, renders placeholders, and requests the visible window", () => {
+        const onNeedRows = vi.fn();
+        renderPaged({
+            totalRows: 6,
+            pageSize: 2,
+            pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
+            onNeedRows,
+        });
+        // Loaded rows carry content-derived labels and the full extent.
+        const press = screen.getAllByText("Press")[0]!.closest("[data-part=row]")!;
+        expect(press.getAttribute("aria-setsize")).toBe("6");
+        expect(press.getAttribute("aria-posinset")).toBe("1");
+        // Unloaded rows (2..5) are placeholders with 1-based item labels.
+        expect(screen.getAllByText("Loading…").length).toBe(4);
+        expect(screen.getByText("Item 3")).toBeTruthy();
+        expect(screen.getByText("Item 6")).toBeTruthy();
+        // The mount effect asks the host for the window starting at the top.
+        expect(onNeedRows).toHaveBeenCalled();
+        expect(onNeedRows.mock.calls[0]?.[0]).toBe(0);
+    });
+
+    test("newly loaded pages replace their placeholders", () => {
+        const onNeedRows = vi.fn();
+        const page0: [number, ValueTreePagedRow[]] = [0, [pagedItem("Press", 0), pagedItem("Mill", 1)]];
+        const view = renderPaged({ totalRows: 4, pageSize: 2, pages: new Map([page0]), onNeedRows });
+        expect(screen.getAllByText("Loading…").length).toBe(2);
+        view.rerenderPaging({
+            totalRows: 4,
+            pageSize: 2,
+            pages: new Map([page0, [1, [pagedItem("Wrapper", 2), pagedItem("Oven", 3)]]]),
+            onNeedRows,
+        });
+        expect(screen.queryByText("Loading…")).toBeNull();
+        expect(screen.getAllByText("Wrapper").length).toBeGreaterThan(0);
+        const oven = screen.getAllByText("Oven")[0]!.closest("[data-part=row]")!;
+        expect(oven.getAttribute("aria-posinset")).toBe("4");
+    });
+
+    test("loaded paged rows expand like ordinary rows with global path steps", () => {
+        renderPaged({
+            totalRows: 3,
+            pageSize: 2,
+            pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
+            onNeedRows: () => { /* not exercised */ },
+        });
+        // Depth-0 rows start expanded, so the struct's fields are visible.
+        expect(screen.getAllByText("Name").length).toBe(2);
+        const press = screen.getAllByText("Press")[0]!.closest("[data-part=row]")!;
+        fireEvent.click(press.querySelector("button[aria-label=Collapse]")!);
+        expect(screen.getAllByText("Name").length).toBe(1);
     });
 });
 

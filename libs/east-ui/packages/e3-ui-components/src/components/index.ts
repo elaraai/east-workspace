@@ -9,6 +9,7 @@ export { TaskLogs, type TaskLogsProps } from './TaskLogs.js';
 export { UITaskPreview, type UITaskPreviewProps } from './UITaskPreview.js';
 export { DataTaskPreview, type DataTaskPreviewProps } from './DataTaskPreview.js';
 export { DatasetPreview, type DatasetPreviewProps } from './DatasetPreview.js';
+export { PagedDatasetPreview, type PagedDatasetPreviewProps } from './PagedDatasetPreview.js';
 export { StatusDisplay, type StatusDisplayProps } from './StatusDisplay.js';
 export { EastValueViewer, type EastValueViewerProps } from './EastValueViewer.js';
 export { VirtualizedLogViewer, type VirtualizedLogViewerProps } from './VirtualizedLogViewer.js';

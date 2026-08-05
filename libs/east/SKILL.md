@@ -390,8 +390,9 @@ no call-site change to adopt a newer container.
 | **Collections larger than memory** (v5) |
 | `new Beast2Writer(T, sink, opts?)` | Append-only writer. `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch, never the collection; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void` |
 | `encodeBeast2SegmentsFor(T, opts?): (batches) => Uint8Array` | In-memory convenience over the writer |
+| `encodeBeast2PagedFor(T, opts?): (value) => Uint8Array` | Encode ONE whole collection value segmented + indexed (`opts.batchSize` elements per segment) — the write-side sibling of `openBeast2PagesFor`, for values that will be read paged later. Same wire form as the writer; bytes differ from the whole-value encode of the same value |
 | `iterBeast2SegmentsFor(T, opts?): (blob) => Generator` | Yields one decoded collection per segment — O(segment) decoded memory |
-| `openBeast2PagesFor(T, opts?): (blob) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)` and `.element(row)` decode only the segment they touch |
+| `openBeast2PagesFor(T, opts?): (blob) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)`, `.element(row)` and `.slice(offset, limit)` (Array roots, clamps like `Array.slice`) decode only the segments they touch |
 
 **Example:**
 ```typescript

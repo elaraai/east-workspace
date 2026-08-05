@@ -259,6 +259,96 @@ export function encodeBeast2SegmentsFor<T extends EastType>(type: T | EastTypeVa
 }
 
 // =============================================================================
+// Paged whole-value encode
+// =============================================================================
+
+/** Default elements per segment for {@link encodeBeast2PagedFor}. Small enough
+ *  that one segment decodes cheaply even for wide rows, large enough that
+ *  frames stay far above the compression threshold and per-segment overhead
+ *  (frame header + index entry) is negligible. */
+export const BEAST2_PAGED_BATCH_DEFAULT = 1_000;
+
+/** Options accepted by {@link encodeBeast2PagedFor}. */
+export type Beast2PagedEncodeOptions = {
+  /** Elements (pairs for Dict roots) per segment. Defaults to
+   *  {@link BEAST2_PAGED_BATCH_DEFAULT}. */
+  batchSize?: number;
+  /** Per-frame codec. Defaults to `"deflate"`. */
+  codec?: Beast2Codec;
+  /** Source map for function values in the stream, written to the header. */
+  sourceMap?: SourceMap | null;
+};
+
+/**
+ * Builds a curried paged encoder: `encode(value)` writes one whole collection
+ * value as a segmented, self-contained, indexed v5 blob — `batchSize` elements
+ * per segment.
+ *
+ * The write-side sibling of {@link openBeast2PagesFor}: a blob written this
+ * way supports random access ({@link Beast2Pages.segment} /
+ * {@link Beast2Pages.element} / {@link Beast2Pages.slice}) without decoding
+ * the rest. Decoding the whole blob through the ordinary entry points yields
+ * exactly the input value. Note the bytes differ from the whole-value
+ * `encodeBeast2For` encode of the same value (segment framing is part of the
+ * bytes), so content-addressed stores hash the two forms differently.
+ *
+ * @param type - the collection type (Array/Set/Dict)
+ * @param options - batch size, codec, and source map options
+ * @returns a function encoding a collection value to an indexed v5 blob
+ * @throws {TypeError} When `type` is not an Array, Set or Dict type.
+ */
+export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2PagedEncodeOptions): (value: ValueTypeOf<T>) => Uint8Array {
+  const typeValue = asTypeValue(type);
+  const kind = checkSegmented(typeValue);
+  const batchSize = Math.max(1, Math.floor(options?.batchSize ?? BEAST2_PAGED_BATCH_DEFAULT));
+  const writerOptions: Beast2WriterOptions = {
+    ...(options?.codec !== undefined && { codec: options.codec }),
+    ...(options?.sourceMap !== undefined && { sourceMap: options.sourceMap }),
+  };
+
+  return (value) => {
+    const chunks: Uint8Array[] = [];
+    const writer = new Beast2Writer(typeValue, (b) => chunks.push(b), writerOptions);
+    if (kind === "Array") {
+      const arr = value as unknown[];
+      for (let i = 0; i < arr.length; i += batchSize) {
+        writer.write(arr.slice(i, i + batchSize) as ValueTypeOf<EastType>);
+      }
+    } else if (kind === "Set") {
+      let batch: unknown[] = [];
+      for (const item of value as Iterable<unknown>) {
+        batch.push(item);
+        if (batch.length === batchSize) {
+          writer.write(new Set(batch) as ValueTypeOf<EastType>);
+          batch = [];
+        }
+      }
+      if (batch.length > 0) writer.write(new Set(batch) as ValueTypeOf<EastType>);
+    } else {
+      let batch: [unknown, unknown][] = [];
+      for (const entry of value as Iterable<[unknown, unknown]>) {
+        batch.push(entry);
+        if (batch.length === batchSize) {
+          writer.write(new Map(batch) as ValueTypeOf<EastType>);
+          batch = [];
+        }
+      }
+      if (batch.length > 0) writer.write(new Map(batch) as ValueTypeOf<EastType>);
+    }
+    writer.finish();
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const out = new Uint8Array(total);
+    let pos = 0;
+    for (const c of chunks) {
+      out.set(c, pos);
+      pos += c.length;
+    }
+    return out;
+  };
+}
+
+// =============================================================================
 // Segment iterator
 // =============================================================================
 
@@ -451,6 +541,18 @@ export class Beast2Pages<T extends EastType = EastType> {
     return value;
   }
 
+  /** Binary-searches the cumulative counts for the segment owning `row`,
+   *  returning its index and the global row of its first element. */
+  private rowSegment(row: number): { seg: number; base: number } {
+    let lo = 0, hi = this.cumulative.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.cumulative[mid]! <= row) lo = mid + 1;
+      else hi = mid;
+    }
+    return { seg: lo, base: lo === 0 ? 0 : this.cumulative[lo - 1]! };
+  }
+
   /**
    * Reads one element by row index (Array roots only): binary-searches the
    * index, decodes that single segment, and returns the row.
@@ -466,16 +568,43 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (row < 0 || row >= this.elementCount) {
       throw new Error(`beast2 v5: element ${row} out of range (${this.elementCount} elements)`);
     }
-    // Binary search the cumulative counts for the owning segment.
-    let lo = 0, hi = this.cumulative.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (this.cumulative[mid]! <= row) lo = mid + 1;
-      else hi = mid;
+    const { seg, base } = this.rowSegment(row);
+    const segment = this.segment(seg) as any[];
+    return segment[row - base];
+  }
+
+  /**
+   * Reads a window of elements by row range (Array roots only), decoding only
+   * the segments the window touches.
+   *
+   * Clamps like `Array.prototype.slice`: a window past the end returns the
+   * available tail (or an empty array), never throws for being short.
+   *
+   * @param offset - zero-based row of the window's first element
+   * @param limit - maximum number of elements to return
+   * @returns the decoded elements from `offset`, at most `limit` of them
+   * @throws {Error} When the root is not an Array, `offset`/`limit` are
+   *   negative or fractional, or the blob is not self-contained.
+   */
+  slice(offset: number, limit: number): ValueTypeOf<T> {
+    if (this.kind !== "Array") {
+      throw new Error(`beast2 v5: slice() addresses Array roots; this blob holds ${this.kind}`);
     }
-    const base = lo === 0 ? 0 : this.cumulative[lo - 1]!;
-    const seg = this.segment(lo) as any[];
-    return seg[row - base];
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 0) {
+      throw new Error(`beast2 v5: slice(${offset}, ${limit}) — offset and limit must be non-negative integers`);
+    }
+    const out: any[] = [];
+    if (limit === 0 || offset >= this.elementCount) return out as ValueTypeOf<T>;
+    let { seg, base } = this.rowSegment(offset);
+    while (out.length < limit && seg < this.cumulative.length) {
+      const segment = this.segment(seg) as any[];
+      for (let i = Math.max(0, offset - base); i < segment.length && out.length < limit; i++) {
+        out.push(segment[i]);
+      }
+      base += segment.length;
+      seg++;
+    }
+    return out as ValueTypeOf<T>;
   }
 }
 

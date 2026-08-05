@@ -52,6 +52,9 @@ export interface ServerConfig {
   auth?: AuthConfig;
   /** Optional OIDC provider config (enables built-in auth server) */
   oidc?: OidcConfig;
+  /** Decoded-value LRU entries backing paged dataset reads of un-indexed
+   *  blobs (default: 4). Each entry holds one whole decoded dataset value. */
+  pageCacheEntries?: number;
 }
 
 /**
@@ -82,7 +85,7 @@ export interface Server {
  * @returns Server instance
  */
 export async function createServer(config: ServerConfig): Promise<Server> {
-  const { reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc } = config;
+  const { reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageCacheEntries } = config;
 
   // Validate config: exactly one of reposDir or singleRepoPath must be specified
   if (reposDir && singleRepoPath) {
@@ -110,9 +113,17 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   const app = new Hono();
 
-  // Enable CORS if configured
+  // Enable CORS if configured. Response metadata rides on X-* headers
+  // (content hash, paged-read totals) — expose them so browser clients can
+  // read them cross-origin.
   if (enableCors) {
-    app.use('*', cors({ origin: '*' }));
+    app.use('*', cors({
+      origin: '*',
+      exposeHeaders: [
+        'X-Content-SHA256', 'X-Content-Length',
+        'X-Total-Elements', 'X-Total-Exactness', 'X-Segment-Count', 'X-Page-Offset', 'X-Page-Count',
+      ],
+    }));
     // Allow Private Network Access (required for extension webviews on WiFi)
     app.use('*', async (c, next) => {
       await next();
@@ -380,7 +391,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/workspaces/:ws/datasets', dsTransfer.api);
 
   // Dataset routes: /api/repos/:repo/workspaces/:ws/datasets/*
-  app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend));
+  app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend, {
+    ...(pageCacheEntries !== undefined && { pageCacheEntries }),
+  }));
 
   // Task routes: /api/repos/:repo/workspaces/:ws/tasks/*
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));

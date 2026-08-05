@@ -104,8 +104,11 @@ export {
   datasetListRecursivePaths,
   datasetListWithStatus,
   datasetGet,
+  datasetGetPage,
   datasetGetStatus,
   datasetSet,
+  type DatasetPage,
+  type DatasetPageWindow,
 } from './datasets.js';
 
 // Tasks

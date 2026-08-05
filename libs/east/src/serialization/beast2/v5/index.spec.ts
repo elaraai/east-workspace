@@ -32,6 +32,7 @@ import {
   decodeEastIR,
   Beast2Writer,
   encodeBeast2SegmentsFor,
+  encodeBeast2PagedFor,
   iterBeast2SegmentsFor,
   openBeast2PagesFor,
   MAGIC_BYTES_V5,
@@ -388,6 +389,72 @@ describe("Beast2 v5 — Paging", () => {
     const seg1 = pages.segment(1) as Map<string, bigint>;
     assert.deepEqual([...seg1.entries()], [["b", 2n], ["c", 3n]]);
     assert.throws(() => pages.element(0), /Array roots/);
+  });
+
+  test("slice() reads element windows across segment boundaries", () => {
+    const AT = ArrayType(IntegerType);
+    const rows = Array.from({ length: 2500 }, (_, i) => BigInt(i));
+    const blob = encodeBeast2PagedFor(AT, { batchSize: 1000 })(rows);
+    const pages = openBeast2PagesFor(AT)(blob);
+    assert.deepEqual([...pages.counts], [1000, 1000, 500]);
+    // Window spanning two segments.
+    assert.deepEqual(pages.slice(900, 200), rows.slice(900, 1100));
+    // Window inside one segment, at the start, and the whole collection.
+    assert.deepEqual(pages.slice(0, 10), rows.slice(0, 10));
+    assert.deepEqual(pages.slice(1500, 100), rows.slice(1500, 1600));
+    assert.deepEqual(pages.slice(0, 2500), rows);
+    // Clamping like Array.prototype.slice: short tail, past-the-end, empty.
+    assert.deepEqual(pages.slice(2400, 1000), rows.slice(2400));
+    assert.deepEqual(pages.slice(9999, 10), []);
+    assert.deepEqual(pages.slice(0, 0), []);
+    // Invalid windows and non-Array roots are refused.
+    assert.throws(() => pages.slice(-1, 10), /non-negative/);
+    assert.throws(() => pages.slice(0, 1.5), /non-negative/);
+    const SP = openBeast2PagesFor(SetType(IntegerType))(encodeBeast2PagedFor(SetType(IntegerType))(new Set([1n, 2n])));
+    assert.throws(() => SP.slice(0, 1), /Array roots/);
+  });
+
+  test("encodeBeast2PagedFor writes indexed blobs that decode to the input", () => {
+    const Row = StructType({ id: IntegerType, name: StringType });
+    const AT = ArrayType(Row);
+    const rows = Array.from({ length: 2500 }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
+    const blob = encodeBeast2PagedFor(AT)(rows);
+    const pages = openBeast2PagesFor(AT)(blob);
+    assert.equal(pages.segmentCount, 3, "default 1000-element batches");
+    assert.equal(pages.elementCount, 2500);
+    assert.ok(pages.selfContained);
+    assert.ok(equalFor(AT)(decodeBeast2For(AT)(blob), rows), "whole decode equals input");
+    // Identical batching through the batch API produces identical bytes — the
+    // paged encode is the same wire form, just chunked from one value.
+    const batches = [rows.slice(0, 1000), rows.slice(1000, 2000), rows.slice(2000)];
+    assert.deepEqual(Array.from(blob), Array.from(encodeBeast2SegmentsFor(AT)(batches)));
+    // A collection at or below one batch is a single indexed segment.
+    const small = encodeBeast2PagedFor(AT)(rows.slice(0, 10));
+    assert.equal(openBeast2PagesFor(AT)(small).segmentCount, 1);
+  });
+
+  test("paged Set and Dict encodes round-trip with container merge semantics", () => {
+    const ST = SetType(IntegerType);
+    const setValue = new Set(Array.from({ length: 250 }, (_, i) => BigInt(i)));
+    const sBlob = encodeBeast2PagedFor(ST, { batchSize: 100 })(setValue);
+    assert.equal(openBeast2PagesFor(ST)(sBlob).segmentCount, 3);
+    assert.ok(equalFor(ST)(decodeBeast2For(ST)(sBlob), setValue));
+
+    const DT = DictType(StringType, IntegerType);
+    const dictValue = new Map(Array.from({ length: 250 }, (_, i) => [`k${String(i).padStart(3, "0")}`, BigInt(i)] as [string, bigint]));
+    const dBlob = encodeBeast2PagedFor(DT, { batchSize: 100 })(dictValue);
+    const dPages = openBeast2PagesFor(DT)(dBlob);
+    assert.equal(dPages.segmentCount, 3);
+    assert.ok(equalFor(DT)(decodeBeast2For(DT)(dBlob), dictValue));
+    // Each segment is itself a valid Dict value of the root type.
+    const seg = dPages.segment(1) as Map<string, bigint>;
+    assert.ok(equalFor(DT)(decodeBeast2For(DT)(encodeBeast2For(DT)(seg)), seg));
+    // One source Map cannot repeat a key, so segments partition the pairs.
+    assert.equal([...dPages.counts].reduce((a, b) => a + b, 0), 250);
+  });
+
+  test("non-collection types are refused by the paged encoder", () => {
+    assert.throws(() => encodeBeast2PagedFor(StringType as any), /Array, Set or Dict/);
   });
 });
 

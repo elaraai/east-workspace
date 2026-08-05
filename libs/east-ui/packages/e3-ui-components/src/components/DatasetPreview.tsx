@@ -35,6 +35,7 @@ import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue, useDatasetDownload } from '../hooks/useDatasetValue.js';
 import { useDatasetSet } from '../hooks/datasets.js';
 import { StatusDisplay } from './StatusDisplay.js';
+import { PagedDatasetPreview } from './PagedDatasetPreview.js';
 import { formatApiError, formatError } from '../errors.js';
 
 const DEFAULT_SIZE_LIMIT = 200 * 1024; // 200KB
@@ -54,13 +55,15 @@ export interface DatasetPreviewProps {
     editable?: boolean;
 }
 
-function formatSize(bytes: number): string {
+/** Human-readable byte size, shared with the paged preview. */
+export function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-function DownloadButton({ onClick, label }: { onClick: () => void; label?: string }) {
+/** Download trigger with its own in-flight state, shared with the paged preview. */
+export function DownloadButton({ onClick, label }: { onClick: () => void; label?: string }) {
     const [downloading, setDownloading] = useState(false);
     const handleClick = async () => {
         setDownloading(true);
@@ -149,6 +152,24 @@ export const DatasetPreview = memo(function DatasetPreview({
     if (!hasValue) return <StatusDisplay variant="info" title="No data available" message="Waiting for a value to be set" />;
 
     if (isOversized) {
+        // Pageable types (collection roots) never dead-end on size — the size
+        // limit only switches them from whole-value mode to windowed mode.
+        const pageable = type !== undefined && (type.type === 'Array' || type.type === 'Set' || type.type === 'Dict');
+        if (pageable && workspace != null && path != null && status.hash != null) {
+            return (
+                <PagedDatasetPreview
+                    apiUrl={apiUrl}
+                    repo={repo}
+                    workspace={workspace}
+                    path={path}
+                    type={type}
+                    hash={status.hash}
+                    sizeBytes={sizeBytes}
+                    {...(requestOptions != null && { requestOptions })}
+                    onDownload={download}
+                />
+            );
+        }
         return (
             <Flex height="100%" direction="column" align="center" justify="center" layerStyle="banner.stale" borderRadius="0" gap={3} p={6}>
                 <Text fontSize="lg" color="fg.warning" fontWeight="bold">Value too large to display</Text>

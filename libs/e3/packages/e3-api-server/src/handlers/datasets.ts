@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, decodeBeast2, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, decodeBeast2, decodeBeast2For, encodeBeast2For, openBeast2PagesFor, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -106,6 +106,225 @@ export async function getDataset(
         'Content-Type': BEAST2_CONTENT_TYPE,
         'Content-Length': String(data.byteLength),
         'X-Content-SHA256': hash,
+      },
+    });
+  } catch (err) {
+    return sendJsonError(err);
+  }
+}
+
+/** Elements returned per page when the request names no limit. */
+const PAGE_DEFAULT_LIMIT = 1_000;
+
+/** Hard cap on elements per page. */
+const PAGE_MAX_LIMIT = 10_000;
+
+/** Approximate cap on a page's share of the source blob, in bytes. The
+ *  effective limit shrinks so `limit × avgElementBytes` stays under this,
+ *  bounding page payloads even for very wide rows. */
+const PAGE_BYTE_BUDGET = 4 * 1024 * 1024;
+
+/** Window addressing for {@link getDatasetPage}: an element window
+ *  (`offset`/`limit`) or one writer segment (`segment`). */
+export interface DatasetPageWindow {
+  offset?: number;
+  limit?: number;
+  segment?: number;
+}
+
+/**
+ * Per-hash LRU of decoded dataset values.
+ *
+ * Backs the paths that need the whole (merged) value: un-indexed blobs and
+ * Set/Dict element windows. Objects are immutable and content-addressed, so
+ * entries never invalidate — capacity is the only bound.
+ */
+export class DecodedValueCache {
+  private readonly map = new Map<string, unknown>();
+
+  constructor(private readonly capacity: number) {}
+
+  get(hash: string): unknown | undefined {
+    if (!this.map.has(hash)) return undefined;
+    const value = this.map.get(hash);
+    this.map.delete(hash);
+    this.map.set(hash, value);
+    return value;
+  }
+
+  set(hash: string, value: unknown): void {
+    if (this.map.has(hash)) this.map.delete(hash);
+    this.map.set(hash, value);
+    if (this.map.size > this.capacity) {
+      this.map.delete(this.map.keys().next().value!);
+    }
+  }
+}
+
+function pageError(type: string, message: string, status: 400 | 404 = 400): Response {
+  return new Response(JSON.stringify({ error: { type, message } }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Takes `limit` entries of an iterable starting at `offset` — the sorted
+ *  Set/Dict element window over a merged (East-ordered) container. */
+function* iterWindow<E>(iterable: Iterable<E>, offset: number, limit: number): Generator<E> {
+  let index = 0;
+  let taken = 0;
+  for (const item of iterable) {
+    if (taken >= limit) return;
+    if (index++ < offset) continue;
+    taken++;
+    yield item;
+  }
+}
+
+/**
+ * Get one window of a collection dataset as raw BEAST2 bytes.
+ *
+ * The body is a valid value of the dataset's own type holding only the
+ * window; totals and window placement ride on `X-*` headers. Element windows
+ * are exact for every collection kind: Array windows are in stream order,
+ * Set/Dict windows are in East sort order over the merged value. Segment
+ * windows return one writer batch verbatim and need an indexed blob.
+ *
+ * Strategy: indexed Array blobs slice via the trailing index (decoding only
+ * the touched segments); everything else decodes the whole value once into
+ * the per-hash LRU and slices per request.
+ */
+export async function getDatasetPage(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  treePath: TreePath,
+  window: DatasetPageWindow,
+  cache: DecodedValueCache,
+): Promise<Response> {
+  try {
+    if (treePath.length === 0) {
+      return pageError('bad_request', 'Path required for paged get');
+    }
+
+    const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath);
+    if (status.refType === 'unassigned') {
+      return pageError('dataset_unassigned', 'Dataset is unassigned (pending task output)', 404);
+    }
+    if (status.refType === 'null' || !status.hash) {
+      return pageError('dataset_null', 'Dataset is null', 404);
+    }
+
+    const typeValue: EastTypeValue = isVariant(status.datasetType)
+      ? status.datasetType
+      : toEastTypeValue(status.datasetType as never);
+    const kind = typeValue.type;
+    if (kind !== 'Array' && kind !== 'Set' && kind !== 'Dict') {
+      return pageError('dataset_not_pageable', `Paged reads address Array, Set or Dict datasets; this dataset holds ${kind}`);
+    }
+
+    const segmentMode = window.segment !== undefined;
+    if (segmentMode && (window.offset !== undefined || window.limit !== undefined)) {
+      return pageError('bad_request', 'Pass either segment or offset/limit, not both');
+    }
+    if (segmentMode && (!Number.isInteger(window.segment) || window.segment! < 0)) {
+      return pageError('bad_request', `segment must be a non-negative integer, got ${window.segment}`);
+    }
+    const offset = window.offset ?? 0;
+    const requestedLimit = window.limit ?? PAGE_DEFAULT_LIMIT;
+    if (!segmentMode && (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(requestedLimit) || requestedLimit < 1)) {
+      return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
+    }
+
+    const data = await storage.objects.read(repoPath, status.hash);
+    let pages: Beast2Pages | null = null;
+    try {
+      pages = openBeast2PagesFor(typeValue)(data);
+    } catch {
+      pages = null; // No index/footer — every existing whole-value blob.
+    }
+
+    // The byte budget turns the requested element limit into an effective one
+    // using the blob's average element size, so pages stay bounded even for
+    // very wide rows.
+    const effectiveLimit = (totalElements: number): number => {
+      const avgBytes = totalElements > 0 ? data.byteLength / totalElements : 1;
+      const byBudget = Math.max(1, Math.floor(PAGE_BYTE_BUDGET / Math.max(1, avgBytes)));
+      return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
+    };
+
+    let windowValue: unknown;
+    let totalElements: number;
+    let totalExact: boolean;
+    let pageOffset: number;
+    let pageCount: number;
+
+    if (segmentMode) {
+      if (!pages) {
+        return pageError('dataset_not_segmented', 'Blob carries no segment index — address it with offset/limit instead');
+      }
+      const seg = window.segment!;
+      if (seg >= pages.segmentCount) {
+        return pageError('bad_request', `segment ${seg} out of range (${pages.segmentCount} segments)`);
+      }
+      try {
+        windowValue = pages.segment(seg);
+      } catch (err) {
+        return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
+      }
+      totalElements = pages.elementCount;
+      totalExact = kind === 'Array';
+      pageCount = pages.counts[seg]!;
+      pageOffset = 0;
+      for (let i = 0; i < seg; i++) pageOffset += pages.counts[i]!;
+    } else if (kind === 'Array' && pages !== null && pages.selfContained) {
+      totalElements = pages.elementCount;
+      totalExact = true;
+      const limit = effectiveLimit(totalElements);
+      windowValue = pages.slice(offset, limit);
+      pageCount = (windowValue as unknown[]).length;
+      pageOffset = offset;
+    } else {
+      let merged = cache.get(status.hash);
+      if (merged === undefined) {
+        merged = decodeBeast2For(typeValue)(data);
+        cache.set(status.hash, merged);
+      }
+      totalExact = true;
+      if (kind === 'Array') {
+        const arr = merged as unknown[];
+        totalElements = arr.length;
+        const limit = effectiveLimit(totalElements);
+        windowValue = arr.slice(offset, offset + limit);
+        pageCount = (windowValue as unknown[]).length;
+      } else if (kind === 'Set') {
+        const set = merged as Set<unknown>;
+        totalElements = set.size;
+        const limit = effectiveLimit(totalElements);
+        windowValue = new Set(iterWindow(set, offset, limit));
+        pageCount = (windowValue as Set<unknown>).size;
+      } else {
+        const map = merged as Map<unknown, unknown>;
+        totalElements = map.size;
+        const limit = effectiveLimit(totalElements);
+        windowValue = new Map(iterWindow(map.entries(), offset, limit));
+        pageCount = (windowValue as Map<unknown, unknown>).size;
+      }
+      pageOffset = offset;
+    }
+
+    const body = encodeBeast2For(typeValue)(windowValue);
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': BEAST2_CONTENT_TYPE,
+        'Content-Length': String(body.byteLength),
+        'X-Content-SHA256': status.hash,
+        'X-Total-Elements': String(totalElements),
+        'X-Total-Exactness': totalExact ? 'exact' : 'upper-bound',
+        'X-Segment-Count': String(pages ? pages.segmentCount : 0),
+        'X-Page-Offset': String(pageOffset),
+        'X-Page-Count': String(pageCount),
       },
     });
   } catch (err) {

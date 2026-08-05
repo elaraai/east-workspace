@@ -62,9 +62,42 @@ export type ValueTreeStepValue = ValueTypeOf<typeof ValueTree.Types.Step>;
 /** East ValueTree leaf value type. */
 export type ValueTreeLeafValue = ValueTypeOf<typeof ValueTree.Types.Leaf>;
 
+/** One pageable root row supplied by a paging host: its materialized node,
+ *  the row's own path step (global index / dict key), and optionally a
+ *  display label (derived from content when omitted). */
+export interface ValueTreePagedRow {
+    node: ValueTreeNodeValue;
+    step: ValueTreeStepValue;
+    label?: string | undefined;
+}
+
+/**
+ * Remote-paging contract for a collection-rooted tree.
+ *
+ * When set, the tree's root rows come from `pages` instead of the payload's
+ * root node: the virtualizer spans all `totalRows` (the scrollbar covers the
+ * whole collection), unloaded rows render as placeholders, and scrolling
+ * requests the windows that come into view via `onNeedRows`. Loaded rows
+ * expand and edit exactly like ordinary rows — their path steps are global,
+ * so edit callbacks stay correct. The host owns fetching and deduping;
+ * replace the `pages` map (new identity) as pages arrive.
+ */
+export interface ValueTreePaging {
+    /** Total root rows in the full collection. */
+    totalRows: number;
+    /** Rows per page — keys of `pages` are `floor(row / pageSize)`. */
+    pageSize: number;
+    /** Loaded pages by page index (the final page may be shorter). */
+    pages: ReadonlyMap<number, readonly ValueTreePagedRow[]>;
+    /** Requests loading of the pages covering rows `[startRow, endRow)`. */
+    onNeedRows: (startRow: number, endRow: number) => void;
+}
+
 export interface EastChakraValueTreeProps {
     value: ValueTreeValue;
     storageKey: string;
+    /** Remote paging for a collection root — see {@link ValueTreePaging}. */
+    paging?: ValueTreePaging | undefined;
 }
 
 type SlotStyles = Record<string, SystemStyleObject>;
@@ -298,23 +331,23 @@ function childrenOf(node: ValueTreeNodeValue): ChildEntry[] {
     return [];
 }
 
-/** Flattens the visible (expanded) rows of the tree, depth-first.
- *  Expanded editable collections end in an append ghost row. */
-function flattenRows(
-    root: ValueTreeNodeValue,
-    open: Record<string, boolean>,
-    canRemove: boolean,
-    canInsert: boolean,
-): RowModel[] {
-    const rows: RowModel[] = [];
-    const appendRow = (
-        parentId: string | undefined,
-        containerPath: ValueTreeStepValue[],
-        kind: "appendArray" | "appendDict",
-        depth: number,
-        posinset: number,
-        setsize: number,
-    ): RowModel => ({
+/** Shared flatten context: expansion state, edit capabilities, output. */
+interface FlattenCtx {
+    open: Record<string, boolean>;
+    canRemove: boolean;
+    canInsert: boolean;
+    rows: RowModel[];
+}
+
+function appendRowModel(
+    parentId: string | undefined,
+    containerPath: ValueTreeStepValue[],
+    kind: "appendArray" | "appendDict",
+    depth: number,
+    posinset: number,
+    setsize: number,
+): RowModel {
+    return {
         id: `${parentId ?? "$"}/$append`,
         parentId, depth,
         label: kind === "appendArray" ? "Add item" : "Add entry",
@@ -324,7 +357,76 @@ function flattenRows(
         variantCtl: undefined, optionCtl: undefined,
         removable: false, expandable: false, expanded: false,
         posinset, setsize,
+    };
+}
+
+/** Flattens one node's visible subtree, depth-first, into `ctx.rows`. */
+function visitNode(
+    ctx: FlattenCtx,
+    label: string,
+    raw: ValueTreeNodeValue,
+    rawPath: ValueTreeStepValue[],
+    parentId: string | undefined,
+    depth: number,
+    removable: boolean,
+    posinset: number,
+    setsize: number,
+): void {
+    const r = resolveNode(raw, rawPath);
+    const id = pathKey(rawPath);
+    const kids = childrenOf(r.node);
+    const insertable = ctx.canInsert && (
+        r.kind === "array" ||
+        (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
+    );
+    const expandable = kids.length > 0 || insertable;
+    const expanded = expandable && (ctx.open[id] ?? depth < DEFAULT_OPEN_DEPTH);
+    let summary = r.kind === "emptyOption" ? "Not set"
+        : (r.kind === "struct" || r.kind === "array" || r.kind === "dict") ? summaryOf(r.node)
+        : undefined;
+    // A content-derived item title already IS the first preview part —
+    // don't repeat it beside itself.
+    if (summary !== undefined && summary !== label && summary.startsWith(`${label} · `)) {
+        summary = summary.slice(label.length + 3);
+    } else if (summary === label) {
+        summary = undefined;
+    }
+    ctx.rows.push({
+        id, parentId, depth, label,
+        kind: r.kind, leaf: r.leaf, opaque: r.opaque, summary,
+        path: r.path, ownPath: rawPath,
+        variantCtl: r.variantCtl, optionCtl: r.optionCtl,
+        removable, expandable, expanded,
+        posinset, setsize,
     });
+    if (expanded) {
+        const kidsRemovable = ctx.canRemove && (
+            r.kind === "array" ||
+            (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
+        );
+        const total = kids.length + (insertable ? 1 : 0);
+        kids.forEach((k, i) => {
+            visitNode(ctx, k.label, k.node, [...r.path, k.step], id, depth + 1, kidsRemovable, i + 1, total);
+        });
+        if (insertable) {
+            ctx.rows.push(appendRowModel(
+                id, r.path,
+                r.kind === "array" ? "appendArray" : "appendDict",
+                depth + 1, total, total,
+            ));
+        }
+    }
+}
+
+/** Flattens the visible (expanded) rows of the tree, depth-first.
+ *  Expanded editable collections end in an append ghost row. */
+function flattenRows(
+    root: ValueTreeNodeValue,
+    open: Record<string, boolean>,
+    canRemove: boolean,
+    canInsert: boolean,
+): RowModel[] {
+    const ctx: FlattenCtx = { open, canRemove, canInsert, rows: [] };
     const visit = (
         label: string,
         raw: ValueTreeNodeValue,
@@ -334,52 +436,16 @@ function flattenRows(
         removable: boolean,
         posinset: number,
         setsize: number,
-    ): void => {
-        const r = resolveNode(raw, rawPath);
-        const id = pathKey(rawPath);
-        const kids = childrenOf(r.node);
-        const insertable = canInsert && (
-            r.kind === "array" ||
-            (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
-        );
-        const expandable = kids.length > 0 || insertable;
-        const expanded = expandable && (open[id] ?? depth < DEFAULT_OPEN_DEPTH);
-        let summary = r.kind === "emptyOption" ? "Not set"
-            : (r.kind === "struct" || r.kind === "array" || r.kind === "dict") ? summaryOf(r.node)
-            : undefined;
-        // A content-derived item title already IS the first preview part —
-        // don't repeat it beside itself.
-        if (summary !== undefined && summary !== label && summary.startsWith(`${label} · `)) {
-            summary = summary.slice(label.length + 3);
-        } else if (summary === label) {
-            summary = undefined;
-        }
-        rows.push({
-            id, parentId, depth, label,
-            kind: r.kind, leaf: r.leaf, opaque: r.opaque, summary,
-            path: r.path, ownPath: rawPath,
-            variantCtl: r.variantCtl, optionCtl: r.optionCtl,
-            removable, expandable, expanded,
-            posinset, setsize,
-        });
-        if (expanded) {
-            const kidsRemovable = canRemove && (
-                r.kind === "array" ||
-                (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
-            );
-            const total = kids.length + (insertable ? 1 : 0);
-            kids.forEach((k, i) => {
-                visit(k.label, k.node, [...r.path, k.step], id, depth + 1, kidsRemovable, i + 1, total);
-            });
-            if (insertable) {
-                rows.push(appendRow(
-                    id, r.path,
-                    r.kind === "array" ? "appendArray" : "appendDict",
-                    depth + 1, total, total,
-                ));
-            }
-        }
-    };
+    ): void => visitNode(ctx, label, raw, rawPath, parentId, depth, removable, posinset, setsize);
+    const rows = ctx.rows;
+    const appendRow = (
+        parentId: string | undefined,
+        containerPath: ValueTreeStepValue[],
+        kind: "appendArray" | "appendDict",
+        depth: number,
+        posinset: number,
+        setsize: number,
+    ): RowModel => appendRowModel(parentId, containerPath, kind, depth, posinset, setsize);
     // A compound root lists its children directly (no synthetic top row);
     // anything else is a single row. A root collection appends a trailing
     // add ghost row.
@@ -406,6 +472,80 @@ function flattenRows(
         visit("Value", root, [], undefined, 0, false, 1, 1);
     }
     return rows;
+}
+
+/** Paged-mode flat structure: per-page flattened row models, prefix sums
+ *  mapping virtual indexes to pages, and the loaded rows in order for
+ *  keyboard traversal. Unloaded root rows contribute one placeholder row
+ *  each, so the virtualizer's extent always spans the whole collection. */
+interface PagedFlat {
+    totalFlat: number;
+    /** `prefix[p]` = flat rows before page `p` (length `pageCount + 1`). */
+    prefix: number[];
+    pageModels: Map<number, RowModel[]>;
+    loadedRows: RowModel[];
+    pageCount: number;
+    /** Root rows page `p` covers (the final page may be shorter). */
+    rootRowsInPage: (p: number) => number;
+}
+
+function flattenPaged(
+    paging: ValueTreePaging,
+    open: Record<string, boolean>,
+): PagedFlat {
+    const { totalRows, pageSize, pages } = paging;
+    const pageCount = Math.max(0, Math.ceil(totalRows / pageSize));
+    const rootRowsInPage = (p: number): number =>
+        Math.max(0, Math.min(pageSize, totalRows - p * pageSize));
+    const pageModels = new Map<number, RowModel[]>();
+    const loadedRows: RowModel[] = [];
+    const prefix: number[] = new Array(pageCount + 1);
+    prefix[0] = 0;
+    for (let p = 0; p < pageCount; p++) {
+        const loaded = pages.get(p);
+        if (loaded === undefined) {
+            prefix[p + 1] = prefix[p]! + rootRowsInPage(p);
+            continue;
+        }
+        // Paged roots are read-only at the row level (no append ghost, no
+        // row removal) — leaf edits inside a loaded row still work through
+        // the ordinary callbacks, with global path steps.
+        const ctx: FlattenCtx = { open, canRemove: false, canInsert: false, rows: [] };
+        loaded.forEach((r, i) => {
+            const globalRow = p * pageSize + i;
+            const label = r.label ?? itemTitle(r.node, globalRow);
+            visitNode(ctx, label, r.node, [r.step], undefined, 0, false, globalRow + 1, totalRows);
+        });
+        pageModels.set(p, ctx.rows);
+        loadedRows.push(...ctx.rows);
+        prefix[p + 1] = prefix[p]! + ctx.rows.length;
+    }
+    return { totalFlat: prefix[pageCount] ?? 0, prefix, pageModels, loadedRows, pageCount, rootRowsInPage };
+}
+
+/** Binary-searches the page whose flat range contains `flatIdx`. */
+function pageOfFlat(prefix: number[], flatIdx: number): number {
+    let lo = 0, hi = prefix.length - 2;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (prefix[mid + 1]! <= flatIdx) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+/** Resolves a paged virtual row: a loaded model, or the global root index
+ *  of a placeholder. */
+function pagedRowAt(flat: PagedFlat, paging: ValueTreePaging, flatIdx: number):
+    | { kind: "model"; row: RowModel }
+    | { kind: "placeholder"; globalRow: number } {
+    const p = pageOfFlat(flat.prefix, flatIdx);
+    const offsetInPage = flatIdx - flat.prefix[p]!;
+    const models = flat.pageModels.get(p);
+    if (models !== undefined) {
+        return { kind: "model", row: models[offsetInPage]! };
+    }
+    return { kind: "placeholder", globalRow: p * paging.pageSize + offsetInPage };
 }
 
 // Editors are the compact `xs` size — tree rows are dense lines, not
@@ -644,7 +784,7 @@ function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
  * @returns the ValueTree element
  */
 export const EastChakraValueTree = memo(function EastChakraValueTree(
-    { value, storageKey }: EastChakraValueTreeProps,
+    { value, storageKey, paging }: EastChakraValueTreeProps,
 ): ReactNode {
     const recipe = useSlotRecipe({ key: "valueTree" });
     const styles = recipe() as SlotStyles;
@@ -659,10 +799,17 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const { state: persisted, setState: setPersisted } = usePersistedState<ValueTreePersisted>(
         storageKey, { open: {}, topRow: 0 },
     );
-    const rows = useMemo(
-        () => flattenRows(value.root, persisted.open, cbs.onRemove !== undefined, cbs.onInsert !== undefined),
-        [value.root, persisted.open, cbs.onRemove, cbs.onInsert],
+    const pagedFlat = useMemo(
+        () => (paging !== undefined ? flattenPaged(paging, persisted.open) : undefined),
+        [paging, persisted.open],
     );
+    const rows = useMemo(
+        () => (pagedFlat !== undefined
+            ? pagedFlat.loadedRows
+            : flattenRows(value.root, persisted.open, cbs.onRemove !== undefined, cbs.onInsert !== undefined)),
+        [pagedFlat, value.root, persisted.open, cbs.onRemove, cbs.onInsert],
+    );
+    const rowCount = pagedFlat !== undefined ? pagedFlat.totalFlat : rows.length;
 
     const onToggle = useCallback((id: string, expanded: boolean) => {
         setPersisted(prev => ({ ...prev, open: { ...prev.open, [id]: expanded } }));
@@ -728,18 +875,37 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         const el = scrollElRef.current;
         if (el !== null && persisted.topRow > 0) el.scrollTop = persisted.topRow * ROW_H;
     }, [persisted.topRow]);
+
+    // Paged mode: translate the visible flat window into a root-row range and
+    // ask the host for it (the host dedupes). One page of margin each side so
+    // scrolling never quite catches the placeholders.
+    const requestVisibleRows = useCallback(() => {
+        if (paging === undefined || pagedFlat === undefined || paging.totalRows === 0) return;
+        const el = scrollElRef.current;
+        const startFlat = el === null ? 0 : Math.max(0, Math.floor(el.scrollTop / ROW_H));
+        const viewRows = el === null ? 60 : Math.ceil(el.clientHeight / ROW_H) + 1;
+        const endFlat = Math.min(pagedFlat.totalFlat - 1, startFlat + viewRows);
+        const firstPage = Math.max(0, pageOfFlat(pagedFlat.prefix, startFlat) - 1);
+        const lastPage = Math.min(pagedFlat.pageCount - 1, pageOfFlat(pagedFlat.prefix, endFlat) + 1);
+        paging.onNeedRows(firstPage * paging.pageSize, Math.min(paging.totalRows, (lastPage + 1) * paging.pageSize));
+    }, [paging, pagedFlat]);
+    useLayoutEffect(() => {
+        requestVisibleRows();
+    }, [requestVisibleRows]);
+
     const onScroll = useCallback(() => {
         const el = scrollElRef.current;
         if (el === null) return;
         const topRow = Math.round(el.scrollTop / ROW_H);
         setPersisted(prev => (prev.topRow === topRow ? prev : { ...prev, topRow }));
-    }, [setPersisted]);
+        requestVisibleRows();
+    }, [setPersisted, requestVisibleRows]);
 
     const style = getSomeorUndefined(value.style);
     const height = style !== undefined ? getSomeorUndefined(style.height) : undefined;
     const maxHeight = style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined;
 
-    if (rows.length === 0) {
+    if (rowCount === 0) {
         return (
             <Box css={styles["root"]} role="tree">
                 <Box css={styles["empty"]}>No values</Box>
@@ -748,7 +914,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     }
     const tabbableId = focusId !== undefined && rows.some(r => r.id === focusId)
         ? focusId
-        : rows[0]!.id;
+        : rows[0]?.id;
     // The sized flex-column WRAPPER takes the component's bound and the frame
     // fills the remainder (`fillParent`) — otherwise a percentage / `fill`
     // height would resolve against the auto-height wrapper and silently unbind,
@@ -773,14 +939,34 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                 height={frameFills ? undefined : height}
                 maxHeight={frameFills ? undefined : maxHeight}
                 fillParent={frameFills}
-                count={rows.length}
+                count={rowCount}
                 estimateSize={() => ROW_H}
                 overscan={8}
                 rootCss={styles["root"] as Record<string, unknown>}
                 scrollElRef={scrollElRef}
                 onScroll={onScroll}
                 renderRow={(i) => {
-                    const row = rows[i];
+                    let row: RowModel | undefined;
+                    if (pagedFlat !== undefined && paging !== undefined) {
+                        const at = pagedRowAt(pagedFlat, paging, i);
+                        if (at.kind === "placeholder") {
+                            return (
+                                <Box css={styles["row"]} data-part="row" data-placeholder-row={at.globalRow}
+                                    role="treeitem" aria-level={1} aria-posinset={at.globalRow + 1}
+                                    aria-setsize={paging.totalRows}
+                                    style={{ paddingLeft: "12px" }}>
+                                    <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
+                                    <Box as="span" css={styles["label"]}>{`Item ${(at.globalRow + 1).toLocaleString()}`}</Box>
+                                    <Box css={styles["value"]}>
+                                        <Box as="span" css={styles["summary"]}>Loading…</Box>
+                                    </Box>
+                                </Box>
+                            );
+                        }
+                        row = at.row;
+                    } else {
+                        row = rows[i];
+                    }
                     if (row === undefined) return null;
                     return (
                         <Row key={row.id} row={row} styles={styles} cbs={cbs}
@@ -791,4 +977,4 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
             />
         </Box>
     );
-}, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.paging === next.paging);

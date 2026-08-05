@@ -43,6 +43,7 @@ export {
   createFunctionPackageZip,
   createMultiInputPackageZip,
   createStringPackageZip,
+  createTablePackageZip,
   createDiamondPackageZip,
   createParallelMixedPackageZip,
   createFailingDiamondPackageZip,
@@ -69,6 +70,7 @@ export { repositoryTests } from './suites/repository.js';
 export { packageTests } from './suites/packages.js';
 export { workspaceTests } from './suites/workspaces.js';
 export { datasetTests } from './suites/datasets.js';
+export { datasetPageTests } from './suites/dataset-pages.js';
 export { datasetTransferTests } from './suites/dataset-transfer.js';
 export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
@@ -84,6 +86,7 @@ import { repositoryTests } from './suites/repository.js';
 import { packageTests } from './suites/packages.js';
 import { workspaceTests } from './suites/workspaces.js';
 import { datasetTests } from './suites/datasets.js';
+import { datasetPageTests } from './suites/dataset-pages.js';
 import { datasetTransferTests } from './suites/dataset-transfer.js';
 import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
@@ -105,6 +108,7 @@ export function allApiTests(setup: TestSetup<TestContext>): void {
   packageTests(setup);
   workspaceTests(setup);
   datasetTests(setup);
+  datasetPageTests(setup);
   datasetTransferTests(setup);
   dataflowTests(setup);
   functionTests(setup);
