@@ -33,6 +33,7 @@ import {
 } from '@elaraai/east-ui-components';
 import { StatusDisplay } from './StatusDisplay.js';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
+import { pagingDebug } from '../debug.js';
 
 /** Elements fetched per page — one remote window per scroll-ahead page. */
 const PAGE_SIZE = 500;
@@ -106,16 +107,18 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
 
     // A new value (content hash) invalidates every page.
     useEffect(() => {
+        pagingDebug(`reset (path=${path}, hash=${hash.slice(0, 8)})`);
         setPages(new Map());
         setTotals(null);
         setError(null);
         inflightRef.current.clear();
-    }, [hash]);
+    }, [path, hash]);
 
     const loadPage = useCallback((pageIdx: number) => {
         if (inflightRef.current.has(pageIdx)) return;
         inflightRef.current.add(pageIdx);
         setLoadingCount((n) => n + 1);
+        pagingDebug(`fetch p${pageIdx} (offset=${pageIdx * PAGE_SIZE}, limit=${PAGE_SIZE}, hash=${hash.slice(0, 8)})`);
         const pathParts = path.split('.').filter(Boolean).map((v) => variant('field', v));
         const reqOpts = requestOptions ?? { token: null };
         queryClient.fetchQuery({
@@ -127,9 +130,15 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         }).then((page) => {
             const decoded = decodeBeast2For(type)(page.data);
             const rows = pageRows(type, decoded, page.offset);
+            pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements}${page.totalExact ? '' : '+'} segs=${page.segmentCount}`,
+                rows.length > 0 ? `first=${JSON.stringify(rows[0]!.label ?? '(derived)')}` : '(empty)');
+            if (page.count < PAGE_SIZE && page.offset + page.count < page.totalElements) {
+                pagingDebug(`p${pageIdx} SHORT page: server clamped ${PAGE_SIZE} → ${page.count}`);
+            }
             setTotals({ elements: page.totalElements, exact: page.totalExact });
             setPages((prev) => new Map(prev).set(pageIdx, rows));
         }).catch((err: unknown) => {
+            pagingDebug(`p${pageIdx} FAILED:`, err);
             setError(err instanceof Error ? err : new Error(String(err)));
         }).finally(() => {
             inflightRef.current.delete(pageIdx);
@@ -145,9 +154,12 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     const onNeedRows = useCallback((startRow: number, endRow: number) => {
         const first = Math.max(0, Math.floor(startRow / PAGE_SIZE));
         const last = Math.max(first, Math.ceil(endRow / PAGE_SIZE) - 1);
+        const missing: number[] = [];
         for (let p = first; p <= last; p++) {
-            if (!pages.has(p)) loadPage(p);
+            if (!pages.has(p)) missing.push(p);
         }
+        pagingDebug(`need rows [${startRow}, ${endRow}) → pages ${first}..${last}, missing=[${missing.join(',')}], inflight=[${[...inflightRef.current].join(',')}]`);
+        for (const p of missing) loadPage(p);
     }, [pages, loadPage]);
 
     const treeValue = useMemo<ValueTreeValue>(() => ({

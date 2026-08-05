@@ -474,6 +474,15 @@ function flattenRows(
     return rows;
 }
 
+/** Paged-mode debug logging (#497) — on while the feature stabilizes;
+ *  silence with `localStorage['e3-paging-debug'] = 'off'`. */
+function pagedDebug(...args: unknown[]): void {
+    try {
+        if (typeof localStorage !== "undefined" && localStorage.getItem("e3-paging-debug") === "off") return;
+    } catch { /* no localStorage — log anyway */ }
+    console.info("[e3-paging:tree]", ...args);
+}
+
 /** Paged-mode flat structure: per-page flattened row models, prefix sums
  *  mapping virtual indexes to pages, and the loaded rows in order for
  *  keyboard traversal. Unloaded root rows contribute one placeholder row
@@ -800,7 +809,12 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         storageKey, { open: {}, topRow: 0 },
     );
     const pagedFlat = useMemo(
-        () => (paging !== undefined ? flattenPaged(paging, persisted.open) : undefined),
+        () => {
+            if (paging === undefined) return undefined;
+            const flat = flattenPaged(paging, persisted.open);
+            pagedDebug(`flatten: totalRows=${paging.totalRows} pageSize=${paging.pageSize} totalFlat=${flat.totalFlat} loaded=[${[...flat.pageModels.entries()].map(([p, m]) => `p${p}:${m.length}`).join(' ')}]`);
+            return flat;
+        },
         [paging, persisted.open],
     );
     const rows = useMemo(
@@ -887,6 +901,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         const endFlat = Math.min(pagedFlat.totalFlat - 1, startFlat + viewRows);
         const firstPage = Math.max(0, pageOfFlat(pagedFlat.prefix, startFlat) - 1);
         const lastPage = Math.min(pagedFlat.pageCount - 1, pageOfFlat(pagedFlat.prefix, endFlat) + 1);
+        pagedDebug(`visible: scrollTop=${el?.scrollTop ?? 'null'} clientH=${el?.clientHeight ?? 'null'} flat[${startFlat},${endFlat}] → pages ${firstPage}..${lastPage} → rows [${firstPage * paging.pageSize}, ${Math.min(paging.totalRows, (lastPage + 1) * paging.pageSize)})`);
         paging.onNeedRows(firstPage * paging.pageSize, Math.min(paging.totalRows, (lastPage + 1) * paging.pageSize));
     }, [paging, pagedFlat]);
     useLayoutEffect(() => {
