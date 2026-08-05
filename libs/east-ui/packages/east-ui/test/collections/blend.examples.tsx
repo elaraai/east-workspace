@@ -52,96 +52,80 @@ export const blendSingle = example({
     inputs: [],
 });
 
-export const blendModes = example({
-    keywords: ["Blend", "single", "mode", "compare", "diff", "verdict", "delta", "two targets", "portfolio", "horizontal", "scroll", "plans", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Blend mode configurator — a mode preset axis (single / compare / portfolio) swaps one live bench: one target, A/B panels with the diff table + verdict, or a horizontal portfolio scroll",
+/**
+ * Allocation states — a pinned lot, a model-proposed addition and predicted
+ * metrics on the single-target bench.
+ */
+export const blendAllocationStates = example({
+    keywords: ["Blend", "allocation", "pinned", "proposed", "added", "state", "metric", "model", "objective", "capacity"],
+    description: "Allocation grammar — pinned and model-proposed lots with predicted metrics on one bench",
     fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            // The mode axis is a bare label array — each preset swaps the whole
-            // bench (targets, diff, verdict), so the axis is a preset picker
-            // rather than a per-prop lookup.
-            const modes = $.const(["single", "compare", "portfolio"], ArrayType(StringType));
-            const modeBind = $.let(State.bind([StringType], "blend_mode", "single"));
-            const mode = $.let(modeBind.read());
-            const onMode = $.const(East.function([StringType], NullType, ($, next) => {
-                $(modeBind.write(next));
-            }));
-            return (
-                <Configurator
-                    controls={[
-                        Configurator.Control("Mode", mode,
-                            <SegmentGroup value={mode} onChange={onMode} size="sm"
-                                items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
-                    ]}
-                    preview={
-                        mode.equal("single").ifElse(
-                            // Single target — composition bar, allocations with a
-                            // pinned lot, predicted metrics.
-                            _$ => (
-                                <Blend
-                                    id="bench-single"
-                                    sources={["materials"]}
-                                    targets={BLEND_MODE_SINGLE_DATA}
-                                    target={t => ({
-                                        key: t.key, label: t.name, capacity: t.cap,
-                                        objective: "min cost · grade ≥ A · respect pins",
-                                        allocations: [
-                                            Blend.allocation({ source: "LOT-204", sublabel: "class 1 · north", amount: 16000.0 }),
-                                            Blend.allocation({ source: "LOT-219", sublabel: "class 1 · south", amount: 10000.0, pinned: true }),
-                                            Blend.allocation({ source: "LOT-167", sublabel: "class 2 · north", amount: 5000.0, state: variant("proposed", variant("added", null)) }),
-                                        ],
-                                        metrics: [
-                                            Blend.metric({ key: "grade", label: "predicted grade", value: t.grade, model: "blend-v2.1" }),
-                                            Blend.metric({ key: "cost", label: "cost / unit", value: East.str`$${East.print(t.cost)}`, numeric: t.cost, model: "cost-v1.4" }),
-                                        ],
-                                    })}
-                                />
-                            ),
-                            _$ => mode.equal("compare").ifElse(
-                                // Compare — A/B panels with the derived diff table
-                                // and verdict line.
-                                _$ => (
-                                    <Blend
-                                        id="bench-ab"
-                                        sources={["materials"]}
-                                        targets={BLEND_MODE_COMPARE_DATA}
-                                        target={t => ({
-                                            key: t.key, label: t.name, capacity: t.cap,
-                                            objective: "min cost · grade ≥ A",
-                                            allocations: [
-                                                Blend.allocation({ source: "LOT-204", amount: 18000.0 }),
-                                                Blend.allocation({ source: "LOT-167", amount: 9000.0, state: variant("proposed", variant("added", null)) }),
-                                            ],
-                                            metrics: [
-                                                Blend.metric({ key: "grade", label: "predicted grade", value: t.gradeText, numeric: t.grade, model: "blend-v2.1" }),
-                                                Blend.metric({ key: "cost", label: "cost / unit", value: East.str`$${East.print(t.cost)}`, numeric: t.cost, model: "cost-v1.4" }),
-                                            ],
-                                        })}
-                                        diff={["grade", "cost"]}
-                                        verdict="A wins on cost · B wins on grade · pick by today's objective"
-                                    />
-                                ),
-                                // Portfolio — uniform target panels in a horizontal
-                                // scroll.
-                                _$ => (
-                                    <Blend
-                                        id="bench-week"
-                                        targets={BLEND_MODE_PORTFOLIO_DATA}
-                                        target={t => ({
-                                            key: t.key, label: t.name, capacity: t.cap,
-                                            allocations: [
-                                                Blend.allocation({ source: "LOT-204", amount: 6000.0 }),
-                                                Blend.allocation({ source: "LOT-219", amount: 3000.0 }),
-                                            ],
-                                        })}
-                                    />
-                                ),
-                            ),
-                        )
-                    }
-                />
-            );
-        }}</Reactive>
+        <Blend
+            id="bench-single"
+            sources={["materials"]}
+            targets={BLEND_MODE_SINGLE_DATA}
+            target={t => ({
+                key: t.key, label: t.name, capacity: t.cap,
+                objective: "min cost · grade ≥ A · respect pins",
+                allocations: [
+                    Blend.allocation({ source: "LOT-204", sublabel: "class 1 · north", amount: 16000.0 }),
+                    Blend.allocation({ source: "LOT-219", sublabel: "class 1 · south", amount: 10000.0, pinned: true }),
+                    Blend.allocation({ source: "LOT-167", sublabel: "class 2 · north", amount: 5000.0, state: variant("proposed", variant("added", null)) }),
+                ],
+                metrics: [
+                    Blend.metric({ key: "grade", label: "predicted grade", value: t.grade, model: "blend-v2.1" }),
+                    Blend.metric({ key: "cost", label: "cost / unit", value: East.str`$${East.print(t.cost)}`, numeric: t.cost, model: "cost-v1.4" }),
+                ],
+            })}
+        />
+    )),
+    inputs: [],
+});
+
+/** Compare — A/B panels with the derived diff table and verdict line. */
+export const blendCompare = example({
+    keywords: ["Blend", "compare", "diff", "verdict", "A/B", "metric", "numeric"],
+    description: "A/B compare — two benches with the derived diff table and verdict line",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Blend
+            id="bench-ab"
+            sources={["materials"]}
+            targets={BLEND_MODE_COMPARE_DATA}
+            target={t => ({
+                key: t.key, label: t.name, capacity: t.cap,
+                objective: "min cost · grade ≥ A",
+                allocations: [
+                    Blend.allocation({ source: "LOT-204", amount: 18000.0 }),
+                    Blend.allocation({ source: "LOT-167", amount: 9000.0, state: variant("proposed", variant("added", null)) }),
+                ],
+                metrics: [
+                    Blend.metric({ key: "grade", label: "predicted grade", value: t.gradeText, numeric: t.grade, model: "blend-v2.1" }),
+                    Blend.metric({ key: "cost", label: "cost / unit", value: East.str`$${East.print(t.cost)}`, numeric: t.cost, model: "cost-v1.4" }),
+                ],
+            })}
+            diff={["grade", "cost"]}
+            verdict="A wins on cost · B wins on grade · pick by today's objective"
+        />
+    )),
+    inputs: [],
+});
+
+/** Portfolio — uniform target panels in a horizontal scroll. */
+export const blendPortfolio = example({
+    keywords: ["Blend", "portfolio", "targets", "scroll", "horizontal"],
+    description: "Portfolio — uniform target panels scrolling horizontally",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Blend
+            id="bench-week"
+            targets={BLEND_MODE_PORTFOLIO_DATA}
+            target={t => ({
+                key: t.key, label: t.name, capacity: t.cap,
+                allocations: [
+                    Blend.allocation({ source: "LOT-204", amount: 6000.0 }),
+                    Blend.allocation({ source: "LOT-219", amount: 3000.0 }),
+                ],
+            })}
+        />
     )),
     inputs: [],
 });

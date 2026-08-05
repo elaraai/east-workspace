@@ -12,6 +12,7 @@ describeEast("Pagination", (test) => {
     Assert.examples(test, {
         paginationBasic: ex.paginationBasic,
         paginationVariants: ex.paginationVariants,
+        paginationCustomColours: ex.paginationCustomColours,
     });
 
     // =========================================================================

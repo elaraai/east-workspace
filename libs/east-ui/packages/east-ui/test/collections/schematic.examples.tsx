@@ -11,11 +11,6 @@ import { Configurator, HStack, Reactive, Schematic, Select, Separator, Slice, Sl
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const SCHEMATIC_MINIMAL_DATA = [
-    { id: "DOCK-1", x: 3.0, y: 2.0 },
-    { id: "DOCK-2", x: 9.0, y: 2.0 },
-    { id: "STAGE", x: 6.0, y: 5.5 },
-];
 const SCHEMATIC_LAYERS_DATA = [
     { id: "GATE", x: 2.5, y: 6.0, kind: "entry", sys: "shell" },
     { id: "PUMP-1", x: 6.0, y: 4.0, kind: "pump", sys: "process" },
@@ -370,15 +365,6 @@ export const schematicVariants = example({
     description: "Schematic canvas configurator — a canvas preset axis (minimal / layers / geometry / color / facility) plus a read-only switch driving one live canvas",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // The canvas axis is a bare label array — each preset swaps the
-            // WHOLE canvas (data, mappers, chrome), so the axis is a preset
-            // picker rather than a per-prop lookup.
-            const canvases = $.const(["minimal", "layers", "geometry", "color", "facility"], ArrayType(StringType));
-            const canvasBind = $.let(State.bind([StringType], "schematic_canvas", "minimal"));
-            const canvas = $.let(canvasBind.read());
-            const onCanvas = $.const(East.function([StringType], NullType, ($, next) => {
-                $(canvasBind.write(next));
-            }));
             // readOnly ON makes the shown canvas a pure static picture — the
             // connect / move edit tools never render, leaving just pan / zoom /
             // selection (the old MINIMAL row's fixed prop, now a live switch).
@@ -461,160 +447,58 @@ export const schematicVariants = example({
             return (
                 <Configurator
                     controls={[
-                        Configurator.Control("Canvas", canvas,
-                            <Select value={canvas} onChange={onCanvas} size="sm"
-                                items={canvases.map((_$, c) => Select.Item(c, c))} />),
                         Configurator.Slot("Editing",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={roOn} label="Read-only" onChange={onRo} />
                             </HStack>),
                     ]}
                     preview={
-                        canvas.equal("minimal").ifElse(
-                            // Minimal — items only, no zones or links.
-                            _$ => (
-                                <Schematic
-                                    extent={{ width: 12, height: 7 }}
-                                    height="440px"
-                                    items={SCHEMATIC_MINIMAL_DATA}
-                                    item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "warehouse" })}
-                                    readOnly={roOn}
-                                />
-                            ),
-                            _$ => canvas.equal("layers").ifElse(
-                                // Layers — items / zones / links grouped into toggleable
-                                // layers; the canvas layer button opens a panel to
-                                // show / hide / solo / lock each layer.
-                                _$ => (
-                                    <Schematic
-                                        extent={{ width: 24, height: 13 }}
-                                        height="420px"
-                                        items={SCHEMATIC_LAYERS_DATA}
-                                        item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: "gear", layer: e.sys })}
-                                        zones={SCHEMATIC_LAYERS_ROOMS_DATA}
-                                        zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" })}
-                                        links={SCHEMATIC_LAYERS_PIPES_DATA}
-                                        link={l => ({ key: l.id, from: l.a, to: l.b, layer: "utilities" })}
-                                        layers={[
-                                            // Locked + dimmed backdrop (the GATE item + Hall zone read as context).
-                                            { key: "shell", label: "Building shell", tone: "muted", locked: true, opacity: 0.45 },
-                                            { key: "process", label: "Process", tone: "brand" },
-                                            { key: "utilities", label: "Utilities", tone: "success" },
-                                            // Ships hidden — SENS-4 is absent until toggled on in the panel.
-                                            { key: "maintenance", label: "Maintenance", tone: "warning", visible: false },
-                                        ]}
-                                        scaleUnit="m"
-                                        readOnly={roOn}
-                                    />
-                                ),
-                                _$ => canvas.equal("geometry").ifElse(
-                                    // Geometry — polygon & arc-aware polyline zones plus
-                                    // polygon / circle item footprints.
-                                    _$ => (
-                                        <Schematic
-                                            extent={{ width: 26, height: 14 }}
-                                            height="440px"
-                                            items={SCHEMATIC_GEOMETRY_DATA}
-                                            item={e => ({
-                                                key: e.id, x: e.x, y: e.y, label: e.id,
-                                                sublabel: e.kind, status: e.state, icon: "industry",
-                                                footprint: e.round.ifElse(
-                                                    _$ => Schematic.circle(e.r),
-                                                    _$ => e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
-                                                ),
-                                            })}
-                                            zones={SCHEMATIC_GEOMETRY_AREAS_DATA}
-                                            zone={z => ({
-                                                key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
-                                                geometry: z.road.ifElse(
-                                                    _$ => Schematic.polyline(z.pts, { width: 1.4 }),
-                                                    _$ => Schematic.polygon(z.pts),
-                                                ),
-                                            })}
-                                            scaleUnit="m"
-                                            grid={true}
-                                            readOnly={roOn}
-                                        />
-                                    ),
-                                    _$ => canvas.equal("color").ifElse(
-                                        // Color override — per-entity colour overrides: raw
-                                        // color + bg on item footprints, a category palette
-                                        // independent of status, and a toned, filled area.
-                                        _$ => (
-                                            <Schematic
-                                                extent={{ width: 16, height: 8 }}
-                                                height="360px"
-                                                items={SCHEMATIC_COLOR_OVERRIDE_DATA}
-                                                item={e => ({
-                                                    key: e.id, x: e.x, y: e.y, label: e.id,
-                                                    footprint: Schematic.circle(e.r),
-                                                    color: e.fill,        // raw stroke / marker tint
-                                                    bg: e.fill,           // raw footprint fill
-                                                    fillOpacity: 0.18,
-                                                })}
-                                                zones={SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA}
-                                                zone={z => ({
-                                                    key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
-                                                    tone: "brand",        // semantic, theme-resolved
-                                                    bg: "bg.brand.subtle",        // opt-in area fill
-                                                })}
-                                                scaleUnit="m"
-                                                readOnly={roOn}
-                                            />
-                                        ),
-                                        // Facility — the generated 306-unit canvas above.
-                                        _$ => (
-                                            <Schematic
-                                                extent={{ width: 100, height: 48 }}
-                                                height="440px"
-                                                items={units}
-                                                item={u => ({
-                                                    key: u.key, x: u.x, y: u.y, label: u.key,
-                                                    sublabel: u.kind, icon: "cube",
-                                                    status: u.status,
-                                                    meter: { value: u.fill, max: u.cap },
-                                                    metric: u.metric,
-                                                    // Four footprint shapes of varying size, centred on the
-                                                    // unit's (x, y) anchor — polygon vertices are absolute world
-                                                    // coords, so they are offset from the anchor by ±size.
-                                                    footprint: u.shape.equal(0n).ifElse(
-                                                        _$ => Schematic.circle(u.size),
-                                                        _$ => u.shape.equal(1n).ifElse(
-                                                            _$ => Schematic.polygon([                                      // square
-                                                                { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },
-                                                                { x: u.x.add(u.size), y: u.y.subtract(u.size) },
-                                                                { x: u.x.add(u.size), y: u.y.add(u.size) },
-                                                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },
-                                                            ]),
-                                                            _$ => u.shape.equal(2n).ifElse(
-                                                                _$ => Schematic.polygon([                                  // triangle
-                                                                    { x: u.x, y: u.y.subtract(u.size) },
-                                                                    { x: u.x.add(u.size), y: u.y.add(u.size) },
-                                                                    { x: u.x.subtract(u.size), y: u.y.add(u.size) },
-                                                                ]),
-                                                                _$ => Schematic.polygon([                                  // diamond
-                                                                    { x: u.x, y: u.y.subtract(u.size) },
-                                                                    { x: u.x.add(u.size), y: u.y },
-                                                                    { x: u.x, y: u.y.add(u.size) },
-                                                                    { x: u.x.subtract(u.size), y: u.y },
-                                                                ]),
-                                                            ),
-                                                        ),
-                                                    ),
-                                                })}
-                                                zones={facilityAreas}
-                                                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}
-                                                scaleUnit="m"
-                                                grid={true}
-                                                navigator={true}
-                                                minimap={true}
-                                                readOnly={roOn}
-                                            />
+                        <Schematic
+                            extent={{ width: 100, height: 48 }}
+                            height="440px"
+                            items={units}
+                            item={u => ({
+                                key: u.key, x: u.x, y: u.y, label: u.key,
+                                sublabel: u.kind, icon: "cube",
+                                status: u.status,
+                                meter: { value: u.fill, max: u.cap },
+                                metric: u.metric,
+                                // Four footprint shapes of varying size, centred on the
+                                // unit's (x, y) anchor — polygon vertices are absolute world
+                                // coords, so they are offset from the anchor by ±size.
+                                footprint: u.shape.equal(0n).ifElse(
+                                    _$ => Schematic.circle(u.size),
+                                    _$ => u.shape.equal(1n).ifElse(
+                                        _$ => Schematic.polygon([                                      // square
+                                            { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },
+                                            { x: u.x.add(u.size), y: u.y.subtract(u.size) },
+                                            { x: u.x.add(u.size), y: u.y.add(u.size) },
+                                            { x: u.x.subtract(u.size), y: u.y.add(u.size) },
+                                        ]),
+                                        _$ => u.shape.equal(2n).ifElse(
+                                            _$ => Schematic.polygon([                                  // triangle
+                                                { x: u.x, y: u.y.subtract(u.size) },
+                                                { x: u.x.add(u.size), y: u.y.add(u.size) },
+                                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },
+                                            ]),
+                                            _$ => Schematic.polygon([                                  // diamond
+                                                { x: u.x, y: u.y.subtract(u.size) },
+                                                { x: u.x.add(u.size), y: u.y },
+                                                { x: u.x, y: u.y.add(u.size) },
+                                                { x: u.x.subtract(u.size), y: u.y },
+                                            ]),
                                         ),
                                     ),
                                 ),
-                            ),
-                        )
+                            })}
+                            zones={facilityAreas}
+                            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}
+                            scaleUnit="m"
+                            grid={true}
+                            navigator={true}
+                            minimap={true}
+                            readOnly={roOn}
+                        />
                     }
                     spec={[
                         Configurator.Spec("readOnly", roOn.ifElse(_$ => "on", _$ => "off")),
@@ -622,6 +506,101 @@ export const schematicVariants = example({
                 />
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Layers — items / zones / links grouped into toggleable layers; the canvas
+ * layer button opens a panel to show / hide / solo / lock each layer.
+ */
+export const schematicLayers = example({
+    keywords: ["Schematic", "layers", "layer", "visibility", "solo", "lock", "opacity", "toggle", "legend"],
+    description: "Layer chrome — shell locked and dimmed, maintenance shipped hidden; the layer panel shows / hides / solos / locks each",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Schematic
+            extent={{ width: 24, height: 13 }}
+            height="420px"
+            items={SCHEMATIC_LAYERS_DATA}
+            item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: "gear", layer: e.sys })}
+            zones={SCHEMATIC_LAYERS_ROOMS_DATA}
+            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" })}
+            links={SCHEMATIC_LAYERS_PIPES_DATA}
+            link={l => ({ key: l.id, from: l.a, to: l.b, layer: "utilities" })}
+            layers={[
+                { key: "shell", label: "Building shell", tone: "muted", locked: true, opacity: 0.45 },
+                { key: "process", label: "Process", tone: "brand" },
+                { key: "utilities", label: "Utilities", tone: "success" },
+                { key: "maintenance", label: "Maintenance", tone: "warning", visible: false },
+            ]}
+            scaleUnit="m"
+        />
+    )),
+    inputs: [],
+});
+
+/**
+ * Geometry — polygon & arc-aware polyline zones plus polygon / circle item
+ * footprints.
+ */
+export const schematicGeometry = example({
+    keywords: ["Schematic", "geometry", "polygon", "polyline", "circle", "arc", "bulge", "footprint", "zone", "CAD", "shape", "grid"],
+    description: "CAD geometry — polygon and arc-aware polyline zones with polygon / circle item footprints on the metric grid",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Schematic
+            extent={{ width: 26, height: 14 }}
+            height="440px"
+            items={SCHEMATIC_GEOMETRY_DATA}
+            item={e => ({
+                key: e.id, x: e.x, y: e.y, label: e.id,
+                sublabel: e.kind, status: e.state, icon: "industry",
+                footprint: e.round.ifElse(
+                    _$ => Schematic.circle(e.r),
+                    _$ => e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
+                ),
+            })}
+            zones={SCHEMATIC_GEOMETRY_AREAS_DATA}
+            zone={z => ({
+                key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
+                geometry: z.road.ifElse(
+                    _$ => Schematic.polyline(z.pts, { width: 1.4 }),
+                    _$ => Schematic.polygon(z.pts),
+                ),
+            })}
+            scaleUnit="m"
+            grid={true}
+        />
+    )),
+    inputs: [],
+});
+
+/**
+ * Colour overrides — raw color + bg on item footprints (category palette
+ * independent of status) and a toned, filled area.
+ */
+export const schematicColorOverrides = example({
+    keywords: ["Schematic", "color", "tone", "bg", "override", "fillOpacity", "palette", "style"],
+    description: "Colour overrides — raw color/bg per item footprint and a toned filled zone, independent of status",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Schematic
+            extent={{ width: 16, height: 8 }}
+            height="360px"
+            items={SCHEMATIC_COLOR_OVERRIDE_DATA}
+            item={e => ({
+                key: e.id, x: e.x, y: e.y, label: e.id,
+                footprint: Schematic.circle(e.r),
+                color: e.fill,
+                bg: e.fill,
+                fillOpacity: 0.18,
+            })}
+            zones={SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA}
+            zone={z => ({
+                key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
+                tone: "brand",
+                bg: "bg.brand.subtle",
+            })}
+            scaleUnit="m"
+        />
     )),
     inputs: [],
 });

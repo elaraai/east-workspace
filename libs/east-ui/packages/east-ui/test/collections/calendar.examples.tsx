@@ -30,32 +30,6 @@ const CALENDAR_SPARSE_DATA = [
     { week: "W2", day: "Tue", demand: 6.0 },
     { week: "W2", day: "Sat", demand: 12.0 },
 ];
-const CALENDAR_SCROLL_DATA = [
-    { week: "W31", day: "Mon", demand: 90.0 },
-    { week: "W31", day: "Wed", demand: 108.0 },
-    { week: "W31", day: "Fri", demand: 126.0 },
-    { week: "W32", day: "Mon", demand: 97.0 },
-    { week: "W32", day: "Wed", demand: 115.0 },
-    { week: "W32", day: "Fri", demand: 133.0 },
-    { week: "W33", day: "Mon", demand: 104.0 },
-    { week: "W33", day: "Wed", demand: 122.0 },
-    { week: "W33", day: "Fri", demand: 140.0 },
-    { week: "W34", day: "Mon", demand: 111.0 },
-    { week: "W34", day: "Wed", demand: 129.0 },
-    { week: "W34", day: "Fri", demand: 147.0 },
-    { week: "W35", day: "Mon", demand: 118.0 },
-    { week: "W35", day: "Wed", demand: 136.0 },
-    { week: "W35", day: "Fri", demand: 154.0 },
-    { week: "W36", day: "Mon", demand: 125.0 },
-    { week: "W36", day: "Wed", demand: 143.0 },
-    { week: "W36", day: "Fri", demand: 161.0 },
-    { week: "W37", day: "Mon", demand: 132.0 },
-    { week: "W37", day: "Wed", demand: 150.0 },
-    { week: "W37", day: "Fri", demand: 168.0 },
-    { week: "W38", day: "Mon", demand: 139.0 },
-    { week: "W38", day: "Wed", demand: 157.0 },
-    { week: "W38", day: "Fri", demand: 175.0 },
-];
 const CALENDAR_FILL_DATA = East.Array.range(10n, 210n).map((_$, w) => ({
     week: East.str`W${w}`,
     day: "Wed",
@@ -133,7 +107,6 @@ export const calendarVariants = example({
                 const valuesBind  = $.let(State.bind([BooleanType], "calendar_values", true));
                 const totalsBind  = $.let(State.bind([BooleanType], "calendar_totals", false));
                 const chromeBind  = $.let(State.bind([BooleanType], "calendar_chrome", false));
-                const sizeBind    = $.let(State.bind([StringType], "calendar_size", "auto"));
                 // The selection readout (folded from the old interactive
                 // example — its State key is preserved): onSelect writes the
                 // tapped day into the aside.
@@ -142,9 +115,7 @@ export const calendarVariants = example({
                 const dKey     = $.let(densityBind.read());
                 const sKey     = $.let(scaleBind.read());
                 const valuesOn = $.let(valuesBind.read());
-                const totalsOn = $.let(totalsBind.read());
                 const minimal  = $.let(chromeBind.read());
-                const sizeKey  = $.let(sizeBind.read());
                 const selected = $.let(selectedBind.read());
 
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
@@ -152,7 +123,6 @@ export const calendarVariants = example({
                 const onValues  = $.const(East.function([BooleanType], NullType, ($, next) => { $(valuesBind.write(next)); }));
                 const onTotals  = $.const(East.function([BooleanType], NullType, ($, next) => { $(totalsBind.write(next)); }));
                 const onChrome  = $.const(East.function([BooleanType], NullType, ($, next) => { $(chromeBind.write(next)); }));
-                const onSize    = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
                 const onSelect  = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {
                     $(selectedBind.write(East.str`${ref.day} ${ref.week}`));
                 }));
@@ -165,64 +135,21 @@ export const calendarVariants = example({
                 // leave gaps that render as hatched missing days.
                 const data = $.let(minimal.ifElse(_$ => sparse, _$ => dense));
 
-                // Totals chrome is the presence of the rail + aggregate row,
-                // not a value of either — so the switch picks between the two
-                // calendars rather than feeding empty configs.
-                // Scroll / fill (#320, absorbed calendarFill) — density, scale
-                // and values stay live on both sizing arms.
-                const scrollArm = $.const(
+                // Totals chrome composes on permanently — the sum rail and
+                // peak row are presence-typed, so they stay rather than lie
+                // behind a switch.
+                const cal = $.const(
                     <Calendar
-                        data={CALENDAR_SCROLL_DATA}
+                        data={data}
                         cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
                         values={valuesOn}
                         scale={Calendar.scale({ steps: scale.steps })}
                         density={density}
+                        totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
+                        aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
                         onSelect={onSelect}
-                        maxHeight="200px"
                     />,
                 );
-                const fillArm = $.const(
-                    <Box height="200px">
-                        <Calendar
-                            data={CALENDAR_FILL_DATA}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                            values={valuesOn}
-                            scale={Calendar.scale({ steps: scale.steps })}
-                            density={density}
-                            onSelect={onSelect}
-                            height="fill"
-                        />
-                    </Box>,
-                );
-
-                const liveCal = $.const(totalsOn.ifElse(
-                    _$ => (
-                        <Calendar
-                            data={data}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                            values={valuesOn}
-                            scale={Calendar.scale({ steps: scale.steps })}
-                            density={density}
-                            totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
-                            aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
-                            onSelect={onSelect}
-                        />
-                    ),
-                    _$ => (
-                        <Calendar
-                            data={data}
-                            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                            values={valuesOn}
-                            scale={Calendar.scale({ steps: scale.steps })}
-                            density={density}
-                            onSelect={onSelect}
-                        />
-                    ),
-                ));
-                const cal = $.const(sizeKey.equal("scroll").ifElse(
-                    _$ => scrollArm,
-                    _$ => sizeKey.equal("fill").ifElse(_$ => fillArm, _$ => liveCal),
-                ), UIComponentType);
 
                 return (
                     <Configurator
@@ -240,13 +167,9 @@ export const calendarVariants = example({
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={valuesOn} label="Values" onChange={onValues} />
                                 </HStack>),
-                            Configurator.Control("Size", sizeKey,
-                                <SegmentGroup value={sizeKey} onChange={onSize} size="sm"
-                                    items={["auto", "scroll", "fill"].map(k => SegmentGroup.Item(k, <Text>{k.toUpperCase()}</Text>))} />),
                             Configurator.Slot("Chrome",
                                 <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={totalsOn} label="Totals (auto)" onChange={onTotals} />
-                                    <Switch checked={minimal} label="Sparse data (auto)" onChange={onChrome} />
+                                    <Switch checked={minimal} label="Sparse data" onChange={onChrome} />
                                 </HStack>),
                         ]}
                         preview={cal}
@@ -255,15 +178,32 @@ export const calendarVariants = example({
                             body: <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>,
                         }}
                         spec={[
-                            Configurator.Spec("Days", sizeKey.equal("auto").ifElse(_$ => East.print(data.size()), _$ => sizeKey.equal("scroll").ifElse(_$ => "24", _$ => "200"))),
+                            Configurator.Spec("Days", East.print(data.size())),
                             Configurator.Spec("Steps", East.print(scale.steps)),
                             Configurator.Spec("Values", valuesOn.ifElse(_$ => "numerals", _$ => "heat only")),
-                            Configurator.Spec("Totals", totalsOn.ifElse(_$ => "sum rail · peak row", _$ => "off")),
+                            Configurator.Spec("Totals", "sum rail · peak row"),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Fill (#320) — height="fill" resolves against the bounded Box and virtualizes the 200-day grid. */
+export const calendarFill = example({
+    keywords: ["Calendar", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
+    description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes a 200-day calendar",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Box height="200px">
+            <Calendar
+                data={CALENDAR_FILL_DATA}
+                cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                scale={Calendar.scale({ steps: 5n })}
+                height="fill"
+            />
+        </Box>
+    )),
     inputs: [],
 });

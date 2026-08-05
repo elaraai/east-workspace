@@ -15,6 +15,9 @@ describeEast("Schematic", (test) => {
         schematicLinkEdit: ex.schematicLinkEdit,
         schematicNets: ex.schematicNets,
         schematicVariants: ex.schematicVariants,
+        schematicLayers: ex.schematicLayers,
+        schematicGeometry: ex.schematicGeometry,
+        schematicColorOverrides: ex.schematicColorOverrides,
         schematicSlice: ex.schematicSlice,
         schematicInteractions: ex.schematicInteractions,
     });

@@ -14,7 +14,9 @@ describeEast("Deck", (test) => {
         deckBasic: ex.deckBasic,
         deckSlice: ex.deckSlice,
         deckDetail: ex.deckDetail,
-        deckVariants: ex.deckVariants,
+        deckGrouped: ex.deckGrouped,
+        deckList: ex.deckList,
+        deckCustomFace: ex.deckCustomFace,
     });
 
     // =========================================================================
@@ -22,7 +24,7 @@ describeEast("Deck", (test) => {
     // The mono-uppercase Text captions are the stable per-mini anchors.
     // =========================================================================
 
-    test("deckVariants drives its preview from inline option tables", $ => {
+    test("deckGrouped drives its preview from inline option tables", $ => {
         // Everything the configurator needs — the layout table, the grouped
         // and custom-face switches, and the tap-target aside — is declared
         // inside the example body, because the documentation capture only
@@ -31,7 +33,7 @@ describeEast("Deck", (test) => {
         // `Assert.examples` above still compiles and evaluates the outer
         // function. The per-option coverage lives in the Deck.Root tests
         // below, which construct each option directly.
-        const panel = $.const(ex.deckVariants.fn() as ExprType<UIComponentType>);
+        const panel = $.const(ex.deckGrouped.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 

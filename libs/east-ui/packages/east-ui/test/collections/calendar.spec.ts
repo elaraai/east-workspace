@@ -13,6 +13,7 @@ describeEast("Calendar", (test) => {
     Assert.examples(test, {
         calendarDemand: ex.calendarDemand,
         calendarVariants: ex.calendarVariants,
+        calendarFill: ex.calendarFill,
     });
 
     // =========================================================================

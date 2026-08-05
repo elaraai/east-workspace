@@ -12,19 +12,21 @@ import * as ex from "./blend.examples.js";
 describeEast("Blend", (test) => {
     Assert.examples(test, {
         blendSingle: ex.blendSingle,
-        blendModes: ex.blendModes,
+        blendAllocationStates: ex.blendAllocationStates,
+        blendCompare: ex.blendCompare,
+        blendPortfolio: ex.blendPortfolio,
         blendLibraryDnd: ex.blendLibraryDnd,
     });
 
-    test("blendModes drives its preview from inline option tables", $ => {
+    test("blendCompare drives its preview from inline option tables", $ => {
         // The mode-preset axis is declared inside the example body, because
         // the documentation capture only extracts `fn`. That puts it inside
         // the Reactive body, which TestImpl does not execute, so it cannot be
         // asserted from here; `Assert.examples` above still compiles and
         // evaluates the outer function. Per-mode prop coverage lives in the
         // Blend.Root tests below.
-        const panel = $.const(ex.blendModes.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+        const panel = $.const(ex.blendCompare.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Blend"), true));
     });
 
     test("canDrop encodes and vetoes candidate events (#261)", $ => {

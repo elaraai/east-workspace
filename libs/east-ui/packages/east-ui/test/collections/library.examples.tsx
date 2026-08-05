@@ -11,16 +11,6 @@ import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text, VStack
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const LIBRARY_ASSETS_DATA = [
-    { id: "BT-014", cls: "26ft box", depot: "North", cap: "cap 10t", range: "range 300mi", cert: "CDL-B", inService: false },
-    { id: "BT-018", cls: "26ft box", depot: "North", cap: "cap 10t", range: "range 300mi", cert: "CDL-B", inService: false },
-    { id: "BT-022", cls: "26ft box", depot: "South", cap: "cap 10t", range: "range 300mi", cert: "CDL-B", inService: true },
-];
-const LIBRARY_FLAT_DATA = [
-    { id: "hall-b", name: "Hall B" },
-    { id: "qa-cell", name: "QA Cell" },
-    { id: "dispatch", name: "Dispatch" },
-];
 const LIBRARY_SCROLL_DATA = [
     { id: "patel", name: "Patel, R.", role: "Senior", hours: 38.0 },
     { id: "cho", name: "Cho, J.", role: "Senior", hours: 26.0 },
@@ -54,19 +44,6 @@ const CrewType = StructType({
 /** Row shapes for the two small folded-in datasets (the old variant panel's
  *  asset and flat-room palettes) — each gets its own Slice config so the
  *  sliced mode composes across every dataset. */
-const AssetType = StructType({
-    id: StringType,
-    cls: StringType,
-    depot: StringType,
-    cap: StringType,
-    range: StringType,
-    cert: StringType,
-    inService: BooleanType,
-});
-const RoomType = StructType({
-    id: StringType,
-    name: StringType,
-});
 
 // The ONE shared 400-card crew generator all three libraryLarge configurator
 // branches consume (the literal pools live inside the generator body so the
@@ -130,253 +107,71 @@ export const libraryPeople = example({
     inputs: [],
 });
 
+/**
+ * THE large-library configurator (pass 5) — ONE live crew palette: slice
+ * chrome (search / filter rail / count footer) composes on permanently, the
+ * two-level grouping stays, and the size axis feeds the height expression
+ * (auto / scroll / fill — an empty height reads as unbounded).
+ */
 export const libraryLarge = example({
-    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "flat", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "card", "chips", "assets", "vehicles", "minimal", "maxHeight", "bounded", "fill", "#320"],
-    description: "Large-library configurator — dataset (crew / assets / rooms), mode (grouped / flat / sliced) and size (auto / scroll / fill) axes over one live palette",
+    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Configurator", "getTag", "configurator", "card", "chips", "meter", "maxHeight", "bounded", "fill", "#320"],
+    description: "Large-library configurator — a size axis (auto / scroll / fill) on one live sliced, grouped crew palette of hundreds of cards",
     fn: East.function([], UIComponentType, (_$) => {
         const cfg = Slice.config(CrewType, {
             fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
             searchFieldIds: ["name", "role", "depot"],
         });
-        const cfgAssets = Slice.config(AssetType, {
-            fields: { cls: { label: "Class" }, depot: { label: "Depot" } },
-            searchFieldIds: ["cls", "depot"],
-        });
-        const cfgRooms = Slice.config(RoomType, {
-            fields: { name: { label: "Name" } },
-            searchFieldIds: ["name"],
-        });
         return (
             <Reactive>{$ => {
-                // Both axes are bare label arrays — the controls, the routing
-                // and the spec all read the same keys. The dataset picks the
-                // card set; the mode stays the grouping axis.
-                const datasets = $.const(["crew", "assets", "rooms"], ArrayType(StringType));
-                const modes = $.const(["grouped", "flat", "sliced"], ArrayType(StringType));
                 const sizes = $.const(["auto", "scroll", "fill"], ArrayType(StringType));
-
-                const datasetBind = $.let(State.bind([StringType], "library_large_dataset", "crew"));
-                const modeBind = $.let(State.bind([StringType], "library_large_mode", "grouped"));
-                const sizeBind = $.let(State.bind([StringType], "library_large_size", "auto"));
-                const dataset = $.let(datasetBind.read());
-                const mode = $.let(modeBind.read());
+                const sizeBind = $.let(State.bind([StringType], "library_large_size", "scroll"));
                 const sizeKey = $.let(sizeBind.read());
-                const onDatasetChange = $.const(East.function([StringType], NullType, ($, next) => {
-                    $(datasetBind.write(next));
-                }));
-                const onModeChange = $.const(East.function([StringType], NullType, ($, next) => {
-                    $(modeBind.write(next));
-                }));
                 const onSizeChange = $.const(East.function([StringType], NullType, ($, next) => {
                     $(sizeBind.write(next));
                 }));
+
                 const crew = $.const(LIBRARY_LARGE_CARDS);
-                const assets = $.const(LIBRARY_ASSETS_DATA, ArrayType(AssetType));
-                const rooms = $.const(LIBRARY_FLAT_DATA, ArrayType(RoomType));
-                // The slice bindings are created UNCONDITIONALLY (bindings
-                // must never be conditional) and only consumed by the sliced
-                // branches — one per dataset, since a Slice is typed by row.
                 const slice = $.let(Slice.bind([CrewType], "ex.library.large.slice", cfg, Slice.state({}), crew, none));
                 const narrowed = $.let(Slice.rows([CrewType], slice));
-                const sliceAssets = $.let(Slice.bind([AssetType], "ex.library.large.slice.assets", cfgAssets, Slice.state({}), assets, none));
-                const narrowedAssets = $.let(Slice.rows([AssetType], sliceAssets));
-                const sliceRooms = $.let(Slice.bind([RoomType], "ex.library.large.slice.rooms", cfgRooms, Slice.state({}), rooms, none));
-                const narrowedRooms = $.let(Slice.rows([RoomType], sliceRooms));
-                const grouped = $.const(
-                    <Library
-                        id="crew"
-                        data={crew}
-                        item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
-                        dimensions={[
-                            { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
-                            { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
-                            { kind: "text", key: "depot", label: "Depot", value: c => c.depot },
-                        ]}
-                        groupBy={[
-                            { key: "depot", label: "Depot", value: c => c.depot, summary: members => East.str`${members.size()} crew` },
-                            { key: "role", label: "Role", value: c => c.role },
-                        ]}
-                        search={c => East.str`${c.name} ${c.role} ${c.depot}`}
-                        style={{ height: "480px" }}
-                    />,
-                );
-                const flat = $.const(
-                    <Library
-                        id="crew-flat"
-                        data={crew}
-                        item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
-                        dimensions={[
-                            { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
-                            { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
-                        ]}
-                        search={c => East.str`${c.name} ${c.role}`}
-                        style={{ height: "480px" }}
-                    />,
-                );
-                const sliced = $.const(
-                    <Library
-                        id="crew-sliced"
-                        data={narrowed}
-                        item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
-                        dimensions={[
-                            { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
-                            { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
-                        ]}
-                        groupBy={[
-                            { key: "depot", label: "Depot", value: c => c.depot, summary: members => East.str`${members.size()} crew` },
-                        ]}
-                        slice={slice}
-                        affordances={["filter", "search"]}
-                        style={{ height: "480px" }}
-                    />,
-                );
-                // The asset palette (folded from the old variant panel): same
-                // chassis, different secondary dimensions, grouped by class
-                // and depot.
-                const assetsGrouped = $.const(
-                    <Library
-                        id="vehicles"
-                        data={assets}
-                        item={t => ({
-                            key: t.id,
-                            label: t.id,
-                            sublabel: t.cls,
-                            icon: "truck",
-                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
-                            draggable: t.inService.not(),
-                        })}
-                        dimensions={[
-                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
-                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
-                        ]}
-                        groupBy={[
-                            { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
-                            { key: "depot", label: "Depot", value: t => t.depot },
-                        ]}
-                    />,
-                );
-                const assetsFlat = $.const(
-                    <Library
-                        id="vehicles-flat"
-                        data={assets}
-                        item={t => ({
-                            key: t.id,
-                            label: t.id,
-                            sublabel: t.cls,
-                            icon: "truck",
-                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
-                            draggable: t.inService.not(),
-                        })}
-                        dimensions={[
-                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
-                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
-                        ]}
-                    />,
-                );
-                const assetsSliced = $.const(
-                    <Library
-                        id="vehicles-sliced"
-                        data={narrowedAssets}
-                        item={t => ({
-                            key: t.id,
-                            label: t.id,
-                            sublabel: t.cls,
-                            icon: "truck",
-                            status: t.inService.ifElse(() => some(Library.status("In service", "success")), () => none),
-                            draggable: t.inService.not(),
-                        })}
-                        dimensions={[
-                            { kind: "chips", key: "capacity", label: "Capacity", values: t => [t.cap, t.range] },
-                            { kind: "chips", key: "cert", label: "Cert", values: t => [t.cert] },
-                        ]}
-                        groupBy={[
-                            { key: "class", label: "Class", value: t => t.cls, summary: members => East.print(members.size()) },
-                        ]}
-                        slice={sliceAssets}
-                        affordances={["filter", "search"]}
-                    />,
-                );
-                // The minimal flat palette (folded from the old variant
-                // panel): identity cards only, no toolbar.
-                const roomsFlat = $.const(
-                    <Library
-                        id="rooms"
-                        data={rooms}
-                        item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
-                    />,
-                );
-                const roomsSliced = $.const(
-                    <Library
-                        id="rooms-sliced"
-                        data={narrowedRooms}
-                        item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
-                        slice={sliceRooms}
-                        affordances={["filter", "search"]}
-                    />,
-                );
-                const crewBody = $.const(mode.equal("flat").ifElse(
-                    _$ => flat,
-                    _$ => mode.equal("sliced").ifElse(_$ => sliced, _$ => grouped),
-                ), UIComponentType);
-                const assetsBody = $.const(mode.equal("flat").ifElse(
-                    _$ => assetsFlat,
-                    _$ => mode.equal("sliced").ifElse(_$ => assetsSliced, _$ => assetsGrouped),
-                ), UIComponentType);
-                // Rooms are identity-only cards with no grouping dimension,
-                // so grouped falls back to the flat minimal palette.
-                const roomsBody = $.const(mode.equal("sliced").ifElse(
-                    _$ => roomsSliced,
-                    _$ => roomsFlat,
-                ), UIComponentType);
-                // Scroll / fill (#320, absorbed libraryFill).
-                const scrollArm = $.const(
-                    <Library
-                        id="library-scroll"
-                        data={LIBRARY_SCROLL_DATA}
-                        item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
-                        dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
-                        groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                        style={{ maxHeight: "200px" }}
-                    />,
-                );
-                const fillArm = $.const(
-                    <Box height="200px">
-                        <Library
-                            id="library-fill"
-                            data={LIBRARY_FILL_DATA}
-                            item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
-                            dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
-                            groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                            style={{ height: "fill" }}
-                        />
-                    </Box>,
-                );
 
-                const datasetBody = $.const(dataset.equal("assets").ifElse(
-                    _$ => assetsBody,
-                    _$ => dataset.equal("rooms").ifElse(_$ => roomsBody, _$ => crewBody),
-                ), UIComponentType);
-                const body = $.const(sizeKey.equal("scroll").ifElse(
-                    _$ => scrollArm,
-                    _$ => sizeKey.equal("fill").ifElse(_$ => fillArm, _$ => datasetBody),
-                ), UIComponentType);
+                // An empty height string reads as "unbounded"; the wrapper Box
+                // only bounds in fill mode.
+                const boxHeight = $.let(sizeKey.equal("fill").ifElse(_$ => "300px", _$ => ""));
+                const libHeight = $.let(sizeKey.equal("scroll").ifElse(
+                    _$ => "480px",
+                    _$ => sizeKey.equal("fill").ifElse(_$ => "100%", _$ => ""),
+                ));
+
                 return (
                     <Configurator
                         controls={[
-                            Configurator.Control("Dataset", dataset,
-                                <SegmentGroup value={dataset} onChange={onDatasetChange} size="sm"
-                                    items={datasets.map((_$, d) => SegmentGroup.Item(d, <Text>{d.upperCase()}</Text>))} />),
-                            Configurator.Control("Mode", mode,
-                                <SegmentGroup value={mode} onChange={onModeChange} size="sm"
-                                    items={modes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
                             Configurator.Control("Size", sizeKey,
                                 <SegmentGroup value={sizeKey} onChange={onSizeChange} size="sm"
-                                    items={sizes.map((_$, k) => SegmentGroup.Item(k, <Text>{k.upperCase()}</Text>))} />),
+                                    items={sizes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
                         ]}
-                        preview={body}
+                        preview={
+                            <Box width="100%" height={boxHeight} overflow="hidden">
+                                <Library
+                                    id="crew"
+                                    data={narrowed}
+                                    slice={slice}
+                                    item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
+                                    dimensions={[
+                                        { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
+                                        { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
+                                        { kind: "text", key: "depot", label: "Depot", value: c => c.depot },
+                                    ]}
+                                    groupBy={[
+                                        { key: "depot", label: "Depot", value: c => c.depot, summary: members => East.str`${members.size()} crew` },
+                                        { key: "role", label: "Role", value: c => c.role },
+                                    ]}
+                                    search={c => East.str`${c.name} ${c.role} ${c.depot}`}
+                                    style={{ height: libHeight }}
+                                />
+                            </Box>
+                        }
                         spec={[
-                            Configurator.Spec("Cards", dataset.equal("crew").ifElse(_$ => East.print(crew.size()), _$ => "3")),
-                            Configurator.Spec("Viewport", dataset.equal("crew").ifElse(_$ => "480px · virtualized", _$ => "auto")),
+                            Configurator.Spec("Cards", East.print(LIBRARY_LARGE_CARDS.size())),
                         ]}
                     />
                 );
