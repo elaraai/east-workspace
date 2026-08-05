@@ -90,7 +90,7 @@ export const lineBasic = example({
             { month: "Mar", sales: 120n }, { month: "Apr", sales: 180n },
         ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
         return (
-            <Box height="220px" width="100%">
+            <Box height="260px" width="100%">
                 <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
             </Box>
         );
@@ -202,12 +202,15 @@ export const lineVariants = example({
                         aside={{
                             label: "Peak · Reactive",
                             body: (
-                                <HStack gap="3" align="center">
-                                    <Box height="120px" width="240px">
+                                <VStack gap="3" align="stretch">
+                                    <Box height="260px" width="100%">
                                         <Chart layers={Chart.Column(peakRows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} />
                                     </Box>
-                                    <Button size="xs" onClick={bump}>Bump Q4</Button>
-                                </HStack>
+                                    <HStack gap="3" align="center" wrap="wrap">
+                                        <Text.MonoLabel>{East.str`Q4 · ${East.print(peakVal)}`}</Text.MonoLabel>
+                                        <Button size="xs" onClick={bump}>Bump Q4</Button>
+                                    </HStack>
+                                </VStack>
                             ),
                         }}
                         spec={[

@@ -514,7 +514,7 @@ export const tableStyleVariants = example({
                         ),
                     }}
                     spec={[
-                        Configurator.Spec("Rows", rKey.equal("paginated").ifElse(_$ => "1000 · paged 20", _$ => "1000")),
+                        Configurator.Spec("Data", rKey.equal("paginated").ifElse(_$ => "1000 rows · paged 20", _$ => "1000 rows")),
                         Configurator.Spec("Page", East.print(page)),
                     ]}
                 />

@@ -401,7 +401,6 @@ export const ganttVariants = example({
                     spec={[
                         Configurator.Spec("Tier", sel.tier.getTag()),
                         Configurator.Spec("Rows", East.print(sel.rows.size())),
-                        Configurator.Spec("Row height", rhKey.equal("auto").ifElse(_$ => "density", _$ => East.str`${rhKey}px`)),
                     ]}
                 />
             );
