@@ -1055,7 +1055,9 @@ export function decodeBeast2V5For(type: EastTypeValue | EastType, options?: Beas
 
 /**
  * Builds an async v5 decoder closure — pre-inflates deflate frames with the
- * platform's async decompressor, so it works in browsers without zlib.
+ * platform's native async decompressor. In browsers the sync entry points
+ * fall back to the portable pure-TS inflate, so this is a throughput
+ * optimization for large blobs, not a requirement.
  *
  * @param type - the expected root East type (as `EastType` or `EastTypeValue`)
  * @param options - decode options (platform functions for decoded functions)
