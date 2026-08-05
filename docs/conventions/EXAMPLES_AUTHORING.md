@@ -262,18 +262,24 @@ examples are under the slot budget already and are exempt.)
      and reactive counters live in the `aside`. Exemplar:
      `display/badge.examples.tsx`.
    - **A static enumeration panel** (`VStack` of
-     `<Separator label>`-bounded groups) where a configurator cannot
-     serve: visually regression-guarded combination sets, status/states
-     grammars (`bannerStatusVariants`, `cardStates`), data-shape
-     enumerations (chart marks/axes), probe-anchored panels
-     (planner/gantt/table), and canvas-content variants
-     (schematic/map/matrix).
-3. **`<name>Configurator`** — a SEPARATE interactive combo-panel only
-   when a behavioral space needs its own surface beside the Variants
-   slot (exemplars: `tableSelection`, `libraryLarge`,
-   `schematicInteractions`). Rule: any combination that must be
-   **visually regression-guarded** may NOT hide behind a switch — it
-   goes in a static panel or keeps its own example.
+     `<Separator label>`-bounded groups) ONLY where seeing every row at
+     once is the point — the aligned-stack catalogue
+     (`alignedStackAll`), the slice-effect pair (`schematicSlice`) and
+     the slice rails. Everything else — status grammars, event/lifecycle
+     grammars, data-shape enumerations, canvas-content variants, sizing
+     contracts — is a configurator axis (a preset/data axis swaps whole
+     fixtures or component subtrees; `fill`/`scroll` are presets): see
+     `plannerVariants`, `ganttVariants`, `bannerStatusVariants`,
+     `mapOverlayVariants`, `schematicVariants`, `columnBarVariants`.
+     Control lanes carry controls ONLY — no hint strings, no caption
+     `Text` beside switches; scope notes live in short label
+     parentheticals (`"Movable (move)"`).
+3. **`<name>Configurator`** — a SEPARATE interactive combo-configurator
+   only when a behavioral space needs its own surface beside the
+   Variants slot (exemplars: `tableSelection`, `schematicInteractions`,
+   `tableReview`). A probe-referenced name that becomes a configurator
+   keeps its name so the probe stays valid; probes that need a specific
+   combination on screen retarget in the same PR.
 4. **`<name><Behavior>`** — one example per behavioral contract needing
    isolation: DnD flows, review chrome, slice binding, deep-linking,
    overlay stacking. Anything referenced by name from

@@ -12,8 +12,8 @@ summary for anyone adding or changing examples here.
 | Slot | Name | Content |
 |---|---|---|
 | 1 | `<name>Basic` | Smallest meaningful usage — the search-index front door. |
-| 2 | `<name>Variants` | ONE variant-space example, as a live `<Configurator>` surface — prop axes as plain arrays of the values themselves (`getTag()` for segment key + label), one `State.bind` per axis, the same array feeding SegmentGroup and preview; whole-fixture rows become a preset/data axis; switches via `Slot` + `Spec`; reactive counters/logs in the `aside` (exemplar: `display/badge.examples.tsx`). Static `<Separator label>` panels remain ONLY for merged visual-grammar sets whose value is seeing every row at once (exemplars: `plannerVariants`, `ganttVariants`, `matrixReactive`, `alignedStackAll`, `tableReview`). |
-| 3 | `<name>Configurator` | A separate behavioral combo-configurator only when needed beside the Variants slot. Exemplars: `tableSelection`, `plannerConfigurator`, `ganttConfigurator`, `schematicInteractions`. |
+| 2 | `<name>Variants` | ONE variant-space example, as a live `<Configurator>` surface — prop axes as plain arrays of the values themselves (`getTag()` for segment key + label), one `State.bind` per axis, the same array feeding SegmentGroup and preview; whole-fixture rows, sizing contracts (`fill` / `scroll`) and event grammars all become preset/data axes; switches via `Slot`; reactive counters/logs in the `aside`; controls carry NO hint prose (exemplars: `display/badge.examples.tsx`, `collections/planner.examples.tsx`). Static `<Separator label>` panels remain ONLY where seeing every row at once is the point (`alignedStackAll`, `schematicSlice`, the slice rails). |
+| 3 | `<name>Configurator` | A separate behavioral combo-configurator only when needed beside the Variants slot. Exemplars: `tableSelection`, `schematicInteractions`, `tableReview`. |
 | 4 | `<name><Behavior>` | One example per behavioral contract needing isolation: DnD, review chrome, slice binding, deep-linking, overlay stacking, reactive-drag grammars. |
 | 5 | `<name>Stress` | Perf/scale demonstrations (virtualized rows, 500-unit schematic). |
 
@@ -65,9 +65,8 @@ As of epic #455 (post pass 3): `tooltipOverStickyTable`,
 `sliceGanttChrome`, plus the probe-collections target list
 (`tableBasic`, `tableColumnsVariants`, `tableStyleVariants`,
 `tableSelection`, `tableExpandedRichDetail`, `plannerPoint`,
-`plannerVariants`, `plannerConfigurator`, `ganttVariants`,
-`ganttConfigurator`) and the DnD probes' `plannerLibraryDnd` /
-`ganttLibraryDnd`.
+`plannerVariants`, `ganttVariants`) and the DnD probes'
+`plannerLibraryDnd` / `ganttLibraryDnd`.
 
 ## Cascade for any consolidation / example change
 
