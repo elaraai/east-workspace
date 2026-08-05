@@ -53,6 +53,11 @@ export async function openPreviewCommand(context: vscode.ExtensionContext, folde
         const externalUri = await vscode.env.asExternalUri(vscode.Uri.parse(serverUrl));
         const externalUrl = externalUri.toString().replace(/\/$/, ''); // Remove trailing slash
 
+        // The local/remote split is where remote-window failures hide — say
+        // exactly what the webview will be told to fetch.
+        console.log(`[east-ui] e3 server: ${serverUrl} (repo: ${repoPath})`);
+        console.log(`[east-ui] webview api url (asExternalUri): ${externalUrl}${vscode.env.remoteName ? ` [remote: ${vscode.env.remoteName}]` : ''}`);
+
         // Open the preview panel (show user the repo root, not .e3)
         createPreviewPanel(context, externalUrl, repoPath);
 

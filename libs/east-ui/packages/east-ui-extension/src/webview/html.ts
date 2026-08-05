@@ -28,10 +28,10 @@ export function generateWebviewHtml(
         window.__E3_API_URL__ = ${JSON.stringify(serverUrl)};
         window.__E3_REPO_PATH__ = ${JSON.stringify(repoPath)};
         window.__EAST_WASM_URL__ = "${webviewUri}/east-c.wasm";
-        // Forward console.log/warn/error to VS Code output channel
+        // Forward console.log/info/warn/error to VS Code output channel
         (function() {
             var vscode = acquireVsCodeApi();
-            var origLog = console.log, origWarn = console.warn, origError = console.error;
+            var origLog = console.log, origInfo = console.info, origWarn = console.warn, origError = console.error;
             function forward(level, origFn, args) {
                 origFn.apply(console, args);
                 var parts = [];
@@ -41,8 +41,35 @@ export function generateWebviewHtml(
                 vscode.postMessage({ type: 'log', level: level, message: parts.join(' ') });
             }
             console.log = function() { forward('info', origLog, arguments); };
+            console.info = function() { forward('info', origInfo, arguments); };
             console.warn = function() { forward('warn', origWarn, arguments); };
             console.error = function() { forward('error', origError, arguments); };
+            // Boot self-test: the API URL crosses the local/remote boundary in
+            // SSH/WSL/Codespaces windows (the webview runs LOCALLY; the server
+            // runs where the extension host is). A dropped port forward or a
+            // dead server otherwise looks like an eternal blank panel — probe
+            // it and say so, visibly.
+            var apiUrl = window.__E3_API_URL__;
+            var probe = new AbortController();
+            var probeTimer = setTimeout(function() { probe.abort(); }, 5000);
+            fetch(apiUrl + '/health', { signal: probe.signal }).then(function(res) {
+                clearTimeout(probeTimer);
+                console.log('[boot] e3 api reachable at ' + apiUrl + ' (status ' + res.status + ')');
+            }).catch(function(err) {
+                clearTimeout(probeTimer);
+                console.error('[boot] e3 api UNREACHABLE at ' + apiUrl + ': ' + err
+                    + ' — over a remote window this usually means the port forward dropped;'
+                    + ' run "East UI: Open E3 Repository Preview" again to restart it.');
+                var root = document.getElementById('root');
+                if (root && !root.hasChildNodes()) {
+                    root.innerHTML = '<div style="padding:2rem;font-family:sans-serif;max-width:40rem">'
+                        + '<h3>Cannot reach the e3 server</h3>'
+                        + '<p><code>' + apiUrl + '</code> did not answer within 5s.</p>'
+                        + '<p>In a remote (SSH/WSL) window this usually means the port forward dropped or the server stopped. '
+                        + 'Run <b>East UI: Open E3 Repository Preview</b> again to restart both.</p>'
+                        + '</div>';
+                }
+            });
             // Catch uncaught errors with full stack trace
             window.addEventListener('error', function(ev) {
                 forward('error', origError, [
