@@ -58,7 +58,10 @@ const TABLE_MULTI_ROW_FOOTER_DATA = [
 const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({
     name: East.str`User ${i}`,
     email: East.str`user${i}@example.com`,
-    status: "Active",
+    status: i.remainder(4n).equals(0n).ifElse(
+        () => "Idle",
+        () => i.remainder(7n).equals(0n).ifElse(() => "Failed", () => "Active"),
+    ),
 }));
 const TABLE_SELECTION_DATA = [
     { name: "Alice", role: "Admin" },
@@ -95,17 +98,24 @@ export const tableBasic = example({
  * precedent) and the structure switches preview one at a time.
  */
 export const tableColumnsVariants = example({
-    keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap", "frozen", "pin", "scroll", "columnGroups", "nested", "category", "header row", "footerRows", "subtotal", "grand total", "multi-row", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Column-system configurator — one columns axis: widths, complex full-row render, wrapping tags, frozen, nested groups, footer rows",
+    keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap", "frozen", "pin", "scroll", "columnGroups", "nested", "category", "header row", "footerRows", "subtotal", "grand total", "multi-row", "groupBy", "rowGroups", "collapse", "aggregate", "P&L", "#317", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Column-system configurator — one columns axis: widths, complex full-row render, wrapping tags, frozen, nested groups, footer rows, nested P&L grouping",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const complexData = $.let(TABLE_COMPLEX_COLUMNS_DATA);
             const metricsData = $.let(TABLE_WRAPPING_TAGS_DATA);
-            const columnSets = $.const(["widths", "complex", "tags", "frozen", "groups", "footer"], ArrayType(StringType));
+            const columnSets = $.const(["widths", "complex", "tags", "frozen", "groups", "footer", "pnl"], ArrayType(StringType));
 
             const presetBind = $.let(State.bind([StringType], "table_columns_preset", "widths"));
             const cKey = $.let(presetBind.read());
             const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
+
+            const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+                <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
+            )));
+            const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
+                <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
+            )));
 
             // One prebuilt table per column mechanic — a single axis, no
             // priority chains: every value previews exactly what it names.
@@ -152,6 +162,47 @@ export const tableColumnsVariants = example({
                             }}
                         />
                     ),
+                    _$ => cKey.equal("pnl").ifElse(
+                        // Nested P&L (#317) — groupBy [section, category] folds
+                        // accounts into collapsible group rows; sum aggregates
+                        // render as currency subtotals on the group headers;
+                        // Net income rides footerRows.
+                        _$ => (
+                            <Table
+                                variant="line"
+                                data={[
+                                    { section: "Revenue", category: "Product sales", account: "Product line A", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0 },
+                                    { section: "Revenue", category: "Product sales", account: "Product line B", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0 },
+                                    { section: "Revenue", category: "Services", account: "Consulting", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0 },
+                                    { section: "Cost of sales", category: "Materials", account: "Raw materials", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0 },
+                                    { section: "Cost of sales", category: "Production", account: "Direct labour", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0 },
+                                    { section: "Operating expenses", category: "Sales & marketing", account: "Marketing", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0 },
+                                    { section: "Operating expenses", category: "Administration", account: "Salaries", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0 },
+                                ]}
+                                columns={{
+                                    account: { header: "Account", width: "220px" },
+                                    q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                                    q2: { header: "Q2", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                                    q3: { header: "Q3", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                                    q4: { header: "Q4", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                                    fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                                }}
+                                groupBy={[
+                                    r => r.section,
+                                    { value: r => r.category, collapsed: true },
+                                ]}
+                                footerRows={[
+                                    {
+                                        account: { content: <Text fontWeight="bold">Net income</Text> },
+                                        q1: { content: <Text width="100%" textAlign="right" fontWeight="bold">$77,000.00</Text> },
+                                        q2: { content: <Text width="100%" textAlign="right" fontWeight="bold">$132,000.00</Text> },
+                                        q3: { content: <Text width="100%" textAlign="right" fontWeight="bold">$117,000.00</Text> },
+                                        q4: { content: <Text width="100%" textAlign="right" fontWeight="bold">$104,000.00</Text> },
+                                        fy: { content: <Text width="100%" textAlign="right" fontWeight="bold">$430,000.00</Text> },
+                                    },
+                                ]}
+                            />
+                        ),
                     _$ => cKey.equal("footer").ifElse(
                         _$ => (
                             <Table
@@ -250,6 +301,7 @@ export const tableColumnsVariants = example({
                             ),
                         ),
                     ),
+                    ),
                 ),
             ));
 
@@ -282,8 +334,8 @@ export const tableColumnsVariants = example({
  * status > explicit row height > virtualized base).
  */
 export const tableStyleVariants = example({
-    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "pagination", "page", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Table style configurator — density, badge and rows axes (virtual / paginated / status / row heights / fill) plus a striped switch over one live 1000-row table; every callback logs to the aside",
+    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "compact", "minimal", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "pagination", "page", "selection", "multiple", "checkbox", "range", "shift-click", "expandedContent", "rich detail", "review", "approve", "reject", "decision", "batch", "rowIndex", "unsliced", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Table style configurator — density and badge axes plus one rows axis: virtual, paginated, status, row heights, fill, multi/range selection, expandable detail and review chrome; callbacks log to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Bound ONCE — every preview arm maps over the same 1000-row array.
@@ -296,7 +348,7 @@ export const tableStyleVariants = example({
             const badgeVariants = $.const([
                 variant("solid", null), variant("subtle", null), variant("outline", null),
             ], ArrayType(Style.Types.StyleVariant));
-            const rowModes = $.const(["virtual", "paginated", "status", "row 48", "row 64", "fill"], ArrayType(StringType));
+            const rowModes = $.const(["virtual", "paginated", "status", "row 48", "row 64", "fill", "multi", "range", "detail", "review", "review paged"], ArrayType(StringType));
 
             const stripedBind = $.let(State.bind([BooleanType], "table_striped", true));
             const densityBind = $.let(State.bind([StringType], "table_density", "compact"));
@@ -388,6 +440,153 @@ export const tableStyleVariants = example({
                 </Box>,
             );
 
+            // SELECTION (absorbed tableSelection) — each mode mirrors its own
+            // State array, so switching arms preserves each mode's selection.
+            const multiBind = $.let(State.bind([ArrayType(IntegerType)], "table_multi_selected", []));
+            const multiSelected = $.let(multiBind.read(), ArrayType(IntegerType));
+            const rangeBind = $.let(State.bind([ArrayType(IntegerType)], "table_range_selected", []));
+            const rangeSelected = $.let(rangeBind.read(), ArrayType(IntegerType));
+            const onMultiChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
+                $(multiBind.write(next));
+            }));
+            const onRangeChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
+                $(rangeBind.write(next));
+            }));
+            const multiArm = $.const(
+                <Table
+                    variant="line"
+                    striped={stripedOn}
+                    density={densitySel}
+                    selection={{ mode: "multiple", selected: multiSelected, onChange: onMultiChange }}
+                    selectedBackground="bg.brand.subtle"
+                    selectedBorderColor="border.brand"
+                    data={TABLE_SELECTION_DATA}
+                    columns={{ name: { header: "Name" }, role: { header: "Role" } }}
+                />,
+            );
+            const rangeArm = $.const(
+                <Table
+                    variant="line"
+                    striped={stripedOn}
+                    density={densitySel}
+                    selection={{ mode: "range", selected: rangeSelected, onChange: onRangeChange }}
+                    selectedBackground="bg.info.subtle"
+                    selectedBorderColor="border.subtle"
+                    data={TABLE_SELECTION_DATA}
+                    columns={{ name: { header: "Name" }, role: { header: "Role" } }}
+                />,
+            );
+
+            // DETAIL (absorbed tableExpandedRichDetail) — expandable rows with
+            // rich content nested in the detail panel.
+            const detailRows = $.const([
+                { name: "Alice", revenue: 142000n, deals: 18n, region: "EMEA" },
+                { name: "Bob", revenue: 98000n, deals: 12n, region: "APAC" },
+                { name: "Charlie", revenue: 215000n, deals: 24n, region: "AMER" },
+            ]);
+            const detailArm = $.const(
+                <Table
+                    variant="line"
+                    striped={stripedOn}
+                    density={densitySel}
+                    expandedContent={East.function([IntegerType], UIComponentType, ($, rowIndex) => {
+                        const row = $.let(detailRows.get(rowIndex));
+                        return (
+                            <Box padding="4" background="bg.subtle">
+                                <HStack gap="8">
+                                    <VStack gap="1">
+                                        <Text textStyle="caption" color="fg.muted">Revenue</Text>
+                                        <Text textStyle="heading-md" fontWeight="bold">{East.str`$${row.revenue}`}</Text>
+                                    </VStack>
+                                    <VStack gap="1">
+                                        <Text textStyle="caption" color="fg.muted">Deals closed</Text>
+                                        <Text textStyle="heading-md" fontWeight="bold">{East.str`${row.deals}`}</Text>
+                                    </VStack>
+                                    <VStack gap="1">
+                                        <Text textStyle="caption" color="fg.muted">Region</Text>
+                                        <Badge variant="subtle" colorPalette="brand">{row.region}</Badge>
+                                    </VStack>
+                                </HStack>
+                            </Box>
+                        );
+                    })}
+                    data={detailRows}
+                    columns={{ name: { header: "Sales rep" }, region: { header: "Region" } }}
+                />,
+            );
+
+            // REVIEW (absorbed tableReview) — per-row Decision column +
+            // commitBar foot; the paged arm keeps unsliced rowIndex semantics.
+            const flagged = $.const(East.function([IntegerType], BooleanType, (_$, rowIndex) =>
+                rowIndex.modulo(3n).equals(1n)));
+            const reviewStatus = $.const(East.function([IntegerType], OptionType(Status.Types.Value), ($, rowIndex) =>
+                flagged(rowIndex).ifElse(
+                    _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
+                    _$ => East.value(none, OptionType(Status.Types.Value)),
+                )));
+            const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), ($, rowIndex) =>
+                flagged(rowIndex).ifElse(
+                    _$ => East.value(some(variant("pending", null)), OptionType(Table.Types.Approval)),
+                    _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
+                )));
+            const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
+            const onReject = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
+            const onApproveAll = $.const(East.function([], NullType, _$ => null));
+            const onRejectAll = $.const(East.function([], NullType, _$ => null));
+            const onRerun = $.const(East.function([], NullType, _$ => null));
+            const reviewArm = $.const(
+                <Table
+                    variant="line"
+                    striped={stripedOn}
+                    density={densitySel}
+                    data={East.Array.range(0n, 6n).map((_$, i) => ({
+                        order: East.str`SO-10${i}`,
+                        exception: i.modulo(3n).equals(1n).ifElse(_$ => "margin below floor", _$ => "—"),
+                        value: i.multiply(1250n),
+                    }))}
+                    columns={{ order: { header: "Order" }, exception: { header: "Exception" }, value: { header: "Value" } }}
+                    review={{
+                        columnLabel: "Decision",
+                        rerunLabel: "Rerun",
+                        summary: <Text color="fg.muted">6 orders · 2 exceptions need a call</Text>,
+                        onApprove: onApprove,
+                        onReject: onReject,
+                        onApproveAll: onApproveAll,
+                        onRejectAll: onRejectAll,
+                        onRerun: onRerun,
+                    }}
+                    reviewStatus={reviewStatus}
+                    reviewApproval={reviewApproval}
+                />,
+            );
+            const reviewPageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
+            const reviewPage = $.let(reviewPageBind.read());
+            const onReviewPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                $(reviewPageBind.write(next));
+            }));
+            const reviewLastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
+            const onApprovePaged = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
+                $(reviewLastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
+            }));
+            const reviewApprovalPaged = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
+                some(variant("pending", null))));
+            const reviewLast = $.let(reviewLastBind.read());
+            const reviewPagedArm = $.const(
+                <Table
+                    variant="line"
+                    striped={stripedOn}
+                    density={densitySel}
+                    pagination={{ pageSize: 20n, page: reviewPage, onPageChange: onReviewPageChange }}
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        id: East.str`#${i}`,
+                        name: East.str`Order ${i}`,
+                    }))}
+                    columns={{ id: { header: "ID" }, name: { header: "Name" } }}
+                    review={{ onApprove: onApprovePaged, onApproveAll: onApproveAll }}
+                    reviewApproval={reviewApprovalPaged}
+                />,
+            );
+
             // Row-mode presence (pagination / rowStatus / explicit height /
             // bounded fill) is host-side, so the axis picks between prebuilt
             // tables; striped / density / badge stay live in every arm.
@@ -460,7 +659,17 @@ export const tableStyleVariants = example({
                         ),
                         _$ => rKey.equal("fill").ifElse(
                             _$ => fillArm,
-                            _$ => (
+                            _$ => rKey.equal("multi").ifElse(
+                                _$ => multiArm,
+                                _$ => rKey.equal("range").ifElse(
+                                    _$ => rangeArm,
+                                    _$ => rKey.equal("detail").ifElse(
+                                        _$ => detailArm,
+                                        _$ => rKey.equal("review").ifElse(
+                                            _$ => reviewArm,
+                                            _$ => rKey.equal("review paged").ifElse(
+                                                _$ => reviewPagedArm,
+                                                _$ => (
                             <Table
                                 variant="line"
                                 interactive={true}
@@ -482,6 +691,11 @@ export const tableStyleVariants = example({
                                 }}
                             />
                         ),
+                                            ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
                         ),
                     ),
                 ),
@@ -493,7 +707,7 @@ export const tableStyleVariants = example({
                         Configurator.Control("Density", dKey,
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Badge", bKey,
+                        Configurator.Control("Badge (status col)", bKey,
                             <SegmentGroup value={bKey} onChange={onBadge} size="sm"
                                 items={badgeVariants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Control("Rows", rKey,
@@ -514,297 +728,12 @@ export const tableStyleVariants = example({
                         ),
                     }}
                     spec={[
-                        Configurator.Spec("Data", rKey.equal("paginated").ifElse(_$ => "1000 rows · paged 20", _$ => "1000 rows")),
-                        Configurator.Spec("Page", East.print(page)),
+                        Configurator.Spec("Selected", East.str`${East.print(multiSelected.size())} · range ${East.print(rangeSelected.size())}`),
+                        Configurator.Spec("Approvals", reviewLast),
                     ]}
                 />
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-/**
- * Selection configurator — one table whose `selection.mode` flips between
- * multiple and range from the Mode control; each mode's selection mirrors its
- * own State array so switching modes preserves each mode's selection.
- */
-export const tableSelection = example({
-    keywords: ["Table", "Root", "selection", "multiple", "checkbox", "Reactive", "State", "range", "shift-click", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
-    description: "Table selection configurator — a selection-mode axis (multiple / range) driving one live State-bound table; each mode mirrors its own State array and the spec reads both counts back",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            // Enumerated axes are just their variants — `getTag()` gives the
-            // segment key AND its label, so there is no parallel table to
-            // keep in step.
-            const modes = $.const([
-                variant("multiple", null), variant("range", null),
-            ], ArrayType(Table.Types.SelectionMode));
-
-            const modeBind = $.let(State.bind([StringType], "table_selection_mode", "multiple"));
-            const mode = $.let(modeBind.read());
-            const multiBind = $.let(State.bind([ArrayType(IntegerType)], "table_multi_selected", []));
-            const multiSelected = $.let(multiBind.read(), ArrayType(IntegerType));
-            const rangeBind = $.let(State.bind([ArrayType(IntegerType)], "table_range_selected", []));
-            const rangeSelected = $.let(rangeBind.read(), ArrayType(IntegerType));
-            const onModeChange = $.const(East.function([StringType], NullType, ($, next) => {
-                $(modeBind.write(next));
-            }));
-            // The active mode routes reads + writes to its own bind.
-            const selected = $.let(mode.equal("range").ifElse(_$ => rangeSelected, _$ => multiSelected), ArrayType(IntegerType));
-            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
-                const m = $.let(modeBind.read());
-                $(m.equal("range").ifElse(_$ => rangeBind.write(next), _$ => multiBind.write(next)));
-            }));
-            // The selection is a lookup into the same array the control renders.
-            const selectionMode = $.let(modes.filter((_$, v) => v.getTag().equal(mode)).get(0n));
-            return (
-                <Configurator
-                    controls={[
-                        Configurator.Control("Mode", mode,
-                            <SegmentGroup value={mode} onChange={onModeChange} size="sm"
-                                items={modes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                    ]}
-                    preview={
-                        <Table
-                            variant="line"
-                            striped={true}
-                            selection={{ mode: selectionMode, selected, onChange }}
-                            selectedBackground={mode.equal("range").ifElse(_$ => "bg.info.subtle", _$ => "bg.brand.subtle")}
-                            selectedBorderColor={mode.equal("range").ifElse(_$ => "border.subtle", _$ => "border.brand")}
-                            data={TABLE_SELECTION_DATA}
-                            columns={{ name: { header: "Name" }, role: { header: "Role" } }}
-                        />
-                    }
-                    spec={[
-                        // Each mode's count reads its own State array, so both
-                        // readouts stay live while the other mode is parked.
-                        Configurator.Spec("Multiple selected", East.print(multiSelected.size())),
-                        Configurator.Spec("Range size", East.print(rangeSelected.size())),
-                    ]}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * Review chrome (#264) — the shared per-row Approve / Reject Decision column
- * (pinned right) plus the commitBar batch foot, with a Paginated switch: the
- * paginated arm stacks the foot BELOW the pager band and every review
- * callback / accessor receives the UNSLICED row index (page 2's first row is
- * rowIndex 20), so approvals map straight back to the source data under
- * paging AND sorting.
- */
-export const tableReview = example({
-    keywords: ["Table", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "exception", "pagination", "rowIndex", "unsliced", "page", "foot", "Reactive", "State", "Switch", "Configurator", "configurator"],
-    description: "Review chrome configurator — per-row Decision column + commitBar foot on an order-exceptions table; the Paginated switch stacks the foot below the pager with unsliced rowIndex semantics",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const paginatedBind = $.let(State.bind([BooleanType], "table_review_paginated", false));
-            const pagOn = $.let(paginatedBind.read());
-            const onPaginated = $.const(East.function([BooleanType], NullType, ($, next) => { $(paginatedBind.write(next)); }));
-
-            const flagged = $.const(East.function([IntegerType], BooleanType, (_$, rowIndex) =>
-                rowIndex.modulo(3n).equals(1n)));
-            const reviewStatus = $.const(East.function([IntegerType], OptionType(Status.Types.Value), ($, rowIndex) =>
-                flagged(rowIndex).ifElse(
-                    _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
-                    _$ => East.value(none, OptionType(Status.Types.Value)),
-                )));
-            const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), ($, rowIndex) =>
-                flagged(rowIndex).ifElse(
-                    _$ => East.value(some(variant("pending", null)), OptionType(Table.Types.Approval)),
-                    _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
-                )));
-            const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
-            const onReject = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
-            const onApproveAll = $.const(East.function([], NullType, _$ => null));
-            const onRejectAll = $.const(East.function([], NullType, _$ => null));
-            const onRerun = $.const(East.function([], NullType, _$ => null));
-
-            const pageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
-            const page = $.let(pageBind.read());
-            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
-                $(pageBind.write(next));
-            }));
-            const lastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
-            const onApprovePaged = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
-                $(lastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
-            }));
-            const reviewApprovalPaged = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
-                some(variant("pending", null))));
-            const last = $.let(lastBind.read());
-
-            const plainArm = $.const(
-                <Table
-                    variant="line"
-                    data={East.Array.range(0n, 6n).map((_$, i) => ({
-                        order: East.str`SO-10${i}`,
-                        exception: i.modulo(3n).equals(1n).ifElse(_$ => "margin below floor", _$ => "—"),
-                        value: i.multiply(1250n),
-                    }))}
-                    columns={{ order: { header: "Order" }, exception: { header: "Exception" }, value: { header: "Value" } }}
-                    review={{
-                        columnLabel: "Decision",
-                        rerunLabel: "Rerun",
-                        summary: <Text color="fg.muted">6 orders · 2 exceptions need a call</Text>,
-                        onApprove: onApprove,
-                        onReject: onReject,
-                        onApproveAll: onApproveAll,
-                        onRejectAll: onRejectAll,
-                        onRerun: onRerun,
-                    }}
-                    reviewStatus={reviewStatus}
-                    reviewApproval={reviewApproval}
-                />,
-            );
-            const pagedArm = $.const(
-                <Table
-                    variant="line"
-                    pagination={{ pageSize: 20n, page, onPageChange }}
-                    data={East.Array.range(0n, 200n).map((_$, i) => ({
-                        id: East.str`#${i}`,
-                        name: East.str`Order ${i}`,
-                    }))}
-                    columns={{ id: { header: "ID" }, name: { header: "Name" } }}
-                    review={{ onApprove: onApprovePaged, onApproveAll: onApproveAll }}
-                    reviewApproval={reviewApprovalPaged}
-                />,
-            );
-            const preview = $.const(pagOn.ifElse(_$ => pagedArm, _$ => plainArm), UIComponentType);
-
-            return (
-                <Configurator
-                    controls={[
-                        Configurator.Slot("Paging",
-                            <HStack gap="5" align="center" wrap="wrap">
-                                <Switch checked={pagOn} label="Paginated" onChange={onPaginated} />
-                            </HStack>),
-                    ]}
-                    preview={preview}
-                    aside={{
-                        label: "Approvals · Reactive",
-                        body: <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>,
-                    }}
-                    spec={[
-                        Configurator.Spec("rowIndex", pagOn.ifElse(_$ => "unsliced · page 2 row 0 = 20", _$ => "direct")),
-                    ]}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const tableExpandedRichDetail = example({
-    keywords: ["Table", "Root", "expandedContent", "rich detail", "Stack", "Stat"],
-    description: "Expandable rows with rich detail content — Stack of Stat + Text components nested in the detail panel",
-    fn: East.function([], UIComponentType, ($) => {
-        const rows = $.const([
-            { name: "Alice", revenue: 142000n, deals: 18n, region: "EMEA" },
-            { name: "Bob", revenue: 98000n, deals: 12n, region: "APAC" },
-            { name: "Charlie", revenue: 215000n, deals: 24n, region: "AMER" },
-        ]);
-        return (
-            <Table
-                variant="line"
-                striped={true}
-                expandedContent={East.function([IntegerType], UIComponentType, ($, rowIndex) => {
-                    const row = $.let(rows.get(rowIndex));
-                    return (
-                        <Box padding="4" background="bg.subtle">
-                            <HStack gap="8">
-                                <VStack gap="1">
-                                    <Text textStyle="caption" color="fg.muted">Revenue</Text>
-                                    <Text textStyle="heading-md" fontWeight="bold">{East.str`$${row.revenue}`}</Text>
-                                </VStack>
-                                <VStack gap="1">
-                                    <Text textStyle="caption" color="fg.muted">Deals closed</Text>
-                                    <Text textStyle="heading-md" fontWeight="bold">{East.str`${row.deals}`}</Text>
-                                </VStack>
-                                <VStack gap="1">
-                                    <Text textStyle="caption" color="fg.muted">Region</Text>
-                                    <Badge variant="subtle" colorPalette="brand">{row.region}</Badge>
-                                </VStack>
-                            </HStack>
-                        </Box>
-                    );
-                })}
-                data={rows}
-                columns={{ name: { header: "Sales rep" }, region: { header: "Region" } }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Nested P&L (#317) — `groupBy` folds leaf accounts into collapsible group
- * header rows: section (Revenue / Cost of sales / Operating expenses) →
- * category → account. Columns with `aggregate: "sum"` put subtotals on each
- * group row, so a COLLAPSED group reads as its subtotal line (drill up) and
- * expanding drills down; `aggregateRender` gives subtotals the members'
- * currency treatment. Sections keep statement order under any sort (groups
- * hold first-appearance data order; sorting reorders within groups). The
- * grand-total Net income line rides `footerRows`.
- */
-export const tablePnlGrouped = example({
-    keywords: ["Table", "groupBy", "rowGroups", "group", "collapse", "expand", "aggregate", "sum", "subtotal", "P&L", "statement", "accounting", "nested", "drill", "#317"],
-    description: "Nested P&L (#317) — groupBy [section, category] folds accounts into collapsible group rows; sum aggregates render as currency subtotals on the group headers (a collapsed group reads as its subtotal line); categories start collapsed, Net income rides footerRows",
-    fn: East.function([], UIComponentType, ($) => {
-        const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
-            <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
-        )));
-        const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
-            <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
-        )));
-        return (
-            <Table
-                variant="line"
-                data={[
-                    { section: "Revenue", category: "Product sales", account: "Product line A", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0 },
-                    { section: "Revenue", category: "Product sales", account: "Product line B", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0 },
-                    { section: "Revenue", category: "Product sales", account: "Direct sales", q1: 45500.0, q2: 61000.0, q3: 74000.0, q4: 66500.0, fy: 247000.0 },
-                    { section: "Revenue", category: "Services", account: "Consulting", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0 },
-                    { section: "Revenue", category: "Services", account: "Subscriptions", q1: 22000.0, q2: 12500.0, q3: 9000.0, q4: 19500.0, fy: 63000.0 },
-                    { section: "Cost of sales", category: "Materials", account: "Raw materials", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0 },
-                    { section: "Cost of sales", category: "Materials", account: "Freight & duty", q1: 38500.0, q2: 42000.0, q3: 31000.0, q4: 47500.0, fy: 159000.0 },
-                    { section: "Cost of sales", category: "Production", account: "Equipment & maintenance", q1: 24000.0, q2: 18500.0, q3: 21000.0, q4: 26500.0, fy: 90000.0 },
-                    { section: "Cost of sales", category: "Production", account: "Packaging", q1: 41000.0, q2: 46500.0, q3: 39000.0, q4: 52500.0, fy: 179000.0 },
-                    { section: "Cost of sales", category: "Production", account: "Direct labour", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0 },
-                    { section: "Operating expenses", category: "Sales & marketing", account: "Distribution", q1: 28000.0, q2: 31500.0, q3: 27000.0, q4: 36500.0, fy: 123000.0 },
-                    { section: "Operating expenses", category: "Sales & marketing", account: "Marketing", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0 },
-                    { section: "Operating expenses", category: "Administration", account: "Insurance", q1: 12500.0, q2: 12500.0, q3: 12500.0, q4: 12500.0, fy: 50000.0 },
-                    { section: "Operating expenses", category: "Administration", account: "Utilities", q1: 9000.0, q2: 8500.0, q3: 10000.0, q4: 11500.0, fy: 39000.0 },
-                    { section: "Operating expenses", category: "Administration", account: "Salaries", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0 },
-                ]}
-                columns={{
-                    account: { header: "Account", width: "220px" },
-                    q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    q2: { header: "Q2", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    q3: { header: "Q3", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    q4: { header: "Q4", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                }}
-                groupBy={[
-                    r => r.section,
-                    { value: r => r.category, collapsed: true },
-                ]}
-                footerRows={[
-                    // Net income = Revenue - Cost of sales - Operating expenses (per quarter).
-                    {
-                        account: { content: <Text fontWeight="bold">Net income</Text> },
-                        q1: { content: <Text width="100%" textAlign="right" fontWeight="bold">$77,000.00</Text> },
-                        q2: { content: <Text width="100%" textAlign="right" fontWeight="bold">$132,000.00</Text> },
-                        q3: { content: <Text width="100%" textAlign="right" fontWeight="bold">$117,000.00</Text> },
-                        q4: { content: <Text width="100%" textAlign="right" fontWeight="bold">$104,000.00</Text> },
-                        fy: { content: <Text width="100%" textAlign="right" fontWeight="bold">$430,000.00</Text> },
-                    },
-                ]}
-            />
-        );
-    }),
     inputs: [],
 });

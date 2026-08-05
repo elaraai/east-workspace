@@ -465,7 +465,7 @@ export const tooltipOverStickyTable = example({
         const tableRows = $.const(TOOLTIP_TABLE_ROWS, ArrayType(StructType({ id: StringType, region: StringType, value: IntegerType })));
         return (
             <VStack gap="0" align="stretch" width="100%">
-                <Box height="160px" width="100%">
+                <Box height="260px" width="100%">
                     <Chart layers={Chart.Line(chartRows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
                 </Box>
                 <Table data={tableRows} columns={["id", "region", "value"]} height="150px" stickyHeader />

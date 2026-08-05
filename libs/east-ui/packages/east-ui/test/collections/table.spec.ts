@@ -13,10 +13,6 @@ describeEast("Table", (test) => {
         tableBasic: ex.tableBasic,
         tableColumnsVariants: ex.tableColumnsVariants,
         tableStyleVariants: ex.tableStyleVariants,
-        tableSelection: ex.tableSelection,
-        tableReview: ex.tableReview,
-        tableExpandedRichDetail: ex.tableExpandedRichDetail,
-        tablePnlGrouped: ex.tablePnlGrouped,
     });
 
     // =========================================================================
@@ -51,23 +47,7 @@ describeEast("Table", (test) => {
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
-    test("tableReview is the live review configurator", $ => {
-        const panel = $.const(ex.tableReview.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
 
-    test("tableSelection drives its preview from inline option tables", $ => {
-        // Everything the configurator needs — the selection-mode axis and the
-        // per-mode State routing — is declared inside the example body, because
-        // the documentation capture only extracts `fn`. That puts the tables
-        // inside the Reactive body, which TestImpl does not execute, so they
-        // cannot be asserted from here; `Assert.examples` above still compiles
-        // and evaluates the outer function. Selection-shape coverage lives in
-        // the Table.Root tests below, which construct selection configs
-        // directly.
-        const panel = $.const(ex.tableSelection.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
-    });
 
     // =========================================================================
     // Simple Array Syntax

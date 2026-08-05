@@ -23,8 +23,7 @@ const HARNESS_ROOT = path.resolve(__dirname, "../snapshot");
 // into `*Variants` panels; each panel's Separator group labels are the stable
 // per-group selector anchors.
 const TABLE_EXAMPLES = [
-    "tableBasic", "tableColumnsVariants", "tableStyleVariants", "tableSelection",
-    "tableExpandedRichDetail",
+    "tableBasic", "tableColumnsVariants", "tableStyleVariants",
 ];
 
 const TARGETS: ReadonlyArray<{ file: string; example: string }> = [

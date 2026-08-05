@@ -276,8 +276,7 @@ examples are under the slot budget already and are exempt.)
      parentheticals (`"Movable (move)"`).
 3. **`<name>Configurator`** — a SEPARATE interactive combo-configurator
    only when a behavioral space needs its own surface beside the
-   Variants slot (exemplars: `tableSelection`, `schematicInteractions`,
-   `tableReview`). A probe-referenced name that becomes a configurator
+   Variants slot (exemplar: `schematicInteractions`). A probe-referenced name that becomes a configurator
    keeps its name so the probe stays valid; probes that need a specific
    combination on screen retarget in the same PR.
 4. **`<name><Behavior>`** — one example per behavioral contract needing
