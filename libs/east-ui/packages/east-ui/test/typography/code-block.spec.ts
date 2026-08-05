@@ -13,7 +13,6 @@ describeEast("CodeBlock", (test) => {
     Assert.examples(test, {
         codeBlockBasic: ex.codeBlockBasic,
         codeBlockVariants: ex.codeBlockVariants,
-        codeBlockDiff: ex.codeBlockDiff,
     });
 
     // =========================================================================

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Collapsible, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Box, Collapsible, Configurator, HStack, Reactive, Switch, Text } from "@elaraai/east-ui";
 
 export const collapsibleWhy = example({
     keywords: ["Collapsible", "Root", "why", "show more", "inline drawer"],
@@ -22,57 +22,64 @@ export const collapsibleWhy = example({
     inputs: [],
 });
 
-export const collapsibleDefaultOpen = example({
-    keywords: ["Collapsible", "Root", "defaultOpen", "expanded"],
-    description: "Collapsible that starts expanded",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Collapsible trigger="Details" defaultOpen={true}>
-                <Text>This content is visible by default because defaultOpen is true.</Text>
-            </Collapsible>
-        );
-    }),
-    inputs: [],
-});
-
-export const collapsibleReactive = example({
-    keywords: ["Collapsible", "Reactive", "State", "onOpenChange", "interactive"],
-    description: "Reactive collapsible that persists its open state",
+export const collapsibleVariants = example({
+    keywords: ["Collapsible", "Root", "defaultOpen", "expanded", "background", "borderColor", "branded", "Reactive", "State", "onOpenChange", "interactive", "Switch", "Configurator", "configurator"],
+    description: "Collapsible configurator — default-open and branded switches on one live collapsible; the spec reads the open state via onOpenChange",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const bind = $.let(State.bind([BooleanType], "collapsible_open", false));
+            const defaultOpenBind = $.let(State.bind([BooleanType], "collapsible_defaultopen", true));
+            const brandedBind = $.let(State.bind([BooleanType], "collapsible_branded", false));
+            const openBind = $.let(State.bind([BooleanType], "collapsible_open", false));
+
+            const defaultOpenOn = $.let(defaultOpenBind.read());
+            const brandedOn = $.let(brandedBind.read());
+            const isOpen = $.let(openBind.read());
+
+            const onDefaultOpen = $.const(East.function([BooleanType], NullType, ($, next) => { $(defaultOpenBind.write(next)); }));
+            const onBranded = $.const(East.function([BooleanType], NullType, ($, next) => { $(brandedBind.write(next)); }));
             const onOpenChange = $.const(East.function([BooleanType], NullType, ($, open) => {
-                $(bind.write(open));
+                $(openBind.write(open));
             }));
-            return (
-                <VStack gap="2">
-                    <Collapsible trigger={<Text>Toggle me</Text>} onOpenChange={onOpenChange}>
-                        <Box padding="3" background="bg.subtle"><Text>Toggled content</Text></Box>
+
+            // The colour hatches are presence-typed, so the branded switch
+            // picks between two collapsibles; defaultOpen + tracking stay live.
+            const preview = $.const(brandedOn.ifElse(
+                _$ => (
+                    <Collapsible
+                        trigger="Branded trigger"
+                        defaultOpen={defaultOpenOn}
+                        background="bg.canvas"
+                        borderColor="border.brand"
+                        triggerColor="fg.default"
+                        contentColor="fg.default"
+                        onOpenChange={onOpenChange}
+                    >
+                        <Box padding="3"><Text>Branded content</Text></Box>
                     </Collapsible>
-                    <Text color="fg.muted">{bind.read().ifElse(_$ => "Open", _$ => "Closed")}</Text>
-                </VStack>
+                ),
+                _$ => (
+                    <Collapsible trigger="Details" defaultOpen={defaultOpenOn} onOpenChange={onOpenChange}>
+                        <Text>This content starts expanded when defaultOpen is on.</Text>
+                    </Collapsible>
+                ),
+            ));
+
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Slot("State",
+                            <HStack gap="5" align="center">
+                                <Switch checked={defaultOpenOn} label="Default open" onChange={onDefaultOpen} />
+                                <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Open", isOpen.ifElse(_$ => "yes", _$ => "no")),
+                    ]}
+                />
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-export const collapsibleBranded = example({
-    keywords: ["Collapsible", "style", "background", "borderColor", "branded"],
-    description: "Branded collapsible with full colour escape hatches",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Collapsible
-                trigger="Branded trigger"
-                defaultOpen={true}
-                background="bg.canvas"
-                borderColor="border.brand"
-                triggerColor="fg.default"
-                contentColor="fg.default"
-            >
-                <Box padding="3"><Text>Branded content</Text></Box>
-            </Collapsible>
-        );
-    }),
     inputs: [],
 });

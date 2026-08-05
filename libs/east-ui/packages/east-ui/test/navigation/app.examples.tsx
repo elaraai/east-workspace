@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, StructType, example } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { App, Navigation, Reactive, VStack, Text, Button, Image } from "@elaraai/east-ui";
+import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Text, Button, Image } from "@elaraai/east-ui";
 
 /** Self-contained brand mark for the shell logo region (a teal disc). */
 const LOGO =
@@ -82,13 +82,14 @@ export const appBasic = example({
 });
 
 /**
- * `density="compact"` — a tighter two-row app bar (title 19 px, less vertical
- * padding) between the default `comfortable` (two rows, title 24 px — see
- * `appBasic`) and `condensed` (one row). Only the app bar changes.
+ * Density configurator over the app bar — `comfortable` (two rows, title
+ * 24 px), `compact` (tighter two rows) and `condensed` (breadcrumb + title on
+ * ONE 44 px row). Only the app bar changes; the rail and content region are
+ * shared.
  */
-export const appCompact = example({
-    keywords: ["App", "app shell", "density", "compact", "app bar", "Navigation"],
-    description: "App shell with a compact app bar — tighter two rows (density)",
+export const appVariants = example({
+    keywords: ["App", "app shell", "density", "comfortable", "compact", "condensed", "app bar", "Navigation", "Reactive", "State", "SegmentGroup", "Configurator", "configurator"],
+    description: "App-shell configurator — a density axis (comfortable / compact / condensed) over one live shell",
     fn: East.function([], UIComponentType, (_$) => {
         const routes = Navigation.config({
             overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
@@ -97,63 +98,58 @@ export const appCompact = example({
         });
         return (
             <Reactive>{$ => {
-                const nav = $.let(Navigation.bind(routes, "app.compact.route", [routes.Page.overview()]));
-                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — compact bar</Text>));
-                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));
-                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));
-                return (
-                    <App
-                        nav={nav}
-                        config={routes}
-                        title="Acme Operations"
-                        logo={Image.dataUri(LOGO)}
-                        density="compact"
-                        pages={{
-                            overview: () => overviewPage(),
-                            throughput: () => throughputPage(),
-                            audit: () => auditPage(),
-                        }}
-                    />
-                );
-            }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
+                const densities = $.const(["comfortable", "compact", "condensed"], ArrayType(StringType));
+                const densityBind = $.let(State.bind([StringType], "app_density", "comfortable"));
+                const dKey = $.let(densityBind.read());
+                const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
 
-/**
- * `density="condensed"` — the data-dense app bar. The breadcrumb + title collapse
- * onto ONE 44 px row (separated by a rule), reclaiming ~40 px of vertical chrome;
- * the rail and content region are unchanged. `compact` (a tighter two-row bar) and
- * the default `comfortable` are the other two densities.
- */
-export const appCondensed = example({
-    keywords: ["App", "app shell", "density", "condensed", "compact", "app bar", "Navigation"],
-    description: "App shell with a condensed app bar — breadcrumb + title on one row (density)",
-    fn: East.function([], UIComponentType, (_$) => {
-        const routes = Navigation.config({
-            overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
-            throughput: { value: NullType, label: "Throughput", section: "Analyse", icon: { prefix: "fas", name: "chart-line" } },
-            audit: { value: NullType, label: "Audit", section: "Manage", icon: { prefix: "fas", name: "list-check" } },
-        });
-        return (
-            <Reactive>{$ => {
-                const nav = $.let(Navigation.bind(routes, "app.condensed.route", [routes.Page.overview()]));
-                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — dense layout</Text>));
+                const nav = $.let(Navigation.bind(routes, "app.variants.route", [routes.Page.overview()]));
+                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — production lines</Text>));
                 const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));
                 const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));
+
+                // density is a build-time enum on the shell, so the axis picks
+                // between three shells over the one nav handle.
+                const preview = $.const(dKey.equal("compact").ifElse(
+                    _$ => (
+                        <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)} density="compact"
+                            pages={{
+                                overview: () => overviewPage(),
+                                throughput: () => throughputPage(),
+                                audit: () => auditPage(),
+                            }} />
+                    ),
+                    _$ => dKey.equal("condensed").ifElse(
+                        _$ => (
+                            <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)} density="condensed"
+                                pages={{
+                                    overview: () => overviewPage(),
+                                    throughput: () => throughputPage(),
+                                    audit: () => auditPage(),
+                                }} />
+                        ),
+                        _$ => (
+                            <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)}
+                                pages={{
+                                    overview: () => overviewPage(),
+                                    throughput: () => throughputPage(),
+                                    audit: () => auditPage(),
+                                }} />
+                        ),
+                    ),
+                ));
+
                 return (
-                    <App
-                        nav={nav}
-                        config={routes}
-                        title="Acme Operations"
-                        logo={Image.dataUri(LOGO)}
-                        density="condensed"
-                        pages={{
-                            overview: () => overviewPage(),
-                            throughput: () => throughputPage(),
-                            audit: () => auditPage(),
-                        }}
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Density", dKey,
+                                <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
+                        ]}
+                        preview={preview}
+                        spec={[
+                            Configurator.Spec("App bar", dKey.equal("condensed").ifElse(_$ => "one 44px row", _$ => "two rows")),
+                        ]}
                     />
                 );
             }}</Reactive>

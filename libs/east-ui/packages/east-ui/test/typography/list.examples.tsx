@@ -91,6 +91,25 @@ export const listVariants = example({
                         marker: some(variant("dash", null)),
                         markerColor: "fg.danger",
                     },
+                    {
+                        label: "rich",
+                        items: [
+                            <HStack gap="2" align="center">
+                                <Icon prefix="fas" name="circle-check" color="fg.success" />
+                                <Text>Passed: schema validation</Text>
+                            </HStack>,
+                            <HStack gap="2" align="center">
+                                <Icon prefix="fas" name="circle-xmark" color="fg.danger" />
+                                <Text>Failed: missing required field `id`</Text>
+                            </HStack>,
+                            <HStack gap="2" align="center">
+                                <Icon prefix="fas" name="circle-info" color="fg.info" />
+                                <Text>Skipped: optional integrity check</Text>
+                            </HStack>,
+                        ],
+                        marker: some(variant("none", null)),
+                        markerColor: "fg.default",
+                    },
                 ], ArrayType(StructType({ label: StringType, items: ArrayType(UIComponentType), marker: OptionType(List.Types.Marker), markerColor: StringType })));
 
                 const contentBind = $.let(State.bind([StringType], "list_content", "features"));
@@ -183,38 +202,6 @@ export const listVariants = example({
                     />
                 );
             }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// Rich items — the custom item-slot contract
-// ============================================================================
-
-export const listRichItems = example({
-    keywords: ["List", "Root", "rich", "UIComp", "icon", "HStack"],
-    description: "Rich items — each is a custom HStack with icon + text",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <List
-                items={[
-                    <HStack gap="2" align="center">
-                        <Icon prefix="fas" name="circle-check" color="fg.success" />
-                        <Text>Passed: schema validation</Text>
-                    </HStack>,
-                    <HStack gap="2" align="center">
-                        <Icon prefix="fas" name="circle-xmark" color="fg.danger" />
-                        <Text>Failed: missing required field `id`</Text>
-                    </HStack>,
-                    <HStack gap="2" align="center">
-                        <Icon prefix="fas" name="circle-info" color="fg.info" />
-                        <Text>Skipped: optional integrity check</Text>
-                    </HStack>,
-                ]}
-                marker="none"
-                gap="2"
-            />
         );
     }),
     inputs: [],

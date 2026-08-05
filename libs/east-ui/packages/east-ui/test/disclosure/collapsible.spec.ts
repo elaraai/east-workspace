@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Collapsible, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./collapsible.examples.js";
 
 describeEast("Collapsible", (test) => {
     Assert.examples(test, {
         collapsibleWhy: ex.collapsibleWhy,
-        collapsibleDefaultOpen: ex.collapsibleDefaultOpen,
-        collapsibleReactive: ex.collapsibleReactive,
-        collapsibleBranded: ex.collapsibleBranded,
+        collapsibleVariants: ex.collapsibleVariants,
+    });
+
+    test("collapsibleVariants is the live configurator", $ => {
+        const panel = $.const(ex.collapsibleVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates collapsible with string trigger (coerced to Text.Root)", $ => {

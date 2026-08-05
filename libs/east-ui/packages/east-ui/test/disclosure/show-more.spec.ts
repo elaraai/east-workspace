@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Disclosure, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./show-more.examples.js";
 
 describeEast("Disclosure", (test) => {
     Assert.examples(test, {
-        disclosureRationale: ex.disclosureRationale,
-        disclosureNarrative: ex.disclosureNarrative,
         disclosureDefault: ex.disclosureDefault,
-        disclosureBranded: ex.disclosureBranded,
+        disclosureVariants: ex.disclosureVariants,
+    });
+
+    test("disclosureVariants is the live configurator", $ => {
+        const panel = $.const(ex.disclosureVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates disclosure with string text (coerced to Text.Root)", $ => {

@@ -25,7 +25,7 @@ export const codeBlockBasic = example({
 // ============================================================================
 
 export const codeBlockVariants = example({
-    keywords: ["CodeBlock", "Root", "language", "typescript", "showLineNumbers", "line numbers", "highlightLines", "emphasis", "maxHeight", "scroll", "scrollable", "python", "json", "bash", "terminal", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["CodeBlock", "Root", "language", "typescript", "showLineNumbers", "line numbers", "highlightLines", "emphasis", "maxHeight", "scroll", "scrollable", "python", "json", "bash", "terminal", "diff", "patch", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "CodeBlock configurator — language-preset and max-height axes plus line-number / highlight switches driving one live block; the aside grows a reactive snippet",
     fn: East.function([], UIComponentType, (_$) => {
         return (
@@ -55,6 +55,11 @@ export const codeBlockVariants = example({
                         language: variant("bash", null),
                         code: "$ npm install @elaraai/east-ui\n$ npm run build\n$ npm test",
                         line: 2n,
+                    },
+                    {
+                        language: variant("diff", null),
+                        code: "--- a/scenario.yaml\n+++ b/scenario.yaml\n@@ -1,5 +1,5 @@\n name: Q2 plan\n-target: 1.80M\n+target: 1.84M\n horizon: 2026-06-30\n assumptions:\n-  service_level: 0.85\n+  service_level: 0.92",
+                        line: 5n,
                     },
                 ], ArrayType(StructType({ language: CodeBlock.Types.Language, code: StringType, line: IntegerType })));
 
@@ -137,25 +142,3 @@ export const codeBlockVariants = example({
 
 // ============================================================================
 // Diff — unified-diff highlighting (scenario-edit semantics)
-// ============================================================================
-
-export const codeBlockDiff = example({
-    keywords: ["CodeBlock", "Root", "language", "diff", "patch"],
-    description: "Unified-diff highlighting for scenario edits",
-    fn: East.function([], UIComponentType, (_$) => {
-        const patch = [
-            "--- a/scenario.yaml",
-            "+++ b/scenario.yaml",
-            "@@ -1,5 +1,5 @@",
-            " name: Q2 plan",
-            "-target: 1.80M",
-            "+target: 1.84M",
-            " horizon: 2026-06-30",
-            " assumptions:",
-            "-  service_level: 0.85",
-            "+  service_level: 0.92",
-        ].join("\n");
-        return <CodeBlock language="diff" showLineNumbers title="scenario.yaml">{patch}</CodeBlock>;
-    }),
-    inputs: [],
-});

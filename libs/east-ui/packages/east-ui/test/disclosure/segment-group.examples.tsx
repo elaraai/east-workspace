@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, SegmentGroup, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from "@elaraai/east-ui";
 
 export const segmentGroupViewToggle = example({
     keywords: ["SegmentGroup", "Root", "Item", "toolbar", "toggle", "view"],
@@ -28,77 +28,89 @@ export const segmentGroupViewToggle = example({
     inputs: [],
 });
 
-export const segmentGroupSized = example({
-    keywords: ["SegmentGroup", "Root", "Item", "size", "md"],
-    description: "Medium-size time-range segment control",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <SegmentGroup
-                value="1w"
-                items={[
-                    SegmentGroup.Item("1d", "1 day"),
-                    SegmentGroup.Item("1w", "1 week"),
-                    SegmentGroup.Item("1m", "1 month"),
-                    SegmentGroup.Item("3m", "3 months"),
-                ]}
-                size="md"
-                colorPalette="brand"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const segmentGroupReactive = example({
-    keywords: ["SegmentGroup", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive segment group wired through State.bind",
+export const segmentGroupVariants = example({
+    keywords: ["SegmentGroup", "Root", "Item", "size", "sm", "md", "colorPalette", "background", "activeBackground", "branded", "Reactive", "State", "onChange", "interactive", "Switch", "Configurator", "configurator"],
+    description: "SegmentGroup configurator — a size axis plus a branded switch on one live State-bound segment control",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const bind = $.let(State.bind([StringType], "seg_view", "summary"));
-            const view = $.let(bind.read());
-            const onChange = $.const(East.function([StringType], NullType, ($, next) => {
-                $(bind.write(next));
-            }));
+            const sizes = $.const(["sm", "md"], ArrayType(StringType));
+
+            const sizeBind = $.let(State.bind([StringType], "seggroup_size", "sm"));
+            const brandedBind = $.let(State.bind([BooleanType], "seggroup_branded", false));
+            const viewBind = $.let(State.bind([StringType], "seg_view", "summary"));
+
+            const sKey = $.let(sizeBind.read());
+            const brandedOn = $.let(brandedBind.read());
+            const view = $.let(viewBind.read());
+
+            const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+            const onBranded = $.const(East.function([BooleanType], NullType, ($, next) => { $(brandedBind.write(next)); }));
+            const onView = $.const(East.function([StringType], NullType, ($, next) => { $(viewBind.write(next)); }));
+
+            // The colour hatches are presence-typed and size is a build-time
+            // enum, so the axes pick between prebuilt groups; the binding is
+            // shared.
+            const preview = $.const(brandedOn.ifElse(
+                _$ => sKey.equal("md").ifElse(
+                    _$ => (
+                        <SegmentGroup value={view} onChange={onView} size="md"
+                            background="bg.canvas" borderColor="border.subtle"
+                            activeBackground="bg.inverse" activeColor="fg.inverse" inactiveColor="fg.muted"
+                            items={[
+                                SegmentGroup.Item("summary", "Summary"),
+                                SegmentGroup.Item("demand", "Demand"),
+                                SegmentGroup.Item("coverage", "Coverage"),
+                            ]} />
+                    ),
+                    _$ => (
+                        <SegmentGroup value={view} onChange={onView} size="sm"
+                            background="bg.canvas" borderColor="border.subtle"
+                            activeBackground="bg.inverse" activeColor="fg.inverse" inactiveColor="fg.muted"
+                            items={[
+                                SegmentGroup.Item("summary", "Summary"),
+                                SegmentGroup.Item("demand", "Demand"),
+                                SegmentGroup.Item("coverage", "Coverage"),
+                            ]} />
+                    ),
+                ),
+                _$ => sKey.equal("md").ifElse(
+                    _$ => (
+                        <SegmentGroup value={view} onChange={onView} size="md" colorPalette="brand"
+                            items={[
+                                SegmentGroup.Item("summary", "Summary"),
+                                SegmentGroup.Item("demand", "Demand"),
+                                SegmentGroup.Item("coverage", "Coverage"),
+                            ]} />
+                    ),
+                    _$ => (
+                        <SegmentGroup value={view} onChange={onView} size="sm"
+                            items={[
+                                SegmentGroup.Item("summary", "Summary"),
+                                SegmentGroup.Item("demand", "Demand"),
+                                SegmentGroup.Item("coverage", "Coverage"),
+                            ]} />
+                    ),
+                ),
+            ));
+
             return (
-                <VStack gap="3" align="stretch">
-                    <SegmentGroup
-                        value={view}
-                        items={[
-                            SegmentGroup.Item("summary", "Summary"),
-                            SegmentGroup.Item("demand", "Demand"),
-                            SegmentGroup.Item("coverage", "Coverage"),
-                        ]}
-                        onChange={onChange}
-                        size="sm"
-                    />
-                    <Text color="fg.muted">{East.str`Active view: ${view}`}</Text>
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Size", sKey,
+                            <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                items={sizes.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
+                        Configurator.Slot("Colours",
+                            <HStack gap="5" align="center">
+                                <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Active", view),
+                    ]}
+                />
             );
         }}</Reactive>
     )),
-    inputs: [],
-});
-
-export const segmentGroupBranded = example({
-    keywords: ["SegmentGroup", "style", "background", "activeBackground", "branded"],
-    description: "Branded segment group with full colour escape hatches",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <SegmentGroup
-                value="graph"
-                items={[
-                    SegmentGroup.Item("table", "Table"),
-                    SegmentGroup.Item("graph", "Graph"),
-                    SegmentGroup.Item("map", "Map"),
-                ]}
-                size="sm"
-                background="bg.canvas"
-                borderColor="border.subtle"
-                activeBackground="bg.inverse"
-                activeColor="fg.inverse"
-                inactiveColor="fg.muted"
-            />
-        );
-    }),
     inputs: [],
 });

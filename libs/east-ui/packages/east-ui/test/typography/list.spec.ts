@@ -13,7 +13,6 @@ describeEast("List", (test) => {
     Assert.examples(test, {
         listUnordered: ex.listUnordered,
         listVariants: ex.listVariants,
-        listRichItems: ex.listRichItems,
     });
 
     // =========================================================================
