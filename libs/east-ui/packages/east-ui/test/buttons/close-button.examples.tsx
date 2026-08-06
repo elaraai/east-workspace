@@ -27,21 +27,17 @@ export const closeButtonVariants = example({
             const sizes = $.const([
                 variant("sm", null), variant("md", null), variant("lg", null),
             ], ArrayType(Style.Types.Size));
-            const colours = $.const(["recipe", "branded"], ArrayType(StringType));
 
             const variantBind = $.let(State.bind([StringType], "closebutton_variant", "ghost"));
             const sizeBind = $.let(State.bind([StringType], "closebutton_size", "md"));
-            const colourBind = $.let(State.bind([StringType], "closebutton_colour", "recipe"));
             const countBind = $.let(State.bind([IntegerType], "closebutton_count", 0n));
 
             const vKey = $.let(variantBind.read());
             const sKey = $.let(sizeBind.read());
-            const cKey = $.let(colourBind.read());
             const count = $.let(countBind.read());
 
             const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
             const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-            const onColour = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
             const dismiss = $.const(East.function([], NullType, $ => {
                 const cur = $.let(countBind.read());
                 $(countBind.write(cur.add(1n)));
@@ -50,17 +46,11 @@ export const closeButtonVariants = example({
             const buttonVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
             const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
 
-            // The colour escape hatches are presence-typed, so the colour axis
-            // picks between two buttons.
-            const preview = $.const(cKey.equal("branded").ifElse(
-                _$ => (
-                    <CloseButton label="Dismiss banner" variant={buttonVariant} size={size} onClick={dismiss}
-                        color="fg.inverse" background="bg.inverse" hoverBackground="bg.inverse" />
-                ),
-                _$ => (
-                    <CloseButton label="Dismiss banner" variant={buttonVariant} size={size} onClick={dismiss} />
-                ),
-            ));
+            // ONE button — recipe colouring; the escape hatches live in
+            // their own example.
+            const preview = $.const(
+                <CloseButton label="Dismiss banner" variant={buttonVariant} size={size} onClick={dismiss} />,
+            );
 
             return (
                 <Configurator
@@ -71,9 +61,6 @@ export const closeButtonVariants = example({
                         Configurator.Control("Size", sKey,
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Colour", cKey,
-                            <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                items={colours.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
                     ]}
                     preview={preview}
                     aside={{
@@ -86,6 +73,16 @@ export const closeButtonVariants = example({
                 />
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Raw colour escape hatches on a static close button. */
+export const closeButtonCustomColours = example({
+    keywords: ["CloseButton", "color", "background", "hoverBackground", "override", "custom"],
+    description: "Colour overrides — inverse-ink close button via the raw escape hatches",
+    fn: East.function([], UIComponentType, (_$) => (
+        <CloseButton label="Dismiss banner" variant="solid" color="fg.inverse" background="bg.inverse" hoverBackground="bg.inverse" />
     )),
     inputs: [],
 });

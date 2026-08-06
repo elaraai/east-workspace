@@ -13,6 +13,7 @@ describeEast("CopyButton", (test) => {
     Assert.examples(test, {
         copyButtonBasic: ex.copyButtonBasic,
         copyButtonVariants: ex.copyButtonVariants,
+        copyButtonCustomColours: ex.copyButtonCustomColours,
     });
 
     test("copyButtonVariants is the live configurator", $ => {

@@ -24,35 +24,22 @@ export const copyButtonVariants = example({
             const variants = $.const([
                 variant("ghost", null), variant("outline", null), variant("solid", null),
             ], ArrayType(CopyButton.Types.Variant));
-            const colours = $.const(["recipe", "branded"], ArrayType(StringType));
 
             const variantBind = $.let(State.bind([StringType], "copybutton_variant", "outline"));
-            const colourBind = $.let(State.bind([StringType], "copybutton_colour", "recipe"));
 
             const vKey = $.let(variantBind.read());
-            const cKey = $.let(colourBind.read());
 
             const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
-            const onColour = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
 
             const buttonVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
 
-            // The colour escape hatches (including successColor) are
-            // presence-typed, so the colour axis picks between two buttons.
-            const preview = $.const(cKey.equal("branded").ifElse(
-                _$ => (
-                    <CopyButton label="Copy API key" variant={buttonVariant} timeout="1500"
-                        color="fg.inverse" background="bg.inverse" borderColor="border.brand"
-                        hoverBackground="bg.inverse" successColor="fg.success">
-                        elaraai_sk_live_xxxxxxxx
-                    </CopyButton>
-                ),
-                _$ => (
-                    <CopyButton label="Copy link" variant={buttonVariant} timeout="1500" colorPalette="brand">
-                        https://elara.ai/share/abc123
-                    </CopyButton>
-                ),
-            ));
+            // ONE button — recipe colouring; the escape hatches live in
+            // their own example.
+            const preview = $.const(
+                <CopyButton label="Copy API key" variant={buttonVariant} timeout="1500">
+                    elaraai_sk_live_xxxxxxxx
+                </CopyButton>,
+            );
 
             return (
                 <Configurator
@@ -60,9 +47,6 @@ export const copyButtonVariants = example({
                         Configurator.Control("Variant", vKey,
                             <SegmentGroup value={vKey} onChange={onVariant} size="sm"
                                 items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Control("Colour", cKey,
-                            <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                items={colours.map((_$, c) => SegmentGroup.Item(c, <Text>{c.upperCase()}</Text>))} />),
                     ]}
                     preview={preview}
                     spec={[
@@ -71,6 +55,18 @@ export const copyButtonVariants = example({
                 />
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Raw colour escape hatches on a static copy button. */
+export const copyButtonCustomColours = example({
+    keywords: ["CopyButton", "color", "background", "borderColor", "successColor", "override", "custom"],
+    description: "Colour overrides — inverse-ink copy button with a success tint",
+    fn: East.function([], UIComponentType, (_$) => (
+        <CopyButton label="Copy API key" variant="solid" color="fg.inverse" background="bg.inverse" borderColor="border.brand" hoverBackground="bg.inverse" successColor="fg.success">
+            elaraai_sk_live_xxxxxxxx
+        </CopyButton>
     )),
     inputs: [],
 });

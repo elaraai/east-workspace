@@ -12,6 +12,7 @@ import * as ex from "./close-button.examples.js";
 describeEast("CloseButton", (test) => {
     Assert.examples(test, {
         closeButtonBasic: ex.closeButtonBasic,
+        closeButtonCustomColours: ex.closeButtonCustomColours,
     });
 
     test("closeButtonVariants is the live configurator", $ => {
