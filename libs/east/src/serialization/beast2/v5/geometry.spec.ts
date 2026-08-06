@@ -27,6 +27,7 @@ import {
   rebuildBeast2,
   readBeast2ExtentsRanged,
   carveBeast2Ranged,
+  spliceBeast2Tail,
   type Beast2RangeReader,
 } from "../index.js";
 
@@ -254,6 +255,40 @@ describe("Beast2 v5 — ranged geometry", () => {
     const expected = wholePages.slice(180, 50);
     const got = miniPages.slice(80, 50); // 180 minus segment 0's 100 elements
     assert.ok(equalFor(TableType)(got as never, expected as never), "ranged window equals the whole-blob window");
+  });
+
+  test("head + frames + spliceBeast2Tail streams a carve byte-identically", async () => {
+    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const extents = readBeast2Extents(blob);
+    const ranged = await readBeast2ExtentsRanged(rangeReader(blob));
+    assert.ok(extents.offsets.length >= 3, "test needs several segments");
+
+    // Streamed assembly: header bytes, then the span's frame bytes, then the
+    // tail for the shifted segment table — the shape a bounded-memory carve
+    // writes chunk by chunk.
+    const from = 1;
+    const to = 3;
+    const start = ranged.offsets[from]!;
+    const end = ranged.offsets[to] ?? ranged.segmentsEnd;
+    const shift = ranged.prefixEnd - start;
+    const segments = [];
+    for (let i = from; i < to; i++) {
+      segments.push({ offset: ranged.offsets[i]! + shift, count: ranged.counts[i]! });
+    }
+    const tail = spliceBeast2Tail(segments, ranged.prefixEnd + (end - start));
+    const streamed = new Uint8Array(ranged.head.length + (end - start) + tail.length);
+    streamed.set(ranged.head, 0);
+    streamed.set(blob.subarray(start, end), ranged.head.length);
+    streamed.set(tail, ranged.head.length + (end - start));
+
+    assert.deepEqual(streamed, carveBeast2(blob, from, to, extents));
+
+    // The empty stream: header + tail alone equals the empty carve.
+    const emptyTail = spliceBeast2Tail([], ranged.prefixEnd);
+    const empty = new Uint8Array(ranged.head.length + emptyTail.length);
+    empty.set(ranged.head, 0);
+    empty.set(emptyTail, ranged.head.length);
+    assert.deepEqual(empty, carveBeast2(blob, 0, 0, extents));
   });
 
   test("rejects index-less blobs and mismatched frame spans", async () => {

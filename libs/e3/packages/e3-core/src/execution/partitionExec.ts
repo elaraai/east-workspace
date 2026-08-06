@@ -26,24 +26,22 @@
  * packing, so partitions after the insertion point re-run — append-friendly,
  * not general.
  *
- * Carving currently reads whole input blobs into orchestrator memory (the
- * same bound as the standard path's input marshalling); the runner processes
- * hold only slice-sized values. File-ranged carving is future work.
+ * Orchestrator memory is bounded too (issue #506): blobs are addressed by
+ * their ranged extents, boundary probes decode one segment at a time, and
+ * slices and the spliced output stream to the object store chunk by chunk —
+ * the orchestrator never holds a whole input, slice or shard. On a backend
+ * without ranged reads each blob degrades to one whole read behind the same
+ * code path.
  */
 
 import { variant } from '@elaraai/east';
 import {
   compareFor,
   decodeEastIR,
-  readBeast2Extents,
-  carveBeast2,
-  spliceBeast2,
   rebuildBeast2,
-  openBeast2PagesFor,
-  type Beast2Extents,
-  type Beast2Pages,
 } from '@elaraai/east';
 import type { EastTypeValue } from '@elaraai/east';
+import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
 import {
   decodePartitionTaskMetadata,
   type ExecutionStatus,
@@ -144,16 +142,16 @@ export async function partitionTaskExecute(
   // ---------------------------------------------------------------------
   // Primary geometry + the boundary projection.
   // ---------------------------------------------------------------------
-  const primaryData = await storage.objects.read(repo, partitionHashes[0]!);
-  let primaryExtents: Beast2Extents;
+  let primary: PartitionBlob;
   try {
-    primaryExtents = readBeast2Extents(primaryData);
+    primary = await PartitionBlob.open(storage, repo, partitionHashes[0]!);
   } catch (err) {
     return errorResult(
       `Partitioned input is not a segmented, indexed beast2 v5 collection blob (${err instanceof Error ? err.message : err}) — ` +
       `re-write the dataset so it carries a segment index`
     );
   }
+  const primaryExtents = primary.extents;
 
   let proj: ((key: unknown) => unknown) | null = null;
   let projCmp: ((a: unknown, b: unknown) => number) | null = null;
@@ -175,8 +173,6 @@ export async function partitionTaskExecute(
   const keyCmp = compareFor(keyTypeValue as any) as (a: unknown, b: unknown) => number;
   const projOf = proj ?? ((k: unknown) => k);
   const cmpOf = projCmp ?? keyCmp;
-
-  const primaryPages = openBeast2PagesFor(primaryExtents.typeValue)(primaryData);
 
   // ---------------------------------------------------------------------
   // Boundary selection: greedy byte packing, then `by` alignment so rows
@@ -215,7 +211,7 @@ export async function partitionTaskExecute(
       // advance the cut until the projection changes at the fence.
       while (
         cut < segCount &&
-        cmpOf(projOf(lastKeyOf(primaryPages.segment(cut - 1))), projOf(primaryPages.fence(cut))) === 0
+        cmpOf(projOf(lastKeyOf(await primary.segmentValue(cut - 1))), projOf(await primary.fence(cut))) === 0
       ) {
         cut++;
       }
@@ -237,33 +233,32 @@ export async function partitionTaskExecute(
     for (let p = 0; p < partitions; p++) {
       const from = boundaries[p]!;
       const to = p + 1 < partitions ? boundaries[p + 1]! : segCount;
-      const slice = carveBeast2(primaryData, from, to, primaryExtents);
-      primarySlices.push(await storage.objects.write(repo, slice));
+      primarySlices.push(await storage.objects.writeStream(
+        repo, spliceChunks(primaryExtents.head, [primary.spanPart(from, to)])));
     }
     sliceHashes.push(primarySlices);
 
     // Boundary values, in projection space, at each internal boundary.
     const bounds: unknown[] = [];
     for (let p = 1; p < partitions; p++) {
-      bounds.push(projOf(primaryPages.fence(boundaries[p]!)));
+      bounds.push(projOf(await primary.fence(boundaries[p]!)));
     }
 
     for (let s = 1; s < partitionCount; s++) {
-      const data = await storage.objects.read(repo, partitionHashes[s]!);
-      const extents = readBeast2Extents(data);
-      const pages = openBeast2PagesFor(extents.typeValue)(data);
-      const isDict = extents.typeValue.type === 'Dict';
+      const blob = await PartitionBlob.open(storage, repo, partitionHashes[s]!);
+      const isDict = blob.extents.typeValue.type === 'Dict';
 
       const splits: SplitPoint[] = [{ seg: 0, offset: 0 }];
       for (const bound of bounds) {
-        splits.push(findSplitPoint(pages, extents, isDict, projOf, cmpOf, bound));
+        splits.push(await findSplitPoint(blob, isDict, projOf, cmpOf, bound));
       }
-      splits.push({ seg: extents.offsets.length, offset: 0 });
+      splits.push({ seg: blob.extents.offsets.length, offset: 0 });
 
       const slices: string[] = [];
       for (let p = 0; p < partitions; p++) {
-        const slice = carveRange(data, extents, pages, isDict, splits[p]!, splits[p + 1]!);
-        slices.push(await storage.objects.write(repo, slice));
+        const parts = await carveRangeParts(blob, isDict, splits[p]!, splits[p + 1]!);
+        slices.push(await storage.objects.writeStream(
+          repo, spliceChunks(blob.extents.head, parts)));
       }
       sliceHashes.push(slices);
     }
@@ -343,11 +338,11 @@ export async function partitionTaskExecute(
     outputHash = layer[0]!;
   } else {
     try {
-      const shards: Uint8Array[] = [];
+      const shards: PartitionBlob[] = [];
       for (const r of results) {
-        shards.push(await storage.objects.read(repo, r!.outputHash!));
+        shards.push(await PartitionBlob.open(storage, repo, r!.outputHash!));
       }
-      const violation = findSpliceViolation(shards);
+      const violation = await findSpliceViolation(shards);
       if (violation !== null) {
         return errorResult(
           `Partition shards ${violation.left + 1} and ${violation.right + 1} of ${partitions} do not ascend disjointly in key order — ` +
@@ -355,8 +350,9 @@ export async function partitionTaskExecute(
           `Use \`combine\` to aggregate partials instead, or customTask for full control.`
         );
       }
-      const spliced = spliceBeast2(shards);
-      outputHash = await storage.objects.write(repo, spliced);
+      outputHash = await storage.objects.writeStream(repo, spliceChunks(
+        shards[0]!.extents.head,
+        shards.map((shard) => shard.spanPart(0, shard.extents.offsets.length))));
     } catch (err) {
       return errorResult(`Failed to splice partition shards: ${err instanceof Error ? err.message : err}`);
     }
@@ -385,20 +381,19 @@ export async function partitionTaskExecute(
 /** Finds the first global position in a co-partitioned secondary whose
  *  projected key reaches `bound`: a linear fence scan, then a decode of the
  *  single segment the boundary may fall inside. */
-function findSplitPoint(
-  pages: Beast2Pages,
-  extents: Beast2Extents,
+async function findSplitPoint(
+  blob: PartitionBlob,
   isDict: boolean,
   projOf: (key: unknown) => unknown,
   cmpOf: (a: unknown, b: unknown) => number,
   bound: unknown,
-): SplitPoint {
-  const segCount = extents.offsets.length;
+): Promise<SplitPoint> {
+  const segCount = blob.extents.offsets.length;
   let s = 0;
-  while (s < segCount && cmpOf(projOf(pages.fence(s)), bound) < 0) s++;
+  while (s < segCount && cmpOf(projOf(await blob.fence(s)), bound) < 0) s++;
   if (s === 0) return { seg: 0, offset: 0 };
   // The boundary may fall inside the last segment whose fence is below it.
-  const keys = segmentKeys(pages.segment(s - 1), isDict);
+  const keys = segmentKeys(await blob.segmentValue(s - 1), isDict);
   for (let i = 0; i < keys.length; i++) {
     if (cmpOf(projOf(keys[i]), bound) >= 0) return { seg: s - 1, offset: i };
   }
@@ -410,74 +405,72 @@ function segmentKeys(segment: unknown, isDict: boolean): unknown[] {
   return isDict ? [...(segment as Map<unknown, unknown>).keys()] : [...(segment as Iterable<unknown>)];
 }
 
-/** Carves `[from, to)` out of a secondary: byte-copies whole segments and
- *  rebuilds at most the two edge segments a boundary splits, then splices
- *  the runs (all parts share the source's header bytes by construction). */
-function carveRange(
-  data: Uint8Array,
-  extents: Beast2Extents,
-  pages: Beast2Pages,
+/** Carves `[from, to)` out of a secondary as splice parts: whole segments as
+ *  a ranged span, plus in-memory rebuilds of at most the two edge segments a
+ *  boundary splits (all parts share the source's header bytes by
+ *  construction). May be empty. */
+async function carveRangeParts(
+  blob: PartitionBlob,
   isDict: boolean,
   from: SplitPoint,
   to: SplitPoint,
-): Uint8Array {
+): Promise<SplicePart[]> {
+  const extents = blob.extents;
   const segCount = extents.offsets.length;
-  const partial = (seg: number, start: number, end: number | undefined): Uint8Array | null => {
-    const decoded = pages.segment(seg);
+  const partial = async (seg: number, start: number, end: number | undefined): Promise<SplicePart | null> => {
+    const decoded = await blob.segmentValue(seg);
     const batch = isDict
       ? new Map([...(decoded as Map<unknown, unknown>).entries()].slice(start, end))
       : new Set([...(decoded as Iterable<unknown>)].slice(start, end));
     if ((batch as Map<unknown, unknown> | Set<unknown>).size === 0) return null;
-    return rebuildBeast2(data, [batch], { extents });
+    return bufferPart(rebuildBeast2(extents.head, [batch], { extents }));
   };
 
-  const parts: Uint8Array[] = [];
+  const parts: SplicePart[] = [];
   if (from.seg === to.seg) {
     if (from.seg < segCount && from.offset < to.offset) {
-      const head = partial(from.seg, from.offset, to.offset);
+      const head = await partial(from.seg, from.offset, to.offset);
       if (head !== null) parts.push(head);
     }
   } else {
     let middleStart = from.seg;
     if (from.offset > 0) {
-      const tail = partial(from.seg, from.offset, undefined);
+      const tail = await partial(from.seg, from.offset, undefined);
       if (tail !== null) parts.push(tail);
       middleStart = from.seg + 1;
     }
     if (to.seg > middleStart) {
-      parts.push(carveBeast2(data, middleStart, to.seg, extents));
+      parts.push(blob.spanPart(middleStart, to.seg));
     }
     if (to.seg < segCount && to.offset > 0) {
-      const head = partial(to.seg, 0, to.offset);
+      const head = await partial(to.seg, 0, to.offset);
       if (head !== null) parts.push(head);
     }
   }
-  if (parts.length === 0) return carveBeast2(data, 0, 0, extents);
-  return parts.length === 1 ? parts[0]! : spliceBeast2(parts);
+  return parts;
 }
 
 /** Validates the splice-mode shard contract for Set/Dict outputs: adjacent
  *  non-empty shards' key ranges must ascend disjointly in partition order.
- *  Returns the offending pair, or `null` when the shards splice cleanly
- *  (Array shards concatenate freely). */
-function findSpliceViolation(shards: Uint8Array[]): { left: number; right: number } | null {
+ *  Bounded: only each shard's first fence and last segment decode. Returns
+ *  the offending pair, or `null` when the shards splice cleanly (Array
+ *  shards concatenate freely). */
+async function findSpliceViolation(shards: PartitionBlob[]): Promise<{ left: number; right: number } | null> {
   let prevIndex = -1;
   let prevLast: unknown;
   let cmp: ((a: unknown, b: unknown) => number) | null = null;
   for (let i = 0; i < shards.length; i++) {
-    const extents = readBeast2Extents(shards[i]!);
+    const extents = shards[i]!.extents;
     if (extents.typeValue.type === 'Array') return null;
     if (extents.offsets.length === 0) continue;
     const isDict = extents.typeValue.type === 'Dict';
     const keyType: EastTypeValue = isDict ? (extents.typeValue as any).value.key : (extents.typeValue as any).value;
     cmp ??= compareFor(keyType as any) as (a: unknown, b: unknown) => number;
-    const pages = openBeast2PagesFor(extents.typeValue)(shards[i]!);
-    const first = pages.fence(0);
+    const first = await shards[i]!.fence(0);
     if (prevIndex >= 0 && cmp(prevLast, first) >= 0) {
       return { left: prevIndex, right: i };
     }
-    const lastSegment = pages.segment(extents.offsets.length - 1);
-    const keys = segmentKeys(lastSegment, isDict);
+    const keys = segmentKeys(await shards[i]!.segmentValue(extents.offsets.length - 1), isDict);
     prevLast = keys[keys.length - 1];
     prevIndex = i;
   }

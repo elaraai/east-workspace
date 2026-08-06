@@ -65,6 +65,7 @@ export {
   type ReadBeast2ExtentsRangedOptions,
   readBeast2ExtentsRanged,
   carveBeast2Ranged,
+  spliceBeast2Tail,
 } from "./v5/geometry.js";
 export { openBeast2LazyFor } from "./v5/lazy.js";
 import { readIndex } from "./v5/codec.js";

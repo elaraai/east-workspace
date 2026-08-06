@@ -10,7 +10,7 @@ export {
   compileFunctionIR, compileAsyncFunctionIR, encodeEastIR, decodeEastIR, decodeAsyncEastIR,
   Beast2Writer, encodeBeast2SegmentsFor, encodeBeast2PagedFor, iterBeast2SegmentsFor, Beast2Pages, openBeast2PagesFor, beast2HasIndex,
   readBeast2Extents, carveBeast2, spliceBeast2, rebuildBeast2, openBeast2LazyFor,
-  readBeast2ExtentsRanged, carveBeast2Ranged,
+  readBeast2ExtentsRanged, carveBeast2Ranged, spliceBeast2Tail,
   BEAST2_WRITE_VERSION, BEAST2_READ_VERSIONS, BEAST2_PAGED_BATCH_DEFAULT, BEAST2_PAGED_TARGET_BYTES_DEFAULT,
   type Beast2EncodeOptions, type Beast2WriterOptions, type Beast2PagedEncodeOptions, type Beast2Codec, type Beast2Version,
   type Beast2Extents, type RebuildBeast2Options,

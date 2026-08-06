@@ -28,6 +28,7 @@ import {
   type TreePath,
 } from '@elaraai/e3-types';
 import { taskExecute } from './LocalTaskRunner.js';
+import { PARTITION_COPY_CHUNK_BYTES } from './partitionIo.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -245,6 +246,52 @@ describe('partitionTaskExecute', () => {
     assert.ok(eq(decodeBeast2For(TableType)(output), secondary));
     const extents = readBeast2Extents(output);
     assert.equal(extents.elementCount, 500);
+  });
+
+  it('carves and splices at bounded orchestrator memory: partitioned inputs are never whole-read', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+
+    // Spy on the object store: the partitioned input must flow only through
+    // ranged reads (extents from head + tail, boundary probes, span copies),
+    // each bounded by the copy chunk — never a whole read. (Slice objects
+    // themselves are still whole-read by input marshalling to the runner,
+    // which is the standard path's documented, slice-bounded cost.)
+    const objects = storage.objects;
+    let wholeInputReads = 0;
+    let maxRangeLength = 0;
+    const origRead = objects.read.bind(objects);
+    const origRange = objects.readRange!.bind(objects);
+    objects.read = (r: string, h: string) => {
+      if (h === tableHash) wholeInputReads++;
+      return origRead(r, h);
+    };
+    objects.readRange = (r: string, h: string, offset: number, length: number) => {
+      maxRangeLength = Math.max(maxRangeLength, length);
+      return origRange(r, h, offset, length);
+    };
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    // The streamed carve + splice reproduce the input byte-identically.
+    assert.equal(result.outputHash, tableHash);
+    assert.equal(wholeInputReads, 0, 'the partitioned input must never be whole-read');
+    assert.ok(maxRangeLength <= PARTITION_COPY_CHUNK_BYTES,
+      `every ranged read (max ${maxRangeLength} bytes) must respect the copy chunk (${PARTITION_COPY_CHUNK_BYTES} bytes)`);
+  });
+
+  it('degrades to whole reads behind the same path when the backend has no ranged reads', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+    (storage.objects as { readRange?: unknown }).readRange = undefined;
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(result.outputHash, tableHash, 'the fallback still reconstructs byte-identically');
   });
 
   it('rejects a partitioned input that carries no segment index', async () => {

@@ -536,7 +536,10 @@ export async function repoGc(
 }
 
 /**
- * Clean up orphaned .partial staging files in the objects directory.
+ * Clean up orphaned .partial staging files in the objects directory — both
+ * the per-prefix stages of whole-object writes and the root-level
+ * `stage.*.partial` files of streaming writes (which cannot stage under a
+ * prefix: the content path is unknown until the digest names it).
  * This is a local-only concern — cloud storage doesn't use .partial files.
  */
 async function cleanupPartials(
@@ -549,11 +552,32 @@ async function cleanupPartials(
   let deleted = 0;
   let skippedYoung = 0;
 
+  const sweep = async (filePath: string): Promise<void> => {
+    try {
+      const fileStat = await fs.stat(filePath);
+      const age = now - fileStat.mtimeMs;
+      if (minAge > 0 && age < minAge) {
+        skippedYoung++;
+        return;
+      }
+      if (!dryRun) {
+        await fs.unlink(filePath);
+      }
+      deleted++;
+    } catch {
+      // Skip files we can't stat or delete
+    }
+  };
+
   try {
-    const subdirs = await fs.readdir(objectsDir);
-    for (const subdir of subdirs) {
-      if (!/^[a-f0-9]{2}$/.test(subdir)) continue;
-      const subdirPath = path.join(objectsDir, subdir);
+    const entries = await fs.readdir(objectsDir);
+    for (const entry of entries) {
+      if (entry.endsWith('.partial')) {
+        await sweep(path.join(objectsDir, entry));
+        continue;
+      }
+      if (!/^[a-f0-9]{2}$/.test(entry)) continue;
+      const subdirPath = path.join(objectsDir, entry);
       try {
         const stat = await fs.stat(subdirPath);
         if (!stat.isDirectory()) continue;
@@ -564,21 +588,7 @@ async function cleanupPartials(
       const files = await fs.readdir(subdirPath);
       for (const file of files) {
         if (!file.endsWith('.partial')) continue;
-        const filePath = path.join(subdirPath, file);
-        try {
-          const fileStat = await fs.stat(filePath);
-          const age = now - fileStat.mtimeMs;
-          if (minAge > 0 && age < minAge) {
-            skippedYoung++;
-            continue;
-          }
-          if (!dryRun) {
-            await fs.unlink(filePath);
-          }
-          deleted++;
-        } catch {
-          // Skip files we can't stat or delete
-        }
+        await sweep(path.join(subdirPath, file));
       }
     }
   } catch {

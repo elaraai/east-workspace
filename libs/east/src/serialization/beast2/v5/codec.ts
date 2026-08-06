@@ -834,9 +834,12 @@ export const INDEX_FLAG_SELF_CONTAINED = 0x01;
  * @param writer - the wire-level writer (its current size is the index offset)
  * @param segments - per-segment absolute frame offsets and element counts
  * @param selfContained - whether segments are independently decodable
+ * @param indexOffsetOverride - the absolute wire offset of the index section,
+ *   when the writer holds only a suffix of the stream (a standalone tail);
+ *   defaults to the writer's current size
  */
-export function writeIndexAndFooter(writer: BufferWriter, segments: { offset: number; count: number }[], selfContained: boolean): void {
-  const indexOffset = writer.size;
+export function writeIndexAndFooter(writer: BufferWriter, segments: { offset: number; count: number }[], selfContained: boolean, indexOffsetOverride?: number): void {
+  const indexOffset = indexOffsetOverride ?? writer.size;
   writer.writeVarint(selfContained ? INDEX_FLAG_SELF_CONTAINED : 0);
   writer.writeVarint(segments.length);
   let prev = 0;

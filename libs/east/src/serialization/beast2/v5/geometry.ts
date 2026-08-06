@@ -473,6 +473,29 @@ export function carveBeast2Ranged(extents: Beast2RangedExtents, frames: Uint8Arr
   return writer.toUint8Array();
 }
 
+/**
+ * The bytes that terminate a spliced or carved stream: the terminator frame
+ * plus a self-contained index and footer for the given segment table — the
+ * TypeScript mirror of the C runtime's `east_beast2_splice_tail`.
+ *
+ * With this, a blob can be *streamed* instead of assembled: emit a header
+ * (`Beast2RangedExtents.head` or any part's `[0, prefixEnd)` bytes), then the
+ * segment frame bytes (tracking their shifted absolute offsets), then this
+ * tail — byte-identical to what {@link carveBeast2} / {@link spliceBeast2}
+ * build in memory for the same content.
+ *
+ * @param segments - per-segment absolute (shifted) frame offsets and counts
+ * @param streamEnd - the absolute wire offset where the segment frames end
+ *   (header bytes plus frame bytes emitted so far)
+ * @returns the terminator + index + footer bytes
+ */
+export function spliceBeast2Tail(segments: readonly { offset: number; count: number }[], streamEnd: number): Uint8Array {
+  const writer = new BufferWriter();
+  writer.writeBytes(TAG_OR_TERMINATOR_FRAME);
+  writeIndexAndFooter(writer, [...segments], true, streamEnd + TAG_OR_TERMINATOR_FRAME.length);
+  return writer.toUint8Array();
+}
+
 /** Whether the first `length` bytes of `a` and `b` are identical. */
 function bytesEqual(a: Uint8Array, b: Uint8Array, length: number): boolean {
   if (a.length < length || b.length < length) return false;

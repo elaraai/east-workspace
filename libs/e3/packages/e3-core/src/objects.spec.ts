@@ -5,7 +5,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { computeHash } from './objects.js';
 import {
@@ -202,6 +202,44 @@ describe('objects', () => {
       const hash2 = await objectWriteStream(testRepo, stream);
 
       assert.strictEqual(hash1, hash2);
+    });
+
+    it('streams many chunks with an incremental hash and leaves no staging files', async () => {
+      // Chunked content whose total (1 MB) dwarfs any one chunk — the
+      // streaming write hashes and persists per chunk, never buffering the
+      // object (the bound the partition splice relies on).
+      const chunkCount = 64;
+      const chunks = Array.from({ length: chunkCount }, (_, i) => {
+        const chunk = new Uint8Array(16 * 1024);
+        for (let j = 0; j < chunk.length; j++) chunk[j] = (i * 31 + j * 7) % 251;
+        return chunk;
+      });
+      const whole = new Uint8Array(chunkCount * 16 * 1024);
+      chunks.forEach((chunk, i) => whole.set(chunk, i * 16 * 1024));
+
+      const store = new LocalObjectStore();
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async function* generate(): AsyncIterable<Uint8Array> {
+        yield* chunks;
+      }
+      const hash = await store.writeStream(testRepo, generate());
+
+      assert.strictEqual(hash, computeHash(whole), 'incremental hash equals the whole-content hash');
+      assert.deepStrictEqual(new Uint8Array(await store.read(testRepo, hash)), whole);
+      const staging = readdirSync(join(testRepo, 'objects')).filter((f) => f.endsWith('.partial'));
+      assert.deepStrictEqual(staging, [], 'no staging files remain');
+    });
+
+    it('cleans its staging file when the chunk stream throws', async () => {
+      const store = new LocalObjectStore();
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async function* failing(): AsyncIterable<Uint8Array> {
+        yield new Uint8Array([1, 2, 3]);
+        throw new Error('source failed');
+      }
+      await assert.rejects(() => store.writeStream(testRepo, failing()), /source failed/);
+      const staging = readdirSync(join(testRepo, 'objects')).filter((f) => f.endsWith('.partial'));
+      assert.deepStrictEqual(staging, [], 'the failed write must not leave a staging file');
     });
   });
 

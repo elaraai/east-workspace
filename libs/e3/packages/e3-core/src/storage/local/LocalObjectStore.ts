@@ -28,30 +28,18 @@ import type { ObjectStore } from '../interfaces.js';
 // Hash Computation
 // =============================================================================
 
-/**
- * Calculate SHA256 hash of a stream
- * @internal
- */
-async function computeHashFromStream(
-  stream: ReadableStream<Uint8Array>
-): Promise<{ hash: string; data: Uint8Array[] }> {
-  const hash = crypto.createHash('sha256');
-  const chunks: Uint8Array[] = [];
-
+/** Adapts a web ReadableStream to an AsyncIterable of chunks. @internal */
+async function* readableStreamChunks(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
   const reader = stream.getReader();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    hash.update(value);
-    chunks.push(value);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
   }
-
-  return {
-    hash: hash.digest('hex'),
-    data: chunks,
-  };
 }
 
 // =============================================================================
@@ -121,50 +109,63 @@ export async function objectWrite(
 }
 
 /**
- * Atomically write a stream to the repository.
+ * Atomically write a stream of chunks to the repository at bounded memory.
+ *
+ * Chunks are hashed incrementally while they stream to a staging file under
+ * `objects/` (the same filesystem as the final content path, so the closing
+ * rename stays atomic) — the content path is only known once the digest
+ * names it, so unlike {@link objectWrite} the staging file cannot start in
+ * its final directory. Peak memory is one chunk, never the object; this is
+ * what lets the partition executor splice larger-than-memory outputs.
+ * Orphaned staging files carry the `.partial` suffix gc already cleans.
  *
  * @param repoPath - Path to e3 repository
- * @param stream - Stream to store
+ * @param stream - Chunks to store
  * @returns SHA256 hash of the data
  */
-export async function objectWriteStream(
+export async function objectWriteStreamIterable(
   repoPath: string,
-  stream: ReadableStream<Uint8Array>
+  stream: AsyncIterable<Uint8Array>
 ): Promise<string> {
   const extension = '.beast2';
-  // First pass: compute hash while collecting data
-  const { hash, data } = await computeHashFromStream(stream);
+  const objectsDir = path.join(repoPath, 'objects');
+  await fs.mkdir(objectsDir, { recursive: true });
 
-  // Split hash: first 2 chars as directory
-  const dirName = hash.slice(0, 2);
-  const fileName = hash.slice(2) + extension;
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  const stagingPath = path.join(objectsDir, `stage.${Date.now()}.${randomSuffix}.partial`);
 
-  const dirPath = path.join(repoPath, 'objects', dirName);
-  const filePath = path.join(dirPath, fileName);
+  const hasher = crypto.createHash('sha256');
+  async function* hashChunks(): AsyncIterable<Uint8Array> {
+    for await (const chunk of stream) {
+      hasher.update(chunk);
+      yield chunk;
+    }
+  }
+  try {
+    await pipeline(Readable.from(hashChunks()), createWriteStream(stagingPath));
+  } catch (err) {
+    try {
+      await fs.unlink(stagingPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw err;
+  }
+  const hash = hasher.digest('hex');
 
-  // Check if already exists
+  const dirPath = path.join(objectsDir, hash.slice(0, 2));
+  const filePath = path.join(dirPath, hash.slice(2) + extension);
+
+  // Deduplicate: the object may already exist (content-addressed store).
   try {
     await fs.access(filePath);
-    return hash; // Already exists
+    await fs.unlink(stagingPath);
+    return hash;
   } catch {
     // Doesn't exist, continue
   }
 
-  // Create directory if needed
   await fs.mkdir(dirPath, { recursive: true });
-
-  // Write atomically: stage in same directory (same filesystem) + rename
-  // Staging files use .partial extension; gc can clean up any orphaned ones
-  // Use random suffix to avoid collisions with concurrent writes
-  const randomSuffix = Math.random().toString(36).slice(2, 10);
-  const stagingPath = path.join(dirPath, `${fileName}.${Date.now()}.${randomSuffix}.partial`);
-
-  // Reconstruct stream from collected chunks
-  const nodeStream = Readable.from(data);
-  const writeStream = createWriteStream(stagingPath);
-
-  await pipeline(nodeStream, writeStream);
-
   try {
     await fs.rename(stagingPath, filePath);
   } catch (err) {
@@ -185,6 +186,20 @@ export async function objectWriteStream(
   }
 
   return hash;
+}
+
+/**
+ * Atomically write a stream to the repository at bounded memory.
+ *
+ * @param repoPath - Path to e3 repository
+ * @param stream - Stream to store
+ * @returns SHA256 hash of the data
+ */
+export async function objectWriteStream(
+  repoPath: string,
+  stream: ReadableStream<Uint8Array>
+): Promise<string> {
+  return objectWriteStreamIterable(repoPath, readableStreamChunks(stream));
 }
 
 /**
@@ -251,16 +266,7 @@ export class LocalObjectStore implements ObjectStore {
   }
 
   async writeStream(repo: string, stream: AsyncIterable<Uint8Array>): Promise<string> {
-    // Convert AsyncIterable to ReadableStream for objectWriteStream
-    const readableStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        for await (const chunk of stream) {
-          controller.enqueue(chunk);
-        }
-        controller.close();
-      },
-    });
-    return objectWriteStream(repo, readableStream);
+    return objectWriteStreamIterable(repo, stream);
   }
 
   async read(repo: string, hash: string): Promise<Uint8Array> {
