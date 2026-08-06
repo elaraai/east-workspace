@@ -48,11 +48,10 @@ export const progressVariants = example({
                 // A value preset swaps the whole reading — value, range, mode
                 // and the caption that goes with it — so the axis is a struct.
                 const presets = $.const([
-                    { label: "percent",       value: 75.0, min: 0.0, max: 100.0, indeterminate: false, eta: false, labelText: "Upload progress",   valueText: "75%" },
-                    { label: "range",         value: 7.5,  min: 0.0, max: 10.0,  indeterminate: false, eta: false, labelText: "Rating 7.5 / 10",   valueText: "" },
-                    { label: "indeterminate", value: 0.0,  min: 0.0, max: 100.0, indeterminate: true,  eta: false, labelText: "Solver running…",   valueText: "" },
-                    { label: "eta",           value: 42.0, min: 0.0, max: 100.0, indeterminate: false, eta: true,  labelText: "Solver running 42%", valueText: "" },
-                ], ArrayType(StructType({ label: StringType, value: FloatType, min: FloatType, max: FloatType, indeterminate: BooleanType, eta: BooleanType, labelText: StringType, valueText: StringType })));
+                    { label: "percent",       value: 75.0, min: 0.0, max: 100.0, indeterminate: false, labelText: "Upload progress",   valueText: "75%" },
+                    { label: "range",         value: 7.5,  min: 0.0, max: 10.0,  indeterminate: false, labelText: "Rating 7.5 / 10",   valueText: "" },
+                    { label: "indeterminate", value: 0.0,  min: 0.0, max: 100.0, indeterminate: true,  labelText: "Solver running…",   valueText: "" },
+                ], ArrayType(StructType({ label: StringType, value: FloatType, min: FloatType, max: FloatType, indeterminate: BooleanType, labelText: StringType, valueText: StringType })));
 
                 const toneBind     = $.let(State.bind([StringType], "progress_tone", "brand"));
                 const sizeBind     = $.let(State.bind([StringType], "progress_size", "md"));
@@ -84,27 +83,17 @@ export const progressVariants = example({
                 const valueText = $.let(labelOn.ifElse(_$ => preset.valueText, _$ => ""));
                 const labelSpec = $.let(labelOn.ifElse(_$ => "label + valueText", _$ => "hidden"));
 
-                // ETA is the presence of estimatedDuration + startedAt, not a
-                // value of either — so the preset picks between the two bars
-                // rather than feeding empty timing fields.
-                const bar = $.const(preset.eta.ifElse(
-                    _$ => (
-                        <Progress
-                            value={preset.value} min={preset.min} max={preset.max}
-                            label={labelText} valueText={valueText}
-                            tone={tone} size={size} striped={striped} animated={animated}
-                            estimatedDuration={120n} startedAt={PROGRESS_ETA_STARTED_AT} showValue={true}
-                        />
-                    ),
-                    _$ => (
-                        <Progress
-                            value={preset.value} min={preset.min} max={preset.max}
-                            indeterminate={preset.indeterminate}
-                            label={labelText} valueText={valueText}
-                            tone={tone} size={size} striped={striped} animated={animated}
-                        />
-                    ),
-                ));
+                // ONE bar — value / range / indeterminate all travel as preset
+                // DATA; the ETA countdown (presence-typed timing fields) lives
+                // in its own example.
+                const bar = $.const(
+                    <Progress
+                        value={preset.value} min={preset.min} max={preset.max}
+                        indeterminate={preset.indeterminate}
+                        label={labelText} valueText={valueText}
+                        tone={tone} size={size} striped={striped} animated={animated}
+                    />,
+                );
 
                 return (
                     <Configurator
@@ -142,12 +131,29 @@ export const progressVariants = example({
                         }}
                         spec={[
                             Configurator.Spec("Range", East.str`${East.print(preset.min)}–${East.print(preset.max)}`),
-                            Configurator.Spec("Mode", preset.eta.ifElse(_$ => "eta", _$ => preset.indeterminate.ifElse(_$ => "indeterminate", _$ => "determinate"))),
+                            Configurator.Spec("Mode", preset.indeterminate.ifElse(_$ => "indeterminate", _$ => "determinate")),
                             Configurator.Spec("Striped", striped.ifElse(_$ => animated.ifElse(_$ => "animated", _$ => "static"), _$ => "off")),
                         ]}
                     />
                 );
             }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+/** ETA countdown — estimatedDuration + startedAt drive the remaining-time readout. */
+export const progressEta = example({
+    keywords: ["Progress", "estimatedDuration", "startedAt", "ETA", "countdown", "showValue"],
+    description: "ETA countdown — estimatedDuration and startedAt drive the remaining-time readout",
+    fn: East.function([], UIComponentType, (_$) => {
+        const PROGRESS_ETA_STARTED_AT = new Date(Date.now() - 42_000);
+        return (
+            <Progress
+                value={42.0} min={0.0} max={100.0}
+                label="Solver running" tone="brand" size="md"
+                estimatedDuration={120n} startedAt={PROGRESS_ETA_STARTED_AT} showValue={true}
+            />
         );
     }),
     inputs: [],

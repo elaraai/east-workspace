@@ -38,40 +38,30 @@ export const statusVariants = example({
             const valueBind = $.let(State.bind([StringType], "status_value", "success"));
             const pulsingBind = $.let(State.bind([BooleanType], "status_pulsing", false));
             const richBind = $.let(State.bind([BooleanType], "status_rich", false));
-            const iconBind = $.let(State.bind([BooleanType], "status_icon", false));
 
             const vKey = $.let(valueBind.read());
             const value = $.let(values.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
             const pulsingOn = $.let(pulsingBind.read());
             const richOn = $.let(richBind.read());
-            const iconOn = $.let(iconBind.read());
 
             const onValue = $.const(East.function([StringType], NullType, ($, next) => { $(valueBind.write(next)); }));
             const onPulsing = $.const(East.function([BooleanType], NullType, ($, next) => { $(pulsingBind.write(next)); }));
             const onRich = $.const(East.function([BooleanType], NullType, ($, next) => { $(richBind.write(next)); }));
-            const onIcon = $.const(East.function([BooleanType], NullType, ($, next) => { $(iconBind.write(next)); }));
 
             // The rich label is a UIComponent slot and the custom icon is
-            // presence-typed, so those switches pick between prebuilt statuses;
-            // value + pulsing stay live.
-            const preview = $.const(richOn.ifElse(
-                _$ => (
-                    <Status
-                        value={value}
-                        pulsing={pulsingOn}
-                        label={
-                            <HStack gap="1">
-                                <Text>Up to date</Text>
-                                <Text color="fg.muted">· 14:32</Text>
-                            </HStack>
-                        }
-                    />
-                ),
-                _$ => iconOn.ifElse(
-                    _$ => <Status label="Syncing" value={value} pulsing={pulsingOn} icon={{ prefix: "fas", name: "rotate" }} />,
-                    _$ => <Status label="Up to date" value={value} pulsing={pulsingOn} />,
-                ),
-            ));
+            // label is a VALUE (string or UI) and icon composes on — ONE
+            // status; value + pulsing + rich-label stay live.
+            const richLabel = $.let((
+                <HStack gap="1">
+                    <Text>Up to date</Text>
+                    <Text color="fg.muted">· 14:32</Text>
+                </HStack>
+            ), UIComponentType);
+            const plainLabel = $.let(<Text>Syncing</Text>, UIComponentType);
+            const label = $.let(richOn.ifElse(_$ => richLabel, _$ => plainLabel));
+            const preview = $.const(
+                <Status value={value} pulsing={pulsingOn} icon={{ prefix: "fas", name: "rotate" }} label={label} />,
+            );
 
             return (
                 <Configurator
@@ -83,7 +73,6 @@ export const statusVariants = example({
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={pulsingOn} label="Pulsing" onChange={onPulsing} />
                                 <Switch checked={richOn} label="Rich label" onChange={onRich} />
-                                <Switch checked={iconOn} label="Custom icon" onChange={onIcon} />
                             </HStack>),
                     ]}
                     preview={preview}

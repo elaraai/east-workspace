@@ -13,6 +13,7 @@ describeEast("Progress", (test) => {
     Assert.examples(test, {
         progressBasic: ex.progressBasic,
         progressVariants: ex.progressVariants,
+        progressEta: ex.progressEta,
     });
 
     // =========================================================================

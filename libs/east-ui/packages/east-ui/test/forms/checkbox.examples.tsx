@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Checkbox, Configurator, HStack, Reactive, SegmentGroup, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Checkbox, Configurator, HStack, Reactive, SegmentGroup, Style, Switch, Text, VStack } from "@elaraai/east-ui";
 
 export const checkboxBasic = example({
     keywords: ["Checkbox", "Root", "label", "indeterminate", "disabled"],
@@ -28,7 +28,9 @@ export const checkboxVariants = example({
     description: "Checkbox configurator — a size axis plus indeterminate and disabled switches on one live State-bound checkbox",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const sizes = $.const(["sm", "md", "lg"], ArrayType(StringType));
+            const sizes = $.const([
+                variant("sm", null), variant("md", null), variant("lg", null),
+            ], ArrayType(Style.Types.Size));
 
             const sizeBind = $.let(State.bind([StringType], "checkbox_size", "md"));
             const indetBind = $.let(State.bind([BooleanType], "checkbox_indeterminate", false));
@@ -45,22 +47,18 @@ export const checkboxVariants = example({
             const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
             const onChange = $.const(East.function([BooleanType], NullType, ($, next) => { $(checkBind.write(next)); }));
 
-            // size is a string-literal enum; build one checkbox per size arm
-            // and keep the binding + switches live everywhere.
-            const preview = $.const(sKey.equal("sm").ifElse(
-                _$ => <Checkbox checked={checked} label="Notify me" size="sm" indeterminate={indetOn} disabled={disabledOn} onChange={onChange} />,
-                _$ => sKey.equal("lg").ifElse(
-                    _$ => <Checkbox checked={checked} label="Notify me" size="lg" indeterminate={indetOn} disabled={disabledOn} onChange={onChange} />,
-                    _$ => <Checkbox checked={checked} label="Notify me" size="md" indeterminate={indetOn} disabled={disabledOn} onChange={onChange} />,
-                ),
-            ));
+            // size is an expression — ONE live checkbox serves every position.
+            const sizeSel = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+            const preview = $.const(
+                <Checkbox checked={checked} label="Notify me" size={sizeSel} indeterminate={indetOn} disabled={disabledOn} onChange={onChange} />,
+            );
 
             return (
                 <Configurator
                     controls={[
                         Configurator.Control("Size", sKey,
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
-                                items={sizes.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
+                                items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Slot("State",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={indetOn} label="Indeterminate" onChange={onIndet} />

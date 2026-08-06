@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, IntegerType, NullType, StringType, example } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Configurator, Input, HStack, Reactive, SegmentGroup, Text, Textarea } from "@elaraai/east-ui";
 
@@ -21,7 +21,9 @@ export const textareaVariants = example({
     description: "Textarea configurator — rows and resize axes on one live State-bound textarea; the aside counts chars, focus, blur and validations",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const resizes = $.const(["none", "vertical", "both"], ArrayType(StringType));
+            const resizes = $.const([
+                variant("none", null), variant("vertical", null), variant("both", null),
+            ], ArrayType(Textarea.Types.Resize));
 
             const rowsBind = $.let(State.bind([IntegerType], "textarea_rows", 3n));
             const resizeBind = $.let(State.bind([StringType], "textarea_resize", "vertical"));
@@ -52,16 +54,11 @@ export const textareaVariants = example({
                 $(validBind.write(val));
             }));
 
-            // resize is a build-time enum, so that axis picks between
-            // prebuilt textareas; rows is an expression-fed integer shared by
-            // all three.
-            const preview = $.const(zKey.equal("none").ifElse(
-                _$ => <Textarea value={text} placeholder="Write something..." rows={rowsN} resize="none" onChange={onChange} onFocus={onFocus} onBlur={onBlur} onValidate={onValidate} />,
-                _$ => zKey.equal("both").ifElse(
-                    _$ => <Textarea value={text} placeholder="Write something..." rows={rowsN} resize="both" onChange={onChange} onFocus={onFocus} onBlur={onBlur} onValidate={onValidate} />,
-                    _$ => <Textarea value={text} placeholder="Write something..." rows={rowsN} resize="vertical" onChange={onChange} onFocus={onFocus} onBlur={onBlur} onValidate={onValidate} />,
-                ),
-            ));
+            // rows AND resize are expressions — ONE live textarea.
+            const resizeSel = $.let(resizes.filter((_$, v) => v.getTag().equal(zKey)).get(0n));
+            const preview = $.const(
+                <Textarea value={text} placeholder="Write something..." rows={rowsN} resize={resizeSel} onChange={onChange} onFocus={onFocus} onBlur={onBlur} onValidate={onValidate} />,
+            );
 
             return (
                 <Configurator
@@ -70,7 +67,7 @@ export const textareaVariants = example({
                             <Input.Integer value={rowsN} min={2n} max={12n} step={1n} size="sm" onChange={onRows} />),
                         Configurator.Control("Resize", zKey,
                             <SegmentGroup value={zKey} onChange={onResize} size="sm"
-                                items={resizes.map((_$, z) => SegmentGroup.Item(z, <Text>{z.upperCase()}</Text>))} />),
+                                items={resizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                     ]}
                     preview={preview}
                     aside={{
