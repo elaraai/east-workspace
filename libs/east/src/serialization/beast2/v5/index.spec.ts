@@ -36,6 +36,7 @@ import {
   encodeBeast2PagedFor,
   iterBeast2SegmentsFor,
   openBeast2PagesFor,
+  readBeast2Extents,
   MAGIC_BYTES_V5,
 } from "../index.js";
 import { writeTypeSection } from "./type-section.js";
@@ -770,6 +771,26 @@ describe("Beast2 v5 — Hardening", () => {
     const b = encodeBeast2For(StructType({ tag: StringType, n: IntegerType }), V5_PLAIN)({ tag: "a", n: 1n });
     assert.equal(a[8], 0, "custom types are always structural");
     assert.deepEqual(Array.from(b), Array.from(a), "identical value ⇒ identical bytes");
+  });
+
+  test("headerPrefix must carry the writer's own wire type", () => {
+    const DT = DictType(StringType, IntegerType);
+    const arrayBlob = goodBlob();
+    const prefix = arrayBlob.subarray(0, readBeast2Extents(arrayBlob).prefixEnd);
+
+    // A same-type prefix is the splice-tooling contract — accepted verbatim.
+    const chunks: Uint8Array[] = [];
+    const writer = new Beast2Writer(AT, (b) => chunks.push(b), { headerPrefix: prefix });
+    writer.write(["x"]);
+    writer.finish();
+    assert.deepEqual(decodeBeast2For(AT)(Buffer.concat(chunks)), ["x"]);
+
+    // A prefix from a blob of a different wire type would write a header that
+    // lies about the contents — refused at construction.
+    assert.throws(() => new Beast2Writer(DT, () => { }, { headerPrefix: prefix }), /headerPrefix declares wire type/);
+    assert.throws(() => new Beast2Writer(ArrayType(IntegerType), () => { }, { headerPrefix: prefix }), /headerPrefix declares wire type/);
+    // Bytes that are not a v5 header at all are refused by the magic check.
+    assert.throws(() => new Beast2Writer(AT, () => { }, { headerPrefix: new Uint8Array([1, 2, 3]) }), /too short|magic/i);
   });
 
   test("well-known hash drift fails loudly", () => {

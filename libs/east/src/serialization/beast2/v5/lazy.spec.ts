@@ -97,6 +97,23 @@ describe("Beast2 v5 — lazy Dict", () => {
     const lazy = openBeast2LazyFor(TableType)(corrupt);
     assert.throws(() => [...lazy], /not disjoint ascending key ranges/);
   });
+
+  test("hydration mid-generator keeps the in-flight iterator on the original sequence", () => {
+    const value = makeTable(250);
+    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const lazy = openBeast2LazyFor(TableType)(blob);
+
+    const it = lazy.entries();
+    const head = [it.next().value!, it.next().value!, it.next().value!];
+    lazy.set(9999n, { id: 9999n, name: "added" });  // hydrates mid-generator
+    const rest = [...it];
+    const keys = [...head, ...rest].map(([k]) => k);
+    assert.equal(keys.length, 250, "the in-flight iterator completes the pre-hydration sequence");
+    for (let i = 1; i < keys.length; i++) {
+      assert.ok(keys[i - 1]! < keys[i]!, "canonical ascending order throughout");
+    }
+    assert.equal([...lazy].length, 251, "a new iteration sees the mutation");
+  });
 });
 
 describe("Beast2 v5 — lazy Set", () => {
@@ -165,5 +182,17 @@ describe("Beast2 v5 — lazy Array", () => {
     assert.equal(lazy.length, 261);
     assert.equal(lazy[260], "appended");
     assert.equal(lazy[0], "row-0");
+  });
+
+  test("hydration mid-iteration keeps the in-flight iterator on the original sequence", () => {
+    const blob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const lazy = openBeast2LazyFor(Rows)(blob);
+
+    const it = lazy[Symbol.iterator]();
+    const head = [it.next().value!, it.next().value!];
+    lazy.push("appended");  // hydrates mid-generator
+    const rest = [...it];
+    assert.deepEqual([...head, ...rest], rows, "the in-flight iterator completes the pre-hydration sequence");
+    assert.equal(lazy.length, 261, "a fresh read sees the mutation");
   });
 });

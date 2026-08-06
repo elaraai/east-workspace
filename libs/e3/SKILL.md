@@ -320,7 +320,11 @@ partial recompute. Omit `stream` for a producer (platform-function
 ingest). Runs on every stock runtime: the output always streams through
 `emit`, and every runner feeds the `stream` input lazily with O(segment)
 decoded memory (segment-fed iteration and keyed reads; any other operation
-on it decodes the whole value once).
+on it decodes the whole value once). Ordinary indexed collection inputs of
+any task open the same way by default once they reach 64 MiB on the wire —
+`EAST_LAZY_INPUT_BYTES` overrides the threshold, `0` forces eager decodes —
+and semantics are identical either way, so the threshold is a memory knob,
+not a behavior toggle.
 
 ```typescript
 const events = e3.input('events', ArrayType(EventType));

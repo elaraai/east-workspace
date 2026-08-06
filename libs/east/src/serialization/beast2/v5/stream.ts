@@ -21,8 +21,9 @@
  * whole-stream aliasing at the cost of random access.
  */
 
-import { type EastTypeValue } from "../../../type_of_type.js";
+import { type EastTypeValue, EastTypeValueType, isTypeValueEqual } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
+import { printFor } from "../../east.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { SourceMap } from "../../../location.js";
 import { compareFor } from "../../../comparison.js";
@@ -134,7 +135,8 @@ export class Beast2Writer<T extends EastType = EastType> {
    * @param type - the collection type this stream holds (Array/Set/Dict)
    * @param sink - receives output bytes as they are produced
    * @param options - codec, self-containment, index, and source map options
-   * @throws {TypeError} When `type` is not an Array, Set or Dict type.
+   * @throws {TypeError} When `type` is not an Array, Set or Dict type, or
+   *   when `options.headerPrefix` is not a v5 header of exactly `type`.
    */
   constructor(type: T | EastTypeValue, sink: (bytes: Uint8Array) => void, options?: Beast2WriterOptions) {
     const typeValue = asTypeValue(type);
@@ -167,8 +169,17 @@ export class Beast2Writer<T extends EastType = EastType> {
 
     // Header: magic + type section + source map section, then the root tag
     // as its own frame so every indexed segment frame is pure. A caller-
-    // provided prefix (splice tooling) is emitted verbatim instead.
+    // provided prefix (splice tooling) is emitted verbatim instead — after
+    // verifying its wire type IS the declared type, since a mismatched
+    // prefix would write a blob whose header lies about its contents.
     if (options?.headerPrefix !== undefined) {
+      verifyV5Magic(options.headerPrefix);
+      const prefixReader = new BufferReader(options.headerPrefix, MAGIC_BYTES_V5.length);
+      const { rootType } = readTypeSection(prefixReader);
+      if (!isTypeValueEqual(rootType, typeValue)) {
+        const printType = printFor(EastTypeValueType);
+        throw new TypeError(`beast2 v5: headerPrefix declares wire type ${printType(rootType)}, not the writer's ${printType(typeValue)} — the prefix must come from a blob of the same wire type`);
+      }
       this.ctx.containerCount = 1;
       this.ctx.segmentBaseDef = 1;
       this.emit(options.headerPrefix);
