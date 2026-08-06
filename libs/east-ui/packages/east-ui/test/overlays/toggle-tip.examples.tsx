@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, IconButton, Reactive, SegmentGroup, Text, ToggleTip } from "@elaraai/east-ui";
+import { Configurator, HStack, IconButton, Reactive, Text, ToggleTip } from "@elaraai/east-ui";
 
 export const toggleTipBasic = example({
     keywords: ["ToggleTip", "Root", "Icon", "accessible", "click"],
@@ -26,17 +26,12 @@ export const toggleTipBasic = example({
 });
 
 export const toggleTipVariants = example({
-    keywords: ["ToggleTip", "Root", "info", "help", "placement", "hasArrow", "Reactive", "State", "onOpenChange", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    keywords: ["ToggleTip", "Root", "info", "help", "placement", "hasArrow", "Reactive", "State", "onOpenChange", "interactive", "Configurator", "configurator"],
     description: "ToggleTip configurator — a placement axis on one live tip; the aside counts open/close transitions",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const placements = $.const(["top", "bottom"], ArrayType(StringType));
-
-            const placementBind = $.let(State.bind([StringType], "toggletip_placement", "top"));
             const togglesBind = $.let(State.bind([IntegerType], "toggletip_toggles", 0n));
             const toggles = $.let(togglesBind.read());
-
-            const onPlacement = $.const(East.function([StringType], NullType, ($, next) => { $(placementBind.write(next)); }));
             const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
                 const cur = $.let(togglesBind.read());
                 $(togglesBind.write(cur.add(1n)));

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, SegmentGroup, Switch, Text, Toggle } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, SegmentGroup, Text, Toggle } from "@elaraai/east-ui";
 
 export const toggleGridlines = example({
     keywords: ["Toggle", "Root", "pressed", "toolbar", "gridlines"],
@@ -21,7 +21,7 @@ export const toggleGridlines = example({
 });
 
 export const toggleVariants = example({
-    keywords: ["Toggle", "Root", "pressed", "variant", "subtle", "outline", "size", "icon", "pressedBackground", "override", "Reactive", "State", "onChange", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Toggle", "Root", "pressed", "variant", "subtle", "outline", "size", "icon", "pressedBackground", "override", "Reactive", "State", "onChange", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Toggle configurator — variant and size axes plus a branded-pressed switch driving one live State-bound toggle; the spec reads the pressed state back",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

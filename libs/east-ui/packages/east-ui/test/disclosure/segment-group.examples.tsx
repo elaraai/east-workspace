@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Configurator, HStack, Reactive, SegmentGroup, VStack, Style, Switch, Text } from "@elaraai/east-ui";
+import { Badge, Configurator, HStack, Reactive, SegmentGroup, VStack, Style, Text } from "@elaraai/east-ui";
 
 export const segmentGroupViewToggle = example({
     keywords: ["SegmentGroup", "Root", "Item", "toolbar", "toggle", "view"],
@@ -29,7 +29,7 @@ export const segmentGroupViewToggle = example({
 });
 
 export const segmentGroupVariants = example({
-    keywords: ["SegmentGroup", "Root", "Item", "size", "sm", "md", "colorPalette", "background", "activeBackground", "branded", "Reactive", "State", "onChange", "interactive", "Switch", "Configurator", "configurator"],
+    keywords: ["SegmentGroup", "Root", "Item", "size", "sm", "md", "colorPalette", "background", "activeBackground", "branded", "Reactive", "State", "onChange", "interactive", "Configurator", "configurator"],
     description: "SegmentGroup configurator — a size axis plus a branded switch on one live State-bound segment control",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

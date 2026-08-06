@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, StringType, StructType, NullType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Box, Calendar, Configurator, HStack, Reactive, SegmentGroup, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Box, Calendar, Configurator, HStack, Reactive, SegmentGroup, Switch, Text} from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455).
@@ -96,7 +96,6 @@ export const calendarVariants = example({
                 const densityBind = $.let(State.bind([StringType], "calendar_density", "comfortable"));
                 const scaleBind   = $.let(State.bind([StringType], "calendar_scale", "default"));
                 const valuesBind  = $.let(State.bind([BooleanType], "calendar_values", true));
-                const totalsBind  = $.let(State.bind([BooleanType], "calendar_totals", false));
                 const chromeBind  = $.let(State.bind([BooleanType], "calendar_chrome", false));
                 // The selection readout (folded from the old interactive
                 // example — its State key is preserved): onSelect writes the
@@ -112,7 +111,6 @@ export const calendarVariants = example({
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onScale   = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
                 const onValues  = $.const(East.function([BooleanType], NullType, ($, next) => { $(valuesBind.write(next)); }));
-                const onTotals  = $.const(East.function([BooleanType], NullType, ($, next) => { $(totalsBind.write(next)); }));
                 const onChrome  = $.const(East.function([BooleanType], NullType, ($, next) => { $(chromeBind.write(next)); }));
                 const onSelect  = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {
                     $(selectedBind.write(East.str`${ref.day} ${ref.week}`));

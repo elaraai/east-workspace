@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Configurator, HStack, SegmentGroup, Select, Separator, Style, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Box, Button, Configurator, HStack, SegmentGroup, Select, Separator, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door

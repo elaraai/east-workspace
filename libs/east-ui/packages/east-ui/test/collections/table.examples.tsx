@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, HStack, Input, Reactive, SegmentGroup, Select, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455, pass 5 — one live instance
@@ -249,7 +249,7 @@ export const tablePnl = example({
  * composed on, with every event logging to the reactive aside.
  */
 export const tableVariants = example({
-    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "selection", "single", "multiple", "checkbox", "range", "shift-click", "fill", "scroll", "height", "#320", "SegmentGroup", "Select", "Input", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "selection", "single", "multiple", "checkbox", "range", "shift-click", "fill", "scroll", "height", "#320", "SegmentGroup", "Input", "Switch", "Configurator", "getTag", "configurator"],
     description: "Table configurator — density, striped, selection mode, row-height dial and size mode (auto / scroll / fill) all expression-fed into one live 1000-row table; callbacks log to the aside",
     fn: East.function([], UIComponentType, (_$) => {
         const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({

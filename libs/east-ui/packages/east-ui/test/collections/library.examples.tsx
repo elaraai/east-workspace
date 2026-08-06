@@ -3,28 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
+import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text} from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
-
-const LIBRARY_SCROLL_DATA = [
-    { id: "patel", name: "Patel, R.", role: "Senior", hours: 38.0 },
-    { id: "cho", name: "Cho, J.", role: "Senior", hours: 26.0 },
-    { id: "rivera", name: "Rivera, M.", role: "Senior", hours: 32.0 },
-    { id: "okafor", name: "Okafor, S.", role: "Mid", hours: 40.0 },
-    { id: "nguyen", name: "Nguyen, T.", role: "Mid", hours: 20.0 },
-    { id: "kim", name: "Kim, A.", role: "Mid", hours: 22.0 },
-];
-const LIBRARY_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
-    id: East.str`p${i}`,
-    name: East.str`Person ${i}`,
-    role: i.remainder(2n).equals(0n).ifElse(() => "Senior", () => "Mid"),
-    hours: i.remainder(40n).toFloat(),
-}));
 
 // ============================================================================
 // Large libraries (#258) — hundreds of cards behind a height-constrained,

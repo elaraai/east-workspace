@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, example} from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Dock, HStack, Planner, Reactive, SegmentGroup, Stack, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Dock, HStack, Planner, Reactive, Stack, Switch, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * The `<Dock>` chrome as one live configurator — an orientation axis (a
@@ -16,7 +16,7 @@ import { Box, Configurator, Dock, HStack, Planner, Reactive, SegmentGroup, Stack
  * control drives the other.
  */
 export const dockVariants = example({
-    keywords: ["Dock", "layout", "collapse", "rail", "expanded", "icon", "badge", "sidebar", "collapsed", "defaultCollapsed", "tooltip", "vertical", "orientation", "tray", "height", "side", "end", "controlled", "onCollapsedChange", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Dock", "layout", "collapse", "rail", "expanded", "icon", "badge", "sidebar", "collapsed", "defaultCollapsed", "tooltip", "vertical", "orientation", "tray", "height", "side", "end", "controlled", "onCollapsedChange", "Reactive", "State", "Switch", "Configurator", "getTag", "configurator"],
     description: "Dock configurator — an orientation axis plus collapsed / badge switches driving one live dock beside a reclaiming board; the chevron and the switch share one controlled bind",
     fn: East.function([], UIComponentType, (_$) => {
         return (

@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
+import { East, ArrayType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Badge, ChipRail, Configurator, HStack, MetricChip, SegmentGroup, Style, Switch, Tag, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Avatar, Badge, ChipRail, Configurator, HStack, MetricChip, SegmentGroup, Style, Tag, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -51,7 +51,7 @@ export const chipRailOverflow = example({
 // ============================================================================
 
 export const chipRailVariants = example({
-    keywords: ["ChipRail", "mixed", "Badge", "MetricChip", "Avatar", "Tag", "density", "Root", "tags", "separator", "dot-separator", "line", "none", "labels", "labeled", "caption", "dimension", "sizes", "condensed", "compact", "comfortable", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive"],
+    keywords: ["ChipRail", "mixed", "Badge", "MetricChip", "Avatar", "Tag", "density", "Root", "tags", "separator", "dot-separator", "line", "none", "labels", "labeled", "caption", "dimension", "sizes", "condensed", "compact", "comfortable", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator", "interactive"],
     description: "ChipRail configurator — chip set, density and separator axes on one live labeled rail; the aside stacks the set at all three densities",
     fn: East.function([], UIComponentType, (_$) => {
         return (

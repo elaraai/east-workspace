@@ -255,16 +255,28 @@ examples are under the slot budget already and are exempt.)
 2. **`<name>Variants`** — ONE variant-space example, in one of two
    forms:
    - **A live `<Configurator>` surface** — the preferred form for
-     style-axis components: every prop axis is a plain array of the
-     values themselves (`getTag()` supplies the key and label), one
-     `State.bind` per axis, the same array feeding the control widget
-     and the preview; switch pairs report through `Slot` + `Spec` rows
-     and reactive counters live in the `aside`. The control widget
-     matches the axis: `SegmentGroup` for ≤5 short-token options that
-     should all be visible at once, `Select` for longer or wordier
-     enumerations (presets, modes, palettes), `Input.Integer` /
-     `Input.Float` / `Slider` for expression-fed numeric props, and
-     `Switch` for booleans. Exemplar: `display/badge.examples.tsx`.
+     style-axis components. TWO HARD RULES: (1) a configurator drives
+     exactly ONE live target instance — every axis feeds that instance
+     as an expression (an empty height/maxHeight string reads as
+     unbounded, selection modes are variants inside their structs, data
+     presets travel as explicitly-typed structs, children/labels are
+     values, and paired callbacks dual-attach); anything presence-typed
+     or build-time that cannot feed the one instance becomes its OWN
+     example (a `*CustomColours` static, a split configurator, or the
+     richest composition) — never a second target behind an axis. (2)
+     every example `fn` is fully self-contained — all data, types and
+     helpers live inside the fn body (the extracted snippet must be
+     complete, copy-pasteable code; no module-scope fixtures). Axes are
+     plain arrays of the values themselves (`getTag()` supplies the key
+     and label), one `State.bind` per axis; switch pairs report through
+     `Slot` + `Spec` rows and reactive counters live in the `aside`.
+     Data-preset structs carrying variant-typed fields MUST pin their
+     types explicitly (element-wise inference fails to unify at decode).
+     The control widget matches the axis: `SegmentGroup` for 2–3
+     short non-binary options, `Select` for 4+ or wordier enumerations,
+     `Input.Integer` / `Input.Float` / `Slider` for numeric props, and
+     `Switch` for booleans. Exemplar: `collections/table.examples.tsx`
+     (`tableVariants`).
    - **A static enumeration panel** (`VStack` of
      `<Separator label>`-bounded groups) ONLY where seeing every row at
      once is the point — the aligned-stack catalogue

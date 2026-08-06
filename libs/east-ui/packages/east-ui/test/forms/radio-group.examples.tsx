@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, RadioGroup, SegmentGroup, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Configurator, RadioGroup, SegmentGroup, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — the configurator's item set, with and without the
@@ -39,7 +39,7 @@ export const radioGroupBasic = example({
 // ============================================================================
 
 export const radioGroupVariants = example({
-    keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
+    keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "RadioGroup configurator — orientation and colour-override axes plus a disabled-item switch driving one live State-bound group; the aside reads the selection back",
     fn: East.function([], UIComponentType, (_$) => {
         const RADIO_GROUP_DISABLED_ITEM_DATA = [

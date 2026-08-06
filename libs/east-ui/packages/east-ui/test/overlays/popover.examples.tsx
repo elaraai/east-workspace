@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Chart, Configurator, Popover, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
+import { Button, Chart, Configurator, Popover, Reactive, Text } from "@elaraai/east-ui";
 
 export const popoverBasic = example({
     keywords: ["Popover", "Root", "title", "description", "click"],
@@ -21,7 +21,7 @@ export const popoverBasic = example({
 });
 
 export const popoverVariants = example({
-    keywords: ["Popover", "Root", "Chart", "Area", "hasArrow", "placement", "Reactive", "State", "onOpenChange", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    keywords: ["Popover", "Root", "Chart", "Area", "hasArrow", "placement", "Reactive", "State", "onOpenChange", "interactive", "Configurator", "configurator"],
     description: "Popover configurator — a content preset axis (text / chart) on one live popover; the aside counts open/close transitions",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

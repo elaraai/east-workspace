@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Badge, Button, Configurator, HoverCard, HStack, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
+import { Avatar, Badge, Button, Configurator, HoverCard, HStack, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const hoverCardProfile = example({
     keywords: ["HoverCard", "Root", "Avatar", "Badge", "profile", "title"],
@@ -31,7 +31,7 @@ export const hoverCardProfile = example({
 });
 
 export const hoverCardVariants = example({
-    keywords: ["HoverCard", "Root", "link", "preview", "title", "description", "Reactive", "State", "onOpenChange", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    keywords: ["HoverCard", "Root", "link", "preview", "title", "description", "Reactive", "State", "onOpenChange", "interactive", "Configurator", "configurator"],
     description: "HoverCard configurator — a content preset axis (profile / link) on one live card; the aside counts hover-open transitions",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

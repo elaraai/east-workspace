@@ -26,7 +26,6 @@ export const kbdVariants = example({
                 { label: "chord", keys: ["⌘", "K"] },
                 { label: "sequence", keys: ["Ctrl", "Shift", "P"] },
             ], ArrayType(StructType({ label: StringType, keys: ArrayType(StringType) })));
-            const variants = $.const(["subtle", "solid"], ArrayType(StringType));
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
             ], ArrayType(Style.Types.Density));

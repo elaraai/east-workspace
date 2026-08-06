@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
+import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none} from "@elaraai/east";
 import { Slice, State, UIComponentType } from "@elaraai/east-ui";
-import { Chart, Configurator, Deck, HStack, Reactive, SegmentGroup, Switch, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from "@elaraai/east-ui";
 
 export const deckBasic = example({
     keywords: ["Deck", "card", "cards", "collection", "grid", "status", "statuses", "metric", "fill"],

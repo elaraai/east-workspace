@@ -5,23 +5,13 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, StringType, StructType, ArrayType, BooleanType, NullType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Chart, Configurator, HStack, Reactive, SegmentGroup, Select, Switch, Table, Text, VStack } from "@elaraai/east-ui";
+import { Box, Button, Chart, Configurator, HStack, Reactive, Select, Switch, Table, Text, VStack } from "@elaraai/east-ui";
 
 // Rows for the tooltip-over-sticky-header layering example (below).
 
 // ============================================================================
 // Module-scope fixtures — one per configurator cell (consolidation epic #455).
 // ============================================================================
-
-const BAR_GROUPED_DATA = [
-    { site: "North", loaded: 42n, empty: 18n }, { site: "South", loaded: 35n, empty: 25n },
-    { site: "West", loaded: 28n, empty: 12n },
-];
-
-const BAR_PERCENT_STACKED_DATA = [
-    { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
-    { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
-];
 
 // ============================================================================
 // Basic — the search-index front door
@@ -49,7 +39,7 @@ export const lineBasic = example({
 // ============================================================================
 
 export const lineVariants = example({
-    keywords: ["Chart", "Line", "multi-series", "columns", "wide", "legend", "breakdown", "by", "split", "curve", "natural", "smooth", "step", "dots", "strokeWidth", "stepAfter", "stepBefore", "setpoint", "held", "dash", "layers", "per-series-style", "opacity", "tooltip", "fan", "sample-path", "overlay", "decoration", "time", "temporal", "DateTime", "format", "linear", "numeric", "domain", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast", "tickStyle", "titleStyle", "titleGap", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "label", "currency", "date", "compact", "pin", "explicit", "#318", "Column", "Reactive", "State", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Chart", "Line", "multi-series", "columns", "wide", "legend", "breakdown", "by", "split", "curve", "natural", "smooth", "step", "dots", "strokeWidth", "stepAfter", "stepBefore", "setpoint", "held", "dash", "layers", "per-series-style", "opacity", "tooltip", "fan", "sample-path", "overlay", "decoration", "time", "temporal", "DateTime", "format", "linear", "numeric", "domain", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast", "tickStyle", "titleStyle", "titleGap", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "label", "currency", "date", "compact", "pin", "explicit", "#318", "Column", "Reactive", "State", "interactive", "Switch", "Configurator", "getTag", "configurator"],
     description: "Line chart configurator — a curve axis plus points and tick-format switches on ONE live line; the aside’s Q4 column tracks a reactive peak against a pinned domain",
     fn: East.function([], UIComponentType, (_$) => {
         const LINE_CURVE_NATURAL_DATA = [

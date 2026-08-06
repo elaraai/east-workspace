@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, DateTimeType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, DateTimeType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Configurator, DateRangeInput, HStack, Input, SegmentGroup, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 

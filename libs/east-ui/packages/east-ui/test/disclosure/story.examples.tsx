@@ -129,9 +129,6 @@ export const storyChromeVariants = example({
 
                 const onRail    = $.const(East.function([StringType], NullType, ($, next) => { $(railBind.write(next)); }));
                 const onCompact = $.const(East.function([BooleanType], NullType, ($, next) => { $(compactBind.write(next)); }));
-                const onStepEnter = $.const(East.function([StringType], NullType, ($, id) => {
-                    $(entered.write(id));
-                }));
 
                 const orders = $.const(STORY_RAIL_RIGHT_DATA, ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));
 

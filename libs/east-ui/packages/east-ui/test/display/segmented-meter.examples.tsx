@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, SegmentGroup, SegmentedMeter, Switch, Text } from "@elaraai/east-ui";
+import { Configurator, Reactive, SegmentGroup, SegmentedMeter, Text } from "@elaraai/east-ui";
 
 export const segmentedMeterBasic = example({
     keywords: ["SegmentedMeter", "Root", "segments"],
@@ -23,7 +23,7 @@ export const segmentedMeterBasic = example({
 });
 
 export const segmentedMeterVariants = example({
-    keywords: ["SegmentedMeter", "Root", "labels", "outside", "thickness", "density", "condensed", "compact", "comfortable", "max", "residual", "trackColor", "caption", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["SegmentedMeter", "Root", "labels", "outside", "thickness", "density", "condensed", "compact", "comfortable", "max", "residual", "trackColor", "caption", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "SegmentedMeter configurator — labels, thickness and density axes plus a residual-track switch on one live meter",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

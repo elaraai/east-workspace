@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { AvatarGroup, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from "@elaraai/east-ui";
+import { AvatarGroup, Configurator, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
 
 export const avatarGroupBasic = example({
     keywords: ["AvatarGroup", "Root", "avatars"],
@@ -17,7 +17,7 @@ export const avatarGroupBasic = example({
 });
 
 export const avatarGroupVariants = example({
-    keywords: ["AvatarGroup", "Root", "size", "sm", "lg", "max", "overflow", "density", "condensed", "compact", "comfortable", "borderColor", "branded", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["AvatarGroup", "Root", "size", "sm", "lg", "max", "overflow", "density", "condensed", "compact", "comfortable", "borderColor", "branded", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "AvatarGroup configurator — size and density axes plus max-overflow and branded-border switches on one live group",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

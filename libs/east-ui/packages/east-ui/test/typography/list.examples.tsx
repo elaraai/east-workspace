@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Button, Configurator, Icon, List, SegmentGroup, Select, Switch, VStack, HStack, Text, Reactive } from "@elaraai/east-ui";
 

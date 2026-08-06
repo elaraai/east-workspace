@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, RadioCardGroup, SegmentGroup, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Configurator, RadioCardGroup, SegmentGroup, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — the configurator's card set, with and without the
@@ -39,7 +39,7 @@ export const radioCardGroupBasic = example({
 // ============================================================================
 
 export const radioCardGroupVariants = example({
-    keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
+    keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "RadioCardGroup configurator — orientation and selected-card colour axes plus a disabled-card switch driving one live State-bound card group; the aside reads the selection back",
     fn: East.function([], UIComponentType, (_$) => {
         const RADIO_CARD_GROUP_DISABLED_ITEM_DATA = [

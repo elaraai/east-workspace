@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { East, ArrayType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, Mark, Select, Switch, HStack, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, Mark, Select, HStack, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -25,7 +25,7 @@ export const markBasic = example({
 // ============================================================================
 
 export const markVariants = example({
-    keywords: ["Mark", "Root", "variant", "subtle", "solid", "text", "plain", "colorPalette", "yellow", "green", "blue", "red", "purple", "success", "warning", "error", "info", "inline", "context", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    keywords: ["Mark", "Root", "variant", "subtle", "solid", "text", "plain", "colorPalette", "yellow", "green", "blue", "red", "purple", "success", "warning", "error", "info", "inline", "context", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Mark configurator — variant and palette axes plus an in-context switch driving one live mark; the aside bumps a reactive mark label",
     fn: East.function([], UIComponentType, (_$) => {
         return (

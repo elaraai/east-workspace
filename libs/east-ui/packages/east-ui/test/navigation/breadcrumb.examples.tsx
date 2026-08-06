@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, NullType, StringType, example, some, none } from "@elaraai/east";
+import { East, NullType, StringType, example, some, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Breadcrumb, Configurator, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
+import { Breadcrumb, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const breadcrumbBasic = example({
     keywords: ["Breadcrumb", "Root", "navigation", "separator"],
@@ -23,7 +23,7 @@ export const breadcrumbBasic = example({
 });
 
 export const breadcrumbVariants = example({
-    keywords: ["Breadcrumb", "Root", "runAnchor", "run", "stamp", "leadingSeparator", "path", "Reactive", "State", "onClick", "interactive", "SegmentGroup", "Configurator", "configurator"],
+    keywords: ["Breadcrumb", "Root", "runAnchor", "run", "stamp", "leadingSeparator", "path", "Reactive", "State", "onClick", "interactive", "Configurator", "configurator"],
     description: "Breadcrumb configurator — a chrome preset axis (plain / run-anchor / path) on one live clickable trail; the aside reads the current page",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

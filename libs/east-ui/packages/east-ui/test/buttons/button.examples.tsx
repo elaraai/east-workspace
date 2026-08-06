@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, SegmentGroup, Select, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, Select, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
 
 export const buttonBasic = example({
     keywords: ["Button", "Root", "label", "basic", "create"],
@@ -21,7 +21,7 @@ export const buttonBasic = example({
 // ============================================================================
 
 export const buttonVariants = example({
-    keywords: ["Button", "Root", "variant", "solid", "colorPalette", "blue", "size", "outline", "ghost", "red", "danger", "escape-hatch", "color", "hoverBackground", "plain", "unadorned", "style", "background", "borderColor", "branded", "startIcon", "endIcon", "icon", "loading", "loadingText", "loadingIcon", "spinner", "label", "rich", "UIComp", "HStack", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "onClick", "Reactive", "State", "callback", "interactive", "counter"],
+    keywords: ["Button", "Root", "variant", "solid", "colorPalette", "blue", "size", "outline", "ghost", "red", "danger", "escape-hatch", "color", "hoverBackground", "plain", "unadorned", "style", "background", "borderColor", "branded", "startIcon", "endIcon", "icon", "loading", "loadingText", "loadingIcon", "spinner", "label", "rich", "UIComp", "HStack", "Switch", "Configurator", "getTag", "configurator", "onClick", "Reactive", "State", "callback", "interactive", "counter"],
     description: "Button configurator — variant, palette, size and colour axes plus loading, icons and rich-label switches driving one live button; the aside increments a reactive count",
     fn: East.function([], UIComponentType, (_$) => {
         return (

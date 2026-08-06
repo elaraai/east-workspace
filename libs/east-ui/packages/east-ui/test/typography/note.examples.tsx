@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Note, Reactive, SegmentGroup, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Configurator, Note, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
 
 export const noteNarrative = example({
     keywords: ["Note", "Root", "variant", "narrative"],
@@ -17,7 +17,7 @@ export const noteNarrative = example({
 });
 
 export const noteVariants = example({
-    keywords: ["Note", "Root", "variant", "narrative", "callout", "quote", "emphasis", "rich", "body", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "configurator"],
+    keywords: ["Note", "Root", "variant", "narrative", "callout", "quote", "emphasis", "rich", "body", "Reactive", "State", "SegmentGroup", "Configurator", "configurator"],
     description: "Note configurator — a variant axis (narrative / callout / quote) plus a rich-body switch",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

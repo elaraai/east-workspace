@@ -13,11 +13,6 @@ import { Board, Box, Configurator, Library, Reactive, SegmentGroup, Text, VStack
 
 // Shared assignment-state values for the hoisted fixtures.
 
-const BOARD_PUBLISHED_SHIFTS_DATA = [
-    { id: "am", name: "AM" },
-    { id: "pm", name: "PM" },
-];
-
 export const boardEdit = example({
     keywords: ["Board", "assignment", "edit", "areas", "shifts", "ghost", "added", "removed", "summary", "Reactive", "State", "onDrag", "onAccept", "interactive"],
     description: "Edit-mode day board — committed, added, removed, and model-ghost assignments across areas × shifts; onDrag / onAccept count every interaction into the footer readout",

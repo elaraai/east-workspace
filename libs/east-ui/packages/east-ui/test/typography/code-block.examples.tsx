@@ -70,7 +70,6 @@ export const codeBlockVariants = example({
                 const languageBind  = $.let(State.bind([StringType], "code_block_language", "typescript"));
                 const heightBind    = $.let(State.bind([StringType], "code_block_maxheight", "none"));
                 const linesBind     = $.let(State.bind([BooleanType], "code_block_lines", true));
-                const highlightBind = $.let(State.bind([BooleanType], "code_block_highlight", false));
                 const counter       = $.let(State.bind([IntegerType], "code_block_counter", 0n));
 
                 const lKey  = $.let(languageBind.read());

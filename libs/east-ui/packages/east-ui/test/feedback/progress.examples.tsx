@@ -31,7 +31,6 @@ export const progressVariants = example({
     description: "Progress configurator — tone, size and value-preset axes plus striped / animated and label switches driving one live bar; the aside stacks the three tones",
     fn: East.function([], UIComponentType, (_$) => {
         const ProgressToneType = Progress.Types.Style.fields.tone.cases.some;
-        const PROGRESS_ETA_STARTED_AT = new Date("2026-01-01T09:00:00Z");
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the

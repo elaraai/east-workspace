@@ -11,14 +11,6 @@ import { Button, Configurator, HStack, Input, Map, Reactive, Text, VStack } from
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const MAP_AREAS_DATA = [
-    { id: "5000", lat: -34.9258, lng: 138.5994, name: "5000 · Adelaide CBD" },
-    { id: "5100", lat: -34.836, lng: 138.6, name: "5100 · Prospect" },
-];
-const MAP_HEX_LOD_DATA = [
-    { id: "5100", lat: -34.836, lng: 138.6, name: "5100 · Prospect" },
-];
-
 // Real res-8 H3 cell ids: a gridDisk split along a wavy boundary into two
 // non-uniform halves that tile and run up against each other.
 

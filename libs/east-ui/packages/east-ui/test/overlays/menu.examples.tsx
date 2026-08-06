@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example } from "@elaraai/east";
-import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, IconButton, Menu, Reactive, SegmentGroup, Switch, Text } from "@elaraai/east-ui";
+import { East, example } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, IconButton, Menu, Reactive} from "@elaraai/east-ui";
 
 export const menuBasic = example({
     keywords: ["Menu", "Root", "Item", "GroupLabel", "Separator", "dropdown", "kebab", "icon", "command", "destructive"],
@@ -29,7 +29,7 @@ export const menuBasic = example({
 });
 
 export const menuVariants = example({
-    keywords: ["Menu", "Root", "Item", "disabled", "placement", "kebab", "account", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "configurator"],
+    keywords: ["Menu", "Root", "Item", "disabled", "placement", "kebab", "account", "Reactive", "State", "Configurator", "configurator"],
     description: "Menu configurator — a trigger preset axis (kebab / account) plus a disabled-items switch",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {

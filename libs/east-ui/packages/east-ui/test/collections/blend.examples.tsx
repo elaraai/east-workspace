@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, StringType, NullType, example, variant } from "@elaraai/east";
+import { BooleanType, East, StringType, NullType, example, variant } from "@elaraai/east";
 import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Blend, Configurator, Library, Reactive, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
+import { Blend, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
