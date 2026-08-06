@@ -26,7 +26,7 @@ export const dialogBasic = example({
 
 export const dialogVariants = example({
     keywords: ["Dialog", "Root", "size", "lg", "Card", "Reactive", "State", "onOpenChange", "interactive", "Configurator", "configurator"],
-    description: "Dialog configurator — a large-size switch on one live dialog; the aside counts opens and closes via onOpenChange",
+    description: "Dialog — the lg settings composition on one live dialog; the aside counts opens and closes via onOpenChange",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const openCountBind = $.let(State.bind([IntegerType], "dialog_open_count", 0n));
@@ -61,9 +61,6 @@ export const dialogVariants = example({
             return (
                 <Configurator
                     controls={[
-                        Configurator.Slot("Size",
-                            <HStack gap="5" align="center" wrap="wrap">
-                            </HStack>),
                     ]}
                     preview={preview}
                     aside={{

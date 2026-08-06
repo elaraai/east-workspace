@@ -40,7 +40,7 @@ export const radioCardGroupBasic = example({
 
 export const radioCardGroupVariants = example({
     keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
-    description: "RadioCardGroup configurator — orientation and selected-card colour axes plus a disabled-card switch driving one live State-bound card group; the aside reads the selection back",
+    description: "RadioCardGroup configurator — an orientation axis on one live State-bound group with a disabled card composed in",
     fn: East.function([], UIComponentType, (_$) => {
         const RADIO_CARD_GROUP_DISABLED_ITEM_DATA = [
             { value: "active", label: "Active", description: "Available now" },

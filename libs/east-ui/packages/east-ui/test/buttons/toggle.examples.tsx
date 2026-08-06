@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, SegmentGroup, Text, Toggle } from "@elaraai/east-ui";
+import { Configurator, Reactive, SegmentGroup, Text, Toggle } from "@elaraai/east-ui";
 
 export const toggleGridlines = example({
     keywords: ["Toggle", "Root", "pressed", "toolbar", "gridlines"],
@@ -22,7 +22,7 @@ export const toggleGridlines = example({
 
 export const toggleVariants = example({
     keywords: ["Toggle", "Root", "pressed", "variant", "subtle", "outline", "size", "icon", "pressedBackground", "override", "Reactive", "State", "onChange", "SegmentGroup", "Configurator", "getTag", "configurator"],
-    description: "Toggle configurator — variant and size axes plus a branded-pressed switch driving one live State-bound toggle; the spec reads the pressed state back",
+    description: "Toggle configurator — variant and size axes on one live State-bound toggle with icon and pressed tint composed on",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const variants = $.const([
@@ -65,9 +65,6 @@ export const toggleVariants = example({
                         Configurator.Control("Size", sKey,
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Slot("Pressed",
-                            <HStack gap="5" align="center" wrap="wrap">
-                            </HStack>),
                     ]}
                     preview={preview}
                     spec={[

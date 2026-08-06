@@ -26,7 +26,7 @@ export const markBasic = example({
 
 export const markVariants = example({
     keywords: ["Mark", "Root", "variant", "subtle", "solid", "text", "plain", "colorPalette", "yellow", "green", "blue", "red", "purple", "success", "warning", "error", "info", "inline", "context", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Configurator", "getTag", "configurator"],
-    description: "Mark configurator — variant and palette axes plus an in-context switch driving one live mark; the aside bumps a reactive mark label",
+    description: "Mark configurator — variant and palette axes on one live mark set in a running sentence; the aside bumps a reactive mark label",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -81,9 +81,6 @@ export const markVariants = example({
                                     items={palettes.map((_$, s) => Select.Item(s, s))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Placement spec row below rather than as one value.
-                            Configurator.Slot("Context",
-                                <HStack gap="5" align="center" wrap="wrap">
-                                </HStack>),
                         ]}
                         preview={preview}
                         aside={{

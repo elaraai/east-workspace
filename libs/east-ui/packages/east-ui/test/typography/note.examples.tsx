@@ -18,7 +18,7 @@ export const noteNarrative = example({
 
 export const noteVariants = example({
     keywords: ["Note", "Root", "variant", "narrative", "callout", "quote", "emphasis", "rich", "body", "Reactive", "State", "SegmentGroup", "Configurator", "configurator"],
-    description: "Note configurator — a variant axis (narrative / callout / quote) plus a rich-body switch",
+    description: "Note configurator — a variant axis (narrative / callout / quote) over one shared rich body",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const variants = $.const([

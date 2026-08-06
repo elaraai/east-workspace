@@ -24,7 +24,7 @@ export const segmentedMeterBasic = example({
 
 export const segmentedMeterVariants = example({
     keywords: ["SegmentedMeter", "Root", "labels", "outside", "thickness", "density", "condensed", "compact", "comfortable", "max", "residual", "trackColor", "caption", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
-    description: "SegmentedMeter configurator — labels, thickness and density axes plus a residual-track switch on one live meter",
+    description: "SegmentedMeter configurator — labels and density axes on one live captioned meter",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const labelModes = $.const([

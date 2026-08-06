@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Badge, ChipRail, Configurator, HStack, MetricChip, SegmentGroup, Style, Tag, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Avatar, Badge, ChipRail, Configurator, MetricChip, SegmentGroup, Style, Tag, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Basic — the search-index front door
@@ -131,9 +131,6 @@ export const chipRailVariants = example({
                                     items={separators.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Mode / Captions spec rows below rather than as one value.
-                            Configurator.Slot("Labels",
-                                <HStack gap="5" align="center" wrap="wrap">
-                                </HStack>),
                         ]}
                         preview={rail}
                         aside={{

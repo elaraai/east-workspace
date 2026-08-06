@@ -40,7 +40,7 @@ export const radioGroupBasic = example({
 
 export const radioGroupVariants = example({
     keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
-    description: "RadioGroup configurator — orientation and colour-override axes plus a disabled-item switch driving one live State-bound group; the aside reads the selection back",
+    description: "RadioGroup configurator — an orientation axis on one live State-bound group with a disabled item composed in",
     fn: East.function([], UIComponentType, (_$) => {
         const RADIO_GROUP_DISABLED_ITEM_DATA = [
             { value: "small", label: "Small" },

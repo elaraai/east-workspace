@@ -30,7 +30,7 @@ export const segmentGroupViewToggle = example({
 
 export const segmentGroupVariants = example({
     keywords: ["SegmentGroup", "Root", "Item", "size", "sm", "md", "colorPalette", "background", "activeBackground", "branded", "Reactive", "State", "onChange", "interactive", "Configurator", "configurator"],
-    description: "SegmentGroup configurator — a size axis plus a branded switch on one live State-bound segment control",
+    description: "SegmentGroup configurator — a size axis on one live State-bound segmented control",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const sizes = $.const([
@@ -67,9 +67,6 @@ export const segmentGroupVariants = example({
                         Configurator.Control("Size", sKey,
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Slot("Colours",
-                            <HStack gap="5" align="center" wrap="wrap">
-                            </HStack>),
                     ]}
                     preview={preview}
                     spec={[

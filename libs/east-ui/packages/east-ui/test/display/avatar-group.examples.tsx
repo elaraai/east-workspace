@@ -18,7 +18,7 @@ export const avatarGroupBasic = example({
 
 export const avatarGroupVariants = example({
     keywords: ["AvatarGroup", "Root", "size", "sm", "lg", "max", "overflow", "density", "condensed", "compact", "comfortable", "borderColor", "branded", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
-    description: "AvatarGroup configurator — size and density axes plus max-overflow and branded-border switches on one live group",
+    description: "AvatarGroup configurator — size and density axes on one live group with the +N overflow and branded border composed on",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const sizes = $.const([

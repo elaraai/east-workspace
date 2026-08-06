@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Button, Configurator, HStack, IconButton, Menu, Reactive} from "@elaraai/east-ui";
+import { Button, Configurator, IconButton, Menu, Reactive} from "@elaraai/east-ui";
 
 export const menuBasic = example({
     keywords: ["Menu", "Root", "Item", "GroupLabel", "Separator", "dropdown", "kebab", "icon", "command", "destructive"],
@@ -30,7 +30,7 @@ export const menuBasic = example({
 
 export const menuVariants = example({
     keywords: ["Menu", "Root", "Item", "disabled", "placement", "kebab", "account", "Reactive", "State", "Configurator", "configurator"],
-    description: "Menu configurator — a trigger preset axis (kebab / account) plus a disabled-items switch",
+    description: "Menu — grouped items with a separator and a disabled entry on one bottom-end panel; opens log to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
 
@@ -53,9 +53,6 @@ export const menuVariants = example({
             return (
                 <Configurator
                     controls={[
-                        Configurator.Slot("Items",
-                            <HStack gap="5" align="center" wrap="wrap">
-                            </HStack>),
                     ]}
                     preview={preview}
                     spec={[
