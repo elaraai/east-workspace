@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, East, IntegerType, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Configurator, Library, Reactive, Roster, SegmentGroup, Text, VStack } from "@elaraai/east-ui";
 
@@ -75,6 +75,13 @@ export const rosterVariants = example({
     description: "Roster configurator — a data-preset axis (edit / published) driving one live work-week roster; days, sources and mode all travel as data",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            const PresetType = StructType({
+                label: StringType,
+                people: ArrayType(StructType({ id: StringType, name: StringType, target: StringType })),
+                shifts: ArrayType(StructType({ id: StringType, person: StringType, day: StringType, hours: IntegerType, state: Roster.Types.State })),
+                mode: Roster.Types.Mode,
+                summary: StringType,
+            });
             const presets = $.const([
                 {
                     label: "edit",
@@ -93,7 +100,7 @@ export const rosterVariants = example({
                     mode: variant("published", null),
                     summary: "published · wk of Sep 16",
                 },
-            ]);
+            ], ArrayType(PresetType));
             const presetKeys = $.const(["edit", "published"], ArrayType(StringType));
 
             const presetBind = $.let(State.bind([StringType], "roster_preset", "edit"));

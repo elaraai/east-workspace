@@ -247,6 +247,17 @@ export const boardVariants = example({
             // Every preset is DATA on the same board instance: requirements
             // [] = no coverage chrome; maxVisible 99 = no overflow cap.
             const RequirementType = StructType({ area: StringType, shift: StringType, count: IntegerType });
+            const PresetType = StructType({
+                label: StringType,
+                areas: ArrayType(StructType({ id: StringType, name: StringType })),
+                shifts: ArrayType(StructType({ id: StringType, name: StringType, window: StringType })),
+                people: ArrayType(StructType({ id: StringType, name: StringType })),
+                assignments: ArrayType(StructType({ id: StringType, person: StringType, area: StringType, shift: StringType, state: Board.Types.State })),
+                requirements: ArrayType(RequirementType),
+                maxVisible: IntegerType,
+                mode: Board.Types.Mode,
+                summary: StringType,
+            });
             const presets = $.const([
                 {
                     label: "published",
@@ -254,7 +265,7 @@ export const boardVariants = example({
                     shifts: [{ id: "am", name: "AM", window: "" }, { id: "pm", name: "PM", window: "" }],
                     people: BOARD_PUBLISHED_PEOPLE_DATA,
                     assignments: BOARD_PUBLISHED_DATA,
-                    requirements: East.value([], ArrayType(RequirementType)),
+                    requirements: [],
                     maxVisible: 99n,
                     mode: variant("published", null),
                     summary: "published · Tue 2 Jul",
@@ -282,12 +293,12 @@ export const boardVariants = example({
                         { id: "kim", name: "Kim, A." },
                     ],
                     assignments: BOARD_OVERFLOW_DATA,
-                    requirements: East.value([], ArrayType(RequirementType)),
+                    requirements: [],
                     maxVisible: 3n,
                     mode: variant("edit", null),
                     summary: "5 in AM · capped at 3",
                 },
-            ]);
+            ], ArrayType(PresetType));
             const presetKeys = $.const(["published", "coverage", "overflow"], ArrayType(StringType));
 
             const presetBind = $.let(State.bind([StringType], "board_preset", "published"));
