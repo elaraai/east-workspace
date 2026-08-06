@@ -74,6 +74,20 @@ def create_parser() -> argparse.ArgumentParser:
         dest="from_snapshot",
         help="Replay from a .east-snapshot bundle (exclusive with ir_file, -i, -p)",
     )
+    run_parser.add_argument(
+        "--emit",
+        choices=("array", "set", "dict"),
+        metavar="KIND",
+        help="Write the output incrementally from the function's trailing emit "
+        "parameter (array|set|dict)",
+    )
+    run_parser.add_argument(
+        "--stream",
+        type=int,
+        metavar="N",
+        help="Streamed input marker (0-based -i index; inputs currently decode "
+        "eagerly on this runner)",
+    )
 
     # convert command
     convert_parser = subparsers.add_parser(
@@ -178,6 +192,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             input_files=args.input,
             output_file=args.output,
             verbose=args.verbose,
+            emit=getattr(args, "emit", None),
+            stream_input=getattr(args, "stream", None),
         )
 
         return 0

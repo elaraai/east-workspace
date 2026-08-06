@@ -38,6 +38,9 @@ export interface TaskExecuteOptions {
   onStdout?: (data: string) => void;
   /** Callback for stderr data */
   onStderr?: (data: string) => void;
+  /** Maximum concurrent per-partition executions of a partitioned task
+   *  (default: 4). Runtime-only: never affects hashes or caching. */
+  partitionConcurrency?: number;
 }
 
 /**

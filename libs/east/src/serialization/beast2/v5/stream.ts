@@ -80,6 +80,12 @@ export type Beast2WriterOptions = {
   index?: boolean;
   /** Source map for function values in the stream, written to the header. */
   sourceMap?: SourceMap | null;
+  /** Emit these exact bytes as the blob's header (magic + type section +
+   *  source-map section + root tag frame) instead of building one. The bytes
+   *  must come from a v5 blob of the same wire type — used by splice tooling
+   *  to rebuild segments byte-compatible with an existing blob's header.
+   *  When set, `sourceMap` must be the prefix's own decoded source map. */
+  headerPrefix?: Uint8Array;
 };
 
 // =============================================================================
@@ -160,7 +166,14 @@ export class Beast2Writer<T extends EastType = EastType> {
     }
 
     // Header: magic + type section + source map section, then the root tag
-    // as its own frame so every indexed segment frame is pure.
+    // as its own frame so every indexed segment frame is pure. A caller-
+    // provided prefix (splice tooling) is emitted verbatim instead.
+    if (options?.headerPrefix !== undefined) {
+      this.ctx.containerCount = 1;
+      this.ctx.segmentBaseDef = 1;
+      this.emit(options.headerPrefix);
+      return;
+    }
     const head = new BufferWriter();
     head.writeBytes(MAGIC_BYTES_V5);
     writeTypeSection(typeValue, head);
@@ -694,7 +707,7 @@ export class Beast2Pages<T extends EastType = EastType> {
    *  (one frame inflate, one element decode), not a whole-segment decode. */
   private firstKey(i: number): any {
     if (!this.fenceDec) {
-      const keyType = this.kind === "Set" ? (this.typeValue as any).value : (this.typeValue as any).value.key;
+      const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
       this.fenceDec = buildV5Decoder(keyType);
     }
     const cursor = new FrameReader(this.data, this.indexData.offsets[i]!);
@@ -702,6 +715,30 @@ export class Beast2Pages<T extends EastType = EastType> {
     reader.readVarint();  // element count — segments are never empty
     const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, ...buildPlatformContext(this.platform) };
     return this.fenceDec(reader, ctx);
+  }
+
+  /**
+   * Probes segment `i`'s fence: its first Dict key, Set element, or Array
+   * element, decoded without decoding the rest of the segment (one frame
+   * inflate, one element decode).
+   *
+   * For Set/Dict roots the fences bound each segment's canonical key range —
+   * segment `i` holds exactly the keys in `[fence(i), fence(i+1))` — which is
+   * what partition-boundary selection walks.
+   *
+   * @param i - zero-based segment index
+   * @returns the segment's first key or element
+   * @throws {Error} When `i` is out of range or the blob is not
+   *   self-contained.
+   */
+  fence(i: number): ValueTypeOf<T> extends Map<infer K, any> ? K : ValueTypeOf<T> extends Set<infer E> ? E : ValueTypeOf<T> extends (infer E)[] ? E : never {
+    if (!this.selfContained) {
+      throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
+    }
+    if (i < 0 || i >= this.indexData.offsets.length) {
+      throw new Error(`beast2 v5: segment ${i} out of range (${this.indexData.offsets.length} segments)`);
+    }
+    return this.firstKey(i);
   }
 
   /** Probes and verifies the segment fences once: each segment's first

@@ -49,6 +49,7 @@ export { runnerToCommand, runnerToVariant, DEFAULT_RUNNER } from './runner.js';
 export { input, inputsTree } from './input.js';
 export { record, recordsTree } from './record.js';
 export { mutation } from './mutation.js';
-export { task, customTask, tasksTree } from './task.js';
+export { task, customTask, partitionTask, streamTask, tasksTree } from './task.js';
+export type { PartitionTaskSpec, StreamTaskSpec, EmitOf } from './task.js';
 export { function_ } from './function.js';
 export { package_ as package } from './package.js';

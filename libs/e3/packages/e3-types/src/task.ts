@@ -16,7 +16,7 @@
  * specified paths - the task just references locations, not types.
  */
 
-import { StructType, StringType, ArrayType, BlobType, OptionType, ValueTypeOf, decodeBeast2For, none } from '@elaraai/east';
+import { StructType, StringType, ArrayType, BlobType, BooleanType, IntegerType, OptionType, ValueTypeOf, decodeBeast2For, encodeBeast2For, none } from '@elaraai/east';
 import { TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
 
@@ -123,3 +123,88 @@ export function decodeTaskObject(data: Uint8Array): TaskObject {
     }
   }
 }
+
+// =============================================================================
+// Partition / stream task kinds
+// =============================================================================
+
+/** Task kind of a partitioned task — the orchestrator carves its partitioned
+ *  input(s) into key-range slices, runs each slice as an ordinary
+ *  content-addressed execution, and assembles the output by splice or by
+ *  combining partials. The spec rides {@link TaskObjectType}'s `metadata`
+ *  slot as a beast2-encoded {@link PartitionTaskMetadataType}. */
+export const TASK_KIND_PARTITION = 'partition';
+
+/** Task kind of a streaming task — one execution whose runner feeds the
+ *  stream input lazily and writes the output incrementally through an `emit`
+ *  capability. The spec rides {@link TaskObjectType}'s `metadata` slot as a
+ *  beast2-encoded {@link StreamTaskMetadataType}. */
+export const TASK_KIND_STREAM = 'stream';
+
+/**
+ * Metadata of a {@link TASK_KIND_PARTITION} task.
+ *
+ * The task's wire `inputs` are laid out `[function_ir, ...partitions,
+ * ...inputs]`, so `partitions` counts how many entries after the function IR
+ * are partitioned datasets; the rest are ordinary (broadcast) inputs that
+ * hash into every partition execution's identity.
+ *
+ * `by` and `combine` are carried as `encodeEastIR` bundles (capture-free IR +
+ * its source map), not as FunctionType values or object-store hashes: IR is
+ * how executable code travels everywhere on the e3 wire (`commandIr`,
+ * `function_ir`, `bodyIr`), a FunctionType value could smuggle captures the
+ * orchestrator must not evaluate, and inline bytes stay reachable where a
+ * hash inside an opaque metadata blob would be invisible to GC.
+ */
+export const PartitionTaskMetadataType = StructType({
+  /** Number of partitioned inputs (wire input indices `1..1+partitions`). */
+  partitions: IntegerType,
+  /** `encodeEastIR` bundle of the boundary-alignment projection
+   *  `(Key) -> Projection`; `none` when partitioning is free per row/segment. */
+  by: OptionType(BlobType),
+  /** `encodeEastIR` bundle of the associative fold `(Out, Out) -> Out`;
+   *  `none` in splice mode (shards concatenate). */
+  combine: OptionType(BlobType),
+  /** Target carved-slice size in wire bytes — the only sizing knob. */
+  targetPartitionBytes: IntegerType,
+});
+export type PartitionTaskMetadataType = typeof PartitionTaskMetadataType;
+
+export type PartitionTaskMetadata = ValueTypeOf<typeof PartitionTaskMetadataType>;
+
+/** Encode a {@link PartitionTaskMetadataType} value for `TaskObject.metadata`. */
+export const encodePartitionTaskMetadata: (value: PartitionTaskMetadata) => Uint8Array =
+  encodeBeast2For(PartitionTaskMetadataType);
+
+/** Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_PARTITION} task. */
+export const decodePartitionTaskMetadata: (data: Uint8Array) => PartitionTaskMetadata =
+  decodeBeast2For(PartitionTaskMetadataType);
+
+/**
+ * Metadata of a {@link TASK_KIND_STREAM} task.
+ *
+ * The task's wire `inputs` are laid out `[function_ir, stream?, ...inputs]`;
+ * the compiled body takes one trailing `emit` parameter beyond the wire
+ * inputs, and the runner writes the `-o` file from the emit sink instead of
+ * the body's (Null) return value.
+ */
+export const StreamTaskMetadataType = StructType({
+  /** Whether wire input index 1 is the streamed input (producer tasks have
+   *  no streamed input). */
+  stream: BooleanType,
+  /** The output collection kind the emit sink writes: `"array"`, `"set"`, or
+   *  `"dict"` — element/key/value types come from the body IR's emit
+   *  parameter. */
+  emit: StringType,
+});
+export type StreamTaskMetadataType = typeof StreamTaskMetadataType;
+
+export type StreamTaskMetadata = ValueTypeOf<typeof StreamTaskMetadataType>;
+
+/** Encode a {@link StreamTaskMetadataType} value for `TaskObject.metadata`. */
+export const encodeStreamTaskMetadata: (value: StreamTaskMetadata) => Uint8Array =
+  encodeBeast2For(StreamTaskMetadataType);
+
+/** Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_STREAM} task. */
+export const decodeStreamTaskMetadata: (data: Uint8Array) => StreamTaskMetadata =
+  decodeBeast2For(StreamTaskMetadataType);

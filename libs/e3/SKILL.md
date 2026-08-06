@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (3) Working with workspaces and packages, (4) Content-addressable caching and reactive dataflow execution."
+description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Bounded-memory dataflow over huge collection datasets (e3.partitionTask, e3.streamTask), (3) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (4) Working with workspaces and packages, (5) Content-addressable caching and reactive dataflow execution."
 ---
 
 # East Execution Engine (e3)
@@ -58,6 +58,8 @@ Task → What do you need?
 │   ├─ Record (audited state)→ e3.record(name, type, initial)
 │   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
+│   ├─ Huge input, per-row / per-entity / reduce → e3.partitionTask(name, spec, fn)
+│   ├─ Huge input, strict-order one-pass / ingest → e3.streamTask(name, spec, fn)
 │   ├─ Shell command task   → e3.customTask(name, [inputs], outputType, cmd)
 │   ├─ Named function (RPC) → e3.function(name, fn, config?)
 │   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
@@ -251,6 +253,117 @@ Environments resolve at `e3.export` time (missing lockfile or failed build ⇒
 export error; a mutable `image` tag is rejected at definition time). A task whose
 platforms are all stock (no local `{ custom }` package) runs on the stock runtime
 image, as before.
+
+### e3.partitionTask(name, spec, fn)
+
+Define a task over huge collection datasets with bounded memory: e3 carves
+the partitioned input(s) into key-range slices, runs `fn` once per partition
+as an ordinary content-addressed execution (parallel, memoized per
+partition), and assembles the output — shards splice in partition order, or
+partials fold pairwise when `combine` is given. One task node, one output
+dataset; the dataflow graph is unchanged.
+
+```typescript
+const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
+const rates = e3.input('rates', DictType(StringType, FloatType));
+
+// Row-local transform: each execution returns its shard; shards splice.
+const cleaned = e3.partitionTask('cleaned', {
+  partitions: [sales],
+  inputs: [rates],                       // ordinary inputs, passed to every partition
+  output: DictType(SaleKeyType, SaleType),
+}, ($, slice, rates) => slice.filter(($, sale) => East.greater(sale.qty, 0n)));
+
+// Reduce to a small result: each execution returns a partial; partials fold.
+const totals = e3.partitionTask('totals', {
+  partitions: [sales],
+  by: (_$, key) => key.sku,              // rows with equal by(key) never split
+  output: DictType(StringType, IntegerType),
+  combine: ($, a, b) => {
+    $(a.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
+    $.return(a);
+  },
+}, ($, slice) => /* per-partition aggregation of `slice` */ ...);
+
+// Co-partition two same-keyed datasets (reconcile / delta): 2+ entries in
+// `partitions` carve at shared boundary keys; each execution receives the
+// matching key-range slice of each.
+const delta = e3.partitionTask('delta', {
+  partitions: [today, yesterday],
+  output: DictType(SaleKeyType, FloatType),
+}, ($, todaySlice, yesterdaySlice) => ...);
+```
+
+Spec fields: `partitions` (1+ huge Dict/Set/Array inputs; 2+ co-partition and
+must all be Dict or all Set), `by` (boundary alignment — must read a leading
+prefix of every partitioned dataset's key: the key itself, one leading field,
+or a struct of leading fields in order; validated at build time), `inputs`
+(ordinary broadcast inputs — any change re-runs all partitions), `output`,
+`combine` (associative fold; its presence is the whole mode switch),
+`targetPartitionBytes` (the only sizing knob, default 256 MiB), `runner`,
+`environment`.
+
+Splice-mode contract: Array shards concatenate freely; Dict/Set shard key
+ranges must ascend disjointly in partition order (key-preserving and monotone
+re-keys qualify). A violation fails the task at splice naming the offending
+partitions; a huge→huge re-key needs `combine`, `customTask`, or future
+shuffle support. Partition memoization is append-friendly: appends and
+tail-localized changes re-run only the affected partitions, while a
+mid-key-space insertion re-runs partitions from the insertion point on.
+
+### e3.streamTask(name, spec, fn)
+
+Define a one-pass streaming task: the runner feeds the `stream` input in
+canonical order and the body writes the output incrementally through the
+`emit` capability — exact left-fold semantics, no parallelism and no
+partial recompute. Omit `stream` for a producer (platform-function
+ingest). Runs on every stock runtime; the output always streams through
+`emit`, and the east-node runner additionally feeds the `stream` input
+lazily with O(segment) decoded memory (east-c / east-py currently decode
+it whole).
+
+```typescript
+const events = e3.input('events', ArrayType(EventType));
+
+// Global sequential state (running balances, event replay):
+const balances = e3.streamTask('balances', {
+  stream: events,
+  output: ArrayType(BalanceType),
+}, ($, events, emit) => {
+  const balance = $.let(0.0);
+  $.for(events, ($, event) => {
+    $.assign(balance, balance.add(event.amount));
+    $(emit({ at: event.at, balance }));
+  });
+});
+
+// Producer (no stream input): loop over platform sources and emit. Ingest
+// usually targets an Array output; key/group downstream in a partitionTask.
+const ingest = e3.streamTask('ingest', {
+  output: ArrayType(RowType),
+}, ($, emit) => { /* fetch pages, $(emit(row)) each */ });
+```
+
+`emit` is `emit(key, value)` for Dict outputs and `emit(element)` for
+Array/Set outputs. Dict/Set outputs must be emitted in strictly ascending
+(key) order — enforced at runtime; Array outputs emit freely.
+
+#### Which task kind?
+
+| Workload | Use |
+|----------|-----|
+| Fits in memory | `e3.task` |
+| Row-local derive/clean/validate over a huge input | `partitionTask` |
+| Enrich against small references | `partitionTask` + `inputs` |
+| Enrich against another huge dataset (sparse keyed reads) | `partitionTask` + huge `inputs` entry (opened lazily) |
+| Aggregate huge → small (KPIs, counts, top-k) | `partitionTask` + `combine` |
+| Per-entity sequential, parallel across entities | `partitionTask` + `by` |
+| Reconcile/delta two same-keyed huge datasets | `partitionTask`, 2+ `partitions` |
+| Global sequential state (running balances, replay, simulation) | `streamTask` |
+| Ingest from external sources | `streamTask` (no `stream`) |
+| Filter/sample huge → still-big | `partitionTask` |
+| Re-key huge → huge (shuffle) | not yet — `combine`, `customTask`, or re-key upstream |
+| ML training / genuinely non-East work | `customTask` |
 
 ### e3.customTask(name, inputs, outputType, command)
 
@@ -545,6 +658,10 @@ my-project/
 Tasks are cached by content hash. Re-runs only when:
 - Task's East function IR changes
 - Input values change
+
+A `partitionTask` is additionally memoized per partition: each carved slice
+is its own content-addressed execution, so appends and tail-localized input
+changes re-run only the affected partitions.
 
 Use `--force` to bypass: `e3 dataflow run . dev --force`
 

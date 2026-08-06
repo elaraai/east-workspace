@@ -44,6 +44,16 @@ export {
   TaskObjectType,
   type TaskObject,
   decodeTaskObject,
+  TASK_KIND_PARTITION,
+  TASK_KIND_STREAM,
+  PartitionTaskMetadataType,
+  type PartitionTaskMetadata,
+  encodePartitionTaskMetadata,
+  decodePartitionTaskMetadata,
+  StreamTaskMetadataType,
+  type StreamTaskMetadata,
+  encodeStreamTaskMetadata,
+  decodeStreamTaskMetadata,
 } from './task.js';
 
 // Execution environments

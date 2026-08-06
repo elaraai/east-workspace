@@ -522,4 +522,47 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
         const next = ValueTree.applyEdit(Row, start, [variant("field", "opt"), variant("some", null)], { kind: "edit", leaf: variant("integer", 42n) }) as { opt: { value: bigint } };
         expect(next.opt.value).toBe(42n);
     });
+
+    test("struct-keyed dict entries label as field summaries, never [object Object]", () => {
+        const LegKey = StructType({ tank: StringType, side: StringType, vintage: IntegerType });
+        const Legs = DictType(LegKey, StructType({ litres: IntegerType }));
+        const value = new Map([
+            [{ tank: "DC4B", side: "from", vintage: 2024n }, { litres: 1980n }],
+            [{ tank: "DC2E", side: "to", vintage: 2024n }, { litres: 1980n }],
+        ]);
+        const root = ValueTree.materialize(Legs, value) as {
+            type: string; value: { editable: boolean; entries: Array<{ key: string }> };
+        };
+        expect(root.type).toBe("dict");
+        expect(root.value.editable).toBe(false);
+        const keys = root.value.entries.map(e => e.key);
+        expect(keys).toContain("DC4B · from · 2024");
+        expect(keys).toContain("DC2E · to · 2024");
+        for (const k of keys) expect(k.includes("[object Object]")).toBe(false);
+    });
+
+    test("materialization never degrades entries to [object Object] rows mid-list", () => {
+        // Thousands of identical option-heavy records — every entry must
+        // materialize as a real struct node regardless of its position, and
+        // any budget-driven truncation must label itself honestly.
+        const Rec = StructType({
+            blend: OptionType(StringType),
+            site: StringType,
+            table: StringType,
+            barrels: IntegerType,
+            active: OptionType(StringType),
+        });
+        const Table = DictType(StringType, Rec);
+        const record = { blend: none as unknown, site: "BY", table: "BG", barrels: 0n, active: none as unknown };
+        const value = new Map(Array.from({ length: 5000 }, (_, i) => [`B${4000 + i}B`, record] as const));
+        const root = ValueTree.materialize(Table, value) as {
+            type: string; value: { entries: Array<{ key: string; node: { type: string; value: unknown } }> };
+        };
+        expect(root.value.entries.length).toBe(5000);
+        for (const e of root.value.entries) {
+            expect(e.node.type).toBe("struct");
+        }
+        const json = JSON.stringify(root, (_k, v) => (typeof v === "bigint" ? String(v) : v as unknown));
+        expect(json.includes("[object Object]")).toBe(false);
+    });
 });

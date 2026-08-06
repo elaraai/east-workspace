@@ -16,6 +16,8 @@ import {
     decodeJSONFor,
     decodeEastIR,
     decodeAsyncEastIR,
+    readBeast2Extents,
+    openBeast2LazyFor,
     EastIR,
     AsyncEastIR,
     type EastTypeValue,
@@ -354,5 +356,30 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
             const decoder = decodeJSONFor(type);
             return decoder(data);
         }
+    }
+}
+
+/**
+ * Opens an input file as a lazy pager-backed collection value, when it can
+ * be: a beast2 v5 collection blob carrying a segment index. Size, iteration
+ * and keyed reads are then served from the index with O(segment) decoded
+ * memory; any other operation hydrates transparently to the eager value's
+ * exact semantics.
+ *
+ * Returns `undefined` when the file cannot be served lazily (a non-beast2
+ * format, a v4 or index-less blob, or a non-collection root) — the caller
+ * falls back to {@link loadInput}.
+ *
+ * @param filePath - Path to the input file
+ * @returns The lazy collection value, or `undefined` to fall back
+ */
+export function loadInputLazy(filePath: string): unknown | undefined {
+    if (getFileFormat(filePath) !== 'beast2') return undefined;
+    const data = readFileSync(filePath);
+    try {
+        const extents = readBeast2Extents(data);
+        return openBeast2LazyFor(extents.typeValue)(data);
+    } catch {
+        return undefined;
     }
 }

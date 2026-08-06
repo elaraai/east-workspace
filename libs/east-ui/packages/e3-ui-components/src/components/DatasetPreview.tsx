@@ -95,7 +95,18 @@ export const DatasetPreview = memo(function DatasetPreview({
     const hasValue = status?.refType === 'value' && status.hash !== null;
     const sizeBytes = status?.sizeBytes ?? 0;
     const isOversized = hasValue && sizeBytes > sizeLimit;
-    const shouldFetch = hasValue && !isOversized;
+    const type = status?.type as EastTypeValue | undefined;
+    // Read-only collection roots ALWAYS render through the paged windowed
+    // view, at every size — whole-value materialization is reserved for
+    // editable inputs and non-collection roots, so an entry-heavy collection
+    // can never exhaust the inline materializer mid-list. Editable
+    // collections keep the inline (editing) path until they outgrow the
+    // size limit, at which point they page read-only like before.
+    const pageable = hasValue && type !== undefined &&
+        (type.type === 'Array' || type.type === 'Set' || type.type === 'Dict');
+    const usePaged = pageable && (!editable || isOversized) &&
+        workspace != null && path != null && status?.hash != null;
+    const shouldFetch = hasValue && !isOversized && !usePaged;
 
     const valueQuery = useDatasetValue(apiUrl, repo, workspace, path, {
         ...(requestOptions != null && { requestOptions }),
@@ -115,7 +126,6 @@ export const DatasetPreview = memo(function DatasetPreview({
     // queries refetches the new value, which re-materializes the tree.
     const setMutation = useDatasetSet(apiUrl, repo, workspace, requestOptions);
     const queryClient = useQueryClient();
-    const type = status?.type as EastTypeValue | undefined;
     const decoded = valueQuery.data?.decoded;
 
     const write = useCallback(async (next: unknown) => {
@@ -151,25 +161,23 @@ export const DatasetPreview = memo(function DatasetPreview({
     if (!status) return <StatusDisplay variant="info" title="No status" />;
     if (!hasValue) return <StatusDisplay variant="info" title="No data available" message="Waiting for a value to be set" />;
 
+    if (usePaged && type !== undefined && workspace != null && path != null && status.hash != null) {
+        return (
+            <PagedDatasetPreview
+                apiUrl={apiUrl}
+                repo={repo}
+                workspace={workspace}
+                path={path}
+                type={type}
+                hash={status.hash}
+                sizeBytes={sizeBytes}
+                {...(requestOptions != null && { requestOptions })}
+                onDownload={download}
+            />
+        );
+    }
+
     if (isOversized) {
-        // Pageable types (collection roots) never dead-end on size — the size
-        // limit only switches them from whole-value mode to windowed mode.
-        const pageable = type !== undefined && (type.type === 'Array' || type.type === 'Set' || type.type === 'Dict');
-        if (pageable && workspace != null && path != null && status.hash != null) {
-            return (
-                <PagedDatasetPreview
-                    apiUrl={apiUrl}
-                    repo={repo}
-                    workspace={workspace}
-                    path={path}
-                    type={type}
-                    hash={status.hash}
-                    sizeBytes={sizeBytes}
-                    {...(requestOptions != null && { requestOptions })}
-                    onDownload={download}
-                />
-            );
-        }
         return (
             <Flex height="100%" direction="column" align="center" justify="center" layerStyle="banner.stale" borderRadius="0" gap={3} p={6}>
                 <Text fontSize="lg" color="fg.warning" fontWeight="bold">Value too large to display</Text>

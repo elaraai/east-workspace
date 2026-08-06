@@ -20,6 +20,35 @@ interface RunOptions {
     verbose?: boolean;
     snapshot?: string;
     fromSnapshot?: string;
+    emit?: string;
+    stream?: string;
+    lazyInputs?: string;
+}
+
+/** Parses the streaming-execution flags into runner options. */
+function streamingOptions(options: RunOptions): { emit?: 'array' | 'set' | 'dict'; streamInput?: number; lazyInputBytes?: number } {
+    const out: { emit?: 'array' | 'set' | 'dict'; streamInput?: number; lazyInputBytes?: number } = {};
+    if (options.emit !== undefined) {
+        if (options.emit !== 'array' && options.emit !== 'set' && options.emit !== 'dict') {
+            throw new Error(`--emit must be one of array, set or dict, got '${options.emit}'`);
+        }
+        out.emit = options.emit;
+    }
+    if (options.stream !== undefined) {
+        const index = Number(options.stream);
+        if (!Number.isInteger(index) || index < 0) {
+            throw new Error(`--stream must be a non-negative input index, got '${options.stream}'`);
+        }
+        out.streamInput = index;
+    }
+    if (options.lazyInputs !== undefined) {
+        const bytes = Number(options.lazyInputs);
+        if (!Number.isFinite(bytes) || bytes < 0) {
+            throw new Error(`--lazy-inputs must be a byte threshold (0 disables), got '${options.lazyInputs}'`);
+        }
+        out.lazyInputBytes = bytes;
+    }
+    return out;
 }
 
 interface VersionOptions {
@@ -46,7 +75,7 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
                     ex.packages,
                     ex.inputPaths,
                     options.output,
-                    options.verbose ?? false,
+                    { verbose: options.verbose ?? false, ...streamingOptions(options) },
                 );
             } finally {
                 ex.cleanup();
@@ -86,7 +115,7 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             packages,
             options.input ?? [],
             options.output,
-            options.verbose ?? false
+            { verbose: options.verbose ?? false, ...streamingOptions(options) }
         );
     } catch (err) {
         if (err instanceof EastError) {
@@ -150,6 +179,12 @@ export function main(): void {
         .option('--snapshot <path>', 'Write a .east-snapshot bundle (IR + inputs + manifest)')
         .option('--from-snapshot <path>',
             'Replay from a .east-snapshot bundle (exclusive with <ir_file>, -i, -p)')
+        .option('--emit <kind>',
+            "Write the output incrementally from the function's trailing emit parameter (array|set|dict)")
+        .option('--stream <index>',
+            'Feed the given -i input (0-based) lazily, segment-by-segment')
+        .option('--lazy-inputs <bytes>',
+            'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
         .action(cmdRun);
 
     program

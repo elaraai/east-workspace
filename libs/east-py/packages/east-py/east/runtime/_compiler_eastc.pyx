@@ -281,6 +281,34 @@ def native_kernel_for(object east_fn):
     return _native_kernel_for(east_fn)
 
 
+def foreign_function_value(object east_fn):
+    """Wrap an :class:`EastFunction` as an argument-passable function value.
+
+    The returned hold carries the C function-value handle the Function-typed
+    argument conversion fast-path reads (``_east_c_handle``), so a
+    host-provided Python callable — e.g. a runner's ``emit`` capability — can
+    be passed where a compiled body's signature declares a FunctionType
+    parameter. The C value is released when the hold is garbage-collected.
+    """
+    cdef _eastc.EastValue* fv = _wrap_pyfn(east_fn)
+    cdef uintptr_t fv_ptr = <uintptr_t>fv
+
+    class _ForeignFnHold:
+        __slots__ = ("_east_c_handle", "_released")
+
+        def __init__(self):
+            self._east_c_handle = fv_ptr
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_handle)
+
+    return _ForeignFnHold()
+
+
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
     """The EastValue* of a compiled East function callable, or 0.
 
