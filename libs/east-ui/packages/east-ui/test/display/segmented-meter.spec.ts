@@ -13,6 +13,7 @@ describeEast("SegmentedMeter", (test) => {
     Assert.examples(test, {
         segmentedMeterBasic: ex.segmentedMeterBasic,
         segmentedMeterVariants: ex.segmentedMeterVariants,
+        segmentedMeterResidual: ex.segmentedMeterResidual,
     });
 
     test("segmentedMeterVariants is the live configurator", $ => {
