@@ -56,8 +56,6 @@ export const listVariants = example({
                             <Text>Easy to use API</Text>,
                             <Text>Comprehensive documentation</Text>,
                         ],
-                        marker: none,
-                        markerColor: "fg.default",
                     },
                     {
                         label: "steps",
@@ -67,29 +65,6 @@ export const listVariants = example({
                             <Text>Run the application</Text>,
                             <Text>Verify installation</Text>,
                         ],
-                        marker: none,
-                        markerColor: "fg.default",
-                    },
-                    {
-                        label: "checkmarks",
-                        items: [
-                            <Text>Max 5 consecutive shifts — 412 staff, clear</Text>,
-                            <Text>SLA: 92% on-time (27 misses)</Text>,
-                            <Text>Rostered vs demand: within tolerance</Text>,
-                            <Text>Training currency: all staff in-date</Text>,
-                        ],
-                        marker: some(variant("check", null)),
-                        markerColor: "fg.success",
-                    },
-                    {
-                        label: "dashed",
-                        items: [
-                            <Text fontStyle="italic">Stage 1 delayed ~6h by setpoint drift since 02:00</Text>,
-                            <Text fontStyle="italic">Vendor feed unavailable — forecast using last-known</Text>,
-                            <Text fontStyle="italic">3 drivers flagged for manual review</Text>,
-                        ],
-                        marker: some(variant("dash", null)),
-                        markerColor: "fg.danger",
                     },
                     {
                         label: "rich",
@@ -107,10 +82,8 @@ export const listVariants = example({
                                 <Text>Skipped: optional integrity check</Text>
                             </HStack>,
                         ],
-                        marker: some(variant("none", null)),
-                        markerColor: "fg.default",
                     },
-                ], ArrayType(StructType({ label: StringType, items: ArrayType(UIComponentType), marker: OptionType(List.Types.Marker), markerColor: StringType })));
+                ], ArrayType(StructType({ label: StringType, items: ArrayType(UIComponentType) })));
 
                 const contentBind = $.let(State.bind([StringType], "list_content", "features"));
                 const variantBind = $.let(State.bind([StringType], "list_variant", "unordered"));
@@ -145,13 +118,11 @@ export const listVariants = example({
                 const noItems = $.const([], ArrayType(UIComponentType));
                 const items = $.let(empty.ifElse(_$ => noItems, _$ => content.items));
 
-                // A check / dash treatment is the presence of `marker`, not a
-                // value of it — marked presets swap the variant axis for their
-                // own marker + tint rather than feeding a hollow marker in.
-                const list = $.const(content.marker.hasTag("some").ifElse(
-                    _$ => <List items={items} marker={content.marker.unwrap("some")} markerColor={content.markerColor} gap={gap} colorPalette={palette} />,
-                    _$ => <List items={items} variant={listVariant} gap={gap} colorPalette={palette} />,
-                ));
+                // ONE list — content items are values; the marker treatments
+                // (check / dash) live in their own example.
+                const list = $.const(
+                    <List items={items} variant={listVariant} gap={gap} colorPalette={palette} />,
+                );
 
                 return (
                     <Configurator
@@ -194,15 +165,37 @@ export const listVariants = example({
                         }}
                         spec={[
                             Configurator.Spec("Items", East.print(items.size())),
-                            Configurator.Spec("Marker", content.marker.hasTag("some").ifElse(
-                                _$ => content.marker.unwrap("some").getTag(),
-                                _$ => vKey,
-                            )),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Marker treatments — the check compliance list and the dash problem notes. */
+export const listMarkers = example({
+    keywords: ["List", "marker", "check", "dash", "markerColor", "compliance", "issues"],
+    description: "Marker treatments — a check compliance list beside dash problem notes",
+    fn: East.function([], UIComponentType, (_$) => (
+        <VStack gap="5" align="stretch">
+            <List
+                items={[
+                    <Text>Max 5 consecutive shifts — 412 staff, clear</Text>,
+                    <Text>SLA: 92% on-time (27 misses)</Text>,
+                    <Text>Rostered vs demand: within tolerance</Text>,
+                ]}
+                marker="check" markerColor="fg.success"
+            />
+            <List
+                items={[
+                    <Text fontStyle="italic">Stage 1 delayed ~6h by setpoint drift since 02:00</Text>,
+                    <Text fontStyle="italic">Vendor feed unavailable — forecast using last-known</Text>,
+                ]}
+                marker="dash" markerColor="fg.danger"
+            />
+        </VStack>
+    )),
     inputs: [],
 });

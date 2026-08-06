@@ -41,36 +41,24 @@ export const highlightVariants = example({
                     { label: "submit", text: "Click the submit button to proceed", terms: ["submit", "button"] },
                 ], ArrayType(StructType({ label: StringType, text: StringType, terms: ArrayType(StringType) })));
 
-                const colours = $.const([
-                    { label: "native",  bg: "", fg: "" },
-                    { label: "warning", bg: "bg.warning.subtle", fg: "fg.default" },
-                    { label: "success", bg: "bg.success.subtle", fg: "fg.success" },
-                    { label: "brand",   bg: "bg.brand.subtle",   fg: "link" },
-                ], ArrayType(StructType({ label: StringType, bg: StringType, fg: StringType })));
 
                 const termsBind  = $.let(State.bind([StringType], "highlight_terms", "fox"));
-                const colourBind = $.let(State.bind([StringType], "highlight_color", "warning"));
                 const search     = $.let(State.bind([StringType], "highlight_query", "fox"));
 
                 const tKey = $.let(termsBind.read());
-                const cKey = $.let(colourBind.read());
                 const term = $.let(search.read());
 
                 const onTerms  = $.const(East.function([StringType], NullType, ($, next) => { $(termsBind.write(next)); }));
-                const onColour = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
                 const onQuery  = $.const(East.function([StringType], NullType, ($, next) => { $(search.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const passage = $.let(passages.filter((_$, o) => o.label.equal(tKey)).get(0n));
-                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
-                // Native colouring is the absence of the colour props, not a
-                // value of them — so the axis picks between the two highlights
-                // rather than feeding empty tokens in.
-                const highlight = $.const(colour.label.equal("native").ifElse(
-                    _$ => <Highlight query={passage.terms}>{passage.text}</Highlight>,
-                    _$ => <Highlight query={passage.terms} background={colour.bg} color={colour.fg}>{passage.text}</Highlight>,
-                ));
+                // ONE highlight — native recipe colouring; the colour escape
+                // hatches live in their own example.
+                const highlight = $.const(
+                    <Highlight query={passage.terms}>{passage.text}</Highlight>,
+                );
 
                 return (
                     <Configurator
@@ -78,9 +66,6 @@ export const highlightVariants = example({
                             Configurator.Control("Terms", tKey,
                                 <Select value={tKey} onChange={onTerms} size="sm"
                                     items={passages.map((_$, o) => Select.Item(o.label, o.label))} />),
-                            Configurator.Control("Colour", cKey,
-                                <Select value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => Select.Item(o.label, o.label))} />),
                         ]}
                         preview={highlight}
                         aside={{
@@ -100,5 +85,17 @@ export const highlightVariants = example({
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches — custom background + ink on the matched terms. */
+export const highlightCustomColours = example({
+    keywords: ["Highlight", "background", "color", "override", "custom", "query"],
+    description: "Colour overrides — custom background and ink on the matched terms",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Highlight query={["demand", "forecast"]} background="bg.brand.subtle" color="fg.default">
+            The demand forecast missed the turn; re-forecast demand for NA only.
+        </Highlight>
+    )),
     inputs: [],
 });

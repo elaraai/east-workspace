@@ -13,6 +13,7 @@ describeEast("Highlight", (test) => {
     Assert.examples(test, {
         highlightBasic: ex.highlightBasic,
         highlightVariants: ex.highlightVariants,
+        highlightCustomColours: ex.highlightCustomColours,
     });
 
     // =========================================================================
