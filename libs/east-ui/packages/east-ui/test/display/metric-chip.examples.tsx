@@ -58,19 +58,12 @@ export const metricChipVariants = example({
                 // move together as one escape-hatch triple, with no single value to
                 // name them by. The `recipe` row carries empty slots because the
                 // preview drops the overrides entirely for it (below).
-                const colors = $.const([
-                    { label: "recipe",  bg: "",                  fg: "",           border: "" },
-                    { label: "brand",   bg: "bg.brand.subtle",   fg: "link",       border: "border.brand" },
-                    { label: "warn",    bg: "bg.warning.subtle", fg: "fg.warning", border: "fg.warning" },
-                    { label: "inverse", bg: "bg.inverse",        fg: "fg.inverse", border: "bg.inverse" },
-                ], ArrayType(StructType({ label: StringType, bg: StringType, fg: StringType, border: StringType })));
 
                 const toneBind     = $.let(State.bind([StringType], "metric_chip_tone", "positive"));
                 const emphasisBind = $.let(State.bind([StringType], "metric_chip_emphasis", "subtle"));
                 const densityBind  = $.let(State.bind([StringType], "metric_chip_density", "compact"));
                 const sizeBind     = $.let(State.bind([StringType], "metric_chip_size", "sm"));
                 const unitBind     = $.let(State.bind([StringType], "metric_chip_unit", "%"));
-                const colorBind    = $.let(State.bind([StringType], "metric_chip_color", "recipe"));
                 const readingBind  = $.let(State.bind([IntegerType], "metric_chip_reading", 12n));
 
                 const tKey = $.let(toneBind.read());
@@ -78,7 +71,6 @@ export const metricChipVariants = example({
                 const dKey = $.let(densityBind.read());
                 const sKey = $.let(sizeBind.read());
                 const uKey = $.let(unitBind.read());
-                const cKey = $.let(colorBind.read());
                 const reading = $.let(readingBind.read());
 
                 const onTone     = $.const(East.function([StringType], NullType, ($, next) => { $(toneBind.write(next)); }));
@@ -86,7 +78,6 @@ export const metricChipVariants = example({
                 const onDensity  = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
                 const onUnit     = $.const(East.function([StringType], NullType, ($, next) => { $(unitBind.write(next)); }));
-                const onColor    = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
                 const up         = $.const(East.function([], NullType, $ => {
                     const cur = $.let(readingBind.read());
                     $(readingBind.write(cur.add(5n)));
@@ -102,7 +93,6 @@ export const metricChipVariants = example({
                 const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
                 const unitToken = $.let(units.filter((_$, s) => s.equal(uKey)).get(0n));
-                const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
                 // "none" is the no-suffix row, so it maps back to an empty unit.
                 const unit = $.let(unitToken.equal("none").ifElse(_$ => "", _$ => unitToken));
@@ -119,23 +109,13 @@ export const metricChipVariants = example({
                 ));
                 const signTone = $.let(tones.filter((_$, v) => v.getTag().equal(signKey)).get(0n));
 
-                // The colour slots are escape hatches ON TOP of the tone recipe — an
-                // override the renderer honours as soon as it is present. So `recipe`
-                // is the absence of the props, not an empty value of them, and the
-                // preview picks between the two chips.
-                const chip = $.const(cKey.equal("recipe").ifElse(
-                    _$ => (
-                        <MetricChip tone={tone} emphasis={emphasis} density={density} size={size} unit={unit}>
-                            <Text>{readingText}</Text>
-                        </MetricChip>
-                    ),
-                    _$ => (
-                        <MetricChip tone={tone} emphasis={emphasis} density={density} size={size} unit={unit}
-                            background={color.bg} color={color.fg} borderColor={color.border}>
-                            <Text>{readingText}</Text>
-                        </MetricChip>
-                    ),
-                ));
+                // ONE chip — tone recipe colouring; the colour escape hatches
+                // live in their own example.
+                const chip = $.const(
+                    <MetricChip tone={tone} emphasis={emphasis} density={density} size={size} unit={unit}>
+                        <Text>{readingText}</Text>
+                    </MetricChip>,
+                );
 
                 return (
                     <Configurator
@@ -155,9 +135,6 @@ export const metricChipVariants = example({
                             Configurator.Control("Unit", uKey,
                                 <Select value={uKey} onChange={onUnit} size="sm"
                                     items={units.map((_$, s) => Select.Item(s, s))} />),
-                            Configurator.Control("Colour", cKey,
-                                <Select value={cKey} onChange={onColor} size="sm"
-                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
                         ]}
                         preview={chip}
                         aside={{
@@ -174,15 +151,23 @@ export const metricChipVariants = example({
                         }}
                         spec={[
                             Configurator.Spec("Value", readingText),
-                            Configurator.Spec("Slots", cKey.equal("recipe").ifElse(
-                                _$ => "tone recipe",
-                                _$ => East.str`${color.bg} · ${color.fg} · ${color.border}`,
-                            )),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches over the tone recipe on a static chip. */
+export const metricChipCustomColours = example({
+    keywords: ["MetricChip", "background", "color", "borderColor", "override", "custom"],
+    description: "Colour overrides — raw background, ink and border on a static chip",
+    fn: East.function([], UIComponentType, (_$) => (
+        <MetricChip tone="positive" emphasis="subtle" background="bg.brand.subtle" color="fg.default" borderColor="border.brand">
+            <Text>+12.5%</Text>
+        </MetricChip>
+    )),
     inputs: [],
 });

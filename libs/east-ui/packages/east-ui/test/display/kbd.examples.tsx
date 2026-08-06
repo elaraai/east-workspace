@@ -32,24 +32,22 @@ export const kbdVariants = example({
             ], ArrayType(Style.Types.Density));
 
             const keysBind = $.let(State.bind([StringType], "kbd_keys", "chord"));
-            const variantBind = $.let(State.bind([StringType], "kbd_variant", "subtle"));
             const densityBind = $.let(State.bind([StringType], "kbd_density", "compact"));
 
             const kKey = $.let(keysBind.read());
-            const vKey = $.let(variantBind.read());
             const dKey = $.let(densityBind.read());
 
             const onKeys = $.const(East.function([StringType], NullType, ($, next) => { $(keysBind.write(next)); }));
-            const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
 
             const keySet = $.let(keySets.filter((_$, o) => o.label.equal(kKey)).get(0n));
             const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
 
-            const preview = $.const(vKey.equal("solid").ifElse(
-                _$ => <Kbd keys={keySet.keys} variant="solid" colorPalette="brand" density={density} />,
-                _$ => <Kbd keys={keySet.keys} density={density} />,
-            ));
+            // ONE kbd — the solid brand variant composes on (the subtle
+            // default is kbdBasic); keys + density stay live.
+            const preview = $.const(
+                <Kbd keys={keySet.keys} variant="solid" colorPalette="brand" density={density} />,
+            );
 
             return (
                 <Configurator
@@ -57,9 +55,6 @@ export const kbdVariants = example({
                         Configurator.Control("Keys", kKey,
                             <SegmentGroup value={kKey} onChange={onKeys} size="sm"
                                 items={keySets.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
-                        Configurator.Control("Variant", vKey,
-                            <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                items={variants.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
                         Configurator.Control("Density", dKey,
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),

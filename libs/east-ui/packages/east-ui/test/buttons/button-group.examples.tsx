@@ -42,23 +42,21 @@ export const buttonGroupVariants = example({
             const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
             const onAttached = $.const(East.function([BooleanType], NullType, ($, next) => { $(attachedBind.write(next)); }));
 
-            const preview = $.const(pKey.equal("split").ifElse(
-                _$ => (
-                    <ButtonGroup attached={attachedOn}>
-                        <Button variant="solid" colorPalette="brand" size="md">Deploy</Button>
-                        <IconButton prefix="fas" name="chevron-down" label="More deploy options" variant="solid" colorPalette="brand" size="md" />
-                    </ButtonGroup>
-                ),
-                _$ => (
-                    <ButtonGroup attached={attachedOn}>
-                        <Button variant="outline" size="sm">1d</Button>
-                        <Button variant="outline" size="sm">1w</Button>
-                        <Button variant="outline" size="sm">1m</Button>
-                        <Button variant="outline" size="sm">3m</Button>
-                        <Button variant="outline" size="sm">1y</Button>
-                    </ButtonGroup>
-                ),
-            ));
+            // children are VALUES — the preset swaps the kid array on the
+            // ONE group; attached stays live.
+            const splitKids = $.let([
+                <Button variant="solid" colorPalette="brand" size="md">Deploy</Button>,
+                <IconButton prefix="fas" name="chevron-down" label="More deploy options" variant="solid" colorPalette="brand" size="md" />,
+            ], ArrayType(UIComponentType));
+            const rangeKids = $.let([
+                <Button variant="outline" size="sm">1d</Button>,
+                <Button variant="outline" size="sm">1w</Button>,
+                <Button variant="outline" size="sm">1m</Button>,
+                <Button variant="outline" size="sm">3m</Button>,
+                <Button variant="outline" size="sm">1y</Button>,
+            ], ArrayType(UIComponentType));
+            const kids = $.let(pKey.equal("split").ifElse(_$ => splitKids, _$ => rangeKids));
+            const preview = $.const(<ButtonGroup attached={attachedOn}>{kids}</ButtonGroup>);
 
             return (
                 <Configurator

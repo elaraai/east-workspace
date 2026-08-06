@@ -12,6 +12,7 @@ describeEast("MetricChip", (test) => {
     Assert.examples(test, {
         metricChipBasic: ex.metricChipBasic,
         metricChipVariants: ex.metricChipVariants,
+        metricChipCustomColours: ex.metricChipCustomColours,
     });
 
     // =========================================================================

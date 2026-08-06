@@ -52,7 +52,7 @@ export const chipRailOverflow = example({
 
 export const chipRailVariants = example({
     keywords: ["ChipRail", "mixed", "Badge", "MetricChip", "Avatar", "Tag", "density", "Root", "tags", "separator", "dot-separator", "line", "none", "labels", "labeled", "caption", "dimension", "sizes", "condensed", "compact", "comfortable", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive"],
-    description: "ChipRail configurator — chip set, density and separator axes plus a labeled-mode switch driving one live rail; the aside stacks the set at all three densities",
+    description: "ChipRail configurator — chip set, density and separator axes on one live labeled rail; the aside stacks the set at all three densities",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -97,30 +97,25 @@ export const chipRailVariants = example({
                 const chipsBind     = $.let(State.bind([StringType], "chiprail_chips", "mixed"));
                 const densityBind   = $.let(State.bind([StringType], "chiprail_density", "compact"));
                 const separatorBind = $.let(State.bind([StringType], "chiprail_separator", "dot"));
-                const labeledBind   = $.let(State.bind([BooleanType], "chiprail_labeled", false));
 
                 const cKey = $.let(chipsBind.read());
                 const dKey = $.let(densityBind.read());
                 const sKey = $.let(separatorBind.read());
-                const labeled = $.let(labeledBind.read());
 
                 const onChips     = $.const(East.function([StringType], NullType, ($, next) => { $(chipsBind.write(next)); }));
                 const onDensity   = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
                 const onSeparator = $.const(East.function([StringType], NullType, ($, next) => { $(separatorBind.write(next)); }));
-                const onLabeled   = $.const(East.function([BooleanType], NullType, ($, next) => { $(labeledBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const chipSet = $.let(sets.filter((_$, o) => o.label.equal(cKey)).get(0n));
                 const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
                 const separator = $.let(separators.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
 
-                // Labeled mode is the presence of `labels`, not a value of it —
-                // so the switch picks between the two rails rather than feeding
-                // an empty caption list.
-                const rail = $.const(labeled.ifElse(
-                    _$ => <ChipRail density={density} separator={separator} labels={chipSet.captions}>{chipSet.chips}</ChipRail>,
-                    _$ => <ChipRail density={density} separator={separator}>{chipSet.chips}</ChipRail>,
-                ));
+                // ONE rail — the caption labels compose on (they are chip-set
+                // DATA); density / separator / chips stay live.
+                const rail = $.const(
+                    <ChipRail density={density} separator={separator} labels={chipSet.captions}>{chipSet.chips}</ChipRail>,
+                );
 
                 return (
                     <Configurator
@@ -138,7 +133,6 @@ export const chipRailVariants = example({
                             // Mode / Captions spec rows below rather than as one value.
                             Configurator.Slot("Labels",
                                 <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={labeled} label="Labeled" onChange={onLabeled} />
                                 </HStack>),
                         ]}
                         preview={rail}
@@ -151,9 +145,9 @@ export const chipRailVariants = example({
                             ),
                         }}
                         spec={[
-                            Configurator.Spec("Mode", labeled.ifElse(_$ => "labeled", _$ => "inline")),
+                            Configurator.Spec("Mode", "labeled"),
                             Configurator.Spec("Chip count", East.print(chipSet.chips.size())),
-                            Configurator.Spec("Captions", labeled.ifElse(_$ => East.print(chipSet.captions.size()), _$ => "hidden")),
+                            Configurator.Spec("Captions", East.print(chipSet.captions.size())),
                         ]}
                     />
                 );
