@@ -39,9 +39,6 @@ export const separatorVariants = example({
                 // Enumerated axes are just their variants — `getTag()` gives the
                 // segment key AND its label, so there is no parallel table to
                 // keep in step.
-                const orientations = $.const([
-                    variant("horizontal", null), variant("vertical", null),
-                ], ArrayType(Style.Types.Orientation));
 
                 const hairlines = $.const([
                     variant("subtle", null), variant("strong", null),
@@ -56,25 +53,18 @@ export const separatorVariants = example({
                 // key with the text it renders: a short OR, a form-section
                 // heading, and the uppercase eyebrow phrase.
                 const labels = $.const([
-                    { label: "none",    text: "" },
                     { label: "or",      text: "OR" },
                     { label: "section", text: "Contact Details" },
                     { label: "eyebrow", text: "Cross-phase decisions" },
                 ], ArrayType(StructType({ label: StringType, text: StringType })));
-
-                const orientationBind = $.let(State.bind([StringType], "separator_orientation", "horizontal"));
                 const variantBind     = $.let(State.bind([StringType], "separator_variant", "subtle"));
                 const labelBind       = $.let(State.bind([StringType], "separator_label", "or"));
                 const alignBind       = $.let(State.bind([StringType], "separator_align", "center"));
                 const counter         = $.let(State.bind([IntegerType], "separator_counter", 0n));
-
-                const oKey  = $.let(orientationBind.read());
                 const vKey  = $.let(variantBind.read());
                 const lKey  = $.let(labelBind.read());
                 const aKey  = $.let(alignBind.read());
                 const count = $.let(counter.read());
-
-                const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
                 const onVariant     = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onLabel       = $.const(East.function([StringType], NullType, ($, next) => { $(labelBind.write(next)); }));
                 const onAlign       = $.const(East.function([StringType], NullType, ($, next) => { $(alignBind.write(next)); }));
@@ -87,46 +77,21 @@ export const separatorVariants = example({
                 const hairline = $.let(hairlines.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
                 const align = $.let(aligns.filter((_$, v) => v.getTag().equal(aKey)).get(0n));
                 const entry = $.let(labels.filter((_$, o) => o.label.equal(lKey)).get(0n));
-                const labeled = $.let(lKey.equal("none").not());
 
-                // A label is the presence of the slot, not a value of it — so
-                // the lookup picks between prebuilt dividers rather than feeding
-                // an empty label (the chip-rail presence precedent). Vertical
-                // dividers drop label + align and divide a 40px row instead.
-                const divider = $.const(oKey.equal("vertical").ifElse(
-                    _$ => (
-                        <HStack gap="4" align="center">
-                            <Text>Left</Text>
-                            <Box height="40px">
-                                <Separator orientation="vertical" variant={hairline} />
-                            </Box>
-                            <Text>Right</Text>
-                        </HStack>
-                    ),
-                    _$ => labeled.ifElse(
-                        _$ => (
-                            <VStack gap="3" align="stretch">
-                                <Text>Above</Text>
-                                <Separator variant={hairline} align={align} label={<Text>{entry.text}</Text>} />
-                                <Text>Below</Text>
-                            </VStack>
-                        ),
-                        _$ => (
-                            <VStack gap="3" align="stretch">
-                                <Text>Above</Text>
-                                <Separator variant={hairline} />
-                                <Text>Below</Text>
-                            </VStack>
-                        ),
-                    ),
-                ));
+                // ONE labeled divider — the label slot composes on (its text is
+                // a value from the axis); the vertical scaffold is its own
+                // example.
+                const divider = $.const(
+                    <VStack gap="3" align="stretch">
+                        <Text>Above</Text>
+                        <Separator variant={hairline} align={align} label={<Text>{entry.text}</Text>} />
+                        <Text>Below</Text>
+                    </VStack>,
+                );
 
                 return (
                     <Configurator
                         controls={[
-                            Configurator.Control("Orientation", oKey,
-                                <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
-                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Variant", vKey,
                                 <Select value={vKey} onChange={onVariant} size="sm"
                                     items={hairlines.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
@@ -152,13 +117,28 @@ export const separatorVariants = example({
                             ),
                         }}
                         spec={[
-                            Configurator.Spec("Label text", labeled.ifElse(_$ => entry.text, _$ => "none")),
-                            Configurator.Spec("Context", oKey.equal("vertical").ifElse(_$ => "40px row", _$ => "stacked copy")),
+                            Configurator.Spec("Label text", entry.text),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Vertical divider — divides a 40px row between inline siblings. */
+export const separatorVertical = example({
+    keywords: ["Separator", "orientation", "vertical", "divider", "inline"],
+    description: "Vertical divider between inline siblings in a 40px row",
+    fn: East.function([], UIComponentType, (_$) => (
+        <HStack gap="4" align="center">
+            <Text>Left</Text>
+            <Box height="40px">
+                <Separator orientation="vertical" variant="subtle" />
+            </Box>
+            <Text>Right</Text>
+        </HStack>
+    )),
     inputs: [],
 });

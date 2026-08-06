@@ -13,6 +13,7 @@ describeEast("Separator", (test) => {
     Assert.examples(test, {
         separatorBasic: ex.separatorBasic,
         separatorVariants: ex.separatorVariants,
+        separatorVertical: ex.separatorVertical,
     });
 
     // =========================================================================
