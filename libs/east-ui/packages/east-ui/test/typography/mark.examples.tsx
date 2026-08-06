@@ -44,17 +44,14 @@ export const markVariants = example({
 
                 const variantBind = $.let(State.bind([StringType], "mark_variant", "subtle"));
                 const paletteBind = $.let(State.bind([StringType], "mark_palette", "warning"));
-                const contextBind = $.let(State.bind([BooleanType], "mark_context", false));
                 const counter     = $.let(State.bind([IntegerType], "mark_counter", 0n));
 
                 const vKey  = $.let(variantBind.read());
                 const pKey  = $.let(paletteBind.read());
-                const ctx   = $.let(contextBind.read());
                 const count = $.let(counter.read());
 
                 const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onPalette = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
-                const onContext = $.const(East.function([BooleanType], NullType, ($, next) => { $(contextBind.write(next)); }));
                 const inc       = $.const(East.function([], NullType, $ => {
                     const cur = $.let(counter.read());
                     $(counter.write(cur.add(1n)));
@@ -64,19 +61,14 @@ export const markVariants = example({
                 const markVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
                 const palette = $.let(palettes.filter((_$, s) => s.equal(pKey)).get(0n));
 
-                // In-context mode is a placement, not a prop — so the switch
-                // picks between the standalone mark and the same mark set in a
-                // running sentence.
-                const preview = $.const(ctx.ifElse(
-                    _$ => (
-                        <HStack gap="1">
-                            <Text>{"This feature is "}</Text>
-                            <Mark variant={markVariant} colorPalette={palette}>deprecated</Mark>
-                            <Text>{" and will be removed."}</Text>
-                        </HStack>
-                    ),
-                    _$ => <Mark variant={markVariant} colorPalette={palette}>{markVariant.getTag().upperCase()}</Mark>,
-                ));
+                // ONE mark — the running-sentence placement composes on.
+                const preview = $.const(
+                    <HStack gap="1">
+                        <Text>{"This feature is "}</Text>
+                        <Mark variant={markVariant} colorPalette={palette}>deprecated</Mark>
+                        <Text>{" and will be removed."}</Text>
+                    </HStack>,
+                );
 
                 return (
                     <Configurator
@@ -91,7 +83,6 @@ export const markVariants = example({
                             // Placement spec row below rather than as one value.
                             Configurator.Slot("Context",
                                 <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={ctx} label="In sentence" onChange={onContext} />
                                 </HStack>),
                         ]}
                         preview={preview}
@@ -105,7 +96,6 @@ export const markVariants = example({
                             ),
                         }}
                         spec={[
-                            Configurator.Spec("Placement", ctx.ifElse(_$ => "in sentence", _$ => "standalone")),
                         ]}
                     />
                 );

@@ -38,64 +38,47 @@ export const linkVariants = example({
                 const variants = $.const([
                     variant("underline", null), variant("plain", null),
                 ], ArrayType(Link.Types.Variant));
-                const variantKeys = $.const(["default", "underline", "plain"], ArrayType(StringType));
 
                 // A palette is just its name, so the axis is a bare array of
                 // the value itself.
                 const palettes = $.const(["brand", "danger", "gray"], ArrayType(StringType));
 
-                const variantBind = $.let(State.bind([StringType], "link_variant", "default"));
+                const variantBind = $.let(State.bind([StringType], "link_variant", "underline"));
                 const paletteBind = $.let(State.bind([StringType], "link_palette", "brand"));
                 const extBind     = $.let(State.bind([BooleanType], "link_external", false));
-                const contextBind = $.let(State.bind([BooleanType], "link_context", false));
                 const counter     = $.let(State.bind([IntegerType], "link_counter", 0n));
 
                 const vKey  = $.let(variantBind.read());
                 const pKey  = $.let(paletteBind.read());
                 const ext   = $.let(extBind.read());
-                const ctx   = $.let(contextBind.read());
                 const count = $.let(counter.read());
 
                 const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onPalette  = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
                 const onExternal = $.const(East.function([BooleanType], NullType, ($, next) => { $(extBind.write(next)); }));
-                const onContext  = $.const(East.function([BooleanType], NullType, ($, next) => { $(contextBind.write(next)); }));
                 const inc        = $.const(East.function([], NullType, $ => {
                     const cur = $.let(counter.read());
                     $(counter.write(cur.add(1n)));
                 }));
 
-                // Each selection is a lookup into the same array the control
-                // renders; the default key matches nothing, and the lookup only
-                // runs on the branch where a match exists.
-                const matches = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)));
+                // ONE link — the variant feeds as an expression and the
+                // running-sentence placement composes on permanently.
+                const linkVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
                 const palette = $.let(palettes.filter((_$, s) => s.equal(pKey)).get(0n));
-
-                const link = $.const(matches.size().equal(0n).ifElse(
-                    _$ => <Link href="https://docs.example.com" external={ext} colorPalette={palette}>documentation</Link>,
-                    _$ => <Link href="https://docs.example.com" external={ext} colorPalette={palette} variant={matches.get(0n)}>documentation</Link>,
-                ));
-
-                // In-context mode is a placement, not a prop — so the switch
-                // picks between the standalone link and the same link set in a
-                // running sentence.
-                const preview = $.const(ctx.ifElse(
-                    _$ => (
-                        <HStack gap="1">
-                            <Text>{"Read the "}</Text>
-                            {link}
-                            <Text>{" for more info."}</Text>
-                        </HStack>
-                    ),
-                    _$ => link,
-                ));
+                const preview = $.const(
+                    <HStack gap="1">
+                        <Text>{"Read the "}</Text>
+                        <Link href="https://docs.example.com" external={ext} colorPalette={palette} variant={linkVariant}>documentation</Link>
+                        <Text>{" for more info."}</Text>
+                    </HStack>,
+                );
 
                 return (
                     <Configurator
                         controls={[
                             Configurator.Control("Variant", vKey,
                                 <SegmentGroup value={vKey} onChange={onVariant} size="sm"
-                                    items={variantKeys.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                             Configurator.Control("Palette", pKey,
                                 <SegmentGroup value={pKey} onChange={onPalette} size="sm"
                                     items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
@@ -105,7 +88,6 @@ export const linkVariants = example({
                             Configurator.Slot("Behaviour",
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={ext} label="External" onChange={onExternal} />
-                                    <Switch checked={ctx} label="In sentence" onChange={onContext} />
                                 </HStack>),
                         ]}
                         preview={preview}
@@ -120,7 +102,6 @@ export const linkVariants = example({
                         }}
                         spec={[
                             Configurator.Spec("Target", ext.ifElse(_$ => "new tab · noopener", _$ => "same tab")),
-                            Configurator.Spec("Placement", ctx.ifElse(_$ => "in sentence", _$ => "standalone")),
                         ]}
                     />
                 );

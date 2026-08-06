@@ -76,13 +76,11 @@ export const codeBlockVariants = example({
                 const lKey  = $.let(languageBind.read());
                 const hKey  = $.let(heightBind.read());
                 const lines = $.let(linesBind.read());
-                const hl    = $.let(highlightBind.read());
                 const count = $.let(counter.read());
 
                 const onLanguage  = $.const(East.function([StringType], NullType, ($, next) => { $(languageBind.write(next)); }));
                 const onHeight    = $.const(East.function([StringType], NullType, ($, next) => { $(heightBind.write(next)); }));
                 const onLines     = $.const(East.function([BooleanType], NullType, ($, next) => { $(linesBind.write(next)); }));
-                const onHighlight = $.const(East.function([BooleanType], NullType, ($, next) => { $(highlightBind.write(next)); }));
                 const inc         = $.const(East.function([], NullType, $ => {
                     const cur = $.let(counter.read());
                     $(counter.write(cur.add(1n)));
@@ -92,13 +90,11 @@ export const codeBlockVariants = example({
                 const snippet = $.let(snippets.filter((_$, o) => o.language.getTag().equal(lKey)).get(0n));
                 const maxHeight = $.let(heights.filter((_$, s) => s.equal(hKey)).get(0n));
 
-                // A highlight is the presence of `highlightLines`, not a value
-                // of it — so the switch picks between the two blocks rather
-                // than feeding an empty line list.
-                const block = $.const(hl.ifElse(
-                    _$ => <CodeBlock language={snippet.language} showLineNumbers={lines} highlightLines={[snippet.line]} maxHeight={maxHeight}>{snippet.code}</CodeBlock>,
-                    _$ => <CodeBlock language={snippet.language} showLineNumbers={lines} maxHeight={maxHeight}>{snippet.code}</CodeBlock>,
-                ));
+                // ONE block — the highlighted line composes on permanently
+                // (its line number is snippet DATA).
+                const block = $.const(
+                    <CodeBlock language={snippet.language} showLineNumbers={lines} highlightLines={[snippet.line]} maxHeight={maxHeight}>{snippet.code}</CodeBlock>,
+                );
 
                 return (
                     <Configurator
@@ -115,7 +111,6 @@ export const codeBlockVariants = example({
                             Configurator.Slot("Wiring",
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={lines} label="Line numbers" onChange={onLines} />
-                                    <Switch checked={hl} label="Highlight" onChange={onHighlight} />
                                 </HStack>),
                         ]}
                         preview={block}
@@ -130,7 +125,6 @@ export const codeBlockVariants = example({
                         }}
                         spec={[
                             Configurator.Spec("Line numbers", lines.ifElse(_$ => "shown", _$ => "hidden")),
-                            Configurator.Spec("Highlight", hl.ifElse(_$ => East.str`line ${East.print(snippet.line)}`, _$ => "off")),
                         ]}
                     />
                 );
