@@ -8,8 +8,8 @@
  *
  * Element windows are exact for every collection kind — Array in stream
  * order, Set/Dict in the canonical East key order, which v5 blobs hold on
- * the wire (sorted, disjoint segments). Segment windows need an indexed
- * blob (large collections are stored segmented server-side).
+ * the wire (sorted, disjoint segments). Collection datasets are stored
+ * segmented + indexed at every size, so segment addressing always works.
  */
 
 import { describe, it } from 'node:test';
@@ -128,24 +128,23 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       );
     });
 
-    it('small (un-indexed) collections page via the fallback, exactly', async (t) => {
+    it('small collections are stored indexed too and page exactly', async (t) => {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
 
-      // Below the segmentation threshold: stored whole-value, no index.
+      // Collection datasets are indexed at every size — one uniform encoding.
       const rows = makeRows(50);
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType)(rows), opts);
 
       const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: 10, limit: 20 }, opts);
       assert.equal(page.totalElements, 50);
-      assert.equal(page.segmentCount, 0, 'no index on a small blob');
+      assert.equal(page.segmentCount, 1, 'small blobs carry a one-segment index');
       assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(10, 30)));
 
-      // Segment addressing needs an index.
-      await rejectsWithDetail(
-        () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 0 }, opts),
-        /no segment index/
-      );
+      // Segment addressing works at every size.
+      const seg = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 0 }, opts);
+      assert.equal(seg.count, 50);
+      assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(seg.data), rows));
     });
 
     it('dict element windows come back in East key order', async (t) => {

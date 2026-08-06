@@ -149,10 +149,17 @@ def save_value(file_path: Path, value: Any, value_type: EastType) -> None:
     fmt = detect_format(file_path)
 
     if fmt == "beast2":
-        from east.serialization.beast2 import encode_beast2_with_header_for
+        # Collection-rooted outputs are ALWAYS written segmented + indexed
+        # (byte-adaptive segments) so e3's paged dataset reads can seek —
+        # one uniform encoding per logical value, at every size.
+        if getattr(value_type, "type", None) in ("Array", "Set", "Dict"):
+            from east.serialization.beast2 import encode_beast2_paged_for
 
-        encoder = encode_beast2_with_header_for(value_type)
-        data = encoder(value)
+            data = encode_beast2_paged_for(value_type)(value)
+        else:
+            from east.serialization.beast2 import encode_beast2_with_header_for
+
+            data = encode_beast2_with_header_for(value_type)(value)
         with open(file_path, "wb") as f:
             f.write(data)
 

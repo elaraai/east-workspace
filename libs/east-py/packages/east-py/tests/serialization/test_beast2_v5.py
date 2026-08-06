@@ -29,6 +29,7 @@ from east.serialization.beast2 import (
     BEAST2_V5_MAGIC,
     Beast2Writer,
     decode_beast2_with_header_for,
+    encode_beast2_paged_for,
     encode_beast2_segments_for,
     encode_beast2_v5_for,
     encode_beast2_with_header_for,
@@ -191,6 +192,43 @@ def test_decode_rejects_non_canonical_set_wire_as_corrupt():
     blob[-2], blob[-3] = blob[-3], blob[-2]
     with pytest.raises((RuntimeError, ValueError), match="strictly ascending"):
         decode_beast2_with_header_for(st)(bytes(blob))
+
+
+def test_paged_encode_writes_indexed_byte_adaptive_blobs():
+    """The Python mirror of TS ``encodeBeast2PagedFor``: whole value in,
+    segmented + self-contained + indexed blob out, batches capped by elements
+    AND adapted to a wire-byte target so wide rows get small segments."""
+    at = ArrayType(IntegerType)
+    rows = EastArray(IntegerType, list(range(2500)))
+    blob = encode_beast2_paged_for(at)(rows)
+    pages = open_beast2_pages_for(at)(blob)
+    assert pages.segment_count == 3  # 1,000-element cap
+    assert pages.element_count == 2500
+    assert pages.self_contained is True
+    assert list(decode_beast2_with_header_for(at)(blob)) == list(range(2500))
+    # Deterministic per value.
+    assert encode_beast2_paged_for(at)(rows) == blob
+
+    # A tiny byte target forces one element per segment — the adaptation floor.
+    st = ArrayType(StringType)
+    wide = EastArray(StringType, [f"row-{i}-" + "x" * 200 for i in range(40)])
+    tiny = encode_beast2_paged_for(st, target_segment_bytes=1, codec="none")(wide)
+    assert open_beast2_pages_for(st)(tiny).segment_count == 40
+
+    # Small and empty values are indexed too (uniform encoding at every size).
+    small = encode_beast2_paged_for(at)(EastArray(IntegerType, [1, 2, 3]))
+    assert open_beast2_pages_for(at)(small).segment_count == 1
+    empty = encode_beast2_paged_for(at)(EastArray(IntegerType))
+    assert read_beast2_index(at, empty) == (0, 0)
+
+    # Dict and Set roots page in canonical key order.
+    dt = DictType(StringType, IntegerType)
+    lookup = EastDict(StringType, IntegerType, {f"k{i:04d}": i for i in range(250)})
+    d_blob = encode_beast2_paged_for(dt, batch_size=100)(lookup)
+    d_pages = open_beast2_pages_for(dt)(d_blob)
+    assert d_pages.segment_count == 3
+    merged = decode_beast2_with_header_for(dt)(d_blob)
+    assert len(merged) == 250 and merged["k0042"] == 42
 
 
 def test_zero_batches_decode_to_the_empty_collection_of_each_kind():

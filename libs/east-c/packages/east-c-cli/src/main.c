@@ -303,7 +303,14 @@ static int save_value(const char *path, EastValue *value, EastType *type)
         return rc;
     }
     if (fmt == FMT_BEAST2) {
-        ByteBuffer *buf = east_beast2_encode_full(value, type);
+        /* Collection-rooted outputs are ALWAYS written segmented + indexed
+         * (byte-adaptive segments) so e3's paged dataset reads can seek —
+         * one uniform encoding per logical value, at every size. */
+        bool collection = type->kind == EAST_TYPE_ARRAY || type->kind == EAST_TYPE_SET ||
+                          type->kind == EAST_TYPE_DICT;
+        ByteBuffer *buf = collection
+                              ? east_beast2_encode_paged(value, type, EAST_BEAST2_CODEC_DEFLATE, 0)
+                              : east_beast2_encode_full(value, type);
         if (!buf) {
             fprintf(stderr, "Error: Beast2 encode failed\n");
             return -1;

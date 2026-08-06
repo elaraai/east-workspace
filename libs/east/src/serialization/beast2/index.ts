@@ -52,6 +52,23 @@ export {
   Beast2Pages,
   openBeast2PagesFor,
 } from "./v5/stream.js";
+import { readIndex } from "./v5/codec.js";
+
+/**
+ * Whether a blob carries the v5 trailing paging index (a well-formed
+ * index + footer). O(index) — inspects the blob's tail without decoding any
+ * value. `false` for v4 blobs, index-less v5 blobs, and non-beast2 data.
+ *
+ * @param data - the blob to inspect
+ * @returns `true` when a paging reader can seek the blob
+ */
+export function beast2HasIndex(data: Uint8Array): boolean {
+  try {
+    return readIndex(data) !== null;
+  } catch {
+    return false;
+  }
+}
 
 // =============================================================================
 // Magic dispatch

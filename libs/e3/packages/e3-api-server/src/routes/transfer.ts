@@ -9,10 +9,11 @@ import { mkdir, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { variant, NullType } from '@elaraai/east';
+import { variant, NullType, beast2HasIndex, isVariant, toEastTypeValue, type EastTypeValue } from '@elaraai/east';
 import { urlPathToTreePath } from '@elaraai/e3-types';
 import {
   computeHash,
+  workspaceGetDatasetStatus,
   workspaceSetDatasetByHash,
   type StorageBackend,
   type TransferBackend,
@@ -140,12 +141,26 @@ export function createTransferRoutes(
           variant('error', { message: `hash mismatch: expected ${transfer.hash}, got ${actualHash}` }));
       }
 
+      // The transfer path stores the client's bytes verbatim — the one place
+      // un-indexed bytes could enter at rest. Collection datasets must be
+      // segmented + indexed (the uniform at-rest contract), so validate here.
+      const treePath = urlPathToTreePath(transfer.path);
+      const status = await workspaceGetDatasetStatus(storage, repoPath, transfer.workspace, treePath);
+      const typeValue: EastTypeValue = isVariant(status.datasetType)
+        ? status.datasetType
+        : toEastTypeValue(status.datasetType as never);
+      const collection = typeValue.type === 'Array' || typeValue.type === 'Set' || typeValue.type === 'Dict';
+      if (collection && !beast2HasIndex(data)) {
+        await unlink(stagingPath).catch(() => {});
+        return sendSuccess(TransferDoneResponseType,
+          variant('error', { message: 'collection dataset blob carries no paging index — encode it with encodeBeast2PagedFor (collection datasets are stored segmented + indexed)' }));
+      }
+
       // Write through storage abstraction (re-hashes internally, that's fine)
       await storage.objects.write(repoPath, data);
       await unlink(stagingPath).catch(() => {});
 
       // Update dataset ref
-      const treePath = urlPathToTreePath(transfer.path);
       await workspaceSetDatasetByHash(storage, repoPath, transfer.workspace, treePath, actualHash, new Map());
 
       return sendSuccess(TransferDoneResponseType, variant('completed', null));

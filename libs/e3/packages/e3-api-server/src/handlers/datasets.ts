@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, decodeBeast2, decodeBeast2For, encodeBeast2For, openBeast2PagesFor, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, decodeBeast2, encodeBeast2For, openBeast2PagesFor, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -126,13 +126,6 @@ const PAGE_MAX_LIMIT = 10_000;
  *  a smaller budget through the route options. */
 export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 
-/** Largest un-indexed blob the fallback will whole-decode. The decode runs
- *  synchronously in the server process — an unbounded one wedges the event
- *  loop (or the whole process) and takes every other request down with it,
- *  which is fatal for in-process hosts like the VS Code extension. Above
- *  this, paging an un-indexed blob is refused with a clear remedy. */
-export const PAGE_UNINDEXED_MAX_BYTES_DEFAULT = 64 * 1024 * 1024;
-
 /** Largest blob the page endpoint will buffer at all. Indexed blobs decode
  *  O(segment) but are still read whole today (a transient allocation);
  *  above this cap even that is refused until range reads land. */
@@ -154,35 +147,6 @@ export interface DatasetPageWindow {
   hash?: string;
 }
 
-/**
- * Per-hash LRU of decoded dataset values.
- *
- * Backs the whole-decode fallback for blobs without a pageable segment
- * index. Objects are immutable and content-addressed, so entries never
- * invalidate — capacity is the only bound.
- */
-export class DecodedValueCache {
-  private readonly map = new Map<string, unknown>();
-
-  constructor(private readonly capacity: number) {}
-
-  get(hash: string): unknown | undefined {
-    if (!this.map.has(hash)) return undefined;
-    const value = this.map.get(hash);
-    this.map.delete(hash);
-    this.map.set(hash, value);
-    return value;
-  }
-
-  set(hash: string, value: unknown): void {
-    if (this.map.has(hash)) this.map.delete(hash);
-    this.map.set(hash, value);
-    if (this.map.size > this.capacity) {
-      this.map.delete(this.map.keys().next().value!);
-    }
-  }
-}
-
 function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: { type, message } }), {
     status,
@@ -198,22 +162,18 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
  * are exact for every collection kind: Array windows address stream order,
  * Set/Dict windows the canonical East (key) order — which IS the wire order,
  * since v5 Set/Dict segments hold the canonical value in disjoint ascending
- * ranges. Segment windows return one writer batch verbatim and need an
- * indexed blob.
+ * ranges. Segment windows return one writer batch verbatim.
  *
- * Strategy: indexed blobs of every kind slice via the trailing index,
- * decoding only the touched segments (Set/Dict windows verify the segment
- * fences first and reject non-canonical blobs as corrupt); blobs without a
- * pageable index decode whole once into the per-hash LRU and slice per
- * request.
+ * Collection datasets are stored segmented + indexed by every writer at
+ * every size, so every window decodes only the touched segments (Set/Dict
+ * windows verify the segment fences first and reject non-canonical blobs as
+ * corrupt). A blob without a pageable index predates that contract and is
+ * refused — there is no whole-decode fallback.
  */
 /** Server-side limits for {@link getDatasetPage}. */
 export interface DatasetPageLimits {
   /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
   byteBudget?: number;
-  /** Whole-decode cap for blobs without a pageable segment index
-   *  (default {@link PAGE_UNINDEXED_MAX_BYTES_DEFAULT}). */
-  unindexedMaxBytes?: number;
   /** Absolute blob-buffering cap (default {@link PAGE_READ_MAX_BYTES_DEFAULT}). */
   readMaxBytes?: number;
 }
@@ -224,11 +184,9 @@ export async function getDatasetPage(
   workspace: string,
   treePath: TreePath,
   window: DatasetPageWindow,
-  cache: DecodedValueCache,
   limits?: DatasetPageLimits,
 ): Promise<Response> {
   const byteBudget = limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
-  const unindexedMaxBytes = limits?.unindexedMaxBytes ?? PAGE_UNINDEXED_MAX_BYTES_DEFAULT;
   const readMaxBytes = limits?.readMaxBytes ?? PAGE_READ_MAX_BYTES_DEFAULT;
   try {
     if (treePath.length === 0) {
@@ -320,7 +278,7 @@ export async function getDatasetPage(
       pageOffset = 0;
       for (let i = 0; i < seg; i++) pageOffset += pages.counts[i]!;
     } else if (pages !== null && pages.selfContained) {
-      // The indexed fast path, every collection kind: Array windows address
+      // The indexed path, every collection kind: Array windows address
       // stream order, Set/Dict windows the canonical key order (fences are
       // verified on first access; a non-canonical blob is corrupt).
       totalElements = pages.elementCount;
@@ -335,53 +293,12 @@ export async function getDatasetPage(
         : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
       pageOffset = offset;
     } else {
-      let merged = cache.get(status.hash);
-      // The whole-decode guardrail: a huge synchronous decode wedges the
-      // server for every caller. Already-cached values serve for free.
-      if (merged === undefined && data.byteLength > unindexedMaxBytes) {
-        const mb = Math.round(data.byteLength / 1024 / 1024);
-        const capMb = Math.round(unindexedMaxBytes / 1024 / 1024);
-        return pageError('dataset_too_large_unindexed',
-          `Dataset is ${mb} MB and stored without a pageable segment index — beyond the ${capMb} MB whole-decode cap. Re-run the producing task (current runners store large collections segmented) or download it.`);
-      }
-      if (merged === undefined) {
-        merged = decodeBeast2For(typeValue)(data);
-        cache.set(status.hash, merged);
-      }
-      if (kind === 'Array') {
-        const arr = merged as unknown[];
-        totalElements = arr.length;
-        const limit = effectiveLimit(totalElements);
-        windowValue = arr.slice(offset, offset + limit);
-        pageCount = (windowValue as unknown[]).length;
-      } else if (kind === 'Set') {
-        const set = merged as Set<unknown>;
-        totalElements = set.size;
-        const limit = effectiveLimit(totalElements);
-        const win = new Set<unknown>();
-        let i = 0;
-        for (const item of set) {
-          if (i >= offset + limit) break;
-          if (i >= offset) win.add(item);
-          i++;
-        }
-        windowValue = win;
-        pageCount = win.size;
-      } else {
-        const map = merged as Map<unknown, unknown>;
-        totalElements = map.size;
-        const limit = effectiveLimit(totalElements);
-        const win = new Map<unknown, unknown>();
-        let i = 0;
-        for (const [k, v] of map.entries()) {
-          if (i >= offset + limit) break;
-          if (i >= offset) win.set(k, v);
-          i++;
-        }
-        windowValue = win;
-        pageCount = win.size;
-      }
-      pageOffset = offset;
+      // Collection datasets are stored segmented + indexed by every writer
+      // at every size; a blob without a pageable index predates that
+      // contract (or was injected raw) and is refused rather than
+      // whole-decoded — re-writing the dataset produces the indexed form.
+      return pageError('dataset_not_indexed',
+        'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
     }
 
     const body = encodeBeast2For(typeValue)(windowValue);
