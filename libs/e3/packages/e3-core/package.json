@@ -51,6 +51,7 @@
     "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
+    "@elaraai/east-node-cli": "workspace:*",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.0.0",
     "@types/tar-stream": "^3.1.4",
