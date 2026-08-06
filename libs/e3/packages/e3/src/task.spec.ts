@@ -424,13 +424,43 @@ describe('partitionTask', () => {
       );
     });
 
+    it('ByResult rejects non-projection returns at compile time', () => {
+      const sales = input('nsales4', DictType(NestedKeyType, IntegerType));
+      const out = DictType(NestedKeyType, IntegerType);
+
+      // Thunks only — nothing runs; the @ts-expect-error directives pin the
+      // TYPE-level rejections (the build fails if any of them stops erroring).
+      const bad1 = () => partitionTask('t_bad1', {
+        partitions: [sales],
+        // @ts-expect-error a bare host value is not a key projection
+        by: () => 42,
+        output: out,
+      }, ($, s) => $.return(s));
+      const bad2 = () => partitionTask('t_bad2', {
+        partitions: [sales],
+        // @ts-expect-error `r` is not a field of the partition key
+        by: (_$, k) => ({ r: k.head }),
+        output: out,
+      }, ($, s) => $.return(s));
+      const bad3 = () => partitionTask('t_bad3', {
+        partitions: [sales],
+        // @ts-expect-error `seq` requires an integer expression, not the head struct
+        by: (_$, k) => ({ seq: k.head }),
+        output: out,
+      }, ($, s) => $.return(s));
+      assert.ok(bad1 !== undefined && bad2 !== undefined && bad3 !== undefined);
+    });
+
     it('rejects a struct literal over nested paths (deliberately unsupported)', () => {
       const sales = input('nsales3', DictType(NestedKeyType, IntegerType));
 
       assert.throws(
         () => partitionTask('bad_struct_nested', {
           partitions: [sales],
-          by: (_$, key) => ({ r: key.head.region }),
+          // ByResult already rejects this shape at COMPILE time (`r` is not
+          // a key field) — the cast exercises the build-time backstop that
+          // guards untyped/JS callers.
+          by: ((_$: unknown, key: { head: { region: unknown } }) => ({ r: key.head.region })) as never,
           output: DictType(NestedKeyType, IntegerType),
         }, ($, slice) => $.return(slice)),
         /accepted shapes: the key itself/,

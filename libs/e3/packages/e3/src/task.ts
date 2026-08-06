@@ -352,6 +352,17 @@ type IntersectKeysAll<A, Rest> =
   Rest extends readonly [infer B, ...infer More] ? IntersectKeysAll<IntersectKeys<A, B>, More> :
   never;
 
+/** What a `by` projection may return: an expression over the key (the
+ *  identity, a field read, or a nested path — leading-prefix ORDER is
+ *  validated at build time, since TypeScript types carry no field order), a
+ *  struct literal drawn from the key's own fields with their own expression
+ *  types, or void for `$.return`-style block bodies. Anything else is a
+ *  type error at the call site. */
+type ByResult<K> =
+  | Expr<any>
+  | (K extends StructType<infer F> ? { [P in keyof F]?: ExprType<F[P]> } : never)
+  | void;
+
 /**
  * The declaration half of {@link partitionTask} — everything structural about
  * the task; the body comes last as the `fn` argument.
@@ -377,8 +388,10 @@ export interface PartitionTaskSpec<
    *  first field of its level); or a struct literal of leading fields in
    *  declared order (`{ f1: key.f1, f2: key.f2 }`). Any other body is
    *  rejected at build time — semantically monotone projections outside
-   *  these shapes are deliberately not inferred. */
-  readonly by?: ($: BlockBuilder<NeverType>, key: ExprType<PartitionByKey<Partitions>>) => unknown;
+   *  these shapes are deliberately not inferred. The return type admits
+   *  only expressions over the key or a struct literal of the key's own
+   *  fields ({@link ByResult}); field ORDER is the build-time half. */
+  readonly by?: ($: BlockBuilder<NeverType>, key: ExprType<PartitionByKey<Partitions>>) => ByResult<PartitionByKey<Partitions>>;
   /** Ordinary inputs, passed whole to every partition execution (small ⇒
    *  broadcast; huge + indexed ⇒ opened lazily by the runner). Any change to
    *  them re-runs all partitions. */
