@@ -398,7 +398,11 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
-  libs/east-c/packages/east-c-cli: {}
+  libs/east-c/packages/east-c-cli:
+    devDependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../../../east
 
   libs/east-claude-plugin:
     dependencies:

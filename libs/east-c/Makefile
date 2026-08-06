@@ -2,7 +2,7 @@
 # Native build via CMake.
 
 .PHONY: build rebuild clean install-cli \
-        unit test test-east-c test-east-c-std test-all \
+        unit test test-east-c test-east-c-std test-all test-emit-cross \
         leak-check leak-check-std leak-check-all \
         help lint format ensure-clang-format
 
@@ -61,6 +61,12 @@ test-east-c: build
 
 test-east-c-std: build
 	@./packages/east-c/scripts/run_compliance.sh /tmp/east-node-std build/packages/east-c-std/test_std_compliance
+
+## Cross-runtime pin for the CLI emit sink (#507): replay the checked-in
+## --emit fixtures through the built binary and decode the emitted blobs with
+## the TypeScript reader. Needs `pnpm install` + a built libs/east.
+test-emit-cross: build
+	@node packages/east-c-cli/tests/cross_decode_emit.mjs build/packages/east-c-cli/east-c
 
 ## Run native tests (gates + east-c + east-c-std)
 test: unit test-east-c test-east-c-std
@@ -124,6 +130,7 @@ help:
 	@echo "  install-cli    - Install east-c CLI to ~/.local/bin"
 	@echo ""
 	@echo "  unit           - Run the ctest gates (no exported IR needed)"
+	@echo "  test-emit-cross - Decode CLI --emit output with the TS reader (needs pnpm install + built libs/east)"
 	@echo "  test-east-c    - Run east-c compliance tests"
 	@echo "  test-east-c-std - Run east-c-std compliance tests"
 	@echo "  test-all       - Run all compliance tests"
