@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-c-cli",
-  "version": "1.0.57",
+  "version": "1.0.58",
   "description": "Provides the `east-c` bin. A tiny launcher resolves the native binary for your platform from the matching per-platform package (@elaraai/east-c-cli-<target>), pulled in via optional dependencies.",
   "bin": {
     "east-c": "bin/east-c.mjs"
