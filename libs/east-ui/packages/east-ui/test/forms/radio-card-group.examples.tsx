@@ -67,51 +67,25 @@ export const radioCardGroupVariants = example({
                 // value to name them by. The `recipe` row carries empty slots
                 // because the preview drops the overrides entirely for it
                 // (below).
-                const colours = $.const([
-                    { label: "recipe",    cardBg: "",                cardBorder: "",             description: "" },
-                    { label: "overrides", cardBg: "bg.brand.subtle", cardBorder: "border.brand", description: "fg.muted" },
-                ], ArrayType(StructType({ label: StringType, cardBg: StringType, cardBorder: StringType, description: StringType })));
 
                 const orientationBind = $.let(State.bind([StringType], "radio_card_group_orientation", "vertical"));
-                const colourBind      = $.let(State.bind([StringType], "radio_card_group_color", "recipe"));
-                const disabledBind    = $.let(State.bind([BooleanType], "radio_card_group_disabled_item", false));
                 const choiceBind      = $.let(State.bind([StringType], "radio_card_group_value", "active"));
 
                 const oKey        = $.let(orientationBind.read());
-                const cKey        = $.let(colourBind.read());
-                const disabledOne = $.let(disabledBind.read());
                 const choice      = $.let(choiceBind.read(), StringType);
 
                 const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
-                const onColour      = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
-                const onDisabled    = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
                 const onChange      = $.const(East.function([StringType], NullType, ($, next) => { $(choiceBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const orientation = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
-                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
-                // The colour slots are escape hatches the factory omits from the
-                // IR entirely when absent, and the card set is a host-level
-                // array — presence IS the demo for both — so the preview picks
-                // between four card groups (slots × disabled card) rather than
-                // feeding empty values.
-                const cards = $.const(cKey.equal("recipe").ifElse(
-                    _$ => disabledOne.ifElse(
-                        _$ => <RadioCardGroup value={choice} items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange} />,
-                        _$ => <RadioCardGroup value={choice} items={RADIO_CARD_GROUP_ITEMS_DATA} orientation={orientation} onChange={onChange} />,
-                    ),
-                    _$ => disabledOne.ifElse(
-                        _$ => (
-                            <RadioCardGroup value={choice} items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange}
-                                selectedCardBackground={colour.cardBg} selectedBorderColor={colour.cardBorder} descriptionColor={colour.description} />
-                        ),
-                        _$ => (
-                            <RadioCardGroup value={choice} items={RADIO_CARD_GROUP_ITEMS_DATA} orientation={orientation} onChange={onChange}
-                                selectedCardBackground={colour.cardBg} selectedBorderColor={colour.cardBorder} descriptionColor={colour.description} />
-                        ),
-                    ),
-                ));
+                // items is a host-level array (build-time) — the disabled card
+                // composes into the ONE set permanently; the colour escape
+                // hatches live in their own example.
+                const cards = $.const(
+                    <RadioCardGroup value={choice} items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange} />,
+                );
 
                 return (
                     <Configurator
@@ -119,15 +93,8 @@ export const radioCardGroupVariants = example({
                             Configurator.Control("Orientation", oKey,
                                 <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
                                     items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Disabled spec row below rather than as one value.
-                            Configurator.Slot("Cards",
-                                <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={disabledOne} label="Disabled card" onChange={onDisabled} />
-                                </HStack>),
                         ]}
                         preview={cards}
                         aside={{
@@ -135,16 +102,22 @@ export const radioCardGroupVariants = example({
                             body: <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${choice}`}</Text>,
                         }}
                         spec={[
-                            Configurator.Spec("Disabled", disabledOne.ifElse(_$ => "archived card", _$ => "none")),
-                            Configurator.Spec("Slots", cKey.equal("recipe").ifElse(
-                                _$ => "card recipe",
-                                _$ => East.str`${colour.cardBg} · ${colour.cardBorder} · ${colour.description}`,
-                            )),
+                            Configurator.Spec("Disabled", "archived card"),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches on a static card group. */
+export const radioCardGroupCustomColours = example({
+    keywords: ["RadioCardGroup", "fillColor", "borderColor", "color", "override", "custom"],
+    description: "Colour overrides — brand border and fill on a static card group",
+    fn: East.function([], UIComponentType, (_$) => (
+        <RadioCardGroup value="active" items={RADIO_CARD_GROUP_ITEMS_DATA} selectedCardBackground="bg.brand.subtle" selectedBorderColor="border.brand" color="fg.default" />
+    )),
     inputs: [],
 });

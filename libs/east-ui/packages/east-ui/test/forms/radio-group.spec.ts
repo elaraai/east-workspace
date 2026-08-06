@@ -12,6 +12,7 @@ describeEast("RadioGroup", (test) => {
     Assert.examples(test, {
         radioGroupBasic: ex.radioGroupBasic,
         radioGroupVariants: ex.radioGroupVariants,
+        radioGroupCustomColours: ex.radioGroupCustomColours,
     });
 
     // =========================================================================

@@ -66,51 +66,25 @@ export const radioGroupVariants = example({
                 // move together, with no single value to name them by. The
                 // `recipe` row carries empty slots because the preview drops
                 // the overrides entirely for it (below).
-                const colours = $.const([
-                    { label: "recipe",    fill: "",     border: "",             text: "" },
-                    { label: "overrides", fill: "link", border: "border.brand", text: "fg.default" },
-                ], ArrayType(StructType({ label: StringType, fill: StringType, border: StringType, text: StringType })));
 
                 const orientationBind = $.let(State.bind([StringType], "radio_group_orientation", "vertical"));
-                const colourBind      = $.let(State.bind([StringType], "radio_group_color", "recipe"));
-                const disabledBind    = $.let(State.bind([BooleanType], "radio_group_disabled_item", false));
                 const choiceBind      = $.let(State.bind([StringType], "radio_group_value", "small"));
 
                 const oKey        = $.let(orientationBind.read());
-                const cKey        = $.let(colourBind.read());
-                const disabledOne = $.let(disabledBind.read());
                 const choice      = $.let(choiceBind.read(), StringType);
 
                 const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
-                const onColour      = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
-                const onDisabled    = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
                 const onChange      = $.const(East.function([StringType], NullType, ($, next) => { $(choiceBind.write(next)); }));
 
                 // Each selection is a lookup into the same array the control renders.
                 const orientation = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
-                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
-                // The colour slots are escape hatches the factory omits from the
-                // IR entirely when absent, and the item set is a host-level
-                // array — presence IS the demo for both — so the preview picks
-                // between four groups (slots × disabled item) rather than
-                // feeding empty values.
-                const group = $.const(cKey.equal("recipe").ifElse(
-                    _$ => disabledOne.ifElse(
-                        _$ => <RadioGroup value={choice} items={RADIO_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange} />,
-                        _$ => <RadioGroup value={choice} items={RADIO_GROUP_ITEMS_DATA} orientation={orientation} onChange={onChange} />,
-                    ),
-                    _$ => disabledOne.ifElse(
-                        _$ => (
-                            <RadioGroup value={choice} items={RADIO_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange}
-                                fillColor={colour.fill} borderColor={colour.border} color={colour.text} />
-                        ),
-                        _$ => (
-                            <RadioGroup value={choice} items={RADIO_GROUP_ITEMS_DATA} orientation={orientation} onChange={onChange}
-                                fillColor={colour.fill} borderColor={colour.border} color={colour.text} />
-                        ),
-                    ),
-                ));
+                // items is a host-level array (build-time) — the disabled item
+                // composes into the ONE set permanently; the colour escape
+                // hatches live in their own example.
+                const group = $.const(
+                    <RadioGroup value={choice} items={RADIO_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange} />,
+                );
 
                 return (
                     <Configurator
@@ -118,15 +92,8 @@ export const radioGroupVariants = example({
                             Configurator.Control("Orientation", oKey,
                                 <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
                                     items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switch reports as the
                             // Disabled spec row below rather than as one value.
-                            Configurator.Slot("Items",
-                                <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={disabledOne} label="Disabled item" onChange={onDisabled} />
-                                </HStack>),
                         ]}
                         preview={group}
                         aside={{
@@ -134,16 +101,22 @@ export const radioGroupVariants = example({
                             body: <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${choice}`}</Text>,
                         }}
                         spec={[
-                            Configurator.Spec("Disabled", disabledOne.ifElse(_$ => "large item", _$ => "none")),
-                            Configurator.Spec("Slots", cKey.equal("recipe").ifElse(
-                                _$ => "group recipe",
-                                _$ => East.str`${colour.fill} · ${colour.border} · ${colour.text}`,
-                            )),
+                            Configurator.Spec("Disabled", "large item"),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches on a static group. */
+export const radioGroupCustomColours = example({
+    keywords: ["RadioGroup", "fillColor", "borderColor", "color", "override", "custom"],
+    description: "Colour overrides — link fill and brand border on a static radio group",
+    fn: East.function([], UIComponentType, (_$) => (
+        <RadioGroup value="small" items={RADIO_GROUP_ITEMS_DATA} fillColor="link" borderColor="border.brand" color="fg.default" />
+    )),
     inputs: [],
 });
