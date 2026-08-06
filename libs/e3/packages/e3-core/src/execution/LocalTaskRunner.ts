@@ -17,7 +17,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type TaskObject, decodeTaskObject, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
+import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -52,6 +52,9 @@ export interface ExecuteOptions {
   /** Maximum concurrent per-partition executions of a partitioned task
    *  (default: 4). Runtime-only: never affects hashes or caching. */
   partitionConcurrency?: number;
+  /** Called as each unit of a partitioned task (slice execution or combine
+   *  step) starts and completes. Runtime-only progress reporting. */
+  onPartitionProgress?: (progress: PartitionProgress) => void;
 }
 
 /**
@@ -98,6 +101,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
       partitionConcurrency: options?.partitionConcurrency,
+      onPartitionProgress: options?.onPartitionProgress,
     });
 
     // Convert ExecutionResult to TaskResult
@@ -283,8 +287,10 @@ export async function taskExecuteStandard(
 }
 
 /** The standard execution body: scratch dir, input marshalling, command IR
- *  evaluation, spawn, and verbatim output store. @internal */
-async function taskExecuteBody(
+ *  evaluation, spawn, and verbatim output store. Exported for the partition
+ *  path's single-partition short-circuit, which runs the body once under the
+ *  LOGICAL execution identity (the whole input is the one slice). @internal */
+export async function taskExecuteBody(
   storage: StorageBackend,
   repo: string,
   taskHash: string,

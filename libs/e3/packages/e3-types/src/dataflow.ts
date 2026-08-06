@@ -247,8 +247,68 @@ export const ExecutionEventType = VariantType({
     /** Path where version conflict was detected */
     conflictPath: StringType,
   }),
+  // Cases below are appended after the initial release of this type — new
+  // cases go LAST, and released readers must keep decoding states written
+  // before they existed (variants decode by case name, so extending the
+  // type never breaks old data).
+  /** One unit of a partitioned task started (a partition slice execution or
+   *  a combine step) */
+  partition_started: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** Which phase the unit belongs to (`partition` or `combine`) */
+    phase: StringType,
+    /** Zero-based index of the unit within its phase */
+    index: IntegerType,
+    /** Total units in the phase (partitions, or combine steps in the level) */
+    total: IntegerType,
+  }),
+  /** One unit of a partitioned task completed */
+  partition_completed: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** Which phase the unit belongs to (`partition` or `combine`) */
+    phase: StringType,
+    /** Zero-based index of the unit within its phase */
+    index: IntegerType,
+    /** Total units in the phase (partitions, or combine steps in the level) */
+    total: IntegerType,
+    /** Whether the unit was served from the execution cache */
+    cached: BooleanType,
+    /** Unit duration in milliseconds */
+    duration: IntegerType,
+  }),
 });
 export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
+
+/**
+ * Progress notification for one unit of a partitioned task — a partition
+ * slice execution or a combine step. Delivered through runner-layer
+ * callbacks while the logical task runs; the orchestrator persists it as
+ * `partition_started` / `partition_completed` events.
+ */
+export interface PartitionProgress {
+  /** Which phase the unit belongs to. */
+  phase: 'partition' | 'combine';
+  /** Zero-based index of the unit within its phase. */
+  index: number;
+  /** Total units in the phase (partitions, or combine steps in the level). */
+  total: number;
+  /** Whether the unit started or finished. */
+  state: 'started' | 'completed';
+  /** Whether the unit was served from the execution cache (completed only). */
+  cached?: boolean;
+  /** Unit duration in milliseconds (completed only). */
+  duration?: number;
+}
 
 // =============================================================================
 // Main Execution State

@@ -1243,11 +1243,20 @@ static int cli_main(void *arg)
             }
             SnapshotExtract ex;
             if (snapshot_read(from_snapshot_path, &ex) != 0) return 1;
+            /* The manifest carries no streaming flags (format v1), so an emit
+             * task's flags must be passed explicitly on replay — forward them. */
             int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
                              (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
-                             verbose, NULL, EMIT_NONE, -1);
+                             verbose, NULL, emit_kind, stream_input);
             snapshot_extract_free(&ex);
             return rc;
+        }
+
+        if (snapshot_out_path && (emit_kind != EMIT_NONE || stream_input >= 0)) {
+            fprintf(stderr, "Error: --snapshot does not capture --emit/--stream (snapshot format "
+                            "v1 has no streaming flags); replay with --from-snapshot passing "
+                            "--emit/--stream explicitly\n");
+            return 1;
         }
 
         if (!ir_path) {

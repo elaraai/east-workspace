@@ -16,6 +16,7 @@
  * Step Functions can replace the local loop while reusing all e3-core logic.
  */
 
+import type { PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../storage/interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 
@@ -41,6 +42,9 @@ export interface TaskExecuteOptions {
   /** Maximum concurrent per-partition executions of a partitioned task
    *  (default: 4). Runtime-only: never affects hashes or caching. */
   partitionConcurrency?: number;
+  /** Called as each unit of a partitioned task (slice execution or combine
+   *  step) starts and completes. Runtime-only progress reporting. */
+  onPartitionProgress?: (progress: PartitionProgress) => void;
 }
 
 /**

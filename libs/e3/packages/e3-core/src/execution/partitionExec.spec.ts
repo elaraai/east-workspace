@@ -13,6 +13,8 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   variant, some, none,
   StringType, IntegerType, StructType, DictType, ArrayType,
@@ -22,14 +24,20 @@ import {
 } from '@elaraai/east';
 import {
   TaskObjectType,
+  PackageObjectType,
+  WorkspaceStateType,
+  DatasetRefType,
   TASK_KIND_PARTITION,
   encodePartitionTaskMetadata,
+  type PackageObject,
   type TaskObject,
   type TreePath,
 } from '@elaraai/e3-types';
+import type { PartitionProgress } from '@elaraai/e3-types';
 import { taskExecute } from './LocalTaskRunner.js';
 import { PARTITION_COPY_CHUNK_BYTES } from './partitionIo.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
+import { repoGc } from '../storage/local/gc.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -292,6 +300,122 @@ describe('partitionTaskExecute', () => {
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
     assert.equal(result.outputHash, tableHash, 'the fallback still reconstructs byte-identically');
+  });
+
+  it('a single-partition plan short-circuits to one standard execution under the logical identity', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    // A huge byte target packs every segment into one partition.
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 << 30 });
+
+    // The short-circuit must not carve or splice: no streamed object writes.
+    const objects = storage.objects;
+    let streamWrites = 0;
+    const origWriteStream = objects.writeStream.bind(objects);
+    objects.writeStream = (r: string, s: AsyncIterable<Uint8Array>) => {
+      streamWrites++;
+      return origWriteStream(r, s);
+    };
+
+    const events: PartitionProgress[] = [];
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], {
+      onPartitionProgress: (p) => events.push(p),
+    });
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(result.outputHash, tableHash, 'the identity body copies the whole input');
+    assert.equal(streamWrites, 0, 'no slice or splice objects are written');
+    // Exactly one execution identity — the logical one; a carved P=1 slice
+    // would have collided with it and double-recorded.
+    assert.equal(await executionCount(taskHash), 1);
+    assert.deepEqual(events, [
+      { phase: 'partition', index: 0, total: 1, state: 'started' },
+      { phase: 'partition', index: 0, total: 1, state: 'completed', cached: false, duration: events[1]?.duration },
+    ]);
+  });
+
+  it('reports per-unit progress across the fan-out and every combine level', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    const combineFn = East.function([TableType, TableType], TableType, ($, a, _b) => $.return(a));
+    const taskHash = await createPartitionTask({
+      copyIndex: 1,
+      partitions: 1,
+      targetPartitionBytes: 1,
+      combine: encodeEastIR(combineFn.toIR()),
+    });
+
+    const events: PartitionProgress[] = [];
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], {
+      partitionConcurrency: 3,
+      onPartitionProgress: (p) => events.push(p),
+    });
+    assert.equal(result.state, 'success', result.error ?? '');
+
+    const completed = events.filter((e) => e.state === 'completed');
+    const started = events.filter((e) => e.state === 'started');
+    assert.equal(started.length, completed.length, 'every unit reports both transitions');
+    const partitionUnits = completed.filter((e) => e.phase === 'partition');
+    assert.equal(partitionUnits.length, 10, 'one completion per partition');
+    assert.deepEqual(new Set(partitionUnits.map((e) => e.index)), new Set(Array.from({ length: 10 }, (_, i) => i)));
+    assert.ok(partitionUnits.every((e) => e.total === 10));
+    // Pairwise tree over 10 shards: 5 + 2 + 1 + 1 merges, reported per level.
+    const combineUnits = completed.filter((e) => e.phase === 'combine');
+    assert.equal(combineUnits.length, 9);
+    assert.deepEqual(
+      combineUnits.map((e) => e.total).sort((a, b) => a - b),
+      [1, 1, 2, 2, 5, 5, 5, 5, 5],
+    );
+  });
+
+  it('gc between runs keeps partition memoization intact', async () => {
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+
+    const v1Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const first = await taskExecute(storage, repo, taskHash, [fnIrHash, v1Hash]);
+    assert.equal(first.state, 'success', first.error ?? '');
+    assert.equal(await executionCount(taskHash), 11);
+
+    // Root the durable objects the way a deployed workspace would — a
+    // package ref reaching the task (and its command IR), and dataset refs
+    // pinning the function IR + input blob. The carved slices stay
+    // UNREFERENCED (they are execution inputs, never outputs or refs), so
+    // gc prunes exactly them.
+    const pkgHash = await storage.objects.write(repo, encodeBeast2For(PackageObjectType)({
+      tasks: new Map([['t', taskHash]]),
+      data: { structure: variant('struct', new Map()), refs: new Map() },
+      functions: new Map(),
+      records: new Map(),
+    } as PackageObject));
+    mkdirSync(join(repo, 'packages', 'p'), { recursive: true });
+    writeFileSync(join(repo, 'packages', 'p', '1.0.0'), pkgHash + '\n');
+    writeFileSync(join(repo, 'workspaces', 'w.beast2'), encodeBeast2For(WorkspaceStateType)({
+      packageName: 'p',
+      packageVersion: '1.0.0',
+      packageHash: pkgHash,
+      deployedAt: new Date(),
+      currentRunId: none,
+    }));
+    const refEncoder = encodeBeast2For(DatasetRefType);
+    mkdirSync(join(repo, 'workspaces', 'w', 'data'), { recursive: true });
+    writeFileSync(join(repo, 'workspaces', 'w', 'data', 'input.ref'), refEncoder(variant('value', { hash: v1Hash, versions: new Map() })));
+    writeFileSync(join(repo, 'workspaces', 'w', 'data', 'fn.ref'), refEncoder(variant('value', { hash: fnIrHash, versions: new Map() })));
+
+    // GC collects execution roots from success outputHash only — with the
+    // identity body the shard outputs coincide with the slices, so the gc
+    // here is a full mark-and-sweep over live roots. The records stay, and
+    // re-carving is deterministic, so identities re-match afterwards.
+    await repoGc(new LocalStorage(dirname(repo)), repo, { minAge: 0 });
+
+    const v2Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1100)));
+    const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
+    assert.equal(second.state, 'success', second.error ?? '');
+    assert.equal(second.outputHash, v2Hash);
+    // Identical to the no-gc append test: 10 cache hits, only the new tail
+    // partition + the new logical identity execute.
+    assert.equal(await executionCount(taskHash), 13);
   });
 
   it('rejects a partitioned input that carries no segment index', async () => {

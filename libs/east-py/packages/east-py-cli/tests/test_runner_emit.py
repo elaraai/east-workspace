@@ -115,3 +115,27 @@ def test_emit_requires_beast2_output(tmp_path):
 def test_emit_kind_must_match_the_emit_parameter_arity(tmp_path):
     with pytest.raises(ValueError, match=r"2 argument\(s\), got 1"):
         run_program(FIXTURES / "emit_producer.beast2", [], [], [], tmp_path / "out.beast2", emit="dict")
+
+
+def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):
+    # The snapshot manifest (format v1) carries no streaming flags, so a
+    # captured emit invocation would replay with the wrong arity — the CLI
+    # refuses the combination at capture time (issue #508).
+    import argparse
+
+    from east_py_cli.cli import cmd_run
+
+    args = argparse.Namespace(
+        ir_file=FIXTURES / "emit_producer.beast2",
+        package=[],
+        input=[],
+        output=tmp_path / "out.beast2",
+        verbose=False,
+        snapshot=tmp_path / "snap.east-snapshot",
+        from_snapshot=None,
+        emit="array",
+        stream=None,
+    )
+    assert cmd_run(args) == 1
+    assert "--snapshot does not capture --emit/--stream" in capsys.readouterr().err
+    assert not (tmp_path / "snap.east-snapshot").exists()

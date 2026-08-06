@@ -158,6 +158,19 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print(f"Error: Input file not found: {input_file}", file=sys.stderr)
                 return 1
 
+        # The manifest carries no streaming flags (format v1), so a captured
+        # emit/stream invocation would replay with the wrong arity — refuse
+        # at capture with the fix instead of failing confusingly at replay.
+        if args.snapshot is not None and (
+            getattr(args, "emit", None) is not None or getattr(args, "stream", None) is not None
+        ):
+            print(
+                "Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no "
+                "streaming flags); replay with --from-snapshot passing --emit/--stream explicitly",
+                file=sys.stderr,
+            )
+            return 1
+
         # Write snapshot BEFORE execution so crashes still leave the bundle.
         if args.snapshot is not None:
             try:

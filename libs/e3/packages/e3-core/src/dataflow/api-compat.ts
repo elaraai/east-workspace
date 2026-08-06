@@ -150,7 +150,8 @@ export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | n
       };
 
     // Events without API equivalents.
-    // Reactive events (input_changed, task_invalidated, task_deferred) are
+    // Reactive events (input_changed, task_invalidated, task_deferred) and
+    // partition progress (partition_started, partition_completed) are
     // internal to the execution loop and not yet exposed via the API.
     case 'execution_started':
     case 'task_ready':
@@ -159,6 +160,8 @@ export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | n
     case 'input_changed':
     case 'task_invalidated':
     case 'task_deferred':
+    case 'partition_started':
+    case 'partition_completed':
       return null;
   }
 }

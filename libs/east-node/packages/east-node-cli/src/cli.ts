@@ -95,6 +95,17 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             process.exit(1);
         }
 
+        // The manifest carries no streaming flags (format v1), so a captured
+        // emit/stream invocation would replay with the wrong arity — refuse
+        // at capture with the fix instead of failing confusingly at replay.
+        if (options.snapshot && (options.emit !== undefined || options.stream !== undefined)) {
+            console.error(
+                'Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no ' +
+                'streaming flags); replay with --from-snapshot passing --emit/--stream explicitly',
+            );
+            process.exit(1);
+        }
+
         // Write the snapshot BEFORE execution so crashes still leave the bundle behind.
         if (options.snapshot) {
             await writeSnapshot({

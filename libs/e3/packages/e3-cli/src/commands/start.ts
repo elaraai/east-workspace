@@ -45,7 +45,7 @@ const POLL_INTERVAL = 500;
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: { filter?: string; concurrency?: string; force?: boolean; verbose?: boolean }
+  options: { filter?: string; concurrency?: string; partitionConcurrency?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -83,6 +83,7 @@ export async function startCommand(
     if (location.type === 'local') {
       await executeLocal(location.path, ws, {
         concurrency,
+        partitionConcurrency: options.partitionConcurrency ? parseInt(options.partitionConcurrency, 10) : undefined,
         force: options.force,
         verbose: options.verbose,
         filter: options.filter,
@@ -122,6 +123,7 @@ export async function startCommand(
 
 interface LocalExecuteOptions {
   concurrency: number;
+  partitionConcurrency?: number;
   force?: boolean;
   verbose?: boolean;
   filter?: string;
@@ -140,6 +142,7 @@ async function executeLocal(
 
   const handle = await orchestrator.start(storage, repoPath, ws, {
     concurrency: options.concurrency,
+    partitionConcurrency: options.partitionConcurrency,
     force: options.force,
     verbose: options.verbose,
     filter: options.filter,
@@ -149,6 +152,12 @@ async function executeLocal(
     },
     onTaskComplete: (taskResult: TaskCompletedCallback) => {
       printTaskResult(taskResult);
+    },
+    onPartitionProgress: (task, progress) => {
+      if (progress.state !== 'completed') return;
+      const label = progress.phase === 'combine' ? 'MERGE' : 'PART';
+      const cached = progress.cached ? ' (cached)' : '';
+      console.log(`  [${label}] ${task} ${progress.index + 1}/${progress.total}${cached} [${Math.round(progress.duration ?? 0)}ms]`);
     },
   });
 

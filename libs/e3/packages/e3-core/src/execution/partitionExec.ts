@@ -50,6 +50,7 @@ import {
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import {
+  taskExecuteBody,
   taskExecuteStandard,
   type ExecuteOptions,
   type ExecutionIds,
@@ -222,6 +223,18 @@ export async function partitionTaskExecute(
   }
   const partitions = boundaries.length;
 
+  // A single partition's slice is byte-identical to the input, so carving
+  // and splicing would only re-write the input blob and record the same
+  // work twice (the sub-execution's identity collides with the logical
+  // one). Run the standard body once under the LOGICAL identity instead.
+  if (partitions === 1) {
+    const progress = options.onPartitionProgress;
+    progress?.({ phase: 'partition', index: 0, total: 1, state: 'started' });
+    const result = await taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
+    progress?.({ phase: 'partition', index: 0, total: 1, state: 'completed', cached: result.cached, duration: result.duration });
+    return result;
+  }
+
   // ---------------------------------------------------------------------
   // Carve the primary (pure byte copy at segment boundaries) and each
   // co-partitioned secondary (fence search per boundary; at most the two
@@ -271,6 +284,7 @@ export async function partitionTaskExecute(
   // the same task with slice-sized inputs — memoized per partition.
   // ---------------------------------------------------------------------
   const concurrency = Math.max(1, options.partitionConcurrency ?? DEFAULT_PARTITION_CONCURRENCY);
+  const progress = options.onPartitionProgress;
   const results: (ExecutionResult | undefined)[] = new Array(partitions);
   let nextPartition = 0;
   let failedPartition = -1;
@@ -279,8 +293,10 @@ export async function partitionTaskExecute(
       const p = nextPartition++;
       if (p >= partitions || failedPartition >= 0) return;
       const subInputs = [fnIrHash, ...sliceHashes.map((slices) => slices[p]!), ...broadcastHashes];
+      progress?.({ phase: 'partition', index: p, total: partitions, state: 'started' });
       const result = await taskExecuteStandard(storage, repo, taskHash, task, subInputs, options);
       results[p] = result;
+      progress?.({ phase: 'partition', index: p, total: partitions, state: 'completed', cached: result.cached, duration: result.duration });
       if (result.state !== 'success' && failedPartition < 0) failedPartition = p;
     }
   });
@@ -320,19 +336,38 @@ export async function partitionTaskExecute(
     // Combine steps are ordinary executions too: the combine IR is the
     // execution's input 0 (exactly as function_ir is for body executions),
     // so re-aggregation is memoized along the unchanged side of the tree.
+    // Each level's pairwise merges run through the same worker pool as the
+    // partition fan-out — a wide combine layer no longer serializes.
     const combineIrHash = await storage.objects.write(repo, meta.combine.value);
     let layer = results.map((r) => r!.outputHash!);
     while (layer.length > 1) {
-      const next: string[] = [];
-      for (let i = 0; i + 1 < layer.length; i += 2) {
-        const merged = await taskExecuteStandard(storage, repo, taskHash, task, [combineIrHash, layer[i]!, layer[i + 1]!], options);
-        if (merged.state !== 'success' || merged.outputHash === null) {
-          const message = `Combine step over partials ${i} and ${i + 1} ${merged.state === 'failed' ? `failed (exit code ${merged.exitCode})` : `errored: ${merged.error}`}`;
-          return errorResult(message);
+      const pairs = layer.length >> 1;
+      const next: string[] = new Array(pairs + (layer.length % 2));
+      const level = layer;
+      let nextPair = 0;
+      let failedMerge: { left: number; merged: ExecutionResult } | null = null;
+      const mergeWorkers = Array.from({ length: Math.min(concurrency, pairs) }, async () => {
+        for (;;) {
+          const pair = nextPair++;
+          if (pair >= pairs || failedMerge !== null) return;
+          const i = pair * 2;
+          progress?.({ phase: 'combine', index: pair, total: pairs, state: 'started' });
+          const merged = await taskExecuteStandard(storage, repo, taskHash, task, [combineIrHash, level[i]!, level[i + 1]!], options);
+          if (merged.state !== 'success' || merged.outputHash === null) {
+            failedMerge ??= { left: i, merged };
+            return;
+          }
+          progress?.({ phase: 'combine', index: pair, total: pairs, state: 'completed', cached: merged.cached, duration: merged.duration });
+          next[pair] = merged.outputHash;
         }
-        next.push(merged.outputHash);
+      });
+      await Promise.all(mergeWorkers);
+      if (failedMerge !== null) {
+        const { left, merged } = failedMerge as { left: number; merged: ExecutionResult };
+        const message = `Combine step over partials ${left} and ${left + 1} ${merged.state === 'failed' ? `failed (exit code ${merged.exitCode})` : `errored: ${merged.error}`}`;
+        return errorResult(message);
       }
-      if (layer.length % 2 === 1) next.push(layer[layer.length - 1]!);
+      if (layer.length % 2 === 1) next[pairs] = layer[layer.length - 1]!;
       layer = next;
     }
     outputHash = layer[0]!;

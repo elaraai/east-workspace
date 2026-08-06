@@ -25,6 +25,7 @@ import {
   LocalStorage,
   type StorageBackend,
 } from '@elaraai/e3-core';
+import { decodeTaskObject } from '@elaraai/e3-types';
 import {
   taskList as taskListRemote,
   taskExecutionList as taskExecutionListRemote,
@@ -86,8 +87,17 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
     const taskHash = await workspaceGetTaskHash(storage, repoPath, ws, taskName);
     const executions = await executionListForTask(storage, repoPath, taskHash);
 
+    // Surface the task kind (partition / stream / ui) next to the name.
+    let kindLabel = '';
+    try {
+      const task = decodeTaskObject(Buffer.from(await storage.objects.read(repoPath, taskHash)));
+      if (task.kind.type === 'some') kindLabel = ` <${task.kind.value}>`;
+    } catch {
+      // A missing/undecodable task object only loses the label.
+    }
+
     if (executions.length === 0) {
-      console.log(`  ${taskName}  (no executions)`);
+      console.log(`  ${taskName}${kindLabel}  (no executions)`);
     } else {
       // Get status of the most recent execution
       const latestInHash = executions[0]!;
@@ -105,7 +115,7 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
         }
       }
 
-      console.log(`  ${taskName}  [${state}] (${executions.length} execution(s))`);
+      console.log(`  ${taskName}${kindLabel}  [${state}] (${executions.length} execution(s))`);
     }
   }
 
@@ -393,14 +403,15 @@ async function listWorkspaceTasksRemote(
 
   for (const task of tasks) {
     const executions = await taskExecutionListRemote(baseUrl, repo, ws, task.name, { token });
+    const kindLabel = task.kind.type === 'some' ? ` <${task.kind.value}>` : '';
 
     if (executions.length === 0) {
-      console.log(`  ${task.name}  (no executions)`);
+      console.log(`  ${task.name}${kindLabel}  (no executions)`);
     } else {
       // Get status of the most recent execution
       const latest = executions[0]!;
       const state = latest.status.type;
-      console.log(`  ${task.name}  [${state}] (${executions.length} execution(s))`);
+      console.log(`  ${task.name}${kindLabel}  [${state}] (${executions.length} execution(s))`);
     }
   }
 

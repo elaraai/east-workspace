@@ -329,6 +329,7 @@ export {
   type DataflowGraph,
   ExecutionEventType,
   type ExecutionEvent,
+  type PartitionProgress,
   DataflowExecutionStateType,
   type DataflowExecutionState,
   // Dataflow run history
