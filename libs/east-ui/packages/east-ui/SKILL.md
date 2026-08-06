@@ -641,7 +641,7 @@ Task → Which tag?
 │   │   │   ├─ onInsert (optional) — RAW append/insert: array append paths end with an `append` step, dict adds carry the new `key`
 │   │   │   ├─ onRemove (optional) — RAW remove with the element/entry path
 │   │   │   ├─ onTag (optional) — RAW variant switch + option set/clear ("some"/"none")
-│   │   │   └─ style (optional) — { height, maxHeight }; bounded trees virtualize rows
+│   │   │   └─ style (optional) — { height, maxHeight, openDepth, toolbar }; bounded trees virtualize rows; openDepth = how many levels start expanded (default 1; 0 = all collapsed), toolbar adds a Collapse all / Expand all header row; Alt-click any twist collapses that whole subtree
 │   │   └─ Factories:
 │   │       ├─ ValueTree.at(T, p => p.machines.entry("m1"), fn([SubT], Null)) — a typed scope: struct fields as properties, .item(i), .entry(k), .some()
 │   │       ├─ ValueTree.zero(T) — the default element for inserts (delegates to East defaultValue)

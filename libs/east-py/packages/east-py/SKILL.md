@@ -564,7 +564,7 @@ Task → What do you need?
     │   └─ Buffer-level (you hold the bytes, not a path):
     │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
-    │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5 (Array concat, Set union, Dict last-wins)
+    │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5 (segments concatenate; non-canonical Set/Dict wire rejected as corrupt)
     │       ├─ open_beast2_pages_for(T)(source) — .element(n)/.segment(i), ONE segment each;
     │       │   ❗borrows the buffer — keep it alive (open_beast2_file owns it for you)
     │       └─ read_beast2_index(T, blob) -> (segments, elements) — totals without decoding

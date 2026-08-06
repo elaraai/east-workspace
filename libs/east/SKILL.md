@@ -412,7 +412,7 @@ writer.finish();
 
 const blob = new Uint8Array(readFileSync("rows.beast2"));
 
-// Read it whole — segments merge on decode.
+// Read it whole — segments concatenate on decode.
 decodeBeast2For(Rows)(blob);                        // all rows
 
 // Or a batch at a time, holding only one segment.
