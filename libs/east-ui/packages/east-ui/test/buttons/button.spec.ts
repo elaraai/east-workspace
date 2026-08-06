@@ -13,6 +13,7 @@ describeEast("Button", (test) => {
     Assert.examples(test, {
         buttonBasic: ex.buttonBasic,
         buttonVariants: ex.buttonVariants,
+        buttonCustomColours: ex.buttonCustomColours,
     });
 
     // =========================================================================

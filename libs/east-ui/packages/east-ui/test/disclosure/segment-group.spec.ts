@@ -13,6 +13,7 @@ describeEast("SegmentGroup", (test) => {
     Assert.examples(test, {
         segmentGroupViewToggle: ex.segmentGroupViewToggle,
         segmentGroupVariants: ex.segmentGroupVariants,
+        segmentGroupCustomColours: ex.segmentGroupCustomColours,
     });
 
     test("segmentGroupVariants is the live configurator", $ => {

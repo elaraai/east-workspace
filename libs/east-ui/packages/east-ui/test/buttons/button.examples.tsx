@@ -43,40 +43,24 @@ export const buttonVariants = example({
                     variant("xs", null), variant("sm", null), variant("md", null), variant("lg", null),
                 ], ArrayType(Style.Types.Size));
 
-                // Only colour needs a struct — the four escape-hatch slots move
-                // together, with no single value to name them by. The `palette`
-                // row carries empty slots because the preview drops the
-                // overrides entirely for it (below).
-                const colours = $.const([
-                    { label: "palette", color: "",           background: "",            borderColor: "",             hover: "" },
-                    { label: "link",    color: "link",       background: "transparent", borderColor: "transparent",  hover: "bg.brand.subtle" },
-                    { label: "branded", color: "fg.inverse", background: "bg.inverse",  borderColor: "border.brand", hover: "bg.inverse" },
-                ], ArrayType(StructType({ label: StringType, color: StringType, background: StringType, borderColor: StringType, hover: StringType })));
-
                 const variantBind = $.let(State.bind([StringType], "button_variant", "solid"));
                 const paletteBind = $.let(State.bind([StringType], "button_palette", "brand"));
                 const sizeBind    = $.let(State.bind([StringType], "button_size", "md"));
-                const colourBind  = $.let(State.bind([StringType], "button_color", "palette"));
                 const loadingBind = $.let(State.bind([BooleanType], "button_loading", false));
-                const iconsBind   = $.let(State.bind([BooleanType], "button_icons", false));
                 const richBind    = $.let(State.bind([BooleanType], "button_rich", false));
                 const counter     = $.let(State.bind([IntegerType], "button_counter", 0n));
 
                 const vKey    = $.let(variantBind.read());
                 const pKey    = $.let(paletteBind.read());
                 const sKey    = $.let(sizeBind.read());
-                const cKey    = $.let(colourBind.read());
                 const loading = $.let(loadingBind.read());
-                const icons   = $.let(iconsBind.read());
                 const rich    = $.let(richBind.read());
                 const count   = $.let(counter.read());
 
                 const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
                 const onPalette = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
                 const onSize    = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-                const onColour  = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
                 const onLoading = $.const(East.function([BooleanType], NullType, ($, next) => { $(loadingBind.write(next)); }));
-                const onIcons   = $.const(East.function([BooleanType], NullType, ($, next) => { $(iconsBind.write(next)); }));
                 const onRich    = $.const(East.function([BooleanType], NullType, ($, next) => { $(richBind.write(next)); }));
                 const inc       = $.const(East.function([], NullType, $ => {
                     const cur = $.let(counter.read());
@@ -87,7 +71,6 @@ export const buttonVariants = example({
                 const buttonVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
                 const palette = $.let(palettes.filter((_$, v) => v.getTag().equal(pKey)).get(0n));
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
-                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
                 // The label is a UIComponentType slot — the rich switch swaps the
                 // plain run for an HStack of Texts (primary + muted caption).
@@ -101,44 +84,15 @@ export const buttonVariants = example({
                     _$ => <Text>Save Changes</Text>,
                 ));
 
-                // startIcon / endIcon and the colour slots are escape hatches the
-                // factory omits from the IR entirely when absent — presence IS
-                // the demo — so the preview picks between four buttons (slots ×
-                // icons) rather than feeding empty values.
-                const btn = $.const(cKey.equal("palette").ifElse(
-                    _$ => icons.ifElse(
-                        _$ => (
-                            <Button variant={buttonVariant} colorPalette={palette} size={size}
-                                loading={loading} loadingText="Submitting…" loadingIcon={{ prefix: "fas", name: "spinner" }}
-                                startIcon={{ prefix: "fas", name: "save" }} endIcon={{ prefix: "fas", name: "arrow-right" }}>
-                                {btnLabel}
-                            </Button>
-                        ),
-                        _$ => (
-                            <Button variant={buttonVariant} colorPalette={palette} size={size}
-                                loading={loading} loadingText="Submitting…" loadingIcon={{ prefix: "fas", name: "spinner" }}>
-                                {btnLabel}
-                            </Button>
-                        ),
-                    ),
-                    _$ => icons.ifElse(
-                        _$ => (
-                            <Button variant={buttonVariant} colorPalette={palette} size={size}
-                                loading={loading} loadingText="Submitting…" loadingIcon={{ prefix: "fas", name: "spinner" }}
-                                startIcon={{ prefix: "fas", name: "save" }} endIcon={{ prefix: "fas", name: "arrow-right" }}
-                                color={colour.color} background={colour.background} borderColor={colour.borderColor} hoverBackground={colour.hover}>
-                                {btnLabel}
-                            </Button>
-                        ),
-                        _$ => (
-                            <Button variant={buttonVariant} colorPalette={palette} size={size}
-                                loading={loading} loadingText="Submitting…" loadingIcon={{ prefix: "fas", name: "spinner" }}
-                                color={colour.color} background={colour.background} borderColor={colour.borderColor} hoverBackground={colour.hover}>
-                                {btnLabel}
-                            </Button>
-                        ),
-                    ),
-                ));
+                // ONE button — the icon slots compose on permanently; the raw
+                // colour escape hatches live in their own example.
+                const btn = $.const(
+                    <Button variant={buttonVariant} colorPalette={palette} size={size}
+                        loading={loading} loadingText="Submitting…" loadingIcon={{ prefix: "fas", name: "spinner" }}
+                        startIcon={{ prefix: "fas", name: "save" }} endIcon={{ prefix: "fas", name: "arrow-right" }}>
+                        {btnLabel}
+                    </Button>,
+                );
 
                 return (
                     <Configurator
@@ -152,9 +106,6 @@ export const buttonVariants = example({
                             Configurator.Control("Size", sKey,
                                 <Select value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
-                            Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // Slots, not Controls: the switches report as the
                             // Loading / Icons / Label spec rows below rather than
                             // as one value each.
@@ -164,7 +115,6 @@ export const buttonVariants = example({
                                 </HStack>),
                             Configurator.Slot("Content",
                                 <HStack gap="5" align="center" wrap="wrap">
-                                    <Switch checked={icons} label="Icons" onChange={onIcons} />
                                     <Switch checked={rich} label="Rich label" onChange={onRich} />
                                 </HStack>),
                         ]}
@@ -180,17 +130,27 @@ export const buttonVariants = example({
                         }}
                         spec={[
                             Configurator.Spec("Loading", loading.ifElse(_$ => "Submitting… · spinner", _$ => "idle")),
-                            Configurator.Spec("Icons", icons.ifElse(_$ => "save · arrow-right", _$ => "none")),
                             Configurator.Spec("Label", rich.ifElse(_$ => "HStack · Accept + caption", _$ => "Save Changes")),
-                            Configurator.Spec("Slots", cKey.equal("palette").ifElse(
-                                _$ => "variant recipe",
-                                _$ => East.str`${colour.color} · ${colour.background} · ${colour.borderColor}`,
-                            )),
+                            Configurator.Spec("Slots", "variant recipe"),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches — branded ink and plain unadorned buttons. */
+export const buttonCustomColours = example({
+    keywords: ["Button", "escape-hatch", "color", "background", "borderColor", "hoverBackground", "branded", "plain", "unadorned", "override", "link"],
+    description: "Colour escape hatches — link and branded-ink buttons beside the recipe default",
+    fn: East.function([], UIComponentType, (_$) => (
+        <HStack gap="3" align="center">
+            <Button variant="solid" colorPalette="brand">Recipe</Button>
+            <Button variant="ghost" color="link" background="transparent" borderColor="transparent" hoverBackground="bg.brand.subtle">Link</Button>
+            <Button variant="solid" color="fg.inverse" background="bg.inverse" borderColor="border.brand" hoverBackground="bg.inverse">Branded</Button>
+        </HStack>
+    )),
     inputs: [],
 });
