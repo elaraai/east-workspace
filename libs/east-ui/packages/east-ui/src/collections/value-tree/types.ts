@@ -8,10 +8,10 @@
  *
  * A ValueTree materializes ANY East value into a fixed recursive node IR
  * at factory time (the renderer never sees the host type): structs,
- * arrays, string-keyed dicts, options and variants become branch nodes;
- * primitive leaves carry their typed value for leaf-type-aware editing;
- * everything else (sets, blobs, vectors, matrices, refs, functions,
- * beyond-depth recursion) renders as a printed read-only `opaque` node.
+ * arrays, dicts, options and variants become branch nodes; primitive
+ * leaves carry their typed value for leaf-type-aware editing; everything
+ * else (sets, blobs, vectors, matrices, refs, functions, beyond-depth
+ * recursion) renders as a printed read-only `opaque` node.
  *
  * Edits report through typed callbacks over {@link ValueTreePathType}
  * paths — the host owns the data and reconciles (the Reactive
@@ -45,8 +45,12 @@ import {
  *   append inside a dict from a dict key insert)
  * @property field - Struct field name
  * @property index - Array element index
- * @property key - Dict entry key (an existing entry mid-path; the NEW key
- *   as the terminal step of dict `onInsert` paths)
+ * @property key - Dict entry key text (an existing entry mid-path; the NEW
+ *   key as the terminal step of dict `onInsert` paths). For string-keyed
+ *   dicts this is the key itself; for every other key type it is the key's
+ *   canonical East print (`East.print` / east's `printFor`), which the
+ *   edit-appliers parse back to the key value — never the display label
+ *   (labels can collide)
  * @property some - Descend into an option's `some` payload
  * @property tag - Descend into a variant's active payload
  */
@@ -57,7 +61,8 @@ export const ValueTreeStepType = VariantType({
     field: StringType,
     /** Array element index */
     index: IntegerType,
-    /** Dict entry key */
+    /** Dict entry key text — the key itself (string-keyed) or the key's
+     *  canonical East print (every other key type) */
     key: StringType,
     /** Descend into an option's `some` payload */
     some: NullType,
@@ -124,9 +129,13 @@ export type ValueTreeLeafType = typeof ValueTreeLeafType;
  *
  * @property struct - Named fields
  * @property array - Ordered elements (insert/remove targets)
- * @property dict - Keyed entries; `editable` is true only for
- *   string-keyed dicts (other key types are browsable read-only — their
- *   printed keys cannot round-trip through path steps)
+ * @property dict - Keyed entries. Each entry carries its round-trippable
+ *   `key` text (the key itself for string keys, the canonical East print
+ *   otherwise — what `key` path steps echo back) and its display `label`
+ *   (struct keys read as " · "-joined field labels; labels may collide,
+ *   only `key` is identity). Entry VALUES are editable for every key
+ *   type; `editable` gates entry insert/remove and is true only for
+ *   string-keyed dicts (new keys are typed as text)
  * @property option - `some` payload or empty (toggled via `onTag` "some"/"none")
  * @property variant - Active tag + all tags (switched via `onTag`) + payload
  * @property leaf - Primitive value (edited via `onEdit`)
@@ -142,9 +151,10 @@ export const ValueTreeNodeType = RecursiveType(node => VariantType({
     array: StructType({
         items: ArrayType(node),
     }),
-    /** Keyed entries (editable only when string-keyed) */
+    /** Keyed entries (`key` = round-trippable step text, `label` = display;
+     *  entry insert/remove only when string-keyed) */
     dict: StructType({
-        entries: ArrayType(StructType({ key: StringType, node })),
+        entries: ArrayType(StructType({ key: StringType, label: StringType, node })),
         editable: BooleanType,
     }),
     /** `some` payload or empty */

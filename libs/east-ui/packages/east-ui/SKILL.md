@@ -632,7 +632,7 @@ Task → Which tag?
 │   │       ├─ Deck.meter(label, value, max, text) — card-face meter fact (utilisation bar + right-aligned reading)
 │   │       ├─ Deck.chips(label, values) — card-face chip-set fact
 │   │       └─ Deck.text(label, text) — card-face dim text fact
-│   ├─ <ValueTree value={anyEastValue} /> — editable tree of ANY East value, materialized from its STATIC type at authoring time (structs/arrays/dicts/options/variants → branches; primitives → typed editable leaves; sets/blobs/vectors/matrices/refs/fns → read-only summaries; non-string-keyed dicts browsable read-only)
+│   ├─ <ValueTree value={anyEastValue} /> — editable tree of ANY East value, materialized from its STATIC type at authoring time (structs/arrays/dicts/options/variants → branches; primitives → typed editable leaves; sets/blobs/vectors/matrices/refs/fns → read-only summaries; non-string-keyed dict entries label as field summaries and edit their VALUES — entry add/remove stays string-keyed)
 │   │   ├─ Props:
 │   │   │   ├─ value (required) — the East value to render; omit every callback for a read-only inspector
 │   │   │   ├─ onUpdate (optional) — fn([T], Null) whole-value handler: receives the WHOLE value with the edit applied (the factory rebuilds it for you); sync or async

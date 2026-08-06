@@ -23,7 +23,7 @@ import { Box, Flex, Text } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError, datasetGetPage } from '@elaraai/e3-api-client';
 import type { RequestOptions } from '@elaraai/e3-api-client';
-import { none, printFor, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
+import { none, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
 import {
     EastChakraValueTree,
@@ -66,12 +66,11 @@ function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueT
     }
     if (type.type === 'Dict') {
         const { key: keyType, value: valueType } = type.value as { key: EastTypeValue; value: EastTypeValue };
-        const printKey = printFor(keyType as never);
         const stringKeys = keyType.type === 'String';
         return Array.from((decoded as Map<unknown, unknown>).entries()).map(([k, v], i) => ({
             node: ValueTree.materialize(valueType, v),
             step: stringKeys ? variant('key', k as string) : variant('index', BigInt(offset + i)),
-            label: stringKeys ? (k as string) : printKey(k as never),
+            label: stringKeys ? (k as string) : ValueTree.keyLabel(keyType, k),
         }));
     }
     const elemType = type.value as EastTypeValue;

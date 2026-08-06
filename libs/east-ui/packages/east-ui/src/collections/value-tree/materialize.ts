@@ -30,6 +30,9 @@ import {
     fromEastTypeValue,
     defaultValue,
     printFor,
+    parseFor,
+    compareFor,
+    SortedMap,
     variant,
     some,
     none,
@@ -76,28 +79,6 @@ function clampPrint(s: string): string {
     return s.length > MAX_PRINT ? `${s.slice(0, MAX_PRINT)}…` : s;
 }
 
-/** Print a scalar decoded value (dict keys, opaque leaves). Composite
- *  values never go through JS string coercion — that reads
- *  `[object Object]` — they fall to the kind marker. */
-function printScalar(tv: EastTypeValue, value: unknown): string {
-    switch (tv.type) {
-        case 'Null': return 'null';
-        case 'Boolean': return value ? 'true' : 'false';
-        case 'Integer': return String(value);
-        case 'Float': {
-            const n = value as number;
-            if (Number.isNaN(n)) return 'NaN';
-            if (!Number.isFinite(n)) return n > 0 ? 'Infinity' : '-Infinity';
-            return String(n);
-        }
-        case 'String': return value as string;
-        case 'DateTime': return (value as Date).toISOString();
-        case 'Blob': return `Blob[${(value as Uint8Array).length} bytes]`;
-        default:
-            return `[${tv.type}]`;
-    }
-}
-
 /** East-canonical print with a non-throwing fallback to the kind marker. */
 function printEast(tv: EastTypeValue, value: unknown): string {
     try {
@@ -107,22 +88,27 @@ function printEast(tv: EastTypeValue, value: unknown): string {
     }
 }
 
-/** Print a dict key for its entry label: scalars directly, struct keys as
- *  the " · "-joined field prints (the same reading as struct value
- *  summaries), anything else through East's canonical printer. */
-function printKey(tv: EastTypeValue, value: unknown): string {
+/**
+ * Display label for a dict entry key — PRESENTATION ONLY, never identity
+ * (labels can collide; the entry's `key` carries the canonical text the
+ * path steps round-trip). Struct keys read as their " · "-joined field
+ * labels (the same reading as struct value summaries), string fields
+ * stay verbatim, and every other kind prints through East's canonical
+ * printer.
+ *
+ * @param type - The key's East type (an `EastType` or a runtime `EastTypeValue`)
+ * @param key - The decoded key value
+ * @returns The display label
+ */
+export function dictKeyLabel(type: EastType | EastTypeValue, key: unknown): string {
+    const tv = asTypeValue(type);
     if (tv.type === 'Struct') {
         const fields = tv.value as NamedType[];
-        const obj = value as Record<string, unknown>;
-        return clampPrint(fields.map(f => printKey(f.type, obj[f.name])).join(' · '));
+        const obj = key as Record<string, unknown>;
+        return clampPrint(fields.map(f => dictKeyLabel(f.type, obj[f.name])).join(' · '));
     }
-    switch (tv.type) {
-        case 'Null': case 'Boolean': case 'Integer': case 'Float':
-        case 'String': case 'DateTime': case 'Blob':
-            return clampPrint(printScalar(tv, value));
-        default:
-            return printEast(tv, value);
-    }
+    if (tv.type === 'String') return clampPrint(key as string);
+    return printEast(tv, key);
 }
 
 /** Kind-aware summary for the read-only `opaque` node kinds. */
@@ -138,7 +124,7 @@ function opaqueSummary(tv: EastTypeValue, value: unknown): string {
         case 'Ref': return 'Ref';
         case 'Function':
         case 'AsyncFunction': return 'Function';
-        default: return clampPrint(printScalar(tv, value));
+        default: return printEast(tv, value);
     }
 }
 
@@ -201,11 +187,15 @@ function nodeOf(tv: EastTypeValue, value: unknown, depth: number, state: { budge
             }) as unknown as ValueTreeNodeValue;
         }
         case 'Dict': {
-            const editable = dictKeyType(tv).type === 'String';
             const vt = dictValueType(tv);
             const kt = dictKeyType(tv);
+            const editable = kt.type === 'String';
+            // `key` is identity (unclamped canonical print, parsed back by
+            // the edit-appliers); `label` is presentation.
+            const printKey = editable ? null : printFor(fromEastTypeValue(kt));
             const entries = Array.from((value as Map<unknown, unknown>).entries()).map(([k, v]) => ({
-                key: editable ? (k as string) : printKey(kt, k),
+                key: printKey === null ? (k as string) : printKey(k as never),
+                label: printKey === null ? (k as string) : dictKeyLabel(kt, k),
                 node: nodeOf(vt, v, depth, state),
             }));
             return variant('dict', { entries, editable }) as unknown as ValueTreeNodeValue;
@@ -285,10 +275,29 @@ function apply(tv: EastTypeValue, value: unknown, path: ValueTreeStepValue[], i:
             return [...(value as unknown[]), zeroFor(elemType(tv))];
         }
         case 'key': {
-            const k = step.value as string;
-            const map = new Map(value as Map<unknown, unknown>);
+            const kt = dictKeyType(tv);
+            const text = step.value as string;
+            // The step carries the key's canonical print (string keys are
+            // their own text) — parse it back to the key VALUE and address
+            // the entry with east's own key semantics, never the label.
+            let k: unknown = text;
+            if (kt.type !== 'String') {
+                const parsed = parseFor(fromEastTypeValue(kt))(text);
+                if (!parsed.success) {
+                    throw new Error(`ValueTree: dict key step ${JSON.stringify(text)} is not the canonical print of a ${kt.type} key: ${parsed.error}`);
+                }
+                k = parsed.value;
+            }
+            // Copy as a SortedMap keyed by the type's comparator — keyed
+            // ops resolve by VALUE (struct/date keys included), and the
+            // result stays a canonical East dict container for re-encoding.
+            const cmp = compareFor(fromEastTypeValue(kt)) as (a: unknown, b: unknown) => number;
+            const map = new SortedMap((value as Map<unknown, unknown>).entries(), cmp);
             if (last && op.kind === 'insert') { map.set(k, zeroFor(dictValueType(tv))); return map; }
             if (last && op.kind === 'remove') { map.delete(k); return map; }
+            if (!map.has(k)) {
+                throw new Error(`ValueTree: no dict entry for key step ${JSON.stringify(text)}`);
+            }
             map.set(k, apply(dictValueType(tv), map.get(k), path, i + 1, op));
             return map;
         }

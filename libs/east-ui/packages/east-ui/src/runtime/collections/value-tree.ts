@@ -15,9 +15,9 @@ import { UIComponentType } from "../../component.js";
 /**
  * `<ValueTree>` — the editable tree of any East value: the `value` prop's
  * STATIC East type is walked at authoring time and materialized into a
- * fixed recursive node IR (structs, arrays, string-keyed dicts, options
- * and variants become branches; primitives become typed editable leaves;
- * everything else summarizes read-only). Pass `onUpdate` (and optionally
+ * fixed recursive node IR (structs, arrays, dicts, options and variants
+ * become branches; primitives become typed editable leaves; everything
+ * else summarizes read-only). Pass `onUpdate` (and optionally
  * `at` scopes built with `ValueTree.at`) to receive the whole rebuilt
  * value — or subtree — after every edit; the raw path callbacks
  * (`onEdit` / `onInsert` / `onRemove` / `onTag`) remain for hosts with a

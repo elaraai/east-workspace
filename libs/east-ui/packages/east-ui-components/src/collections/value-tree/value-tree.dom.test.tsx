@@ -12,7 +12,9 @@
  * rows `onInsert` (arrays with a terminal `append` step, dicts with the
  * new `key`), option Set/Clear and variant tag switches `onTag`.
  * Arrow keys traverse rows. Without callbacks the tree is a read-only
- * inspector; non-string-keyed dicts are browsable but uneditable.
+ * inspector. Dict entries display their `label` but echo their
+ * round-trippable `key` in path steps; non-string-keyed dicts edit
+ * entry VALUES only (no entry insert/remove).
  */
 
 import { useState } from "react";
@@ -21,7 +23,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     variant, some, none,
-    StructType, ArrayType, DictType, OptionType, VariantType, IntegerType, StringType,
+    StructType, ArrayType, DictType, OptionType, VariantType, DateTimeType, IntegerType, StringType,
 } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
 import { system } from "../../theme/index.js";
@@ -40,7 +42,7 @@ const arrN = (items: ValueTreeNodeValue[]): ValueTreeNodeValue =>
     variant("array", { items }) as unknown as ValueTreeNodeValue;
 const dictN = (entries: [string, ValueTreeNodeValue][], editable = true): ValueTreeNodeValue =>
     variant("dict", {
-        entries: entries.map(([key, node]) => ({ key, node })),
+        entries: entries.map(([key, node]) => ({ key, label: key, node })),
         editable,
     }) as unknown as ValueTreeNodeValue;
 const optN = (inner?: ValueTreeNodeValue): ValueTreeNodeValue =>
@@ -269,7 +271,7 @@ describe("EastChakraValueTree", () => {
         expect(onInsert.mock.calls[0]?.[0]).toEqual([variant("field", "rates"), variant("key", "peak")]);
     });
 
-    test("non-string-keyed dicts are browsable but uneditable", () => {
+    test("non-string-keyed dicts browse and edit values, never entries", () => {
         const onInsert = vi.fn();
         const onRemove = vi.fn();
         renderTree(rootValue(structN([
@@ -277,8 +279,24 @@ describe("EastChakraValueTree", () => {
         ]), { onInsert, onRemove }));
         expect(screen.getByText("7")).toBeTruthy();
         expect(screen.getByText("critical")).toBeTruthy();
+        // `editable: false` gates entry insert/remove only.
         expect(screen.queryByLabelText("Add entry")).toBeNull();
         expect(screen.queryByLabelText("Remove")).toBeNull();
+    });
+
+    test("dict entries display their label but echo their key in paths", async () => {
+        const onEdit = vi.fn();
+        const entry = { key: '(tank="DC4B", vintage=2024)', label: "DC4B · 2024", node: str("1980") };
+        const codes = variant("dict", { entries: [entry], editable: false }) as unknown as ValueTreeNodeValue;
+        renderTree(rootValue(codes, { onEdit }));
+        // The row shows the display label, never the canonical key text.
+        expect(screen.getByText("DC4B · 2024")).toBeTruthy();
+        expect(screen.queryByText('(tank="DC4B", vintage=2024)')).toBeNull();
+        // The value's leaf editor reports the canonical KEY step.
+        const input = document.querySelector("input")!;
+        fireEvent.change(input, { target: { value: "2000" } });
+        await waitFor(() => expect(onEdit).toHaveBeenCalled());
+        expect(onEdit.mock.calls[0]?.[0]).toEqual([variant("key", '(tank="DC4B", vintage=2024)')]);
     });
 
     test("option rows read Not set with a Set/Clear affordance", async () => {
@@ -530,15 +548,82 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
             [{ tank: "DC4B", side: "from", vintage: 2024n }, { litres: 1980n }],
             [{ tank: "DC2E", side: "to", vintage: 2024n }, { litres: 1980n }],
         ]);
-        const root = ValueTree.materialize(Legs, value) as {
-            type: string; value: { editable: boolean; entries: Array<{ key: string }> };
+        const root = ValueTree.materialize(Legs, value) as unknown as {
+            type: string; value: { editable: boolean; entries: Array<{ key: string; label: string }> };
         };
         expect(root.type).toBe("dict");
         expect(root.value.editable).toBe(false);
+        const labels = root.value.entries.map(e => e.label);
+        expect(labels).toContain("DC4B · from · 2024");
+        expect(labels).toContain("DC2E · to · 2024");
+        // Entry keys carry the canonical East print — identity, not display.
         const keys = root.value.entries.map(e => e.key);
-        expect(keys).toContain("DC4B · from · 2024");
-        expect(keys).toContain("DC2E · to · 2024");
-        for (const k of keys) expect(k.includes("[object Object]")).toBe(false);
+        expect(keys).toContain('(tank="DC4B", side="from", vintage=2024)');
+        for (const k of [...keys, ...labels]) expect(k.includes("[object Object]")).toBe(false);
+    });
+
+    test("struct-keyed dict edits resolve the real entry through the materialized key", () => {
+        const LegKey = StructType({ tank: StringType, vintage: IntegerType });
+        const Legs = DictType(LegKey, StructType({ litres: IntegerType }));
+        const value = new Map([
+            [{ tank: "DC4B", vintage: 2024n }, { litres: 1980n }],
+            [{ tank: "DC2E", vintage: 2025n }, { litres: 1200n }],
+        ]);
+        const root = ValueTree.materialize(Legs, value) as unknown as {
+            value: { entries: Array<{ key: string; label: string }> };
+        };
+        // Close the renderer loop: edit through the entry's own key text.
+        const key = root.value.entries.find(e => e.label === "DC4B · 2024")!.key;
+        const next = ValueTree.applyEdit(Legs, value,
+            [variant("key", key), variant("field", "litres")],
+            { kind: "edit", leaf: variant("integer", 2000n) }) as Map<unknown, { litres: bigint }>;
+        // The REAL entry updated — no phantom string-keyed entry appears.
+        expect(next.size).toBe(2);
+        const entries = [...next.entries()] as Array<[{ tank: string; vintage: bigint }, { litres: bigint }]>;
+        expect(entries.find(([k]) => k.tank === "DC4B")![1].litres).toBe(2000n);
+        expect(entries.find(([k]) => k.tank === "DC2E")![1].litres).toBe(1200n);
+        for (const [k] of entries) expect(typeof k).toBe("object");
+    });
+
+    test("datetime-keyed dict edits round-trip through the canonical print", () => {
+        const Series = DictType(DateTimeType, IntegerType);
+        const t0 = new Date("2024-06-01T00:00:00.000Z");
+        const t1 = new Date("2024-06-02T00:00:00.000Z");
+        const value = new Map([[t0, 10n], [t1, 20n]]);
+        const root = ValueTree.materialize(Series, value) as unknown as {
+            value: { entries: Array<{ key: string }> };
+        };
+        const next = ValueTree.applyEdit(Series, value,
+            [variant("key", root.value.entries[0]!.key)],
+            { kind: "edit", leaf: variant("integer", 99n) }) as Map<Date, bigint>;
+        expect(next.size).toBe(2);
+        expect([...next.values()]).toEqual([99n, 20n]);
+    });
+
+    test("non-string-keyed dict removes drop the addressed entry by value", () => {
+        const Codes = DictType(IntegerType, StringType);
+        const value = new Map([[7n, "critical"], [12n, "routine"]]);
+        const next = ValueTree.applyEdit(Codes, value,
+            [variant("key", "7")], { kind: "remove" }) as Map<bigint, string>;
+        expect(next.size).toBe(1);
+        expect(next.has(12n)).toBe(true);
+    });
+
+    test("dict inserts keep canonical key order for re-encoding", () => {
+        const added = ValueTree.applyEdit(Row, sample(),
+            [variant("field", "bag"), variant("key", "a")], { kind: "insert" }) as { bag: Map<string, bigint> };
+        // The rebuilt dict is a sorted East container — a prepended key
+        // lands in canonical position, not JS insertion order.
+        expect([...added.bag.keys()]).toEqual(["a", "k"]);
+    });
+
+    test("a stale key step throws instead of fabricating a phantom entry", () => {
+        const Codes = DictType(IntegerType, StringType);
+        const value = new Map([[7n, "critical"]]);
+        expect(() => ValueTree.applyEdit(Codes, value,
+            [variant("key", "12")], { kind: "edit", leaf: variant("string", "x") })).toThrow(/no dict entry/);
+        expect(() => ValueTree.applyEdit(Codes, value,
+            [variant("key", "not-a-key")], { kind: "edit", leaf: variant("string", "x") })).toThrow(/canonical print/);
     });
 
     test("materialization never degrades entries to [object Object] rows mid-list", () => {

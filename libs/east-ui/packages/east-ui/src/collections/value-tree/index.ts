@@ -76,10 +76,11 @@ export {
     ValueTreeRootType,
 } from "./types.js";
 
-import { materialize, applyEdit } from "./materialize.js";
+import { materialize, applyEdit, dictKeyLabel } from "./materialize.js";
 export {
     materialize,
     applyEdit,
+    dictKeyLabel,
     type ValueTreeNodeValue,
     type ValueTreeLeafValue,
     type ValueTreeStepValue,
@@ -110,8 +111,9 @@ interface MaterializeState {
     budget: number;
 }
 
-/** The dict-entry element of a dict node. */
-const DictEntryType = StructType({ key: StringType, node: ValueTreeNodeType });
+/** The dict-entry element of a dict node — `key` is the round-trippable
+ *  step text (canonical print for non-string keys), `label` the display. */
+const DictEntryType = StructType({ key: StringType, label: StringType, node: ValueTreeNodeType });
 /** The struct-field element of a struct node. */
 const StructFieldType = StructType({ name: StringType, node: ValueTreeNodeType });
 
@@ -151,6 +153,24 @@ function opaqueSummary(t: EastType, v: Expr): ExprType<StringType> {
         default:
             return clampPrint(East.print(v));
     }
+}
+
+/** Display-label expression for a dict entry key — presentation only,
+ *  mirroring the host-side {@link dictKeyLabel} (labels can collide; the
+ *  entry's `key` carries the canonical print). Struct keys read as their
+ *  " · "-joined field labels, string keys stay verbatim, every other
+ *  kind prints canonically. */
+function keyLabelExpr(t: EastType, k: Expr): ExprType<StringType> {
+    if (t.type === "Struct") {
+        const fields = Object.entries((t as { fields: Record<string, EastType> }).fields);
+        if (fields.length === 0) return East.value("", StringType);
+        const parts = fields.map(([name, ft]) =>
+            keyLabelExpr(ft, (k as unknown as Record<string, Expr>)[name] as Expr));
+        return parts.reduce((acc, p) =>
+            (acc as unknown as { concat: (o: unknown) => ExprType<StringType> }).concat(" · ").concat(p) as never);
+    }
+    if (t.type === "String") return k as unknown as ExprType<StringType>;
+    return East.print(k) as ExprType<StringType>;
 }
 
 /**
@@ -199,9 +219,14 @@ function nodeOf(t: EastType, v: Expr, depth: number, state: MaterializeState): E
             const { key, value } = t as { key: EastType; value: EastType };
             const editable = key.type === "String";
             const fn = East.function([value, key], DictEntryType, (_$, x, k) => ({
+                // `key` is identity — the canonical print the `key` path
+                // steps echo back; `label` is presentation.
                 key: editable
                     ? (k as unknown as ExprType<StringType>)
                     : East.print(k),
+                label: editable
+                    ? (k as unknown as ExprType<StringType>)
+                    : clampPrint(keyLabelExpr(key, k as unknown as Expr)),
                 node: nodeOf(value, x as unknown as Expr, depth, state),
             }));
             const entries = (v as unknown as { toArray: (cb: (b: unknown, x: Expr, k: Expr) => unknown) => Expr })
@@ -400,16 +425,26 @@ function rebuild(
         }
         case "Dict": {
             const { key: kt, value: vt } = t as { key: EastType; value: EastType };
-            if (kt.type !== "String") return v;
             const dv = v as unknown as {
                 map: (cb: (b: unknown, x: Expr, k: Expr) => unknown) => Expr;
             };
+            // Entries match their `key` step by the same text the
+            // materializer minted: the key itself when string-keyed, the
+            // canonical print otherwise.
+            const stepText = (k: Expr): Expr =>
+                kt.type === "String" ? k : (East.print(k) as unknown as Expr);
             const descend = (): Expr => dv.map((_$, val, k) =>
-                (k as unknown as { equals: (o: Expr) => BoolView }).equals(step().unwrap("key"))
+                (stepText(k) as unknown as { equals: (o: Expr) => BoolView }).equals(step().unwrap("key"))
                     .ifElse(
                         () => rebuild(vt, val, path, si + 1, depth, state, op),
                         () => val,
                     ));
+            if (kt.type !== "String") {
+                // Entry VALUES are editable for every key type; entry
+                // insert/remove needs a typed NEW key and stays
+                // string-keyed (the renderer's `editable` gate).
+                return descend();
+            }
             if (op.kind === "insert") {
                 const zero = tryZeroExpr(vt);
                 if (zero === undefined) return descend();
@@ -939,6 +974,12 @@ export const ValueTree = {
      * insert / remove / tag) to a decoded value, returning the new value.
      */
     applyEdit,
+    /**
+     * Host-side display label for a dict entry key — presentation only
+     * (labels can collide; a node entry's `key` carries the canonical
+     * round-trippable text).
+     */
+    keyLabel: dictKeyLabel,
     Types: {
         /** The full ValueTree payload. */
         Root: ValueTreeRootType,
