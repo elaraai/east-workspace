@@ -50,39 +50,24 @@ export const selectVariants = example({
                 $(togglesBind.write(cur.add(1n)));
             }));
 
-            // `multiple` + the two change callbacks are presence-typed, so the
-            // switch picks between two selects over the same items.
-            const preview = $.const(multiOn.ifElse(
-                _$ => (
-                    <Select
-                        value=""
-                        items={[
-                            Select.Item("react", "React"),
-                            Select.Item("vue", "Vue"),
-                            Select.Item("angular", "Angular"),
-                            Select.Item("svelte", "Svelte"),
-                        ]}
-                        placeholder="Pick frameworks"
-                        multiple={true}
-                        onChangeMultiple={onChangeMultiple}
-                        onOpenChange={onOpenChange}
-                    />
-                ),
-                _$ => (
-                    <Select
-                        value={selected}
-                        items={[
-                            Select.Item("react", "React"),
-                            Select.Item("vue", "Vue"),
-                            Select.Item("angular", "Angular"),
-                            Select.Item("svelte", "Svelte"),
-                        ]}
-                        placeholder="Pick a framework"
-                        onChange={onChange}
-                        onOpenChange={onOpenChange}
-                    />
-                ),
-            ));
+            // multiple feeds as an expression and BOTH callbacks stay
+            // attached — the matching one fires; the aside shows each.
+            const preview = $.const(
+                <Select
+                    value=""
+                    items={[
+                        Select.Item("react", "React"),
+                        Select.Item("vue", "Vue"),
+                        Select.Item("angular", "Angular"),
+                        Select.Item("svelte", "Svelte"),
+                    ]}
+                    placeholder="Pick frameworks"
+                    multiple={multiOn}
+                    onChange={onChange}
+                    onChangeMultiple={onChangeMultiple}
+                    onOpenChange={onOpenChange}
+                />,
+            );
 
             return (
                 <Configurator

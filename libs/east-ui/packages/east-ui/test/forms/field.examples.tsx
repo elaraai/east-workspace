@@ -40,10 +40,12 @@ export const fieldVariants = example({
 
             // helperText / errorText presence follows the invalid switch, so
             // it picks between two fields; required + the binding stay live.
-            const preview = $.const(invalidOn.ifElse(
-                _$ => <Field.StringInput label="Email" value={value} schemaKey="user.email" required={requiredOn} invalid={true} errorText="Enter a valid email" placeholder="you@example.com" onChange={onChange} />,
-                _$ => <Field.StringInput label="Email" value={value} schemaKey="user.email" required={requiredOn} helperText="We'll never share your email." placeholder="you@example.com" onChange={onChange} />,
-            ));
+            // invalid feeds as an expression — ONE field carries both texts
+            // (the renderer shows the error only while invalid).
+            const preview = $.const(
+                <Field.StringInput label="Email" value={value} schemaKey="user.email" required={requiredOn} invalid={invalidOn}
+                    errorText="Enter a valid email" helperText="We'll never share your email." placeholder="you@example.com" onChange={onChange} />,
+            );
 
             return (
                 <Configurator

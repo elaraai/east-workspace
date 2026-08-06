@@ -92,33 +92,21 @@ export const comboboxVariants = example({
                 const selDisplay = $.let(East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(none)"));
                 const multiDisplay = $.let(East.greater(multiSel.size(), 0n).ifElse(_$ => multiSel.stringJoin(", "), _$ => "(none)"));
 
-                // `multiple` routes the selection through onChangeMultiple and
-                // its own array-valued State key; single keeps the value axis.
-                const combo = $.const(multiple.ifElse(
-                    _$ => (
-                        <Combobox
-                            value=""
-                            items={countries.map((_$, c) => Combobox.Item(c.value, c.label, { disabled: c.disabled }))}
-                            placeholder="Search countries..."
-                            size={size}
-                            disabled={disabled}
-                            allowCustomValue={custom}
-                            multiple={true}
-                            onChangeMultiple={onChangeMultiple}
-                        />
-                    ),
-                    _$ => (
-                        <Combobox
-                            value={selected}
-                            items={countries.map((_$, c) => Combobox.Item(c.value, c.label, { disabled: c.disabled }))}
-                            placeholder="Search countries..."
-                            size={size}
-                            disabled={disabled}
-                            allowCustomValue={custom}
-                            onChange={onValue}
-                        />
-                    ),
-                ));
+                // multiple feeds as an expression; BOTH change callbacks stay
+                // attached and the matching one fires.
+                const combo = $.const(
+                    <Combobox
+                        value=""
+                        items={countries.map((_$, c) => Combobox.Item(c.value, c.label, { disabled: c.disabled }))}
+                        placeholder="Search countries..."
+                        size={size}
+                        disabled={disabled}
+                        allowCustomValue={custom}
+                        multiple={multiple}
+                        onChange={onValue}
+                        onChangeMultiple={onChangeMultiple}
+                    />,
+                );
 
                 return (
                     <Configurator

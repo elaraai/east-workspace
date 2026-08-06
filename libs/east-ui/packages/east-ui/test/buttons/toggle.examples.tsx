@@ -33,17 +33,14 @@ export const toggleVariants = example({
             ], ArrayType(Style.Types.Size));
             const variantBind = $.let(State.bind([StringType], "toggle_variant", "subtle"));
             const sizeBind = $.let(State.bind([StringType], "toggle_size", "sm"));
-            const brandedBind = $.let(State.bind([BooleanType], "toggle_branded", false));
             const pressedBind = $.let(State.bind([BooleanType], "toggle_pressed", true));
 
             const vKey = $.let(variantBind.read());
             const sKey = $.let(sizeBind.read());
-            const brandedOn = $.let(brandedBind.read());
             const pressed = $.let(pressedBind.read());
 
             const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
             const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-            const onBranded = $.const(East.function([BooleanType], NullType, ($, next) => { $(brandedBind.write(next)); }));
             const onPressed = $.const(East.function([BooleanType], NullType, ($, next) => { $(pressedBind.write(next)); }));
 
             const toggleVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
@@ -51,20 +48,13 @@ export const toggleVariants = example({
 
             // pressedBackground is presence-typed, so the branded switch picks
             // between two toggles.
-            const preview = $.const(brandedOn.ifElse(
-                _$ => (
-                    <Toggle pressed={pressed} onChange={onPressed} variant={toggleVariant} size={size}
-                        icon={{ prefix: "fas", name: "rotate" }} pressedBackground="bg.brand.subtle">
-                        Auto-refresh
-                    </Toggle>
-                ),
-                _$ => (
-                    <Toggle pressed={pressed} onChange={onPressed} variant={toggleVariant} size={size}
-                        icon={{ prefix: "fas", name: "rotate" }}>
-                        Auto-refresh
-                    </Toggle>
-                ),
-            ));
+            // ONE toggle — the icon slot and pressed tint compose on.
+            const preview = $.const(
+                <Toggle pressed={pressed} onChange={onPressed} variant={toggleVariant} size={size}
+                    icon={{ prefix: "fas", name: "rotate" }} pressedBackground="bg.brand.subtle">
+                    Auto-refresh
+                </Toggle>,
+            );
 
             return (
                 <Configurator
@@ -77,7 +67,6 @@ export const toggleVariants = example({
                                 items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         Configurator.Slot("Pressed",
                             <HStack gap="5" align="center" wrap="wrap">
-                                <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
                             </HStack>),
                     ]}
                     preview={preview}

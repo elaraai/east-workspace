@@ -13,6 +13,7 @@ describeEast("Collapsible", (test) => {
     Assert.examples(test, {
         collapsibleWhy: ex.collapsibleWhy,
         collapsibleVariants: ex.collapsibleVariants,
+        collapsibleCustomColours: ex.collapsibleCustomColours,
     });
 
     test("collapsibleVariants is the live configurator", $ => {

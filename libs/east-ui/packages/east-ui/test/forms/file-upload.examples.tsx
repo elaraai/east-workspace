@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
+import { East, ArrayType, IntegerType, NullType, StringType, VariantType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Configurator, FileUpload, HStack, Reactive, SegmentGroup, Text } from "@elaraai/east-ui";
 
@@ -23,7 +23,9 @@ export const fileUploadVariants = example({
         <Reactive>{$ => {
             const FileInfoArrayType = ArrayType(StructType({ name: StringType, size: IntegerType, type: StringType }));
             const RejectionArrayType = ArrayType(StructType({ file: StructType({ name: StringType, size: IntegerType, type: StringType }), errors: ArrayType(StringType) }));
-            const orientations = $.const(["vertical", "horizontal"], ArrayType(StringType));
+            const orientations = $.const([
+                variant("vertical", null), variant("horizontal", null),
+            ], ArrayType(VariantType({ vertical: NullType, horizontal: NullType })));
 
             const orientationBind = $.let(State.bind([StringType], "fileupload_orientation", "vertical"));
             const acceptedBind = $.let(State.bind([IntegerType], "fileupload_count", 0n));
@@ -41,17 +43,18 @@ export const fileUploadVariants = example({
                 $(rejectedBind.write(rejections.length()));
             }));
 
-            const preview = $.const(oKey.equal("horizontal").ifElse(
-                _$ => <FileUpload orientation="horizontal" label="Evidence (inline)" dropzoneText="or drag and drop" triggerText="Attach file" maxFiles={5} accept="image/*" onFileAccept={onFileAccept} onFileReject={onFileReject} />,
-                _$ => <FileUpload orientation="vertical" label="Upload Files" dropzoneText="or drag and drop" triggerText="Choose files" maxFiles={5} accept="image/*" onFileAccept={onFileAccept} onFileReject={onFileReject} />,
-            ));
+            // orientation feeds as an expression — ONE dropzone.
+            const orientationSel = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
+            const preview = $.const(
+                <FileUpload orientation={orientationSel} label="Upload Files" dropzoneText="or drag and drop" triggerText="Choose files" maxFiles={5} accept="image/*" onFileAccept={onFileAccept} onFileReject={onFileReject} />,
+            );
 
             return (
                 <Configurator
                     controls={[
                         Configurator.Control("Orientation", oKey,
                             <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
-                                items={orientations.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
+                                items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                     ]}
                     preview={preview}
                     aside={{

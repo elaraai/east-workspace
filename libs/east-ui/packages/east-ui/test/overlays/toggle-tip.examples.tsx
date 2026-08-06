@@ -34,8 +34,6 @@ export const toggleTipVariants = example({
 
             const placementBind = $.let(State.bind([StringType], "toggletip_placement", "top"));
             const togglesBind = $.let(State.bind([IntegerType], "toggletip_toggles", 0n));
-
-            const pKey = $.let(placementBind.read());
             const toggles = $.let(togglesBind.read());
 
             const onPlacement = $.const(East.function([StringType], NullType, ($, next) => { $(placementBind.write(next)); }));
@@ -44,30 +42,19 @@ export const toggleTipVariants = example({
                 $(togglesBind.write(cur.add(1n)));
             }));
 
-            const preview = $.const(pKey.equal("bottom").ifElse(
-                _$ => (
-                    <ToggleTip
-                        trigger={<IconButton prefix="fas" name="circle-info" label="Help" variant="ghost" size="xs" color="fg.muted" />}
-                        placement="bottom"
-                        onOpenChange={onOpenChange}
-                    >Click the info button for help. This is useful for touch and keyboard users.</ToggleTip>
-                ),
-                _$ => (
-                    <ToggleTip
-                        trigger={<IconButton prefix="fas" name="circle-info" label="Toggle me" variant="ghost" size="xs" color="fg.muted" />}
-                        placement="top"
-                        hasArrow={true}
-                        onOpenChange={onOpenChange}
-                    >ToggleTip is an accessible alternative to hover tooltips. Click to toggle!</ToggleTip>
-                ),
-            ));
+            // ONE toggle tip — arrowed, bottom-placed.
+            const preview = $.const(
+                <ToggleTip
+                    trigger={<IconButton prefix="fas" name="circle-info" label="Help" variant="ghost" size="xs" color="fg.muted" />}
+                    placement="bottom"
+                    hasArrow={true}
+                    onOpenChange={onOpenChange}
+                >ToggleTip is an accessible alternative to hover tooltips. Click to toggle!</ToggleTip>,
+            );
 
             return (
                 <Configurator
                     controls={[
-                        Configurator.Control("Placement", pKey,
-                            <SegmentGroup value={pKey} onChange={onPlacement} size="sm"
-                                items={placements.map((_$, o) => SegmentGroup.Item(o, <Text>{o.upperCase()}</Text>))} />),
                     ]}
                     preview={preview}
                     aside={{
@@ -75,7 +62,6 @@ export const toggleTipVariants = example({
                         body: <Text.MonoLabel>{East.str`TOGGLED · ${East.print(toggles)}`}</Text.MonoLabel>,
                     }}
                     spec={[
-                        Configurator.Spec("Arrow", pKey.equal("top").ifElse(_$ => "on", _$ => "off")),
                     ]}
                 />
             );

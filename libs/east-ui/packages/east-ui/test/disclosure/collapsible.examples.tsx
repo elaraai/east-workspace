@@ -28,41 +28,25 @@ export const collapsibleVariants = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const defaultOpenBind = $.let(State.bind([BooleanType], "collapsible_defaultopen", true));
-            const brandedBind = $.let(State.bind([BooleanType], "collapsible_branded", false));
             const openBind = $.let(State.bind([BooleanType], "collapsible_open", false));
 
             const defaultOpenOn = $.let(defaultOpenBind.read());
-            const brandedOn = $.let(brandedBind.read());
             const isOpen = $.let(openBind.read());
 
             const onDefaultOpen = $.const(East.function([BooleanType], NullType, ($, next) => { $(defaultOpenBind.write(next)); }));
-            const onBranded = $.const(East.function([BooleanType], NullType, ($, next) => { $(brandedBind.write(next)); }));
             const onOpenChange = $.const(East.function([BooleanType], NullType, ($, open) => {
                 $(openBind.write(open));
             }));
 
             // The colour hatches are presence-typed, so the branded switch
             // picks between two collapsibles; defaultOpen + tracking stay live.
-            const preview = $.const(brandedOn.ifElse(
-                _$ => (
-                    <Collapsible
-                        trigger="Branded trigger"
-                        defaultOpen={defaultOpenOn}
-                        background="bg.canvas"
-                        borderColor="border.brand"
-                        triggerColor="fg.default"
-                        contentColor="fg.default"
-                        onOpenChange={onOpenChange}
-                    >
-                        <Box padding="3"><Text>Branded content</Text></Box>
-                    </Collapsible>
-                ),
-                _$ => (
-                    <Collapsible trigger="Details" defaultOpen={defaultOpenOn} onOpenChange={onOpenChange}>
-                        <Text>This content starts expanded when defaultOpen is on.</Text>
-                    </Collapsible>
-                ),
-            ));
+            // ONE collapsible — recipe colouring; the overrides live in
+            // their own example.
+            const preview = $.const(
+                <Collapsible trigger="Details" defaultOpen={defaultOpenOn} onOpenChange={onOpenChange}>
+                    <Text>This content starts expanded when defaultOpen is on.</Text>
+                </Collapsible>,
+            );
 
             return (
                 <Configurator
@@ -70,7 +54,6 @@ export const collapsibleVariants = example({
                         Configurator.Slot("State",
                             <HStack gap="5" align="center" wrap="wrap">
                                 <Switch checked={defaultOpenOn} label="Default open" onChange={onDefaultOpen} />
-                                <Switch checked={brandedOn} label="Branded" onChange={onBranded} />
                             </HStack>),
                     ]}
                     preview={preview}
@@ -80,6 +63,25 @@ export const collapsibleVariants = example({
                 />
             );
         }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Raw colour overrides on a static collapsible. */
+export const collapsibleCustomColours = example({
+    keywords: ["Collapsible", "background", "borderColor", "triggerColor", "contentColor", "override", "custom"],
+    description: "Colour overrides — canvas background and brand border on a static collapsible",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Collapsible
+            trigger="Branded trigger"
+            defaultOpen={true}
+            background="bg.canvas"
+            borderColor="border.brand"
+            triggerColor="fg.default"
+            contentColor="fg.default"
+        >
+            <Box padding="3"><Text>Branded content</Text></Box>
+        </Collapsible>
     )),
     inputs: [],
 });

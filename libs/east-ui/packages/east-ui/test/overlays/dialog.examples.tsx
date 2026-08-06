@@ -29,15 +29,10 @@ export const dialogVariants = example({
     description: "Dialog configurator — a large-size switch on one live dialog; the aside counts opens and closes via onOpenChange",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const largeBind = $.let(State.bind([BooleanType], "dialog_large", false));
             const openCountBind = $.let(State.bind([IntegerType], "dialog_open_count", 0n));
             const closeCountBind = $.let(State.bind([IntegerType], "dialog_close_count", 0n));
-
-            const largeOn = $.let(largeBind.read());
             const openCount = $.let(openCountBind.read());
             const closeCount = $.let(closeCountBind.read());
-
-            const onLarge = $.const(East.function([BooleanType], NullType, ($, next) => { $(largeBind.write(next)); }));
             const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {
                 const oc = $.let(openCountBind.read());
                 const cc = $.let(closeCountBind.read());
@@ -48,34 +43,26 @@ export const dialogVariants = example({
                 });
             }));
 
-            // size is presence-typed, so the switch picks between two dialogs.
-            const preview = $.const(largeOn.ifElse(
-                _$ => (
-                    <Dialog trigger={<Button variant="outline">Open Settings</Button>} title="Settings" size="lg" onOpenChange={onOpenChange}>
-                        <VStack gap="4">
-                            <Text>Configure your preferences below. Changes will be saved automatically.</Text>
-                            <Card>
-                                <Text>Notification settings, privacy options, and more would go here.</Text>
-                            </Card>
-                        </VStack>
-                    </Dialog>
-                ),
-                _$ => (
-                    <Dialog trigger={<Button>Open Dialog</Button>} title="Interactive Dialog" onOpenChange={onOpenChange}>
-                        <Text>This dialog tracks when it’s opened and closed.</Text>
+            // ONE dialog — the lg settings composition.
+            const preview = $.const(
+                <Dialog trigger={<Button variant="outline">Open Settings</Button>} title="Settings" size="lg" onOpenChange={onOpenChange}>
+                    <VStack gap="4">
+                        <Text>Configure your preferences below. Changes will be saved automatically.</Text>
+                        <Card>
+                            <Text>Notification settings, privacy options, and more would go here.</Text>
+                        </Card>
                         <HStack gap="2" justify="flex-end">
                             <Button variant="solid">Got it!</Button>
                         </HStack>
-                    </Dialog>
-                ),
-            ));
+                    </VStack>
+                </Dialog>,
+            );
 
             return (
                 <Configurator
                     controls={[
                         Configurator.Slot("Size",
                             <HStack gap="5" align="center" wrap="wrap">
-                                <Switch checked={largeOn} label="Large" onChange={onLarge} />
                             </HStack>),
                     ]}
                     preview={preview}
@@ -89,7 +76,7 @@ export const dialogVariants = example({
                         ),
                     }}
                     spec={[
-                        Configurator.Spec("Size", largeOn.ifElse(_$ => "lg", _$ => "md")),
+                        Configurator.Spec("Size", "lg"),
                     ]}
                 />
             );
