@@ -52,10 +52,13 @@
  *
  * ## What it serves
  *
- * Only the `@elaraai` packages whose behaviour is under test. Every other
- * `@elaraai` name is 302-redirected to npmjs, so unrelated packages
- * (`east-c-cli`'s native launcher, `east-ui`, the editor plugins) resolve
- * normally and never need building in the e3 job.
+ * The `@elaraai` packages whose behaviour (or typings) the scaffolds build
+ * against, packed from this tree. Every other `@elaraai` name FAILS CLOSED
+ * (404 naming the gap) rather than falling through to npmjs — a fall-through
+ * silently resolves the published release, which surfaces only when the
+ * public version drifts (a peer-range conflict at best, a stale-runtime
+ * regression suite at worst). The only exceptions are the explicit
+ * RELEASE_CONSUMED names in `localRegistry.ts`, each justified there.
  */
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
@@ -85,13 +88,17 @@ const PY_PACKAGES = ['east-py', 'east-py-std', 'east-py-cli'] as const;
  *
  * The east-node trio is what a materialized node env actually runs. The e3
  * packages are served too so the scaffolded project builds against this tree's
- * typings rather than the last release's.
+ * typings rather than the last release's — as is `east-py-datascience`, whose
+ * npm half carries the platform-function declarations python-task scaffolds
+ * depend on (its released peer range once drifted against the local `east`
+ * and broke `npm install` mid-suite).
  */
 const NPM_PACKAGES = [
   'east',
   'east-node/packages/east-node-std',
   'east-node/packages/east-node-io',
   'east-node/packages/east-node-cli',
+  'east-py/packages/east-py-datascience',
   'e3/packages/e3-types',
   'e3/packages/e3',
   'e3/packages/e3-core',

@@ -9,10 +9,15 @@
  * PROCESS.
  *
  * Serves synthesized packuments and tarballs for the packages packed into the
- * directory given as `argv[2]`, a find-links-style HTML listing + wheel bytes
- * for the wheel directory given as `argv[3]`, and 302-redirects every other
- * npm name to npmjs so unserved `@elaraai` packages still resolve. Prints its
- * base URL on stdout as the first line, then stays up until killed.
+ * directory given as `argv[2]`, and a find-links-style HTML listing + wheel
+ * bytes for the wheel directory given as `argv[3]`. Third-party npm names
+ * 302-redirect to npmjs (scaffolds have ordinary dependencies), but an
+ * UNSERVED `@elaraai` package FAILS CLOSED with a 404 naming the gap: the
+ * whole point of this registry is that the suite tests THIS tree, and a
+ * fall-through would silently resolve the publicly released version instead
+ * (surfacing only when the public release drifts — a peer-range conflict at
+ * best, a stale-runtime regression suite at worst). Prints its base URL on
+ * stdout as the first line, then stays up until killed.
  *
  * ## Why python rides the server too
  *
@@ -119,9 +124,37 @@ const server = createServer((req, res) => {
     }));
     return;
   }
+  if (name.startsWith('@elaraai/') && !releaseConsumed(name)) {
+    // Fail closed: never let a first-party package resolve from npmjs — that
+    // would test the released version, not this tree. A hit here means the
+    // stand-in's pack list is missing a package the scaffold depends on:
+    // either add it to localStack's NPM_PACKAGES (buildable TS packages) or,
+    // if it is genuinely a release artifact, add it to RELEASE_CONSUMED below
+    // with the justification.
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      error: `'${name}' is not served by the stand-in registry — add it to localStack's NPM_PACKAGES (first-party packages must come from this tree, never npmjs)`,
+    }));
+    return;
+  }
   res.writeHead(302, { location: `https://registry.npmjs.org${url}` });
   res.end();
 });
+
+/**
+ * `@elaraai` names allowed to resolve from npmjs — each one a deliberate,
+ * justified exception to the fail-closed rule, not a convenience:
+ *
+ * - `east-c-cli` (+ its `east-c-cli-<target>` per-platform packages): the npm
+ *   tarballs are native-binary launchers GENERATED AT RELEASE TIME from the
+ *   CMake build — they cannot be `pnpm pack`ed from this tree. Consuming the
+ *   released binaries means the e2e's C leg exercises env MATERIALIZATION
+ *   against a released C runtime, not this tree's; the local C runtime is
+ *   covered directly by east-c's own gates + compliance suites.
+ */
+function releaseConsumed(name: string): boolean {
+  return name === '@elaraai/east-c-cli' || name.startsWith('@elaraai/east-c-cli-');
+}
 
 server.listen(0, '127.0.0.1', () => {
   const address = server.address();
