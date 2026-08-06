@@ -181,9 +181,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     ), [totals, pages, onNeedRows]);
 
     if (error !== null) {
-        // The server refusing for its own safety (huge un-indexed blob) is
-        // not a failure — show the remedy and the download escape hatch.
-        if (error instanceof ApiError && (error.code === 'dataset_too_large_unindexed' || error.code === 'dataset_too_large')) {
+        // The server refusing for its own safety (read cap) is not a
+        // failure — show the remedy and the download escape hatch.
+        if (error instanceof ApiError && error.code === 'dataset_too_large') {
             return (
                 <Flex height="100%" direction="column" align="center" justify="center" gap={3} p={6}>
                     <Text fontSize="lg" color="fg.warning" fontWeight="bold">Too large to page</Text>

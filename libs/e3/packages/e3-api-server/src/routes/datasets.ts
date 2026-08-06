@@ -15,22 +15,14 @@ import {
   getDatasetPage,
   getDatasetStatus,
   setDataset,
-  DecodedValueCache,
 } from '../handlers/datasets.js';
 
 /** Options for {@link createDatasetRoutes}. */
 export interface DatasetRouteOptions {
-  /** Decoded-value LRU entries backing paged reads of un-indexed blobs.
-   *  Defaults to 4. */
-  pageCacheEntries?: number;
   /** Byte budget clamping each page's share of the source blob. Defaults to
    *  4 MiB; deployments with tighter response limits (e.g. Lambda proxy's
    *  6 MB, base64-inflated) pass a smaller budget. */
   pageByteBudget?: number;
-  /** Whole-decode cap for paging un-indexed blobs (and sorted Set/Dict
-   *  windows). Defaults to 64 MiB — a synchronous decode beyond this would
-   *  wedge the server process for every caller. */
-  pageUnindexedMaxBytes?: number;
   /** Absolute blob-buffering cap for the page endpoint. Defaults to
    *  512 MiB, until range reads land. */
   pageReadMaxBytes?: number;
@@ -50,7 +42,6 @@ export function createDatasetRoutes(
   options?: DatasetRouteOptions,
 ) {
   const app = new Hono();
-  const pageCache = new DecodedValueCache(options?.pageCacheEntries ?? 4);
 
   // GET /api/repos/:repo/workspaces/:ws/datasets - List root fields
   app.get('/', async (c) => {
@@ -107,9 +98,8 @@ export function createDatasetRoutes(
         ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
         ...(hash !== undefined && hash !== '' && { hash }),
       };
-      return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache, {
+      return getDatasetPage(storage, repoPath, ws, treePath, window, {
         ...(options?.pageByteBudget !== undefined && { byteBudget: options.pageByteBudget }),
-        ...(options?.pageUnindexedMaxBytes !== undefined && { unindexedMaxBytes: options.pageUnindexedMaxBytes }),
         ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
       });
     }

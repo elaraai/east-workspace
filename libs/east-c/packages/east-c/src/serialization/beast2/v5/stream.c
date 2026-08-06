@@ -231,6 +231,99 @@ void east_beast2_writer_free(Beast2StreamWriter *w)
 }
 
 /* ================================================================== */
+/*  Paged whole-value encode                                           */
+/* ================================================================== */
+
+#define B2V5_PAGED_BATCH_DEFAULT 1000
+#define B2V5_PAGED_TARGET_BYTES_DEFAULT (2 * 1024 * 1024)
+#define B2V5_PAGED_PROBE_BATCH 16
+
+/* Build a batch container holding elements [i, j) of value, in canonical
+ * order (btree walks are already sorted, so the writer's ascent check passes
+ * by construction). */
+static EastValue *paged_batch(EastValue *value, EastType *type, size_t i, size_t j)
+{
+    EastValue *batch = b2v5_new_segment_container(type, j - i);
+    if (!batch) return NULL;
+    if (type->kind == EAST_TYPE_ARRAY) {
+        for (size_t k = i; k < j; k++)
+            east_array_push(batch, value->data.array.items[k]);
+    } else if (type->kind == EAST_TYPE_SET) {
+        for (size_t k = i; k < j; k++)
+            east_set_insert(batch, east_set_at(value, k));
+    } else {
+        for (size_t k = i; k < j; k++)
+            east_dict_set(batch, east_dict_key_at(value, k), east_dict_val_at(value, k));
+    }
+    return batch;
+}
+
+ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
+                                     size_t target_segment_bytes)
+{
+    if (!value || !type) return NULL;
+    if (!b2v5_is_segmented_root(type)) {
+        east_builtin_error("beast2 v5: paged encode holds Array, Set or Dict values");
+        return NULL;
+    }
+    size_t target =
+        target_segment_bytes ? target_segment_bytes : (size_t)B2V5_PAGED_TARGET_BYTES_DEFAULT;
+    size_t n = type->kind == EAST_TYPE_ARRAY ? value->data.array.len
+               : type->kind == EAST_TYPE_SET ? value->data.set.len
+                                             : value->data.dict.len;
+
+    /* Probe: a throwaway scratch encode of the first few elements measures
+     * the average wire size and seeds the batch size. */
+    size_t next_batch = B2V5_PAGED_BATCH_DEFAULT;
+    size_t probe_n = n < B2V5_PAGED_PROBE_BATCH ? n : (size_t)B2V5_PAGED_PROBE_BATCH;
+    if (probe_n > 0) {
+        Beast2StreamWriter *scratch = east_beast2_writer_new(type, codec_id, true, true);
+        if (!scratch) return NULL;
+        size_t header = scratch->total_emitted;
+        EastValue *pb = paged_batch(value, type, 0, probe_n);
+        bool ok = pb && east_beast2_writer_write(scratch, pb);
+        if (pb) east_value_release(pb);
+        size_t body = scratch->total_emitted - header;
+        east_beast2_writer_free(scratch);
+        if (!ok) return NULL;
+        double avg = body > 0 ? (double)body / (double)probe_n : 1.0;
+        if (avg < 1.0) avg = 1.0;
+        size_t by_target = (size_t)((double)target / avg);
+        next_batch = by_target < 1                          ? 1
+                     : by_target > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT
+                                                            : by_target;
+    }
+
+    Beast2StreamWriter *w = east_beast2_writer_new(type, codec_id, true, true);
+    if (!w) return NULL;
+    size_t header = w->total_emitted;
+    size_t written = 0;
+    size_t i = 0;
+    bool ok = true;
+    while (i < n && ok) {
+        size_t j = i + next_batch;
+        if (j > n) j = n;
+        EastValue *batch = paged_batch(value, type, i, j);
+        ok = batch && east_beast2_writer_write(w, batch);
+        if (batch) east_value_release(batch);
+        if (!ok) break;
+        written += j - i;
+        i = j;
+        /* Refine toward the target as real output accumulates. */
+        double avg = (double)(w->total_emitted - header) / (double)written;
+        if (avg < 1.0) avg = 1.0;
+        size_t nb = (size_t)((double)target / avg);
+        next_batch = nb < 1                          ? 1
+                     : nb > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT
+                                                     : nb;
+    }
+    if (ok) ok = east_beast2_writer_finish(w);
+    ByteBuffer *out = ok ? east_beast2_writer_take(w) : NULL;
+    east_beast2_writer_free(w);
+    return out;
+}
+
+/* ================================================================== */
 /*  Sequential segment reader                                          */
 /* ================================================================== */
 

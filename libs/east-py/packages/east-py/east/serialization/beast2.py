@@ -164,6 +164,97 @@ def encode_beast2_segments_for(collection_type, *, codec: str = "deflate",
     return encode
 
 
+#: Default element (pair) cap per segment for :func:`encode_beast2_paged_for`.
+BEAST2_PAGED_BATCH_DEFAULT = 1_000
+
+#: Default wire-byte target per segment for :func:`encode_beast2_paged_for` —
+#: batches shrink below the element cap when measured element size would
+#: exceed it, so wide rows still produce right-sized segments.
+BEAST2_PAGED_TARGET_BYTES_DEFAULT = 2 * 1024 * 1024
+
+#: The probe batch that seeds the byte-adaptive batching (mirrors the
+#: TypeScript ``encodeBeast2PagedFor`` constants).
+_PAGED_PROBE_BATCH = 16
+
+
+def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
+                            target_segment_bytes: int | None = None,
+                            codec: str = "deflate"):
+    """Curried paged encoder: ``encode(value) -> bytes``.
+
+    Writes one whole collection value as a segmented, self-contained,
+    **indexed** v5 blob — the write-side sibling of
+    :func:`open_beast2_pages_for`, and the Python mirror of TypeScript's
+    ``encodeBeast2PagedFor``. Batching is byte-adaptive: a small probe batch
+    measures the average wire size and batches then target
+    ``target_segment_bytes`` (never above ``batch_size`` elements), refined
+    from real output as segments flush. Deterministic per value. Re-batching
+    slices the collection natively (eager containers are btrees), so no
+    per-element python runs.
+    """
+    kind = _check_segmented(collection_type)
+    batch_cap = max(1, int(batch_size if batch_size is not None else BEAST2_PAGED_BATCH_DEFAULT))
+    target = max(1, int(target_segment_bytes if target_segment_bytes is not None
+                        else BEAST2_PAGED_TARGET_BYTES_DEFAULT))
+
+    def encode(value) -> bytes:
+        import io
+
+        from east.types.values.collections import EastDict
+
+        n = len(value)
+        # Ordered native views for O(chunk) re-batching (canonical order is
+        # the containers' own iteration order).
+        if kind == "Array":
+            def chunk(i: int, j: int):
+                return value.slice(i, j)
+        elif kind == "Set":
+            ordered = value.to_array()
+
+            def chunk(i: int, j: int):
+                return ordered.slice(i, j).to_set()
+        else:
+            kt = collection_type.value["key"]
+            vt = collection_type.value["value"]
+            keys = value.to_array(lambda k, _v: k, out=kt)
+            values = value.to_array(lambda _k, v: v, out=vt)
+
+            def chunk(i: int, j: int):
+                rebuilt = EastDict(kt, vt)
+                rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
+                return rebuilt
+
+        # Probe: a throwaway scratch encode of the first few elements
+        # measures the average wire size and seeds the batch size.
+        next_batch = batch_cap
+        probe_n = min(n, _PAGED_PROBE_BATCH)
+        if probe_n > 0:
+            scratch = io.BytesIO()
+            scratch_writer = Beast2Writer(collection_type, scratch, codec=codec)
+            header_len = scratch.tell()
+            scratch_writer.write(chunk(0, probe_n))
+            avg = max(1.0, (scratch.tell() - header_len) / probe_n)
+            next_batch = max(1, min(batch_cap, int(target / avg)))
+
+        buf = io.BytesIO()
+        writer = Beast2Writer(collection_type, buf, codec=codec)
+        header_len = buf.tell()
+        written = 0
+        i = 0
+        while i < n:
+            j = min(n, i + next_batch)
+            writer.write(chunk(i, j))
+            written += j - i
+            i = j
+            # Refine toward the target as real output accumulates.
+            avg = max(1.0, (buf.tell() - header_len) / written)
+            next_batch = max(1, min(batch_cap, int(target / avg)))
+        writer.close()
+        return buf.getvalue()
+
+    return encode
+
+
 def iter_beast2_segments_for(collection_type, options: Beast2DecodeOptions | None = None):
     """Curried streaming decoder: ``segments(source)`` yields one decoded
     collection per v5 root segment, in stream order, with O(segment) decoded
@@ -2911,6 +3002,7 @@ __all__ = [
     "decode_beast2_with_header_for",
     "encode_beast2_v5_for",
     "encode_beast2_segments_for",
+    "encode_beast2_paged_for",
     "iter_beast2_segments_for",
     "read_beast2_index",
     "read_beast2_type",

@@ -52,9 +52,6 @@ export interface ServerConfig {
   auth?: AuthConfig;
   /** Optional OIDC provider config (enables built-in auth server) */
   oidc?: OidcConfig;
-  /** Decoded-value LRU entries backing paged dataset reads of un-indexed
-   *  blobs (default: 4). Each entry holds one whole decoded dataset value. */
-  pageCacheEntries?: number;
   /** Byte budget clamping each dataset page's share of the source blob
    *  (default: 4 MiB). Lower it for deployments with tight response limits. */
   pageByteBudget?: number;
@@ -88,7 +85,7 @@ export interface Server {
  * @returns Server instance
  */
 export async function createServer(config: ServerConfig): Promise<Server> {
-  const { reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageCacheEntries, pageByteBudget } = config;
+  const { reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageByteBudget } = config;
 
   // Validate config: exactly one of reposDir or singleRepoPath must be specified
   if (reposDir && singleRepoPath) {
@@ -395,7 +392,6 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   // Dataset routes: /api/repos/:repo/workspaces/:ws/datasets/*
   app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend, {
-    ...(pageCacheEntries !== undefined && { pageCacheEntries }),
     ...(pageByteBudget !== undefined && { pageByteBudget }),
   }));
 

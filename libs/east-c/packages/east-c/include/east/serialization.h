@@ -86,6 +86,16 @@ ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type);
 ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                   bool with_index);
 
+// Paged whole-value v5 encode (the C mirror of TypeScript's
+// encodeBeast2PagedFor): one Array/Set/Dict value in, a segmented,
+// self-contained, INDEXED blob out. Batching is byte-adaptive — capped at
+// 1,000 elements per segment AND adapted toward target_segment_bytes of wire
+// output (0 = the 2 MiB default), seeded by a small probe and refined per
+// flush — so wide rows still yield right-sized segments. Deterministic per
+// value. Returns NULL on failure (message via east_builtin_get_error).
+ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
+                                     size_t target_segment_bytes);
+
 // Streaming v5 writer: each write() encodes one batch (a value of the declared
 // Array/Set/Dict type) as one root segment, so writer memory is O(batch).
 // Output bytes accumulate internally; drain with take() (returns a ByteBuffer

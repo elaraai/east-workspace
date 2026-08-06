@@ -4,10 +4,9 @@
  */
 
 /**
- * Output-encoding policy of the runner: collection outputs above the
- * segmentation threshold are written segmented + indexed (pageable by e3's
- * paged dataset reads); small outputs keep the whole-value encode
- * byte-for-byte.
+ * Output-encoding policy of the runner: collection-rooted outputs are ALWAYS
+ * written segmented + indexed (pageable by e3's paged dataset reads), at
+ * every size — one uniform encoding per logical value.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -21,7 +20,6 @@ import {
   IntegerType,
   East,
   decodeBeast2For,
-  encodeBeast2For,
   encodeEastIR,
   openBeast2PagesFor,
 } from '@elaraai/east';
@@ -60,11 +58,14 @@ describe('runner output encoding', () => {
     assert.deepEqual(decodeBeast2For(AT)(output), expected, 'whole decode equals the result');
   });
 
-  it('keeps small collection outputs byte-identical to the whole-value encode', async () => {
+  it('writes small collection outputs segmented and indexed too', async () => {
     const output = await runToOutput(100n);
     const AT = ArrayType(IntegerType);
     const expected = Array.from({ length: 100 }, (_, i) => BigInt(i));
-    assert.deepEqual(Array.from(output), Array.from(encodeBeast2For(AT)(expected)));
-    assert.throws(() => openBeast2PagesFor(AT)(output), /no index/);
+    const pages = openBeast2PagesFor(AT)(output);
+    assert.equal(pages.segmentCount, 1);
+    assert.equal(pages.elementCount, 100);
+    assert.deepEqual(pages.slice(0, 100), expected);
+    assert.deepEqual(decodeBeast2For(AT)(output), expected, 'whole decode equals the result');
   });
 });
