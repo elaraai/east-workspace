@@ -13,30 +13,6 @@ import { Badge, Box, Configurator, Matrix, Reactive, SegmentGroup, Slider, Text,
 // examples).
 // ============================================================================
 
-/** 200 grouped rows over four booking shapes — big enough that the bounded
- *  sizes virtualize, varied enough that the data-driven markers fire. */
-const MATRIX_BOOKED_SHAPES = [
-    new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]),
-    new Map([["mon", 0.90], ["tue", 0.30], ["wed", 0.55]]),
-    new Map([["mon", 0.20], ["tue", 0.95], ["wed", 0.40]]),
-    new Map([["mon", 0.60], ["tue", 0.50], ["wed", 0.75]]),
-];
-const MATRIX_GRID_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
-    name: East.str`Res ${i}`,
-    role: i.remainder(3n).equals(0n).ifElse(() => "Senior PM", () => "Engineer"),
-    team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
-    booked: i.remainder(4n).equals(0n).ifElse(
-        () => MATRIX_BOOKED_SHAPES[0]!,
-        () => i.remainder(4n).equals(1n).ifElse(
-            () => MATRIX_BOOKED_SHAPES[1]!,
-            () => i.remainder(4n).equals(2n).ifElse(
-                () => MATRIX_BOOKED_SHAPES[2]!,
-                () => MATRIX_BOOKED_SHAPES[3]!,
-            ),
-        ),
-    ),
-}));
-
 /**
  * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by
  * team. The base configuration: utilisation read as bar fill, no labels.
@@ -85,7 +61,29 @@ export const matrixHeatGrid = example({
 export const matrixVariants = example({
     keywords: ["Matrix", "segment", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "maxHeight", "bounded", "fill", "#320", "group", "groupBy", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Matrix configurator — orientation and size axes on one live 200-row grid; markers fire from the data, popovers compose on every cell, segment drags log to the aside",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const MATRIX_BOOKED_SHAPES = [
+            new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]),
+            new Map([["mon", 0.90], ["tue", 0.30], ["wed", 0.55]]),
+            new Map([["mon", 0.20], ["tue", 0.95], ["wed", 0.40]]),
+            new Map([["mon", 0.60], ["tue", 0.50], ["wed", 0.75]]),
+        ];
+        const MATRIX_GRID_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+            name: East.str`Res ${i}`,
+            role: i.remainder(3n).equals(0n).ifElse(() => "Senior PM", () => "Engineer"),
+            team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
+            booked: i.remainder(4n).equals(0n).ifElse(
+                () => MATRIX_BOOKED_SHAPES[0]!,
+                () => i.remainder(4n).equals(1n).ifElse(
+                    () => MATRIX_BOOKED_SHAPES[1]!,
+                    () => i.remainder(4n).equals(2n).ifElse(
+                        () => MATRIX_BOOKED_SHAPES[2]!,
+                        () => MATRIX_BOOKED_SHAPES[3]!,
+                    ),
+                ),
+            ),
+        }));
+        return (
         <Reactive>{$ => {
             const orientations = $.const([
                 variant("horizontal", null), variant("vertical", null),
@@ -187,7 +185,8 @@ export const matrixVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 

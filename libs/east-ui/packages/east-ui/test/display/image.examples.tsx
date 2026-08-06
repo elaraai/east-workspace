@@ -14,30 +14,34 @@ import { Configurator, HStack, Image, Reactive, SegmentGroup, Text } from "@elar
 // separate document, so Chakra tokens and CSS vars do not resolve there. The
 // values are East palette colours (tokens/colors.css) — brand.500, paper,
 // gray.800, --warn, brand.400 — not arbitrary ones. Do not tokenise these.
-const LOGO_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='#488e97'/><path d='M36 8 L18 38 h12 l-4 18 20-30 H34 z' fill='#ffffff'/></svg>";
-const LOGO_DATA_URI = `data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}`;
-const LOGO_BYTES = new TextEncoder().encode(LOGO_SVG);
 
 // A deliberately wide mark, to show letterbox (contain) vs crop (cover).
-const WIDE_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40'><rect width='120' height='40' fill='#253333'/><circle cx='22' cy='20' r='13' fill='#b8862d'/><rect x='44' y='14' width='66' height='12' rx='6' fill='#5ce5e5'/></svg>";
-const WIDE_DATA_URI = `data:image/svg+xml,${encodeURIComponent(WIDE_SVG)}`;
 
 export const imageLogo = example({
     keywords: ["Image", "logo", "dataUri", "svg", "fit", "contain", "alt", "header"],
     description: "A self-contained SVG logo from a data URI — sized by height, object-fit contain, with alt text (an app-shell header lockup)",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const LOGO_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='#488e97'/><path d='M36 8 L18 38 h12 l-4 18 20-30 H34 z' fill='#ffffff'/></svg>";
+        const LOGO_DATA_URI = `data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}`;
+        return (
         <HStack gap="3" align="center">
             <Image source={Image.dataUri(LOGO_DATA_URI)} height="36px" fit="contain" alt="Acme" />
             <Text textStyle="body-lg" fontWeight="bold">Acme Industries</Text>
         </HStack>
-    )),
+    );
+    }),
     inputs: [],
 });
 
 export const imageVariants = example({
     keywords: ["Image", "source", "dataUri", "blob", "BlobType", "bytes", "url", "hosted", "fit", "objectFit", "contain", "cover", "aspectRatio", "borderRadius", "background", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Image configurator — source (dataUri / blob / url) and fit (contain / cover) axes in a fixed 112×64 box",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const LOGO_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='#488e97'/><path d='M36 8 L18 38 h12 l-4 18 20-30 H34 z' fill='#ffffff'/></svg>";
+        const LOGO_BYTES = new TextEncoder().encode(LOGO_SVG);
+        const WIDE_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40'><rect width='120' height='40' fill='#253333'/><circle cx='22' cy='20' r='13' fill='#b8862d'/><rect x='44' y='14' width='66' height='12' rx='6' fill='#5ce5e5'/></svg>";
+        const WIDE_DATA_URI = `data:image/svg+xml,${encodeURIComponent(WIDE_SVG)}`;
+        return (
         <Reactive>{$ => {
             // Source structs and the fit variant are VALUES — one image,
             // both axes expression-fed (a lookup into the same arrays the
@@ -84,6 +88,7 @@ export const imageVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });

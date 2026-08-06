@@ -12,17 +12,6 @@ import { Configurator, HStack, RadioCardGroup, SegmentGroup, Switch, Text, React
 // disabled card (items are host-level arrays at the factory boundary).
 // ============================================================================
 
-const RADIO_CARD_GROUP_ITEMS_DATA = [
-    { value: "active", label: "Active", description: "Available now" },
-    { value: "queued", label: "Queued", description: "Pending review" },
-    { value: "archived", label: "Archived", description: "Read-only" },
-];
-const RADIO_CARD_GROUP_DISABLED_ITEM_DATA = [
-    { value: "active", label: "Active", description: "Available now" },
-    { value: "queued", label: "Queued", description: "Pending review" },
-    { value: "archived", label: "Archived", description: "Read-only", disabled: true },
-];
-
 // ============================================================================
 // Basic — the search-index front door
 // ============================================================================
@@ -53,6 +42,11 @@ export const radioCardGroupVariants = example({
     keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "RadioCardGroup configurator — orientation and selected-card colour axes plus a disabled-card switch driving one live State-bound card group; the aside reads the selection back",
     fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_CARD_GROUP_DISABLED_ITEM_DATA = [
+            { value: "active", label: "Active", description: "Available now" },
+            { value: "queued", label: "Queued", description: "Pending review" },
+            { value: "archived", label: "Archived", description: "Read-only", disabled: true },
+        ];
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the
@@ -116,8 +110,15 @@ export const radioCardGroupVariants = example({
 export const radioCardGroupCustomColours = example({
     keywords: ["RadioCardGroup", "fillColor", "borderColor", "color", "override", "custom"],
     description: "Colour overrides — brand border and fill on a static card group",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_CARD_GROUP_ITEMS_DATA = [
+            { value: "active", label: "Active", description: "Available now" },
+            { value: "queued", label: "Queued", description: "Pending review" },
+            { value: "archived", label: "Archived", description: "Read-only" },
+        ];
+        return (
         <RadioCardGroup value="active" items={RADIO_CARD_GROUP_ITEMS_DATA} selectedCardBackground="bg.brand.subtle" selectedBorderColor="border.brand" color="fg.default" />
-    )),
+    );
+    }),
     inputs: [],
 });

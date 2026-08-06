@@ -8,10 +8,6 @@ import { State, UIComponentType } from "@elaraai/east-ui";
 import { Button, Configurator, Reactive, SegmentGroup, Select, Sparkline, Text, VStack } from "@elaraai/east-ui";
 
 // Module-scope fixtures — one per data preset (consolidation epic #455).
-const SPARKLINE_STOCK_DATA = [142.5, 143.2, 141.8, 144.0, 143.5, 145.2, 144.8, 146.0];
-const SPARKLINE_METRIC_DATA = [100.0, 120.0, 115.0, 130.0, 125.0, 140.0, 155.0];
-const SPARKLINE_TABLE_CELL_DATA = [10.0, 12.0, 8.0, 15.0, 11.0, 14.0];
-const SPARKLINE_DOWNTREND_DATA = [50.0, 48.0, 45.0, 42.0, 44.0, 40.0, 38.0];
 
 export const sparklineBasic = example({
     keywords: ["Sparkline", "line", "basic"],
@@ -30,6 +26,10 @@ export const sparklineVariants = example({
     keywords: ["Sparkline", "area", "filled", "color", "red", "teal", "purple", "width", "height", "sizes", "stock", "uptrend", "dashboard", "metric", "inline", "table", "compact", "downtrend", "declining", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "Sparkline configurator — type, colour, size and data axes driving one live sparkline; the aside bumps a reactive counter into the trend's last point",
     fn: East.function([], UIComponentType, (_$) => {
+        const SPARKLINE_STOCK_DATA = [142.5, 143.2, 141.8, 144.0, 143.5, 145.2, 144.8, 146.0];
+        const SPARKLINE_METRIC_DATA = [100.0, 120.0, 115.0, 130.0, 125.0, 140.0, 155.0];
+        const SPARKLINE_TABLE_CELL_DATA = [10.0, 12.0, 8.0, 15.0, 11.0, 14.0];
+        const SPARKLINE_DOWNTREND_DATA = [50.0, 48.0, 45.0, 42.0, 44.0, 40.0, 38.0];
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the

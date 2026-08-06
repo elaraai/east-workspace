@@ -11,21 +11,6 @@ import { Badge, Box, Button, Card, Chart, Configurator, HStack, MetricChip, Reac
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const STORY_RAIL_RIGHT_DATA = [
-    { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
-    { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
-    { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
-];
-const STORY_CARD_KEYFRAME_DATA = [
-    { region: "NA", half: "wk 1–4", orders: 846n }, { region: "NA", half: "wk 5–8", orders: 1110n },
-    { region: "EU", half: "wk 1–4", orders: 612n }, { region: "EU", half: "wk 5–8", orders: 668n },
-];
-const STORY_ACTIVE_STEP_STATIC_DATA = [
-    { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
-    { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
-    { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
-];
-
 export const storyBasic = example({
     keywords: ["Story", "Step", "stage", "Chart", "narrative", "scrollytelling"],
     description: "The spec's Q4 review: one evolving chart driven by four prose beats (rail-left)",
@@ -121,6 +106,11 @@ export const storyChromeVariants = example({
     keywords: ["Story", "layout", "rail-right", "rail-left", "mirror", "Chart", "Step", "eyebrow", "title", "body", "beat", "Progress", "chrome", "dots", "counter", "standalone", "stepLength", "compact", "runway", "pacing", "Reactive", "State", "bind", "active", "progress", "onStepEnter", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "Story chrome configurator — a rail-side axis and a compact-runway switch on one live scrollytelling story; the aside reads the last-entered beat",
     fn: East.function([], UIComponentType, (_$) => {
+        const STORY_RAIL_RIGHT_DATA = [
+            { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
+            { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
+            { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
+        ];
         return (
             <Reactive>{$ => {
                 // The rail axis is just its variants — `getTag()` gives the
@@ -223,6 +213,15 @@ export const storyAuthoring = example({
     keywords: ["Story", "stage", "Card", "framing", "Button", "CTA", "activeStep", "static", "snapshot", "deterministic", "Step", "conditional", "ifElse", "runtime children"],
     description: "Story authoring panel — card keyframe (keyframes own their framing by composing Card; a final step carries the call to action), active step static (activeStep forces one deterministic keyframe), conditional step (steps are values — a conditional step via ifElse is legal)",
     fn: East.function([], UIComponentType, ($) => {
+        const STORY_CARD_KEYFRAME_DATA = [
+            { region: "NA", half: "wk 1–4", orders: 846n }, { region: "NA", half: "wk 5–8", orders: 1110n },
+            { region: "EU", half: "wk 1–4", orders: 612n }, { region: "EU", half: "wk 5–8", orders: 668n },
+        ];
+        const STORY_ACTIVE_STEP_STATIC_DATA = [
+            { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
+            { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
+            { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
+        ];
         const uplift = $.const(STORY_CARD_KEYFRAME_DATA, ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));
         const orders = $.const(STORY_ACTIVE_STEP_STATIC_DATA, ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));
         const openRun = $.const(East.function([], NullType, _$ => {
@@ -293,7 +292,13 @@ export const storyAuthoring = example({
 export const storyBound = example({
     keywords: ["Story", "active", "progress", "bind", "State", "onStepEnter", "Progress", "dots", "counter", "external", "drive", "Reactive"],
     description: "Bound position — active + progress State drive the story from outside; Progress dots mirror the binding",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const STORY_RAIL_RIGHT_DATA = [
+            { week: "wk 1", actual: 820n, forecast: 825n }, { week: "wk 2", actual: 860n, forecast: 862n },
+            { week: "wk 3", actual: 880n, forecast: 886n }, { week: "wk 4", actual: 930n, forecast: 898n },
+            { week: "wk 5", actual: 1060n, forecast: 922n }, { week: "wk 6", actual: 1115n, forecast: 946n },
+        ];
+        return (
         <Reactive>{$ => {
             const active  = $.let(State.bind([IntegerType], "q4-review.step", 0n));
             const scrub   = $.let(State.bind([FloatType], "q4-review.progress", 0.0));
@@ -333,6 +338,7 @@ export const storyBound = example({
                 </VStack>
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });

@@ -12,12 +12,6 @@ import { Configurator, HStack, SegmentGroup, Style, Switch, Text, TimeRangeInput
 // expression), so the three shifts live here once.
 // ============================================================================
 
-const TIME_RANGE_PRESETS = [
-    { label: "Morning", start: 360n, end: 840n },
-    { label: "Afternoon", start: 840n, end: 1320n },
-    { label: "Night", start: 1320n, end: 360n },
-];
-
 // ============================================================================
 // Basic — the search-index front door
 // ============================================================================
@@ -41,6 +35,11 @@ export const timeRangeInputVariants = example({
     keywords: ["TimeRangeInput", "presets", "shift", "morning", "afternoon", "night", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "TimeRangeInput configurator — size and colour axes plus disabled and presets switches driving one live State-bound shift window; the aside reads the minutes back",
     fn: East.function([], UIComponentType, (_$) => {
+        const TIME_RANGE_PRESETS = [
+            { label: "Morning", start: 360n, end: 840n },
+            { label: "Afternoon", start: 840n, end: 1320n },
+            { label: "Night", start: 1320n, end: 360n },
+        ];
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the

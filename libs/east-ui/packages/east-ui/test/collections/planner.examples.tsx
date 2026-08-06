@@ -11,34 +11,6 @@ import { Box, Configurator, Library, Planner, Reactive, SegmentGroup, Select, Sw
 // Module-scope fixtures (consolidation epic #455, pass 4).
 // ============================================================================
 
-/** One row shape for every configurator preset — the detailed column set
- *  derives Hours / Free from used / cap on ANY preset's rows. */
-const PLANNER_ROW = StructType({ name: StringType, role: StringType, team: StringType, used: FloatType, cap: FloatType });
-
-const PLANNER_CREW_DATA = [
-    { name: "Alice", role: "Lead", team: "Team A", used: 6.0, cap: 8.0 },
-    { name: "Bob", role: "Engineer", team: "Team A", used: 4.0, cap: 8.0 },
-    { name: "Carol", role: "Designer", team: "Team B", used: 7.0, cap: 8.0 },
-];
-const PLANNER_PAIR_DATA = [
-    { name: "Line A", role: "Press", team: "Plant", used: 6.0, cap: 8.0 },
-    { name: "Line B", role: "Press", team: "Plant", used: 5.0, cap: 8.0 },
-];
-const PLANNER_SCROLL_DATA = East.Array.range(0n, 16n).map((_$, i) => ({
-    name: East.str`unit-${i}`,
-    role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
-    team: i.remainder(2n).equals(0n).ifElse(() => "Team A", () => "Team B"),
-    used: 6.0,
-    cap: 8.0,
-}));
-const PLANNER_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
-    name: East.str`unit-${i}`,
-    role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
-    team: i.remainder(2n).equals(0n).ifElse(() => "Team A", () => "Team B"),
-    used: 6.0,
-    cap: 8.0,
-}));
-
 /**
  * Point Planner — a numeric day axis with AM/PM buckets, an identity column,
  * committed events, an explicit now-line, and a row-selection callback.
@@ -90,7 +62,25 @@ export const plannerPoint = example({
 export const plannerVariants = example({
     keywords: ["Planner", "state", "committed", "proposed", "rejected", "model", "draft", "audit", "stretch", "content", "align", "tile", "tone", "pulse", "animation", "warning", "danger", "color", "colorPalette", "brand", "teal", "marker", "status", "flag", "tooltip", "bucket", "sub-slot", "shift", "per-cell", "mixed", "flat", "popover", "hovercard", "hover", "detail", "click", "ordinal", "phase", "time", "day", "resolution", "hour", "horizon", "FloatType", "expression", "scroll", "maxHeight", "span", "datetime", "duration", "timeline", "fill", "height", "#320", "virtual", "rowHover", "density", "columns", "eyebrow", "derived", "groupBy", "frozen", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State"],
     description: "Planner configurator — a preset axis over event, bucket, overlay, axis-scale, span and fill demos plus columns, density and row-hover controls on one live plan",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const PLANNER_ROW = StructType({ name: StringType, role: StringType, team: StringType, used: FloatType, cap: FloatType });
+        const PLANNER_CREW_DATA = [
+            { name: "Alice", role: "Lead", team: "Team A", used: 6.0, cap: 8.0 },
+            { name: "Bob", role: "Engineer", team: "Team A", used: 4.0, cap: 8.0 },
+            { name: "Carol", role: "Designer", team: "Team B", used: 7.0, cap: 8.0 },
+        ];
+        const PLANNER_PAIR_DATA = [
+            { name: "Line A", role: "Press", team: "Plant", used: 6.0, cap: 8.0 },
+            { name: "Line B", role: "Press", team: "Plant", used: 5.0, cap: 8.0 },
+        ];
+        const PLANNER_SCROLL_DATA = East.Array.range(0n, 16n).map((_$, i) => ({
+            name: East.str`unit-${i}`,
+            role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
+            team: i.remainder(2n).equals(0n).ifElse(() => "Team A", () => "Team B"),
+            used: 6.0,
+            cap: 8.0,
+        }));
+        return (
         <Reactive>{$ => {
             const presetKeys = $.const([
                 "states", "stretch", "tones", "colors", "markers",
@@ -392,7 +382,8 @@ export const plannerVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -609,7 +600,13 @@ export const plannerLibraryDnd = example({
 export const plannerSpan = example({
     keywords: ["Planner", "Span", "span", "datetime", "duration", "timeline", "columns", "sublabel", "derived", "groupBy", "density", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Span planner configurator — start → end phases on a months axis with detailed columns; density stays live on the one instance",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const PLANNER_CREW_DATA = [
+            { name: "Alice", role: "Lead", team: "Team A", used: 6.0, cap: 8.0 },
+            { name: "Bob", role: "Engineer", team: "Team A", used: 4.0, cap: 8.0 },
+            { name: "Carol", role: "Designer", team: "Team B", used: 7.0, cap: 8.0 },
+        ];
+        return (
         <Reactive>{$ => {
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
@@ -657,7 +654,8 @@ export const plannerSpan = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -665,7 +663,15 @@ export const plannerSpan = example({
 export const plannerFill = example({
     keywords: ["Planner", "Point", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
     description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 planner rows",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const PLANNER_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+            name: East.str`unit-${i}`,
+            role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
+            team: i.remainder(2n).equals(0n).ifElse(() => "Team A", () => "Team B"),
+            used: 6.0,
+            cap: 8.0,
+        }));
+        return (
         <Box height="200px">
             <Planner.Point
                 data={PLANNER_FILL_DATA}
@@ -678,6 +684,7 @@ export const plannerFill = example({
                 height="fill"
             />
         </Box>
-    )),
+    );
+    }),
     inputs: [],
 });

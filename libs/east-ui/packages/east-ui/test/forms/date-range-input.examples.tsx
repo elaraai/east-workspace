@@ -12,14 +12,6 @@ import { Configurator, DateRangeInput, HStack, Input, SegmentGroup, Style, Switc
 // expression), so the five canonical ranges live here once.
 // ============================================================================
 
-const DATE_RANGE_PRESETS = [
-    { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-    { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-    { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-    { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-    { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
-];
-
 // ============================================================================
 // Basic — the search-index front door
 // ============================================================================
@@ -43,6 +35,13 @@ export const dateRangeInputVariants = example({
     keywords: ["DateRangeInput", "precision", "datetime", "time", "hours", "presets", "relative", "MTD", "YTD", "Last 7 days", "colour", "color", "escape", "hatches", "size", "sm", "md", "lg", "disabled", "readonly", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "DateRangeInput configurator — precision, size and colour axes plus disabled and presets switches driving one live State-bound range; the aside reads the range back",
     fn: East.function([], UIComponentType, (_$) => {
+        const DATE_RANGE_PRESETS = [
+            { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+            { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+            { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+            { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+            { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
+        ];
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the

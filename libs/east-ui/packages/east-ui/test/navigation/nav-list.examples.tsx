@@ -12,73 +12,6 @@ import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reac
 // builds the IR itself), so the icon flip is a fixture pick, not a data map.
 // ============================================================================
 
-const NAV_LIST_FLAT_SECTIONS = [
-    {
-        items: [
-            { key: "dashboard", label: "Dashboard", active: true },
-            { key: "orders", label: "Orders", badge: "12" },
-            { key: "settings", label: "Settings" },
-        ],
-    },
-];
-const NAV_LIST_FLAT_ICON_SECTIONS = [
-    {
-        items: [
-            { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
-            { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
-            { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
-        ],
-    },
-];
-const NAV_LIST_GROUPED_SECTIONS = [
-    {
-        label: "Account",
-        items: [
-            { key: "profile", label: "Profile", active: true },
-            { key: "security", label: "Security" },
-            { key: "billing", label: "Billing" },
-        ],
-    },
-    {
-        label: "Workspace",
-        items: [
-            { key: "members", label: "Members", badge: "3" },
-            { key: "integrations", label: "Integrations" },
-        ],
-    },
-    {
-        label: "Help",
-        items: [
-            { key: "docs", label: "Documentation" },
-            { key: "contact", label: "Contact support" },
-        ],
-    },
-];
-const NAV_LIST_GROUPED_ICON_SECTIONS = [
-    {
-        label: "Account",
-        items: [
-            { key: "profile", label: "Profile", icon: { prefix: "fas", name: "user" }, active: true },
-            { key: "security", label: "Security", icon: { prefix: "fas", name: "shield-halved" } },
-            { key: "billing", label: "Billing", icon: { prefix: "fas", name: "credit-card" } },
-        ],
-    },
-    {
-        label: "Workspace",
-        items: [
-            { key: "members", label: "Members", icon: { prefix: "fas", name: "users" }, badge: "3" },
-            { key: "integrations", label: "Integrations", icon: { prefix: "fas", name: "plug" } },
-        ],
-    },
-    {
-        label: "Help",
-        items: [
-            { key: "docs", label: "Documentation", icon: { prefix: "fas", name: "book" } },
-            { key: "contact", label: "Contact support", icon: { prefix: "fas", name: "headset" } },
-        ],
-    },
-];
-
 export const navListBasic = example({
     keywords: ["NavList", "Root", "navigation", "section"],
     description: "Basic single-section nav list — three items, no active item",
@@ -106,6 +39,72 @@ export const navListVariants = example({
     keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive"],
     description: "NavList configurator — a structure-preset axis plus icons and shell-surface switches driving one live nav list; the aside routes onSelect through State and reads it back",
     fn: East.function([], UIComponentType, (_$) => {
+        const NAV_LIST_FLAT_SECTIONS = [
+            {
+                items: [
+                    { key: "dashboard", label: "Dashboard", active: true },
+                    { key: "orders", label: "Orders", badge: "12" },
+                    { key: "settings", label: "Settings" },
+                ],
+            },
+        ];
+        const NAV_LIST_FLAT_ICON_SECTIONS = [
+            {
+                items: [
+                    { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
+                    { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
+                    { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
+                ],
+            },
+        ];
+        const NAV_LIST_GROUPED_SECTIONS = [
+            {
+                label: "Account",
+                items: [
+                    { key: "profile", label: "Profile", active: true },
+                    { key: "security", label: "Security" },
+                    { key: "billing", label: "Billing" },
+                ],
+            },
+            {
+                label: "Workspace",
+                items: [
+                    { key: "members", label: "Members", badge: "3" },
+                    { key: "integrations", label: "Integrations" },
+                ],
+            },
+            {
+                label: "Help",
+                items: [
+                    { key: "docs", label: "Documentation" },
+                    { key: "contact", label: "Contact support" },
+                ],
+            },
+        ];
+        const NAV_LIST_GROUPED_ICON_SECTIONS = [
+            {
+                label: "Account",
+                items: [
+                    { key: "profile", label: "Profile", icon: { prefix: "fas", name: "user" }, active: true },
+                    { key: "security", label: "Security", icon: { prefix: "fas", name: "shield-halved" } },
+                    { key: "billing", label: "Billing", icon: { prefix: "fas", name: "credit-card" } },
+                ],
+            },
+            {
+                label: "Workspace",
+                items: [
+                    { key: "members", label: "Members", icon: { prefix: "fas", name: "users" }, badge: "3" },
+                    { key: "integrations", label: "Integrations", icon: { prefix: "fas", name: "plug" } },
+                ],
+            },
+            {
+                label: "Help",
+                items: [
+                    { key: "docs", label: "Documentation", icon: { prefix: "fas", name: "book" } },
+                    { key: "contact", label: "Contact support", icon: { prefix: "fas", name: "headset" } },
+                ],
+            },
+        ];
         return (
             <Reactive>{$ => {
                 // The NavList factory takes TS section-input arrays, so each

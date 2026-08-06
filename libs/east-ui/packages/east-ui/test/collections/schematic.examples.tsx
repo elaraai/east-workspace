@@ -11,88 +11,33 @@ import { Configurator, HStack, Reactive, Schematic, Select, Separator, Slice, Sl
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const SCHEMATIC_LAYERS_DATA = [
-    { id: "GATE", x: 2.5, y: 6.0, kind: "entry", sys: "shell" },
-    { id: "PUMP-1", x: 6.0, y: 4.0, kind: "pump", sys: "process" },
-    { id: "TANK-2", x: 12.0, y: 4.0, kind: "tank", sys: "process" },
-    { id: "VALVE-3", x: 18.0, y: 7.0, kind: "valve", sys: "utilities" },
-    { id: "SENS-4", x: 9.0, y: 9.0, kind: "sensor", sys: "maintenance" },
-];
-const SCHEMATIC_LAYERS_ROOMS_DATA = [
-    { id: "hall", name: "Hall A", x: 1.0, y: 1.0, w: 22.0, h: 11.0 },
-];
-const SCHEMATIC_LAYERS_PIPES_DATA = [
-    { id: "p1", a: "PUMP-1", b: "TANK-2" },
-    { id: "p2", a: "TANK-2", b: "VALVE-3" },
-];
 // Equipment with real footprints: `round` ⇒ circle body (a tank),
 // else `fp` ⇒ polygon body, else point + icon. The `x/y` anchor stays
 // the item identity used by the sidebar, links, and declutter;
 // `footprint` is additive (a circle centres on that anchor).
-const SCHEMATIC_GEOMETRY_DATA = [
-    { id: "PUMP-1", x: 6.0, y: 4.0, kind: "transfer pump", state: some(variant("success", null)), fp: true, round: false, r: 0.0,
-      pts: [{ x: 3.5, y: 2.2, bulge: 0.0 }, { x: 8.6, y: 3.0, bulge: 0.0 }, { x: 8.0, y: 6.0, bulge: 0.0 }, { x: 2.9, y: 5.2, bulge: 0.0 }] },
-    { id: "UNIT-9", x: 16.0, y: 4.5, kind: "storage tank", state: some(variant("warning", null)), fp: false, round: true, r: 2.4,
-      pts: [{ x: 16.0, y: 4.5, bulge: 0.0 }] },
-    { id: "VALVE-3", x: 21.6, y: 4.5, kind: "manifold", state: some(variant("info", null)), fp: false, round: false, r: 0.0,
-      pts: [{ x: 21.6, y: 4.5, bulge: 0.0 }] },
-];
+
 // Zones with shape geometry: a rotated polygon hall and a curvy
 // polyline service road whose bends are true arcs (vertex `bulge`),
 // widened into a world-space band. The required x/y/w/h bounding box
 // still drives the navigator / minimap / fly-to.
-const SCHEMATIC_GEOMETRY_AREAS_DATA = [
-    { id: "hall-c", name: "Hall C", x: 1.5, y: 1.2, w: 9.1, h: 6.4, road: false,
-      pts: [{ x: 1.8, y: 2.0, bulge: 0.0 }, { x: 10.2, y: 1.3, bulge: 0.0 }, { x: 10.6, y: 7.0, bulge: 0.0 }, { x: 2.2, y: 7.6, bulge: 0.0 }] },
-    { id: "svc-rd", name: "Service Rd", x: 1.0, y: 9.0, w: 23.5, h: 3.4, road: true,
-      pts: [{ x: 1.5, y: 11.6, bulge: 0.0 }, { x: 7.0, y: 9.8, bulge: 0.5 }, { x: 13.0, y: 11.4, bulge: -0.5 }, { x: 19.0, y: 9.6, bulge: 0.4 }, { x: 24.0, y: 10.8, bulge: 0.0 }] },
-];
+
 // Each unit carries an explicit CSS colour: `color` tints the stroke /
 // marker, `bg` fills the circle footprint — a category palette that is
 // independent of `status`.
-const SCHEMATIC_COLOR_OVERRIDE_DATA = [
-    { id: "U-1", x: 4.0, y: 4.0, r: 1.4, fill: "bg.brand.subtle" },
-    { id: "U-2", x: 8.0, y: 4.0, r: 1.4, fill: "bg.success.subtle" },
-    { id: "U-3", x: 12.0, y: 4.0, r: 1.4, fill: "bg.subtle" },
-];
-const SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA = [
-    { id: "bay", name: "Bay", x: 1.5, y: 1.5, w: 13.0, h: 5.5 },
-];
+
 // Small extent ⇒ items render as CARDS, where the ghost / desaturate
 // / ring effects read clearly (on labelled pins they'd be too subtle).
 // Each carries a status tone so `desaturate` visibly drains its colour.
-const SCHEMATIC_SLICE_EFFECT_DATA = [
-    { id: "UNIT-04", x: 3.5, y: 2.6, kind: "unit", st: some(variant("success", null)) },
-    { id: "UNIT-05", x: 11.5, y: 2.6, kind: "unit", st: some(variant("success", null)) },
-    { id: "LINE-2", x: 4.5, y: 6.2, kind: "pack", st: some(variant("warning", null)) },
-    { id: "BAY-OUT", x: 12.0, y: 6.2, kind: "pallets", st: some(variant("info", null)) },
-];
-const SCHEMATIC_SELECT_FILTER_DATA = [
-    { id: "A", x: 3.5, y: 3.0, kind: "unit" },
-    { id: "B", x: 8.0, y: 3.0, kind: "unit" },
-    { id: "C", x: 12.5, y: 3.0, kind: "pack" },
-    { id: "D", x: 5.5, y: 6.4, kind: "unit" },
-    { id: "E", x: 10.0, y: 6.4, kind: "pack" },
-];
+
 // The ONE shared canvas fixture for the interaction configurator — old
 // schematicInteractive's items (the other merged examples' fixtures are
 // superseded; their distinctive features are prop-level, not data-level),
 // plus schematicZoneSelect's M1 / P1 / P2 rows so the Hall B and Dock zones
 // below keep child items and the childItemKeys log line stays meaningful.
-const SCHEMATIC_INTERACTIONS_ITEMS = [
-    { id: "CELL-A", x: 3.0, y: 3.0 },
-    { id: "CELL-B", x: 9.0, y: 3.0 },
-    { id: "M1", x: 15.0, y: 3.0 },
-    { id: "P1", x: 6.0, y: 9.0 }, { id: "P2", x: 18.0, y: 9.0 },
-];
+
 // Zone bodies for the zone tool + the always-on zoneHover cards — verbatim
 // from the OLD schematicZoneSelect example (the only zone source among the
 // six merged interaction examples).
-const SCHEMATIC_INTERACTIONS_ZONES = [
-    { id: "hall-a", name: "Hall A", x: 1.0, y: 1.0, w: 10.0, h: 4.5 },
-    { id: "hall-b", name: "Hall B", x: 12.5, y: 1.0, w: 10.5, h: 4.5 },
-    { id: "dock", name: "Dock", x: 1.0, y: 7.0, w: 22.0, h: 4.0 },
-];
 
 export const schematicPlant = example({
     keywords: ["Schematic", "canvas", "items", "zones", "links", "meter", "status", "hatch", "label", "metric", "parallel", "fan-out", "flow"],
@@ -517,7 +462,22 @@ export const schematicVariants = example({
 export const schematicLayers = example({
     keywords: ["Schematic", "layers", "layer", "visibility", "solo", "lock", "opacity", "toggle", "legend"],
     description: "Layer chrome — shell locked and dimmed, maintenance shipped hidden; the layer panel shows / hides / solos / locks each",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const SCHEMATIC_LAYERS_DATA = [
+            { id: "GATE", x: 2.5, y: 6.0, kind: "entry", sys: "shell" },
+            { id: "PUMP-1", x: 6.0, y: 4.0, kind: "pump", sys: "process" },
+            { id: "TANK-2", x: 12.0, y: 4.0, kind: "tank", sys: "process" },
+            { id: "VALVE-3", x: 18.0, y: 7.0, kind: "valve", sys: "utilities" },
+            { id: "SENS-4", x: 9.0, y: 9.0, kind: "sensor", sys: "maintenance" },
+        ];
+        const SCHEMATIC_LAYERS_ROOMS_DATA = [
+            { id: "hall", name: "Hall A", x: 1.0, y: 1.0, w: 22.0, h: 11.0 },
+        ];
+        const SCHEMATIC_LAYERS_PIPES_DATA = [
+            { id: "p1", a: "PUMP-1", b: "TANK-2" },
+            { id: "p2", a: "TANK-2", b: "VALVE-3" },
+        ];
+        return (
         <Schematic
             extent={{ width: 24, height: 13 }}
             height="420px"
@@ -535,7 +495,8 @@ export const schematicLayers = example({
             ]}
             scaleUnit="m"
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -546,7 +507,22 @@ export const schematicLayers = example({
 export const schematicGeometry = example({
     keywords: ["Schematic", "geometry", "polygon", "polyline", "circle", "arc", "bulge", "footprint", "zone", "CAD", "shape", "grid"],
     description: "CAD geometry — polygon and arc-aware polyline zones with polygon / circle item footprints on the metric grid",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const SCHEMATIC_GEOMETRY_DATA = [
+            { id: "PUMP-1", x: 6.0, y: 4.0, kind: "transfer pump", state: some(variant("success", null)), fp: true, round: false, r: 0.0,
+              pts: [{ x: 3.5, y: 2.2, bulge: 0.0 }, { x: 8.6, y: 3.0, bulge: 0.0 }, { x: 8.0, y: 6.0, bulge: 0.0 }, { x: 2.9, y: 5.2, bulge: 0.0 }] },
+            { id: "UNIT-9", x: 16.0, y: 4.5, kind: "storage tank", state: some(variant("warning", null)), fp: false, round: true, r: 2.4,
+              pts: [{ x: 16.0, y: 4.5, bulge: 0.0 }] },
+            { id: "VALVE-3", x: 21.6, y: 4.5, kind: "manifold", state: some(variant("info", null)), fp: false, round: false, r: 0.0,
+              pts: [{ x: 21.6, y: 4.5, bulge: 0.0 }] },
+        ];
+        const SCHEMATIC_GEOMETRY_AREAS_DATA = [
+            { id: "hall-c", name: "Hall C", x: 1.5, y: 1.2, w: 9.1, h: 6.4, road: false,
+              pts: [{ x: 1.8, y: 2.0, bulge: 0.0 }, { x: 10.2, y: 1.3, bulge: 0.0 }, { x: 10.6, y: 7.0, bulge: 0.0 }, { x: 2.2, y: 7.6, bulge: 0.0 }] },
+            { id: "svc-rd", name: "Service Rd", x: 1.0, y: 9.0, w: 23.5, h: 3.4, road: true,
+              pts: [{ x: 1.5, y: 11.6, bulge: 0.0 }, { x: 7.0, y: 9.8, bulge: 0.5 }, { x: 13.0, y: 11.4, bulge: -0.5 }, { x: 19.0, y: 9.6, bulge: 0.4 }, { x: 24.0, y: 10.8, bulge: 0.0 }] },
+        ];
+        return (
         <Schematic
             extent={{ width: 26, height: 14 }}
             height="440px"
@@ -570,7 +546,8 @@ export const schematicGeometry = example({
             scaleUnit="m"
             grid={true}
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -581,7 +558,16 @@ export const schematicGeometry = example({
 export const schematicColorOverrides = example({
     keywords: ["Schematic", "color", "tone", "bg", "override", "fillOpacity", "palette", "style"],
     description: "Colour overrides — raw color/bg per item footprint and a toned filled zone, independent of status",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const SCHEMATIC_COLOR_OVERRIDE_DATA = [
+            { id: "U-1", x: 4.0, y: 4.0, r: 1.4, fill: "bg.brand.subtle" },
+            { id: "U-2", x: 8.0, y: 4.0, r: 1.4, fill: "bg.success.subtle" },
+            { id: "U-3", x: 12.0, y: 4.0, r: 1.4, fill: "bg.subtle" },
+        ];
+        const SCHEMATIC_COLOR_OVERRIDE_AREAS_DATA = [
+            { id: "bay", name: "Bay", x: 1.5, y: 1.5, w: 13.0, h: 5.5 },
+        ];
+        return (
         <Schematic
             extent={{ width: 16, height: 8 }}
             height="360px"
@@ -601,7 +587,8 @@ export const schematicColorOverrides = example({
             })}
             scaleUnit="m"
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -609,6 +596,19 @@ export const schematicSlice = example({
     keywords: ["Schematic", "slice", "sliceEffect", "excluded", "ghost", "desaturate", "pulse", "halo", "frame", "partition", "filter", "reactive", "switch", "State", "selection", "selectionMode", "sliceSelectField", "in", "marquee", "onSelectionChange"],
     description: "Slice panel — slice effect (Slice.partition tags rows; excluded ghost/desaturate reactively via slice* props) and select filter (marquee selection writes an in-filter; the rest ghost)",
     fn: East.function([], UIComponentType, (_$) => {
+        const SCHEMATIC_SLICE_EFFECT_DATA = [
+            { id: "UNIT-04", x: 3.5, y: 2.6, kind: "unit", st: some(variant("success", null)) },
+            { id: "UNIT-05", x: 11.5, y: 2.6, kind: "unit", st: some(variant("success", null)) },
+            { id: "LINE-2", x: 4.5, y: 6.2, kind: "pack", st: some(variant("warning", null)) },
+            { id: "BAY-OUT", x: 12.0, y: 6.2, kind: "pallets", st: some(variant("info", null)) },
+        ];
+        const SCHEMATIC_SELECT_FILTER_DATA = [
+            { id: "A", x: 3.5, y: 3.0, kind: "unit" },
+            { id: "B", x: 8.0, y: 3.0, kind: "unit" },
+            { id: "C", x: 12.5, y: 3.0, kind: "pack" },
+            { id: "D", x: 5.5, y: 6.4, kind: "unit" },
+            { id: "E", x: 10.0, y: 6.4, kind: "pack" },
+        ];
         const EffectEquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType, st: OptionType(StatusTokenType) });
         const effectCfg = Slice.config(EffectEquipType, {
             fields: { id: { label: "ID" }, kind: { label: "Kind" } },
@@ -727,7 +727,19 @@ export const schematicSlice = example({
 export const schematicInteractions = example({
     keywords: ["Schematic", "Reactive", "State", "onSelect", "onItemOpen", "double-click", "open", "drill-in", "interactive", "selection", "selectionMode", "single", "multiple", "marquee", "onSelectionChange", "selectZoomFocus", "focus", "zoom", "multi-select", "Switch", "zone", "area", "onSelectZone", "onZoneSelectionChange", "childItemKeys", "move", "reposition", "drag", "onMoveItem", "readOnlyItems", "editing", "group", "hover", "HoverCard", "itemHover", "zoneHover", "linkHover", "Sparkline", "chart", "inspection", "lazy", "viewport", "onViewportChange", "camera", "bounds", "settle", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Schematic interaction configurator — a tool axis (select / marquee / zone / move) plus multi-select, zoom-focus and movable switches; hover cards stay on; the aside logs five event lines",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const SCHEMATIC_INTERACTIONS_ITEMS = [
+            { id: "CELL-A", x: 3.0, y: 3.0 },
+            { id: "CELL-B", x: 9.0, y: 3.0 },
+            { id: "M1", x: 15.0, y: 3.0 },
+            { id: "P1", x: 6.0, y: 9.0 }, { id: "P2", x: 18.0, y: 9.0 },
+        ];
+        const SCHEMATIC_INTERACTIONS_ZONES = [
+            { id: "hall-a", name: "Hall A", x: 1.0, y: 1.0, w: 10.0, h: 4.5 },
+            { id: "hall-b", name: "Hall B", x: 12.5, y: 1.0, w: 10.5, h: 4.5 },
+            { id: "dock", name: "Dock", x: 1.0, y: 7.0, w: 22.0, h: 4.0 },
+        ];
+        return (
         <Reactive>{$ => {
             // The tool axis is a bare label array — the control and the
             // per-tool prop mapping below read the same four keys.
@@ -886,6 +898,7 @@ export const schematicInteractions = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });

@@ -12,83 +12,10 @@ import { Board, Box, Configurator, Library, Reactive, SegmentGroup, Text, VStack
 // ============================================================================
 
 // Shared assignment-state values for the hoisted fixtures.
-const COMMITTED = variant("committed", null);
-const ADDED = variant("proposed", variant("added", null));
-const GHOST = variant("proposed", variant("model", null));
 
-const BOARD_PUBLISHED_AREAS_DATA = [
-    { id: "icu", name: "ICU" },
-    { id: "surgical", name: "Surgical" },
-];
 const BOARD_PUBLISHED_SHIFTS_DATA = [
     { id: "am", name: "AM" },
     { id: "pm", name: "PM" },
-];
-const BOARD_PUBLISHED_PEOPLE_DATA = [
-    { id: "patel", name: "Patel, R." },
-    { id: "cho", name: "Cho, J." },
-];
-const BOARD_PUBLISHED_DATA = [
-    { id: "x1", person: "patel", area: "icu", shift: "am", state: COMMITTED },
-    { id: "x2", person: "cho", area: "icu", shift: "pm", state: COMMITTED },
-    { id: "x3", person: "cho", area: "surgical", shift: "am", state: ADDED },
-];
-const BOARD_COVERAGE_AREAS_DATA = [
-    { id: "emergency", name: "Emergency" },
-    { id: "icu", name: "ICU" },
-];
-const BOARD_COVERAGE_SHIFTS_DATA = [
-    { id: "am", name: "AM", window: "06:00–14:00" },
-    { id: "pm", name: "PM", window: "14:00–22:00" },
-];
-const BOARD_COVERAGE_PEOPLE_DATA = [
-    { id: "patel", name: "Patel, R." },
-    { id: "cho", name: "Cho, J." },
-    { id: "rivera", name: "Rivera, M." },
-    { id: "okafor", name: "Okafor, S." },
-];
-const BOARD_COVERAGE_DATA = [
-    // Emergency AM — exact (2/2).
-    { id: "x1", person: "patel", area: "emergency", shift: "am", state: COMMITTED },
-    { id: "x2", person: "cho", area: "emergency", shift: "am", state: COMMITTED },
-    // Emergency PM — understaffed (1/3, two open slots).
-    { id: "x3", person: "rivera", area: "emergency", shift: "pm", state: COMMITTED },
-    // ICU AM — overstaffed (3/2).
-    { id: "x4", person: "okafor", area: "icu", shift: "am", state: COMMITTED },
-    { id: "x5", person: "rivera", area: "icu", shift: "am", state: COMMITTED },
-    { id: "x6", person: "cho", area: "icu", shift: "am", state: ADDED },
-];
-const BOARD_COVERAGE_REQUIREMENTS_DATA = [
-    { area: "emergency", shift: "am", count: 2n },
-    { area: "emergency", shift: "pm", count: 3n },
-    { area: "icu", shift: "am", count: 2n },
-    { area: "icu", shift: "pm", count: 1n },
-];
-const BOARD_OVERFLOW_DATA = [
-    { id: "x1", person: "patel", area: "maternity", shift: "am", state: COMMITTED },
-    { id: "x2", person: "cho", area: "maternity", shift: "am", state: COMMITTED },
-    { id: "x3", person: "rivera", area: "maternity", shift: "am", state: COMMITTED },
-    { id: "x4", person: "okafor", area: "maternity", shift: "am", state: COMMITTED },
-    { id: "x5", person: "kim", area: "maternity", shift: "am", state: ADDED },
-    { id: "x6", person: "patel", area: "maternity", shift: "pm", state: COMMITTED },
-];
-const BOARD_FILL_AREAS_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
-    id: East.str`area${i}`,
-    name: East.str`Area ${i}`,
-}));
-const BOARD_FILL_SHIFTS_DATA = [
-    { id: "am", name: "AM" }, { id: "pm", name: "PM" },
-];
-const BOARD_FILL_PEOPLE_DATA = [
-    { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
-    { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
-];
-const BOARD_FILL_DATA = [
-    { id: "a1", person: "patel", area: "area0", shift: "am", state: COMMITTED },
-    { id: "a2", person: "cho", area: "area1", shift: "am", state: COMMITTED },
-    { id: "a3", person: "rivera", area: "area2", shift: "pm", state: COMMITTED },
-    { id: "a4", person: "okafor", area: "area15", shift: "am", state: COMMITTED },
-    { id: "a5", person: "patel", area: "area199", shift: "pm", state: COMMITTED },
 ];
 
 export const boardEdit = example({
@@ -242,7 +169,62 @@ export const boardLibraryDnd = example({
 export const boardVariants = example({
     keywords: ["Board", "assignment", "published", "committed", "read-only", "requirements", "coverage", "open", "slots", "understaffed", "overstaffed", "maxVisible", "overflow", "popover", "multiple", "people", "mode", "edit", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Board configurator — a data-preset axis (published / coverage / overflow) driving one live day board; requirements, chip caps and mode all travel as data",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const COMMITTED = variant("committed", null);
+        const ADDED = variant("proposed", variant("added", null));
+        const BOARD_PUBLISHED_AREAS_DATA = [
+            { id: "icu", name: "ICU" },
+            { id: "surgical", name: "Surgical" },
+        ];
+        const BOARD_PUBLISHED_PEOPLE_DATA = [
+            { id: "patel", name: "Patel, R." },
+            { id: "cho", name: "Cho, J." },
+        ];
+        const BOARD_PUBLISHED_DATA = [
+            { id: "x1", person: "patel", area: "icu", shift: "am", state: COMMITTED },
+            { id: "x2", person: "cho", area: "icu", shift: "pm", state: COMMITTED },
+            { id: "x3", person: "cho", area: "surgical", shift: "am", state: ADDED },
+        ];
+        const BOARD_COVERAGE_AREAS_DATA = [
+            { id: "emergency", name: "Emergency" },
+            { id: "icu", name: "ICU" },
+        ];
+        const BOARD_COVERAGE_SHIFTS_DATA = [
+            { id: "am", name: "AM", window: "06:00–14:00" },
+            { id: "pm", name: "PM", window: "14:00–22:00" },
+        ];
+        const BOARD_COVERAGE_PEOPLE_DATA = [
+            { id: "patel", name: "Patel, R." },
+            { id: "cho", name: "Cho, J." },
+            { id: "rivera", name: "Rivera, M." },
+            { id: "okafor", name: "Okafor, S." },
+        ];
+        const BOARD_COVERAGE_DATA = [
+            // Emergency AM — exact (2/2).
+            { id: "x1", person: "patel", area: "emergency", shift: "am", state: COMMITTED },
+            { id: "x2", person: "cho", area: "emergency", shift: "am", state: COMMITTED },
+            // Emergency PM — understaffed (1/3, two open slots).
+            { id: "x3", person: "rivera", area: "emergency", shift: "pm", state: COMMITTED },
+            // ICU AM — overstaffed (3/2).
+            { id: "x4", person: "okafor", area: "icu", shift: "am", state: COMMITTED },
+            { id: "x5", person: "rivera", area: "icu", shift: "am", state: COMMITTED },
+            { id: "x6", person: "cho", area: "icu", shift: "am", state: ADDED },
+        ];
+        const BOARD_COVERAGE_REQUIREMENTS_DATA = [
+            { area: "emergency", shift: "am", count: 2n },
+            { area: "emergency", shift: "pm", count: 3n },
+            { area: "icu", shift: "am", count: 2n },
+            { area: "icu", shift: "pm", count: 1n },
+        ];
+        const BOARD_OVERFLOW_DATA = [
+            { id: "x1", person: "patel", area: "maternity", shift: "am", state: COMMITTED },
+            { id: "x2", person: "cho", area: "maternity", shift: "am", state: COMMITTED },
+            { id: "x3", person: "rivera", area: "maternity", shift: "am", state: COMMITTED },
+            { id: "x4", person: "okafor", area: "maternity", shift: "am", state: COMMITTED },
+            { id: "x5", person: "kim", area: "maternity", shift: "am", state: ADDED },
+            { id: "x6", person: "patel", area: "maternity", shift: "pm", state: COMMITTED },
+        ];
+        return (
         <Reactive>{$ => {
             // Every preset is DATA on the same board instance: requirements
             // [] = no coverage chrome; maxVisible 99 = no overflow cap.
@@ -342,7 +324,8 @@ export const boardVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -353,7 +336,11 @@ export const boardVariants = example({
 export const boardReview = example({
     keywords: ["Board", "review", "approve", "reject", "batch", "foot", "commitBar", "rerun", "accept", "ghost", "Reactive"],
     description: "Review board — the commit-bar foot and per-tile ghost accept over staged proposals",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const COMMITTED = variant("committed", null);
+        const ADDED = variant("proposed", variant("added", null));
+        const GHOST = variant("proposed", variant("model", null));
+        return (
         <Reactive>{$ => {
             const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
             const onApproveAll = $.const(East.function([], NullType, _$ => null));
@@ -386,7 +373,8 @@ export const boardReview = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -394,7 +382,27 @@ export const boardReview = example({
 export const boardFill = example({
     keywords: ["Board", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
     description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 area rows",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const COMMITTED = variant("committed", null);
+        const BOARD_FILL_AREAS_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+            id: East.str`area${i}`,
+            name: East.str`Area ${i}`,
+        }));
+        const BOARD_FILL_SHIFTS_DATA = [
+            { id: "am", name: "AM" }, { id: "pm", name: "PM" },
+        ];
+        const BOARD_FILL_PEOPLE_DATA = [
+            { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
+            { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
+        ];
+        const BOARD_FILL_DATA = [
+            { id: "a1", person: "patel", area: "area0", shift: "am", state: COMMITTED },
+            { id: "a2", person: "cho", area: "area1", shift: "am", state: COMMITTED },
+            { id: "a3", person: "rivera", area: "area2", shift: "pm", state: COMMITTED },
+            { id: "a4", person: "okafor", area: "area15", shift: "am", state: COMMITTED },
+            { id: "a5", person: "patel", area: "area199", shift: "pm", state: COMMITTED },
+        ];
+        return (
         <Box height="180px">
             <Board
                 id="board-fill"
@@ -409,6 +417,7 @@ export const boardFill = example({
                 height="fill"
             />
         </Box>
-    )),
+    );
+    }),
     inputs: [],
 });

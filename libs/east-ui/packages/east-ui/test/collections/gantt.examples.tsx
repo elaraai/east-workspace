@@ -11,70 +11,7 @@ import { Badge, Box, Configurator, Gantt, HStack, Library, Reactive, SegmentGrou
 // Module-scope fixtures (consolidation epic #455, pass 4).
 // ============================================================================
 
-/** One row shape for every configurator preset — tasks, lifecycle states,
- *  risk statuses, milestones and styled labels all travel as plain data so
- *  ONE rowSpec serves every preset. `state` is the lifecycle tag; `status`
- *  is "" for none; a `some` milestone renders its diamond. */
-const GANTT_ROW = StructType({
-    name: StringType,
-    start: DateTimeType,
-    end: DateTimeType,
-    progress: FloatType,
-    state: StringType,
-    status: StringType,
-    styled: BooleanType,
-    milestone: OptionType(StructType({ date: DateTimeType, label: StringType, release: BooleanType })),
-});
-
-const GANTT_QUARTER_ROWS = [
-    { name: "Platform", start: new Date("2024-01-01"), end: new Date("2024-09-30"), progress: 60.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Mobile", start: new Date("2024-06-01"), end: new Date("2025-03-31"), progress: 35.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Analytics", start: new Date("2025-01-01"), end: new Date("2025-12-31"), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
-];
-const GANTT_WEEK_ROWS = [
-    { name: "Spec", start: new Date("2024-04-01"), end: new Date("2024-04-05"), progress: 100.0, state: "committed", status: "", styled: false, milestone: none },
-    { name: "Implement", start: new Date("2024-04-04"), end: new Date("2024-04-18"), progress: 55.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Review", start: new Date("2024-04-17"), end: new Date("2024-04-24"), progress: 0.0, state: "added", status: "", styled: false, milestone: none },
-];
-const GANTT_MILESTONE_ROWS = [
-    { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), progress: 100.0, state: "committed", status: "", styled: false, milestone: some({ date: new Date("2024-01-14"), label: "Checkpoint", release: false }) },
-    { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), progress: 70.0, state: "added", status: "", styled: false, milestone: some({ date: new Date("2024-01-28"), label: "Checkpoint", release: false }) },
-    { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), progress: 20.0, state: "added", status: "", styled: false, milestone: some({ date: new Date("2024-02-11"), label: "Release", release: true }) },
-];
-const GANTT_PROGRESS_ROWS = [
-    { name: "Backend API", start: new Date("2024-01-01"), end: new Date("2024-02-15"), progress: 100.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Frontend UI", start: new Date("2024-01-15"), end: new Date("2024-03-01"), progress: 75.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Integration", start: new Date("2024-02-01"), end: new Date("2024-03-15"), progress: 40.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
-];
-const GANTT_LABEL_ROWS = [
-    { name: "Plain label", start: new Date("2024-01-01"), end: new Date("2024-01-15"), progress: 0.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Styled label", start: new Date("2024-01-20"), end: new Date("2024-02-05"), progress: 0.0, state: "added", status: "", styled: true, milestone: none },
-];
-const GANTT_LIFECYCLE_ROWS = [
-    { name: "Baseline build", start: new Date("2024-01-01"), end: new Date("2024-01-24"), progress: 100.0, state: "committed", status: "", styled: false, milestone: none },
-    { name: "Operator draft", start: new Date("2024-01-08"), end: new Date("2024-02-02"), progress: 40.0, state: "added", status: "", styled: false, milestone: none },
-    { name: "Model suggestion", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 0.0, state: "model", status: "", styled: false, milestone: none },
-    { name: "Proposed cut", start: new Date("2024-01-05"), end: new Date("2024-01-30"), progress: 60.0, state: "removed", status: "", styled: false, milestone: none },
-    { name: "Declined plan", start: new Date("2024-01-20"), end: new Date("2024-02-14"), progress: 20.0, state: "rejected", status: "", styled: false, milestone: none },
-];
 // The #262 two-axis grammar: lifecycle state + an orthogonal risk tint.
-const GANTT_STATUS_ROWS = [
-    { name: "User Auth", start: new Date("2024-01-01"), end: new Date("2024-01-20"), progress: 100.0, state: "committed", status: "success", styled: false, milestone: none },
-    { name: "Login Issue", start: new Date("2024-01-10"), end: new Date("2024-01-15"), progress: 20.0, state: "added", status: "danger", styled: false, milestone: none },
-    { name: "Performance", start: new Date("2024-01-15"), end: new Date("2024-02-01"), progress: 55.0, state: "added", status: "info", styled: false, milestone: none },
-    { name: "Dashboard", start: new Date("2024-01-20"), end: new Date("2024-02-15"), progress: 90.0, state: "committed", status: "success", styled: false, milestone: none },
-];
-const GANTT_STRESS_ROWS = East.Array.range(0n, 200n).map((_$, i) => ({
-    name: East.str`Task ${i}`,
-    start: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n)),
-    end: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n).add(14n)),
-    progress: i.remainder(100n).toFloat(),
-    state: "added",
-    status: "",
-    styled: false,
-    milestone: East.value(none, OptionType(StructType({ date: DateTimeType, label: StringType, release: BooleanType }))),
-}));
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -112,6 +49,64 @@ export const ganttVariants = example({
     keywords: ["Gantt", "Task", "Milestone", "kind", "interim", "release", "progress", "label", "LabelInput", "align", "fontWeight", "fontStyle", "state", "status", "committed", "added", "model", "removed", "rejected", "lifecycle", "risk", "tint", "variant", "line", "outline", "striped", "showToday", "density", "rowHeight", "axis", "window", "tier", "quarter", "week", "month", "format", "roadmap", "sprint", "stress", "fill", "height", "#320", "virtual", "popover", "click", "Reactive", "State", "onTaskClick", "onTaskDrag", "onMilestoneClick", "onDrag", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "Gantt configurator — a preset axis over window, milestone, progress, label, lifecycle, status, stress and fill demos plus variant, density, row-height, striped and today controls; every callback logs to the aside",
     fn: East.function([], UIComponentType, (_$) => {
+        const GANTT_ROW = StructType({
+            name: StringType,
+            start: DateTimeType,
+            end: DateTimeType,
+            progress: FloatType,
+            state: StringType,
+            status: StringType,
+            styled: BooleanType,
+            milestone: OptionType(StructType({ date: DateTimeType, label: StringType, release: BooleanType })),
+        });
+        const GANTT_QUARTER_ROWS = [
+            { name: "Platform", start: new Date("2024-01-01"), end: new Date("2024-09-30"), progress: 60.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Mobile", start: new Date("2024-06-01"), end: new Date("2025-03-31"), progress: 35.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Analytics", start: new Date("2025-01-01"), end: new Date("2025-12-31"), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
+        ];
+        const GANTT_WEEK_ROWS = [
+            { name: "Spec", start: new Date("2024-04-01"), end: new Date("2024-04-05"), progress: 100.0, state: "committed", status: "", styled: false, milestone: none },
+            { name: "Implement", start: new Date("2024-04-04"), end: new Date("2024-04-18"), progress: 55.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Review", start: new Date("2024-04-17"), end: new Date("2024-04-24"), progress: 0.0, state: "added", status: "", styled: false, milestone: none },
+        ];
+        const GANTT_MILESTONE_ROWS = [
+            { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), progress: 100.0, state: "committed", status: "", styled: false, milestone: some({ date: new Date("2024-01-14"), label: "Checkpoint", release: false }) },
+            { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), progress: 70.0, state: "added", status: "", styled: false, milestone: some({ date: new Date("2024-01-28"), label: "Checkpoint", release: false }) },
+            { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), progress: 20.0, state: "added", status: "", styled: false, milestone: some({ date: new Date("2024-02-11"), label: "Release", release: true }) },
+        ];
+        const GANTT_PROGRESS_ROWS = [
+            { name: "Backend API", start: new Date("2024-01-01"), end: new Date("2024-02-15"), progress: 100.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Frontend UI", start: new Date("2024-01-15"), end: new Date("2024-03-01"), progress: 75.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Integration", start: new Date("2024-02-01"), end: new Date("2024-03-15"), progress: 40.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10.0, state: "added", status: "", styled: false, milestone: none },
+        ];
+        const GANTT_LABEL_ROWS = [
+            { name: "Plain label", start: new Date("2024-01-01"), end: new Date("2024-01-15"), progress: 0.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Styled label", start: new Date("2024-01-20"), end: new Date("2024-02-05"), progress: 0.0, state: "added", status: "", styled: true, milestone: none },
+        ];
+        const GANTT_LIFECYCLE_ROWS = [
+            { name: "Baseline build", start: new Date("2024-01-01"), end: new Date("2024-01-24"), progress: 100.0, state: "committed", status: "", styled: false, milestone: none },
+            { name: "Operator draft", start: new Date("2024-01-08"), end: new Date("2024-02-02"), progress: 40.0, state: "added", status: "", styled: false, milestone: none },
+            { name: "Model suggestion", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 0.0, state: "model", status: "", styled: false, milestone: none },
+            { name: "Proposed cut", start: new Date("2024-01-05"), end: new Date("2024-01-30"), progress: 60.0, state: "removed", status: "", styled: false, milestone: none },
+            { name: "Declined plan", start: new Date("2024-01-20"), end: new Date("2024-02-14"), progress: 20.0, state: "rejected", status: "", styled: false, milestone: none },
+        ];
+        const GANTT_STATUS_ROWS = [
+            { name: "User Auth", start: new Date("2024-01-01"), end: new Date("2024-01-20"), progress: 100.0, state: "committed", status: "success", styled: false, milestone: none },
+            { name: "Login Issue", start: new Date("2024-01-10"), end: new Date("2024-01-15"), progress: 20.0, state: "added", status: "danger", styled: false, milestone: none },
+            { name: "Performance", start: new Date("2024-01-15"), end: new Date("2024-02-01"), progress: 55.0, state: "added", status: "info", styled: false, milestone: none },
+            { name: "Dashboard", start: new Date("2024-01-20"), end: new Date("2024-02-15"), progress: 90.0, state: "committed", status: "success", styled: false, milestone: none },
+        ];
+        const GANTT_STRESS_ROWS = East.Array.range(0n, 200n).map((_$, i) => ({
+            name: East.str`Task ${i}`,
+            start: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n)),
+            end: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n).add(14n)),
+            progress: i.remainder(100n).toFloat(),
+            state: "added",
+            status: "",
+            styled: false,
+            milestone: East.value(none, OptionType(StructType({ date: DateTimeType, label: StringType, release: BooleanType }))),
+        }));
         const day = 24 * 60 * 60 * 1000;
         return (
         <Reactive>{$ => {

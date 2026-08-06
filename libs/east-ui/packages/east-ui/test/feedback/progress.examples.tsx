@@ -10,10 +10,8 @@ import { Configurator, HStack, Progress, SegmentGroup, Select, Switch, Text, VSt
 // Progress does not export its tone enum standalone — pull it out of the
 // component's own style contract so the axis stays typed by exactly the
 // tags the prop accepts (brand / pos / neg).
-const ProgressToneType = Progress.Types.Style.fields.tone.cases.some;
 
 // Fixed start timestamp for the ETA preset (estimatedDuration + startedAt).
-const PROGRESS_ETA_STARTED_AT = new Date("2026-01-01T09:00:00Z");
 
 export const progressBasic = example({
     keywords: ["Progress", "Root", "basic"],
@@ -32,6 +30,8 @@ export const progressVariants = example({
     keywords: ["Progress", "Root", "label", "valueText", "tone", "brand", "pos", "neg", "size", "xs", "sm", "md", "striped", "animated", "min", "max", "indeterminate", "estimatedDuration", "startedAt", "ETA", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "Progress configurator — tone, size and value-preset axes plus striped / animated and label switches driving one live bar; the aside stacks the three tones",
     fn: East.function([], UIComponentType, (_$) => {
+        const ProgressToneType = Progress.Types.Style.fields.tone.cases.some;
+        const PROGRESS_ETA_STARTED_AT = new Date("2026-01-01T09:00:00Z");
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the

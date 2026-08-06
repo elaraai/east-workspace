@@ -13,50 +13,6 @@ import { Badge, Box, Configurator, HStack, Input, Reactive, SegmentGroup, Select
 // examples).
 // ============================================================================
 
-const TABLE_RICH_COLUMNS_DATA = [
-    {
-        name: "Alice",
-        skills: ["TypeScript", "React", "Node"],
-        metadata: { level: "Senior", years: 5n },
-        metrics: new Map<string, number>([["cpu", 45.2], ["mem", 78.5], ["disk", 62.1], ["net", 23.4]]),
-    },
-    {
-        name: "Bob",
-        skills: ["Python", "Django"],
-        metadata: { level: "Mid", years: 3n },
-        metrics: new Map<string, number>([["cpu", 82.1], ["mem", 91.2], ["disk", 45.0]]),
-    },
-    {
-        name: "Charlie",
-        skills: ["Go", "Rust", "C++", "Java"],
-        metadata: { level: "Senior", years: 8n },
-        metrics: new Map<string, number>([["cpu", 12.5], ["mem", 34.2], ["disk", 88.9], ["net", 56.7], ["io", 78.3]]),
-    },
-];
-const TABLE_FROZEN_COLUMNS_DATA = East.Array.range(0n, 20n).map((_$, i) => ({
-    id: East.str`#${i}`,
-    name: East.str`User ${i}`,
-    email: East.str`user${i}@example.com`,
-    dept: "Engineering",
-    role: "Developer",
-    location: "Remote",
-    status: "Active",
-    score: i.multiply(7n),
-}));
-const TABLE_NESTED_COLUMN_GROUPS_DATA = [
-    { dept: "Sales", region: "EMEA", q1: "$120k", q2: "$135k", q3: "$148k", q4: "$162k" },
-    { dept: "Sales", region: "APAC", q1: "$95k", q2: "$102k", q3: "$118k", q4: "$130k" },
-    { dept: "Marketing", region: "AMER", q1: "$48k", q2: "$52k", q3: "$54k", q4: "$59k" },
-];
-const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({
-    name: East.str`User ${i}`,
-    email: East.str`user${i}@example.com`,
-    status: i.remainder(4n).equals(0n).ifElse(
-        () => "Idle",
-        () => i.remainder(7n).equals(0n).ifElse(() => "Failed", () => "Active"),
-    ),
-}));
-
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
     description: "Simple table with field names",
@@ -84,6 +40,26 @@ export const tableRichColumns = example({
     keywords: ["Table", "Root", "header", "width", "minWidth", "maxWidth", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext", "Dict", "Tag", "wrap"],
     description: "Rich columns — widths, full-row renders, struct values and a dict column wrapping into tags on one table",
     fn: East.function([], UIComponentType, ($) => {
+        const TABLE_RICH_COLUMNS_DATA = [
+            {
+                name: "Alice",
+                skills: ["TypeScript", "React", "Node"],
+                metadata: { level: "Senior", years: 5n },
+                metrics: new Map<string, number>([["cpu", 45.2], ["mem", 78.5], ["disk", 62.1], ["net", 23.4]]),
+            },
+            {
+                name: "Bob",
+                skills: ["Python", "Django"],
+                metadata: { level: "Mid", years: 3n },
+                metrics: new Map<string, number>([["cpu", 82.1], ["mem", 91.2], ["disk", 45.0]]),
+            },
+            {
+                name: "Charlie",
+                skills: ["Go", "Rust", "C++", "Java"],
+                metadata: { level: "Senior", years: 8n },
+                metrics: new Map<string, number>([["cpu", 12.5], ["mem", 34.2], ["disk", 88.9], ["net", 56.7], ["io", 78.3]]),
+            },
+        ];
         const rows = $.let(TABLE_RICH_COLUMNS_DATA);
         const skillsRender = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
             // The render context carries only {rowIndex, columnKey, cellValue} —
@@ -129,7 +105,18 @@ export const tableRichColumns = example({
 export const tableFrozen = example({
     keywords: ["Table", "Root", "frozen", "pin", "scroll", "width", "virtualization"],
     description: "Frozen id + name columns pin left while six more columns scroll in a 600px viewport",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const TABLE_FROZEN_COLUMNS_DATA = East.Array.range(0n, 20n).map((_$, i) => ({
+            id: East.str`#${i}`,
+            name: East.str`User ${i}`,
+            email: East.str`user${i}@example.com`,
+            dept: "Engineering",
+            role: "Developer",
+            location: "Remote",
+            status: "Active",
+            score: i.multiply(7n),
+        }));
+        return (
         <Box width="600px" overflow="hidden">
             <Table
                 frozen={["id", "name"]}
@@ -149,7 +136,8 @@ export const tableFrozen = example({
                 }}
             />
         </Box>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -157,7 +145,13 @@ export const tableFrozen = example({
 export const tableGroupedColumns = example({
     keywords: ["Table", "Root", "columnGroups", "nested", "category", "header row", "footerRows", "footer", "subtotal", "grand total", "colSpan", "showColumnBorder"],
     description: "Column groups band the quarters while footer rows carry the FY totals — one table",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const TABLE_NESTED_COLUMN_GROUPS_DATA = [
+            { dept: "Sales", region: "EMEA", q1: "$120k", q2: "$135k", q3: "$148k", q4: "$162k" },
+            { dept: "Sales", region: "APAC", q1: "$95k", q2: "$102k", q3: "$118k", q4: "$130k" },
+            { dept: "Marketing", region: "AMER", q1: "$48k", q2: "$52k", q3: "$54k", q4: "$59k" },
+        ];
+        return (
         <Table
             variant="outline"
             showColumnBorder={true}
@@ -186,7 +180,8 @@ export const tableGroupedColumns = example({
                 q4: { header: "Q4" },
             }}
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -256,7 +251,16 @@ export const tablePnl = example({
 export const tableVariants = example({
     keywords: ["Table", "Root", "striped", "alternating", "render", "Badge", "CellRenderContext", "density", "rowHeight", "pixel", "override", "virtualization", "rowStatus", "StatusToken", "tint", "theme-agnostic", "Reactive", "State", "onRowClick", "onCellClick", "onSortChange", "interactive", "selection", "single", "multiple", "checkbox", "range", "shift-click", "fill", "scroll", "height", "#320", "SegmentGroup", "Select", "Input", "Switch", "Configurator", "getTag", "configurator"],
     description: "Table configurator — density, striped, selection mode, row-height dial and size mode (auto / scroll / fill) all expression-fed into one live 1000-row table; callbacks log to the aside",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({
+            name: East.str`User ${i}`,
+            email: East.str`user${i}@example.com`,
+            status: i.remainder(4n).equals(0n).ifElse(
+                () => "Idle",
+                () => i.remainder(7n).equals(0n).ifElse(() => "Failed", () => "Active"),
+            ),
+        }));
+        return (
         <Reactive>{$ => {
             const badgeData = $.let(TABLE_WITH_BADGE_DATA);
             const densities = $.const([
@@ -409,7 +413,8 @@ export const tableVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -421,7 +426,16 @@ export const tableVariants = example({
 export const tablePaginated = example({
     keywords: ["Table", "Root", "pagination", "page", "pageSize", "onPageChange", "Reactive", "State", "density", "Input", "Integer", "Configurator", "configurator"],
     description: "Paginated table configurator — a page-size dial and density on one live 1000-row pager; the page lives in State",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const TABLE_WITH_BADGE_DATA = East.Array.range(0n, 1000n).map((_$, i) => ({
+            name: East.str`User ${i}`,
+            email: East.str`user${i}@example.com`,
+            status: i.remainder(4n).equals(0n).ifElse(
+                () => "Idle",
+                () => i.remainder(7n).equals(0n).ifElse(() => "Failed", () => "Active"),
+            ),
+        }));
+        return (
         <Reactive>{$ => {
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
@@ -469,7 +483,8 @@ export const tablePaginated = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 

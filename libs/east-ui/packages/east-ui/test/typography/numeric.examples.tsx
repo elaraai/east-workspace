@@ -11,8 +11,6 @@ import { Configurator, Numeric, SegmentGroup, Select, Switch, HStack, Text, VSta
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const NUMERIC_DATE_TIME_DATA = 1716249600000;
-
 // ============================================================================
 // Basic — the search-index front door
 // ============================================================================
@@ -39,6 +37,7 @@ export const numericVariants = example({
     keywords: ["Numeric", "Root", "percent", "sentiment", "compact", "large-number", "unit", "kg", "celsius", "scientific", "engineering", "notation", "date", "time", "datetime", "timestamp", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "Numeric configurator — format and sentiment axes plus a signed switch driving one live figure, each format swapping in its own magnitude; the aside shows the sibling notations",
     fn: East.function([], UIComponentType, (_$) => {
+        const NUMERIC_DATE_TIME_DATA = 1716249600000;
         return (
             <Reactive>{$ => {
                 // Format is the one axis that needs a struct: a formatter is

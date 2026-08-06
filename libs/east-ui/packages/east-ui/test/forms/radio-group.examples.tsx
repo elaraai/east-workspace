@@ -12,17 +12,6 @@ import { Configurator, HStack, RadioGroup, SegmentGroup, Switch, Text, Reactive 
 // disabled item (items are host-level arrays at the factory boundary).
 // ============================================================================
 
-const RADIO_GROUP_ITEMS_DATA = [
-    { value: "small", label: "Small" },
-    { value: "medium", label: "Medium" },
-    { value: "large", label: "Large" },
-];
-const RADIO_GROUP_DISABLED_ITEM_DATA = [
-    { value: "small", label: "Small" },
-    { value: "medium", label: "Medium" },
-    { value: "large", label: "Large", disabled: true },
-];
-
 // ============================================================================
 // Basic — the search-index front door
 // ============================================================================
@@ -53,6 +42,11 @@ export const radioGroupVariants = example({
     keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
     description: "RadioGroup configurator — orientation and colour-override axes plus a disabled-item switch driving one live State-bound group; the aside reads the selection back",
     fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_GROUP_DISABLED_ITEM_DATA = [
+            { value: "small", label: "Small" },
+            { value: "medium", label: "Medium" },
+            { value: "large", label: "Large", disabled: true },
+        ];
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the
@@ -115,8 +109,15 @@ export const radioGroupVariants = example({
 export const radioGroupCustomColours = example({
     keywords: ["RadioGroup", "fillColor", "borderColor", "color", "override", "custom"],
     description: "Colour overrides — link fill and brand border on a static radio group",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_GROUP_ITEMS_DATA = [
+            { value: "small", label: "Small" },
+            { value: "medium", label: "Medium" },
+            { value: "large", label: "Large" },
+        ];
+        return (
         <RadioGroup value="small" items={RADIO_GROUP_ITEMS_DATA} fillColor="link" borderColor="border.brand" color="fg.default" />
-    )),
+    );
+    }),
     inputs: [],
 });

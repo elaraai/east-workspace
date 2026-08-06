@@ -18,32 +18,9 @@ const MAP_AREAS_DATA = [
 const MAP_HEX_LOD_DATA = [
     { id: "5100", lat: -34.836, lng: 138.6, name: "5100 · Prospect" },
 ];
-const MAP_PULSE_DATA = [
-    { id: "5000", lat: -34.9258, lng: 138.5994, name: "5000 · CBD", st: some(variant("success", null)) },
-    { id: "5100", lat: -34.836, lng: 138.6, name: "5100 · Prospect", st: some(variant("danger", null)) },
-];
+
 // Real res-8 H3 cell ids: a gridDisk split along a wavy boundary into two
 // non-uniform halves that tile and run up against each other.
-const MAP_REGIONS_DATA = [
-    "88b9168033fffff", "88b91680edfffff", "88b9168017fffff", "88b91681d9fffff",
-    "88b91680e5fffff", "88b91680e1fffff", "88b91680e9fffff", "88b9168013fffff",
-    "88b91681d1fffff", "88b91681dbfffff", "88b91680e7fffff", "88b91680e3fffff",
-    "88b91680ebfffff", "88b91680c5fffff", "88b91680cdfffff", "88b916801bfffff",
-    "88b91681d7fffff", "88b91681d3fffff", "88b91680adfffff", "88b91680a9fffff",
-    "88b9168085fffff", "88b916808dfffff", "88b91680c7fffff", "88b91680c1fffff",
-    "88b91680c9fffff", "88b91682a7fffff", "88b91682a5fffff", "88b9168053fffff",
-];
-const MAP_REGIONS_SHORT_DATA = [
-    "88b916803bfffff", "88b9168039fffff", "88b9168031fffff", "88b9168015fffff",
-    "88b9168003fffff", "88b9168007fffff", "88b916803dfffff", "88b9168035fffff",
-    "88b9168037fffff", "88b9168011fffff", "88b916801dfffff", "88b916800bfffff",
-    "88b9168001fffff", "88b9168005fffff", "88b916802bfffff", "88b9168023fffff",
-    "88b91681c9fffff", "88b91681cbfffff", "88b91681ddfffff", "88b9168019fffff",
-    "88b9168057fffff", "88b9168055fffff", "88b9168009fffff", "88b916800dfffff",
-    "88b9168063fffff", "88b9168029fffff", "88b9168021fffff", "88b9168027fffff",
-    "88b91681cdfffff", "88b91681c1fffff", "88b91681c3fffff", "88b91681d5fffff",
-    "88b9168051fffff",
-];
 
 export const mapBasic = example({
     keywords: ["Map", "basemap", "carto", "marker", "center", "zoom"],
@@ -77,7 +54,12 @@ export const mapBasic = example({
 export const mapVariants = example({
     keywords: ["Map", "areas", "hexDisk", "hex", "lattice", "LOD", "lodZoom", "detailLabel", "status", "pulse", "lines", "dashed", "arrow", "onAreaClick", "zoom", "Reactive", "State", "Input", "Configurator", "configurator"],
     description: "Map configurator — a zoom dial and LOD threshold on one live canvas composing hex lattice, status areas, detail labels, a dashed line and the click readout",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const MAP_PULSE_DATA = [
+            { id: "5000", lat: -34.9258, lng: 138.5994, name: "5000 · CBD", st: some(variant("success", null)) },
+            { id: "5100", lat: -34.836, lng: 138.6, name: "5100 · Prospect", st: some(variant("danger", null)) },
+        ];
+        return (
         <Reactive>{$ => {
             const zoomBind = $.let(State.bind([IntegerType], "map_zoom", 12n));
             const selectedBind = $.let(State.bind([StringType], "selectedArea", ""));
@@ -128,7 +110,8 @@ export const mapVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -136,7 +119,28 @@ export const mapVariants = example({
 export const mapRegions = example({
     keywords: ["Map", "regions", "cells", "H3", "union", "polygon", "shape", "status", "Reactive"],
     description: "Region unions — areas built from H3 cell sets render as status-toned polygons",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const MAP_REGIONS_DATA = [
+            "88b9168033fffff", "88b91680edfffff", "88b9168017fffff", "88b91681d9fffff",
+            "88b91680e5fffff", "88b91680e1fffff", "88b91680e9fffff", "88b9168013fffff",
+            "88b91681d1fffff", "88b91681dbfffff", "88b91680e7fffff", "88b91680e3fffff",
+            "88b91680ebfffff", "88b91680c5fffff", "88b91680cdfffff", "88b916801bfffff",
+            "88b91681d7fffff", "88b91681d3fffff", "88b91680adfffff", "88b91680a9fffff",
+            "88b9168085fffff", "88b916808dfffff", "88b91680c7fffff", "88b91680c1fffff",
+            "88b91680c9fffff", "88b91682a7fffff", "88b91682a5fffff", "88b9168053fffff",
+        ];
+        const MAP_REGIONS_SHORT_DATA = [
+            "88b916803bfffff", "88b9168039fffff", "88b9168031fffff", "88b9168015fffff",
+            "88b9168003fffff", "88b9168007fffff", "88b916803dfffff", "88b9168035fffff",
+            "88b9168037fffff", "88b9168011fffff", "88b916801dfffff", "88b916800bfffff",
+            "88b9168001fffff", "88b9168005fffff", "88b916802bfffff", "88b9168023fffff",
+            "88b91681c9fffff", "88b91681cbfffff", "88b91681ddfffff", "88b9168019fffff",
+            "88b9168057fffff", "88b9168055fffff", "88b9168009fffff", "88b916800dfffff",
+            "88b9168063fffff", "88b9168029fffff", "88b9168021fffff", "88b9168027fffff",
+            "88b91681cdfffff", "88b91681c1fffff", "88b91681c3fffff", "88b91681d5fffff",
+            "88b9168051fffff",
+        ];
+        return (
         <Reactive>{$ => {
             const idle = $.const(MAP_REGIONS_DATA, ArrayType(StringType));
             const short = $.const(MAP_REGIONS_SHORT_DATA, ArrayType(StringType));
@@ -155,7 +159,8 @@ export const mapRegions = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 

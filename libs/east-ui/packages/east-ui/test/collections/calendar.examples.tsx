@@ -11,31 +11,6 @@ import { Box, Calendar, Configurator, HStack, Reactive, SegmentGroup, Switch, Te
 // Module-scope fixtures (consolidation epic #455).
 // ============================================================================
 
-/** Shared row shape so the configurator's minimal switch can swap the dense
- *  and sparse datasets as one East value. */
-const CALENDAR_ROW = StructType({ week: StringType, day: StringType, demand: FloatType });
-
-const CALENDAR_DENSE_DATA = [
-    { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
-    { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
-    { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
-    { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
-    { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
-    { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
-];
-const CALENDAR_SPARSE_DATA = [
-    { week: "W1", day: "Mon", demand: 4.0 },
-    { week: "W1", day: "Wed", demand: 9.0 },
-    { week: "W1", day: "Fri", demand: 2.0 },
-    { week: "W2", day: "Tue", demand: 6.0 },
-    { week: "W2", day: "Sat", demand: 12.0 },
-];
-const CALENDAR_FILL_DATA = East.Array.range(10n, 210n).map((_$, w) => ({
-    week: East.str`W${w}`,
-    day: "Wed",
-    demand: w.toFloat().multiply(4.0),
-}));
-
 export const calendarDemand = example({
     keywords: ["Calendar", "heatmap", "intensity", "week", "day", "totals", "mean", "footer", "legend", "compare"],
     description: "The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend",
@@ -83,6 +58,22 @@ export const calendarVariants = example({
     keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched", "values", "heat", "overview", "scale", "steps", "totals", "aggregate", "sum", "mean", "rail", "bar", "density", "comfortable", "compact", "condensed", "sizes", "maxHeight", "bounded", "scroll", "virtual", "fill", "height", "#320", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive", "footer"],
     description: "Calendar configurator — density, scale-step and size axes plus values, totals and sparse-data switches driving one live heatmap; the aside tracks the tapped day via onSelect",
     fn: East.function([], UIComponentType, (_$) => {
+        const CALENDAR_ROW = StructType({ week: StringType, day: StringType, demand: FloatType });
+        const CALENDAR_DENSE_DATA = [
+            { week: "W37", day: "Mon", demand: 96.0 }, { week: "W37", day: "Tue", demand: 105.0 }, { week: "W37", day: "Wed", demand: 116.0 },
+            { week: "W37", day: "Thu", demand: 120.0 }, { week: "W37", day: "Fri", demand: 144.0 }, { week: "W37", day: "Sat", demand: 179.0 }, { week: "W37", day: "Sun", demand: 151.0 },
+            { week: "W38", day: "Mon", demand: 98.0 }, { week: "W38", day: "Tue", demand: 116.0 }, { week: "W38", day: "Wed", demand: 127.0 },
+            { week: "W38", day: "Thu", demand: 141.0 }, { week: "W38", day: "Fri", demand: 165.0 }, { week: "W38", day: "Sat", demand: 201.0 }, { week: "W38", day: "Sun", demand: 164.0 },
+            { week: "W39", day: "Mon", demand: 112.0 }, { week: "W39", day: "Tue", demand: 130.0 }, { week: "W39", day: "Wed", demand: 140.0 },
+            { week: "W39", day: "Thu", demand: 154.0 }, { week: "W39", day: "Fri", demand: 178.0 }, { week: "W39", day: "Sat", demand: 222.0 }, { week: "W39", day: "Sun", demand: 181.0 },
+        ];
+        const CALENDAR_SPARSE_DATA = [
+            { week: "W1", day: "Mon", demand: 4.0 },
+            { week: "W1", day: "Wed", demand: 9.0 },
+            { week: "W1", day: "Fri", demand: 2.0 },
+            { week: "W2", day: "Tue", demand: 6.0 },
+            { week: "W2", day: "Sat", demand: 12.0 },
+        ];
         return (
             <Reactive>{$ => {
                 // Enumerated axes are just their variants — `getTag()` gives the
@@ -195,7 +186,13 @@ export const calendarVariants = example({
 export const calendarFill = example({
     keywords: ["Calendar", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
     description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes a 200-day calendar",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const CALENDAR_FILL_DATA = East.Array.range(10n, 210n).map((_$, w) => ({
+            week: East.str`W${w}`,
+            day: "Wed",
+            demand: w.toFloat().multiply(4.0),
+        }));
+        return (
         <Box height="200px">
             <Calendar
                 data={CALENDAR_FILL_DATA}
@@ -204,6 +201,7 @@ export const calendarFill = example({
                 height="fill"
             />
         </Box>
-    )),
+    );
+    }),
     inputs: [],
 });

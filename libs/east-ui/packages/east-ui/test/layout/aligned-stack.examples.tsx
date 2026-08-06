@@ -12,69 +12,6 @@ import { AlignedStack, Box, Calendar, Chart, Gantt, HStack, Library, Matrix, Pla
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const ALIGNED_STACK_CHARTS_DATA = [
-    { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.5 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.5 },
-];
-const ALIGNED_STACK_CHARTS_RATE_DATA = [
-    { day: 0.0, v: 1.2 }, { day: 2.0, v: 0.9 }, { day: 4.0, v: 0.6 }, { day: 6.0, v: 0.3 },
-];
-const ALIGNED_STACK_CHART_TRACE_DATA = [
-    { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.0 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.0 },
-];
-const ALIGNED_STACK_CHART_CALENDAR_DATA = [
-    { day: 0.0, v: 0.4 }, { day: 1.0, v: 0.7 }, { day: 2.0, v: 0.9 },
-    { day: 3.0, v: 0.6 }, { day: 4.0, v: 0.8 }, { day: 5.0, v: 0.3 }, { day: 6.0, v: 0.2 },
-];
-const ALIGNED_STACK_CHART_CALENDAR_GRID_DATA = [
-    { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
-    { week: "W37", day: "Wed", demand: 0.9 }, { week: "W37", day: "Thu", demand: 0.6 },
-    { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
-    { week: "W37", day: "Sun", demand: 0.2 },
-    { week: "W38", day: "Mon", demand: 0.5 }, { week: "W38", day: "Tue", demand: 0.6 },
-    { week: "W38", day: "Wed", demand: 0.7 }, { week: "W38", day: "Thu", demand: 0.9 },
-    { week: "W38", day: "Fri", demand: 0.4 }, { week: "W38", day: "Sat", demand: 0.2 },
-    { week: "W38", day: "Sun", demand: 0.1 },
-];
-const ALIGNED_STACK_CHART_MATRIX_DATA = [
-    { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },
-    { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },
-];
-const ALIGNED_STACK_CHART_TABLE_DATA = [
-    { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },
-    { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },
-];
-const ALIGNED_STACK_CHART_PLANNER_DATA = [
-    { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
-    { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
-];
-const ALIGNED_STACK_CHART_GANTT_DATA = [
-    { d: 0.0, v: 0.3 }, { d: 1.0, v: 0.6 }, { d: 2.0, v: 0.8 }, { d: 3.0, v: 0.5 },
-];
-const ALIGNED_STACK_ALL_COMPACT_DATA = [
-    { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
-    { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
-];
-const ALIGNED_STACK_ALL_CONDENSED_DATA = [
-    { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
-    { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
-];
-const ALIGNED_STACK_CHART_TITLES_DATA = [
-    { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
-    { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
-];
-const ALIGNED_STACK_DATE_AXIS_DATA = [
-    { at: new Date("2026-03-30T12:00:00Z"), kl: 8.0 },
-    { at: new Date("2026-03-31T12:00:00Z"), kl: 10.0 },
-    { at: new Date("2026-04-01T12:00:00Z"), kl: 14.0 },
-    { at: new Date("2026-04-02T12:00:00Z"), kl: 12.0 },
-    { at: new Date("2026-04-03T12:00:00Z"), kl: 9.0 },
-    { at: new Date("2026-04-04T12:00:00Z"), kl: 5.0 },
-    { at: new Date("2026-04-05T12:00:00Z"), kl: 3.0 },
-];
-const ALIGNED_STACK_AUTO_DATA = [
-    { day: 0.0, v: 10.0 }, { day: 3.0, v: 14.0 }, { day: 6.0, v: 9.0 },
-];
-
 // ============================================================================
 // The flagship — golden-coupled, name and body frozen
 // ============================================================================
@@ -97,6 +34,68 @@ export const alignedStackAll = example({
     keywords: ["AlignedStack", "plotGutter", "gutter", "Chart", "Trace", "Matrix", "Planner", "Calendar", "Table", "Gantt", "align", "stack", "dashboard", "all", "shared", "axis", "lane", "day", "week", "grid", "frozen", "categories", "timeline", "splitter", "time", "density", "compact", "condensed", "title", "label", "titleGap", "margin", "date", "resolution", "format", "ddd", "tick", "instants", "auto", "measure"],
     description: "AlignedStack panel — the all-seven flagship stack plus chart-over-lane pairs (Trace, Calendar, Matrix, Table, Planner, Gantt), density presets (compact, condensed) and axis variants (titles, formatted date axis, auto gutter)",
     fn: East.function([], UIComponentType, ($) => {
+        const ALIGNED_STACK_CHARTS_DATA = [
+            { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.5 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.5 },
+        ];
+        const ALIGNED_STACK_CHARTS_RATE_DATA = [
+            { day: 0.0, v: 1.2 }, { day: 2.0, v: 0.9 }, { day: 4.0, v: 0.6 }, { day: 6.0, v: 0.3 },
+        ];
+        const ALIGNED_STACK_CHART_TRACE_DATA = [
+            { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.0 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.0 },
+        ];
+        const ALIGNED_STACK_CHART_CALENDAR_DATA = [
+            { day: 0.0, v: 0.4 }, { day: 1.0, v: 0.7 }, { day: 2.0, v: 0.9 },
+            { day: 3.0, v: 0.6 }, { day: 4.0, v: 0.8 }, { day: 5.0, v: 0.3 }, { day: 6.0, v: 0.2 },
+        ];
+        const ALIGNED_STACK_CHART_CALENDAR_GRID_DATA = [
+            { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
+            { week: "W37", day: "Wed", demand: 0.9 }, { week: "W37", day: "Thu", demand: 0.6 },
+            { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
+            { week: "W37", day: "Sun", demand: 0.2 },
+            { week: "W38", day: "Mon", demand: 0.5 }, { week: "W38", day: "Tue", demand: 0.6 },
+            { week: "W38", day: "Wed", demand: 0.7 }, { week: "W38", day: "Thu", demand: 0.9 },
+            { week: "W38", day: "Fri", demand: 0.4 }, { week: "W38", day: "Sat", demand: 0.2 },
+            { week: "W38", day: "Sun", demand: 0.1 },
+        ];
+        const ALIGNED_STACK_CHART_MATRIX_DATA = [
+            { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },
+            { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },
+        ];
+        const ALIGNED_STACK_CHART_TABLE_DATA = [
+            { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },
+            { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },
+        ];
+        const ALIGNED_STACK_CHART_PLANNER_DATA = [
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ];
+        const ALIGNED_STACK_CHART_GANTT_DATA = [
+            { d: 0.0, v: 0.3 }, { d: 1.0, v: 0.6 }, { d: 2.0, v: 0.8 }, { d: 3.0, v: 0.5 },
+        ];
+        const ALIGNED_STACK_ALL_COMPACT_DATA = [
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ];
+        const ALIGNED_STACK_ALL_CONDENSED_DATA = [
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ];
+        const ALIGNED_STACK_CHART_TITLES_DATA = [
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ];
+        const ALIGNED_STACK_DATE_AXIS_DATA = [
+            { at: new Date("2026-03-30T12:00:00Z"), kl: 8.0 },
+            { at: new Date("2026-03-31T12:00:00Z"), kl: 10.0 },
+            { at: new Date("2026-04-01T12:00:00Z"), kl: 14.0 },
+            { at: new Date("2026-04-02T12:00:00Z"), kl: 12.0 },
+            { at: new Date("2026-04-03T12:00:00Z"), kl: 9.0 },
+            { at: new Date("2026-04-04T12:00:00Z"), kl: 5.0 },
+            { at: new Date("2026-04-05T12:00:00Z"), kl: 3.0 },
+        ];
+        const ALIGNED_STACK_AUTO_DATA = [
+            { day: 0.0, v: 10.0 }, { day: 3.0, v: 14.0 }, { day: 6.0, v: 9.0 },
+        ];
         const trend = $.const([
             { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
             { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },

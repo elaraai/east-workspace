@@ -8,73 +8,19 @@ import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Button, Chart, Configurator, HStack, Reactive, SegmentGroup, Select, Switch, Table, Text, VStack } from "@elaraai/east-ui";
 
 // Rows for the tooltip-over-sticky-header layering example (below).
-const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
-    id: `SKU-${String(i + 1).padStart(3, "0")}`,
-    region: (["North", "South", "East", "West"] as const)[i % 4]!,
-    value: BigInt(600 + i * 73),
-}));
 
 // ============================================================================
 // Module-scope fixtures — one per configurator cell (consolidation epic #455).
 // ============================================================================
 
-const LINE_CURVE_NATURAL_DATA = [
-    { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
-    { month: "Mar", sales: 120n }, { month: "Apr", sales: 180n },
-];
-const COLUMN_GROUPED_DATA = [
-    { region: "NA", a: 40n, b: 30n }, { region: "EU", a: 55n, b: 45n }, { region: "APAC", a: 30n, b: 60n },
-];
-const COLUMN_STACKED_DATA = [
-    { week: "W1", mobile: 50n, desktop: 100n }, { week: "W2", mobile: 70n, desktop: 120n },
-    { week: "W3", mobile: 60n, desktop: 110n },
-];
-const COLUMN_PERCENT_STACKED_DATA = [
-    { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
-    { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
-];
 const BAR_GROUPED_DATA = [
     { site: "North", loaded: 42n, empty: 18n }, { site: "South", loaded: 35n, empty: 25n },
     { site: "West", loaded: 28n, empty: 12n },
 ];
-const BAR_STACKED_DATA = [
-    { site: "North", shift: "Day", tonnes: 120n }, { site: "North", shift: "Night", tonnes: 80n },
-    { site: "South", shift: "Day", tonnes: 95n }, { site: "South", shift: "Night", tonnes: 110n },
-    { site: "West", shift: "Day", tonnes: 60n }, { site: "West", shift: "Night", tonnes: 45n },
-];
+
 const BAR_PERCENT_STACKED_DATA = [
     { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
     { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
-];
-const AREA_STACKED_DATA = [
-    { month: "Jan", mobile: 50n, desktop: 100n }, { month: "Feb", mobile: 70n, desktop: 120n },
-    { month: "Mar", mobile: 60n, desktop: 110n }, { month: "Apr", mobile: 90n, desktop: 140n },
-];
-const AREA_CONFIDENCE_BAND_DATA = [
-    { day: "Mon", value: 100n, lo: 80n, hi: 120n }, { day: "Tue", value: 150n, lo: 130n, hi: 170n },
-    { day: "Wed", value: 130n, lo: 110n, hi: 150n }, { day: "Thu", value: 180n, lo: 160n, hi: 200n },
-];
-const SCATTER_QUADRANTS_DATA = [
-    { effort: 10.0, value: 80.0, baseline: 20.0 }, { effort: 35.0, value: 55.0, baseline: 60.0 },
-    { effort: 70.0, value: 30.0, baseline: 90.0 },
-];
-const SCATTER_BUBBLE_DATA = [
-    { gdp: 1.2, life: 62.0, pop: 1400.0 }, { gdp: 4.5, life: 78.0, pop: 330.0 },
-    { gdp: 2.1, life: 70.0, pop: 210.0 }, { gdp: 5.8, life: 82.0, pop: 125.0 },
-];
-const COMPOSED_COLUMN_LINE_DATA = [
-    { month: "Jan", revenue: 186n, profit: 80n }, { month: "Feb", revenue: 305n, profit: 120n },
-    { month: "Mar", revenue: 237n, profit: 95n }, { month: "Apr", revenue: 273n, profit: 150n },
-];
-const COMPOSED_DUAL_AXIS_FORECAST_DATA = [
-    { month: "Jan", mobile: 50n, desktop: 100n, lo: 130n, hi: 170n, trend: 150n },
-    { month: "Feb", mobile: 70n, desktop: 120n, lo: 165n, hi: 215n, trend: 190n },
-    { month: "Mar", mobile: 60n, desktop: 110n, lo: 150n, hi: 200n, trend: 175n },
-    { month: "Apr", mobile: 90n, desktop: 140n, lo: 205n, hi: 265n, trend: 235n },
-];
-const REFERENCE_ANNOTATIONS_DATA = [
-    { month: "Jan", value: 100n }, { month: "Feb", value: 150n },
-    { month: "Mar", value: 237n }, { month: "Apr", value: 180n },
 ];
 
 // ============================================================================
@@ -106,6 +52,10 @@ export const lineVariants = example({
     keywords: ["Chart", "Line", "multi-series", "columns", "wide", "legend", "breakdown", "by", "split", "curve", "natural", "smooth", "step", "dots", "strokeWidth", "stepAfter", "stepBefore", "setpoint", "held", "dash", "layers", "per-series-style", "opacity", "tooltip", "fan", "sample-path", "overlay", "decoration", "time", "temporal", "DateTime", "format", "linear", "numeric", "domain", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast", "tickStyle", "titleStyle", "titleGap", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "label", "currency", "date", "compact", "pin", "explicit", "#318", "Column", "Reactive", "State", "interactive", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
     description: "Line chart configurator — a curve axis plus points and tick-format switches on ONE live line; the aside’s Q4 column tracks a reactive peak against a pinned domain",
     fn: East.function([], UIComponentType, (_$) => {
+        const LINE_CURVE_NATURAL_DATA = [
+            { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
+            { month: "Mar", sales: 120n }, { month: "Apr", sales: 180n },
+        ];
         return (
             <Reactive>{$ => {
                 const rows = $.const(LINE_CURVE_NATURAL_DATA, ArrayType(StructType({ month: StringType, sales: IntegerType })));
@@ -207,6 +157,9 @@ export const columnGrouped = example({
     keywords: ["Chart", "Column", "vertical", "grouped", "columns", "multi-series", "colors", "custom", "palette", "legend", "grid"],
     description: "Grouped columns — two series per region with an explicit colour map",
     fn: East.function([], UIComponentType, ($) => {
+        const COLUMN_GROUPED_DATA = [
+            { region: "NA", a: 40n, b: 30n }, { region: "EU", a: 55n, b: 45n }, { region: "APAC", a: 30n, b: 60n },
+        ];
         const rows = $.const(COLUMN_GROUPED_DATA, ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));
         return (
             <Box height="260px" width="100%">
@@ -222,6 +175,10 @@ export const columnStacked = example({
     keywords: ["Chart", "Column", "stacked", "stack", "columns", "multi-series", "legend", "grid"],
     description: "Stacked columns — mobile and desktop traffic share one stack",
     fn: East.function([], UIComponentType, ($) => {
+        const COLUMN_STACKED_DATA = [
+            { week: "W1", mobile: 50n, desktop: 100n }, { week: "W2", mobile: 70n, desktop: 120n },
+            { week: "W3", mobile: 60n, desktop: 110n },
+        ];
         const rows = $.const(COLUMN_STACKED_DATA, ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));
         return (
             <Box height="260px" width="100%">
@@ -237,6 +194,10 @@ export const columnPercent = example({
     keywords: ["Chart", "Column", "stack", "stackOffset", "expand", "percent", "breakdown", "by", "legend"],
     description: "Percent-stacked columns — stackOffset expand normalises the mix to 100%",
     fn: East.function([], UIComponentType, ($) => {
+        const COLUMN_PERCENT_STACKED_DATA = [
+            { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
+            { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
+        ];
         const rows = $.const(COLUMN_PERCENT_STACKED_DATA, ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
         return (
             <Box height="260px" width="100%">
@@ -252,6 +213,11 @@ export const barStacked = example({
     keywords: ["Chart", "Bar", "horizontal", "ranked", "categorical-y", "long-labels", "stacked", "stack", "by", "tooltip", "legend", "grid"],
     description: "Stacked horizontal bars — sites ranked on the categorical y-axis, day/night shifts stacked",
     fn: East.function([], UIComponentType, ($) => {
+        const BAR_STACKED_DATA = [
+            { site: "North", shift: "Day", tonnes: 120n }, { site: "North", shift: "Night", tonnes: 80n },
+            { site: "South", shift: "Day", tonnes: 95n }, { site: "South", shift: "Night", tonnes: 110n },
+            { site: "West", shift: "Day", tonnes: 60n }, { site: "West", shift: "Night", tonnes: 45n },
+        ];
         const rows = $.const(BAR_STACKED_DATA, ArrayType(StructType({ site: StringType, shift: StringType, tonnes: IntegerType })));
         return (
             <Box height="260px" width="100%">
@@ -271,6 +237,10 @@ export const areaStacked = example({
     keywords: ["Chart", "Area", "stacked", "stack", "fillOpacity", "columns", "legend", "grid"],
     description: "Stacked areas — mobile and desktop traffic share one stack with a soft fill",
     fn: East.function([], UIComponentType, ($) => {
+        const AREA_STACKED_DATA = [
+            { month: "Jan", mobile: 50n, desktop: 100n }, { month: "Feb", mobile: 70n, desktop: 120n },
+            { month: "Mar", mobile: 60n, desktop: 110n }, { month: "Apr", mobile: 90n, desktop: 140n },
+        ];
         const rows = $.const(AREA_STACKED_DATA, ArrayType(StructType({ month: StringType, mobile: IntegerType, desktop: IntegerType })));
         return (
             <Box height="280px" width="100%">
@@ -286,6 +256,10 @@ export const bandConfidence = example({
     keywords: ["Chart", "Band", "area-range", "confidence", "low", "high", "Line", "legend", "tooltip", "grid"],
     description: "Confidence band — Chart.Band low/high under the value line",
     fn: East.function([], UIComponentType, ($) => {
+        const AREA_CONFIDENCE_BAND_DATA = [
+            { day: "Mon", value: 100n, lo: 80n, hi: 120n }, { day: "Tue", value: 150n, lo: 130n, hi: 170n },
+            { day: "Wed", value: 130n, lo: 110n, hi: 150n }, { day: "Thu", value: 180n, lo: 160n, hi: 200n },
+        ];
         const rows = $.const(AREA_CONFIDENCE_BAND_DATA, ArrayType(StructType({ day: StringType, value: IntegerType, lo: IntegerType, hi: IntegerType })));
         return (
             <Box height="280px" width="100%">
@@ -304,6 +278,10 @@ export const scatterQuadrants = example({
     keywords: ["Chart", "Scatter", "domain", "reference", "refLine", "quadrant", "linear", "legend"],
     description: "Quadrant scatter — pinned 0–100 domains with refLine cross-hairs at 50",
     fn: East.function([], UIComponentType, ($) => {
+        const SCATTER_QUADRANTS_DATA = [
+            { effort: 10.0, value: 80.0, baseline: 20.0 }, { effort: 35.0, value: 55.0, baseline: 60.0 },
+            { effort: 70.0, value: 30.0, baseline: 90.0 },
+        ];
         const rows = $.const(SCATTER_QUADRANTS_DATA, ArrayType(StructType({ effort: FloatType, value: FloatType, baseline: FloatType })));
         return (
             <Box height="280px" width="100%">
@@ -323,6 +301,10 @@ export const scatterBubble = example({
     keywords: ["Chart", "Scatter", "size", "bubble", "per-point", "grid"],
     description: "Bubble scatter — per-point size encodes population",
     fn: East.function([], UIComponentType, ($) => {
+        const SCATTER_BUBBLE_DATA = [
+            { gdp: 1.2, life: 62.0, pop: 1400.0 }, { gdp: 4.5, life: 78.0, pop: 330.0 },
+            { gdp: 2.1, life: 70.0, pop: 210.0 }, { gdp: 5.8, life: 82.0, pop: 125.0 },
+        ];
         const rows = $.const(SCATTER_BUBBLE_DATA, ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));
         return (
             <Box height="280px" width="100%">
@@ -342,6 +324,10 @@ export const composedColumnLine = example({
     keywords: ["Chart", "Composed", "column", "line", "mixed-marks", "legend", "tooltip", "grid"],
     description: "Composed marks — revenue columns under a dotted profit line",
     fn: East.function([], UIComponentType, ($) => {
+        const COMPOSED_COLUMN_LINE_DATA = [
+            { month: "Jan", revenue: 186n, profit: 80n }, { month: "Feb", revenue: 305n, profit: 120n },
+            { month: "Mar", revenue: 237n, profit: 95n }, { month: "Apr", revenue: 273n, profit: 150n },
+        ];
         const rows = $.const(COMPOSED_COLUMN_LINE_DATA, ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));
         return (
             <Box height="300px" width="100%">
@@ -360,6 +346,12 @@ export const composedDualAxis = example({
     keywords: ["Chart", "Composed", "dual-axis", "axis", "y2", "Area", "Band", "Line", "refLine", "stack", "forecast"],
     description: "Dual-axis forecast — stacked areas + confidence band with a right-axis trend and capacity refLine",
     fn: East.function([], UIComponentType, ($) => {
+        const COMPOSED_DUAL_AXIS_FORECAST_DATA = [
+            { month: "Jan", mobile: 50n, desktop: 100n, lo: 130n, hi: 170n, trend: 150n },
+            { month: "Feb", mobile: 70n, desktop: 120n, lo: 165n, hi: 215n, trend: 190n },
+            { month: "Mar", mobile: 60n, desktop: 110n, lo: 150n, hi: 200n, trend: 175n },
+            { month: "Apr", mobile: 90n, desktop: 140n, lo: 205n, hi: 265n, trend: 235n },
+        ];
         const rows = $.const(COMPOSED_DUAL_AXIS_FORECAST_DATA, ArrayType(StructType({
             month: StringType, mobile: IntegerType, desktop: IntegerType, lo: IntegerType, hi: IntegerType, trend: IntegerType,
         })));
@@ -389,6 +381,10 @@ export const composedAnnotations = example({
     keywords: ["Chart", "reference", "refLine", "refBand", "refDot", "annotation", "grid"],
     description: "Reference annotations — a normal band, target line and peak dot around one series",
     fn: East.function([], UIComponentType, ($) => {
+        const REFERENCE_ANNOTATIONS_DATA = [
+            { month: "Jan", value: 100n }, { month: "Feb", value: 150n },
+            { month: "Mar", value: 237n }, { month: "Apr", value: 180n },
+        ];
         const rows = $.const(REFERENCE_ANNOTATIONS_DATA, ArrayType(StructType({ month: StringType, value: IntegerType })));
         return (
             <Box height="300px" width="100%">
@@ -412,6 +408,11 @@ export const tooltipOverStickyTable = example({
     keywords: ["Chart", "tooltip", "zIndex", "z-index", "sticky", "stickyHeader", "Table", "header", "overlay", "layering", "portal"],
     description: "Chart hover tooltip layers ABOVE a sibling Table's sticky column header — hover the line near the BOTTOM of the chart so the tooltip overlaps the header row directly below it. The tooltip's z-index must sit on its own positioned content (the visx portal wrapper is position:static, so its z-index is ignored) or the sticky header (z-index 2) paints over it.",
     fn: East.function([], UIComponentType, ($) => {
+        const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
+            id: `SKU-${String(i + 1).padStart(3, "0")}`,
+            region: (["North", "South", "East", "West"] as const)[i % 4]!,
+            value: BigInt(600 + i * 73),
+        }));
         const chartRows = $.const([
             { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n }, { month: "Mar", sales: 120n },
             { month: "Apr", sales: 180n }, { month: "May", sales: 140n }, { month: "Jun", sales: 170n },

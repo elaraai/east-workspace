@@ -11,20 +11,6 @@ import { Blend, Configurator, Library, Reactive, SegmentGroup, Text, VStack } fr
 // Module-scope fixtures — one per merged example (consolidation epic #455).
 // ============================================================================
 
-const BLEND_MODE_SINGLE_DATA = [
-    { key: "MIX-318", name: "Batch 318", cap: 40000.0, cost: 3.42, grade: "A−" },
-];
-const BLEND_MODE_COMPARE_DATA = [
-    { key: "318a", name: "Candidate A", cap: 40000.0, cost: 3.42, grade: 3.7, gradeText: "A−" },
-    { key: "318b", name: "Candidate B", cap: 40000.0, cost: 3.61, grade: 4.0, gradeText: "A" },
-];
-const BLEND_MODE_PORTFOLIO_DATA = [
-    { key: "mon", name: "Mon plan", cap: 12000.0 },
-    { key: "tue", name: "Tue plan", cap: 12000.0 },
-    { key: "wed", name: "Wed plan", cap: 9000.0 },
-    { key: "thu", name: "Thu plan", cap: 12000.0 },
-];
-
 export const blendSingle = example({
     keywords: ["Blend", "single", "composition", "allocation", "metric", "objective", "pinned"],
     description: "Minimal bench — one target, two allocations (one pinned), one predicted metric",
@@ -59,7 +45,11 @@ export const blendSingle = example({
 export const blendAllocationStates = example({
     keywords: ["Blend", "allocation", "pinned", "proposed", "added", "state", "metric", "model", "objective", "capacity"],
     description: "Allocation grammar — pinned and model-proposed lots with predicted metrics on one bench",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const BLEND_MODE_SINGLE_DATA = [
+            { key: "MIX-318", name: "Batch 318", cap: 40000.0, cost: 3.42, grade: "A−" },
+        ];
+        return (
         <Blend
             id="bench-single"
             sources={["materials"]}
@@ -78,7 +68,8 @@ export const blendAllocationStates = example({
                 ],
             })}
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -86,7 +77,12 @@ export const blendAllocationStates = example({
 export const blendCompare = example({
     keywords: ["Blend", "compare", "diff", "verdict", "A/B", "metric", "numeric"],
     description: "A/B compare — two benches with the derived diff table and verdict line",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const BLEND_MODE_COMPARE_DATA = [
+            { key: "318a", name: "Candidate A", cap: 40000.0, cost: 3.42, grade: 3.7, gradeText: "A−" },
+            { key: "318b", name: "Candidate B", cap: 40000.0, cost: 3.61, grade: 4.0, gradeText: "A" },
+        ];
+        return (
         <Blend
             id="bench-ab"
             sources={["materials"]}
@@ -106,7 +102,8 @@ export const blendCompare = example({
             diff={["grade", "cost"]}
             verdict="A wins on cost · B wins on grade · pick by today's objective"
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -114,7 +111,14 @@ export const blendCompare = example({
 export const blendPortfolio = example({
     keywords: ["Blend", "portfolio", "targets", "scroll", "horizontal"],
     description: "Portfolio — uniform target panels scrolling horizontally",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const BLEND_MODE_PORTFOLIO_DATA = [
+            { key: "mon", name: "Mon plan", cap: 12000.0 },
+            { key: "tue", name: "Tue plan", cap: 12000.0 },
+            { key: "wed", name: "Wed plan", cap: 9000.0 },
+            { key: "thu", name: "Thu plan", cap: 12000.0 },
+        ];
+        return (
         <Blend
             id="bench-week"
             targets={BLEND_MODE_PORTFOLIO_DATA}
@@ -126,7 +130,8 @@ export const blendPortfolio = example({
                 ],
             })}
         />
-    )),
+    );
+    }),
     inputs: [],
 });
 

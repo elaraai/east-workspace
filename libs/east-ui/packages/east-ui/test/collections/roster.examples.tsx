@@ -12,57 +12,6 @@ import { Box, Configurator, Library, Reactive, Roster, SegmentGroup, Text, VStac
 // ============================================================================
 
 // Shared shift-state values for the hoisted fixtures.
-const COMMITTED = variant("committed", null);
-const ADDED = variant("proposed", variant("added", null));
-const REMOVED = variant("proposed", variant("removed", null));
-const GHOST = variant("proposed", variant("model", null));
-
-const ROSTER_EDIT_PEOPLE_DATA = [
-    { id: "patel", name: "Patel", target: "38h → 30h" },
-    { id: "cho", name: "Cho", target: "26h → 38h" },
-    { id: "rivera", name: "Rivera", target: "32h" },
-    { id: "okafor", name: "Okafor", target: "24h" },
-];
-const ROSTER_EDIT_DATA = [
-    { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
-    { id: "p2", person: "patel", day: "Tue", hours: 8n, state: COMMITTED },
-    { id: "p3", person: "patel", day: "Wed", hours: 8n, state: REMOVED },
-    { id: "p4", person: "patel", day: "Fri", hours: 6n, state: COMMITTED },
-    { id: "p5", person: "patel", day: "Sat", hours: 8n, state: REMOVED },
-    { id: "c1", person: "cho", day: "Mon", hours: 8n, state: COMMITTED },
-    { id: "c2", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
-    { id: "c3", person: "cho", day: "Wed", hours: 8n, state: ADDED },
-    { id: "c4", person: "cho", day: "Thu", hours: 8n, state: COMMITTED },
-    { id: "c5", person: "cho", day: "Sat", hours: 8n, state: ADDED },
-    { id: "c6", person: "cho", day: "Sun", hours: 4n, state: GHOST },
-    { id: "r1", person: "rivera", day: "Mon", hours: 8n, state: COMMITTED },
-    { id: "r2", person: "rivera", day: "Tue", hours: 8n, state: COMMITTED },
-    { id: "r3", person: "rivera", day: "Wed", hours: 8n, state: COMMITTED },
-    { id: "r4", person: "rivera", day: "Thu", hours: 8n, state: COMMITTED },
-    { id: "r5", person: "rivera", day: "Sat", hours: 6n, state: GHOST },
-    { id: "o1", person: "okafor", day: "Tue", hours: 6n, state: COMMITTED },
-    { id: "o2", person: "okafor", day: "Wed", hours: 6n, state: COMMITTED },
-    { id: "o3", person: "okafor", day: "Thu", hours: 6n, state: COMMITTED },
-    { id: "o4", person: "okafor", day: "Fri", hours: 6n, state: COMMITTED },
-];
-const ROSTER_PUBLISHED_DATA = [
-    { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
-    { id: "p2", person: "patel", day: "Wed", hours: 8n, state: COMMITTED },
-    { id: "c1", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
-    { id: "c2", person: "cho", day: "Fri", hours: 6n, state: COMMITTED },
-];
-const ROSTER_FILL_PEOPLE_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
-    id: East.str`p${i}`,
-    name: East.str`Person ${i}`,
-    target: "38h",
-}));
-const ROSTER_FILL_DATA = [
-    { id: "s1", person: "p0", day: "Mon", hours: 8n, state: COMMITTED },
-    { id: "s2", person: "p1", day: "Tue", hours: 8n, state: COMMITTED },
-    { id: "s3", person: "p2", day: "Wed", hours: 8n, state: COMMITTED },
-    { id: "s4", person: "p15", day: "Thu", hours: 6n, state: COMMITTED },
-    { id: "s5", person: "p199", day: "Fri", hours: 6n, state: COMMITTED },
-];
 
 /**
  * THE Roster configurator (pass 5) — ONE live work-week roster; the preset
@@ -73,7 +22,46 @@ const ROSTER_FILL_DATA = [
 export const rosterVariants = example({
     keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "summary", "published", "committed", "read-only", "days", "mode", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
     description: "Roster configurator — a data-preset axis (edit / published) driving one live work-week roster; days, sources and mode all travel as data",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const COMMITTED = variant("committed", null);
+        const ADDED = variant("proposed", variant("added", null));
+        const REMOVED = variant("proposed", variant("removed", null));
+        const GHOST = variant("proposed", variant("model", null));
+        const ROSTER_EDIT_PEOPLE_DATA = [
+            { id: "patel", name: "Patel", target: "38h → 30h" },
+            { id: "cho", name: "Cho", target: "26h → 38h" },
+            { id: "rivera", name: "Rivera", target: "32h" },
+            { id: "okafor", name: "Okafor", target: "24h" },
+        ];
+        const ROSTER_EDIT_DATA = [
+            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+            { id: "p2", person: "patel", day: "Tue", hours: 8n, state: COMMITTED },
+            { id: "p3", person: "patel", day: "Wed", hours: 8n, state: REMOVED },
+            { id: "p4", person: "patel", day: "Fri", hours: 6n, state: COMMITTED },
+            { id: "p5", person: "patel", day: "Sat", hours: 8n, state: REMOVED },
+            { id: "c1", person: "cho", day: "Mon", hours: 8n, state: COMMITTED },
+            { id: "c2", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
+            { id: "c3", person: "cho", day: "Wed", hours: 8n, state: ADDED },
+            { id: "c4", person: "cho", day: "Thu", hours: 8n, state: COMMITTED },
+            { id: "c5", person: "cho", day: "Sat", hours: 8n, state: ADDED },
+            { id: "c6", person: "cho", day: "Sun", hours: 4n, state: GHOST },
+            { id: "r1", person: "rivera", day: "Mon", hours: 8n, state: COMMITTED },
+            { id: "r2", person: "rivera", day: "Tue", hours: 8n, state: COMMITTED },
+            { id: "r3", person: "rivera", day: "Wed", hours: 8n, state: COMMITTED },
+            { id: "r4", person: "rivera", day: "Thu", hours: 8n, state: COMMITTED },
+            { id: "r5", person: "rivera", day: "Sat", hours: 6n, state: GHOST },
+            { id: "o1", person: "okafor", day: "Tue", hours: 6n, state: COMMITTED },
+            { id: "o2", person: "okafor", day: "Wed", hours: 6n, state: COMMITTED },
+            { id: "o3", person: "okafor", day: "Thu", hours: 6n, state: COMMITTED },
+            { id: "o4", person: "okafor", day: "Fri", hours: 6n, state: COMMITTED },
+        ];
+        const ROSTER_PUBLISHED_DATA = [
+            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: COMMITTED },
+            { id: "p2", person: "patel", day: "Wed", hours: 8n, state: COMMITTED },
+            { id: "c1", person: "cho", day: "Tue", hours: 6n, state: COMMITTED },
+            { id: "c2", person: "cho", day: "Fri", hours: 6n, state: COMMITTED },
+        ];
+        return (
         <Reactive>{$ => {
             const PresetType = StructType({
                 label: StringType,
@@ -136,7 +124,8 @@ export const rosterVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -147,7 +136,11 @@ export const rosterVariants = example({
 export const rosterReview = example({
     keywords: ["Roster", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "commitBar", "Reactive"],
     description: "Review roster — the Decision column and commit-bar foot beside per-tile ghost accept",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const COMMITTED = variant("committed", null);
+        const ADDED = variant("proposed", variant("added", null));
+        const GHOST = variant("proposed", variant("model", null));
+        return (
         <Reactive>{$ => {
             const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
             const onApprove = $.const(East.function([Roster.Types.ApproveEvent], NullType, _$ => null));
@@ -188,7 +181,8 @@ export const rosterReview = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -196,7 +190,21 @@ export const rosterReview = example({
 export const rosterFill = example({
     keywords: ["Roster", "fill", "height", "#320", "virtual", "bounded", "Box", "scroll"],
     description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 person rows",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const COMMITTED = variant("committed", null);
+        const ROSTER_FILL_PEOPLE_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+            id: East.str`p${i}`,
+            name: East.str`Person ${i}`,
+            target: "38h",
+        }));
+        const ROSTER_FILL_DATA = [
+            { id: "s1", person: "p0", day: "Mon", hours: 8n, state: COMMITTED },
+            { id: "s2", person: "p1", day: "Tue", hours: 8n, state: COMMITTED },
+            { id: "s3", person: "p2", day: "Wed", hours: 8n, state: COMMITTED },
+            { id: "s4", person: "p15", day: "Thu", hours: 6n, state: COMMITTED },
+            { id: "s5", person: "p199", day: "Fri", hours: 6n, state: COMMITTED },
+        ];
+        return (
         <Box height="180px">
             <Roster
                 id="roster-fill"
@@ -207,7 +215,8 @@ export const rosterFill = example({
                 height="fill"
             />
         </Box>
-    )),
+    );
+    }),
     inputs: [],
 });
 

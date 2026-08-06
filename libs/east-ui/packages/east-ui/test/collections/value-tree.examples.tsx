@@ -31,147 +31,6 @@ import {
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Configurator, Reactive, SegmentGroup, Text, ValueTree } from "@elaraai/east-ui";
 
-const MachineType = StructType({
-    name: StringType,
-    rate: FloatType,
-    operator: OptionType(StringType),
-    state: VariantType({ running: NullType, down: StringType }),
-});
-
-/** Every East type in one deep tree: struct, dict, array, variant (with
- *  struct/array payloads), option (of variant), all six leaf kinds,
- *  recursion, and the summarized opaques (set, blob, vector, matrix,
- *  ref) plus a non-string-keyed dict (browsable read-only). */
-const LineageType = RecursiveType(self => VariantType({
-    original: NullType,
-    upgraded: StructType({ from: StringType, prior: self }),
-}));
-const PlantType = StructType({
-    site: StringType,
-    commissioned: DateTimeType,
-    active: BooleanType,
-    batch: IntegerType,
-    output: FloatType,
-    notes: OptionType(StringType),
-    lines: DictType(StringType, StructType({
-        machines: ArrayType(StructType({
-            name: StringType,
-            state: VariantType({
-                running: StructType({ since: DateTimeType, rate: FloatType }),
-                down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
-                idle: NullType,
-            }),
-            calibration: OptionType(VariantType({
-                auto: NullType,
-                manual: StructType({ offset: FloatType, by: StringType }),
-            })),
-        })),
-    })),
-    lineage: LineageType,
-    codes: DictType(IntegerType, StringType),
-    tags: SetType(StringType),
-    checksum: BlobType,
-    samples: VectorType(FloatType),
-    weights: MatrixType(FloatType),
-    audit: RefType(StringType),
-});
-
-const VALUE_TREE_KITCHEN_SINK_DATA = East.value({
-    site: "Riverside",
-    commissioned: new Date("2021-06-01T00:00:00Z"),
-    active: true,
-    batch: 42n,
-    output: 812.5,
-    notes: some("Night shift only"),
-    lines: new Map([
-        ["packing", {
-            machines: [
-                {
-                    name: "Press",
-                    state: variant("running", { since: new Date("2026-07-01T06:00:00Z"), rate: 2.5 }),
-                    calibration: some(variant("manual", { offset: 0.02, by: "dana" })),
-                },
-                {
-                    name: "Mill",
-                    state: variant("down", { reason: "belt snapped", parts: ["belt", "tensioner"] }),
-                    calibration: none,
-                },
-                {
-                    name: "Wrapper",
-                    state: variant("idle", null),
-                    calibration: some(variant("auto", null)),
-                },
-            ],
-        }],
-        ["casting", { machines: [] }],
-    ]),
-    lineage: variant("upgraded", {
-        from: "Mark II",
-        prior: variant("upgraded", { from: "Mark I", prior: variant("original", null) }),
-    }),
-    codes: new Map([[7n, "critical"], [12n, "routine"]]),
-    tags: new Set(["food-grade", "iso-9001"]),
-    checksum: new Uint8Array([202, 254, 186]),
-    samples: new Float64Array([1.0, 1.5, 2.25]),
-    weights: East.Matrix.fromArray([[1.0, 0.0], [0.0, 1.0]]),
-    audit: ref("2026-07-01 dana"),
-}, PlantType);
-
-/** The deep-editable line: every editable leaf kind, nested variants, options
- *  and collections — 24 generated machines so the bounded sizes virtualize. */
-const LineType = StructType({
-    machines: ArrayType(StructType({
-        name: StringType,
-        commissioned: DateTimeType,
-        active: BooleanType,
-        batch: IntegerType,
-        rate: FloatType,
-        operator: OptionType(StringType),
-        state: VariantType({
-            running: StructType({ rate: FloatType }),
-            down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
-            idle: NullType,
-        }),
-    })),
-    thresholds: DictType(StringType, FloatType),
-});
-const VALUE_TREE_EDITABLE_LINE_DATA = East.value({
-    machines: East.Array.range(0n, 24n).map((_$, i) => ({
-        name: East.str`machine-${i}`,
-        commissioned: new Date("2021-06-01T00:00:00Z"),
-        active: i.remainder(2n).equals(0n),
-        batch: i.multiply(3n),
-        rate: i.toFloat().multiply(0.25).add(1.0),
-        operator: i.remainder(3n).equals(0n).ifElse(() => some("dana"), () => East.value(none, OptionType(StringType))),
-        state: i.remainder(3n).equals(0n).ifElse(
-            () => East.value(variant("running", { rate: 2.5 }), VariantType({
-                running: StructType({ rate: FloatType }),
-                down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
-                idle: NullType,
-            })),
-            () => i.remainder(3n).equals(1n).ifElse(
-                () => East.value(variant("down", { reason: "belt snapped", parts: ["belt"] }), VariantType({
-                    running: StructType({ rate: FloatType }),
-                    down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
-                    idle: NullType,
-                })),
-                () => East.value(variant("idle", null), VariantType({
-                    running: StructType({ rate: FloatType }),
-                    down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
-                    idle: NullType,
-                })),
-            ),
-        ),
-    })),
-    thresholds: new Map([["base", 0.15], ["peak", 0.4]]),
-}, LineType);
-
-const VALUE_TREE_SCOPED_DATA = new Map([
-    ["press", { name: "Press", rate: 2.5, operator: some("dana"), state: variant("running", null) }],
-    ["mill", { name: "Mill", rate: 1.25, operator: none, state: variant("down", "belt snapped") }],
-]);
-const VALUE_TREE_RAW_PATHS_DATA = new Map([["base", 0.15], ["peak", 0.4]]);
-
 export const valueTreeBasic = example({
     keywords: ["ValueTree", "value", "tree", "inspector", "leaf", "struct", "read-only"],
     description: "Read-only inspector — any value materializes into an automatic tree",
@@ -191,9 +50,84 @@ export const valueTreeBasic = example({
 export const valueTreeInspect = example({
     keywords: ["ValueTree", "dict", "struct", "option", "variant", "nested", "deep", "recursive", "set", "vector", "matrix", "blob", "ref", "kitchen sink", "read-only", "inspector"],
     description: "Kitchen-sink inspector — every East type (recursion, opaques, non-string dict keys) in one read-only tree",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const LineageType = RecursiveType(self => VariantType({
+            original: NullType,
+            upgraded: StructType({ from: StringType, prior: self }),
+        }));
+        const PlantType = StructType({
+            site: StringType,
+            commissioned: DateTimeType,
+            active: BooleanType,
+            batch: IntegerType,
+            output: FloatType,
+            notes: OptionType(StringType),
+            lines: DictType(StringType, StructType({
+                machines: ArrayType(StructType({
+                    name: StringType,
+                    state: VariantType({
+                        running: StructType({ since: DateTimeType, rate: FloatType }),
+                        down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
+                        idle: NullType,
+                    }),
+                    calibration: OptionType(VariantType({
+                        auto: NullType,
+                        manual: StructType({ offset: FloatType, by: StringType }),
+                    })),
+                })),
+            })),
+            lineage: LineageType,
+            codes: DictType(IntegerType, StringType),
+            tags: SetType(StringType),
+            checksum: BlobType,
+            samples: VectorType(FloatType),
+            weights: MatrixType(FloatType),
+            audit: RefType(StringType),
+        });
+        const VALUE_TREE_KITCHEN_SINK_DATA = East.value({
+            site: "Riverside",
+            commissioned: new Date("2021-06-01T00:00:00Z"),
+            active: true,
+            batch: 42n,
+            output: 812.5,
+            notes: some("Night shift only"),
+            lines: new Map([
+                ["packing", {
+                    machines: [
+                        {
+                            name: "Press",
+                            state: variant("running", { since: new Date("2026-07-01T06:00:00Z"), rate: 2.5 }),
+                            calibration: some(variant("manual", { offset: 0.02, by: "dana" })),
+                        },
+                        {
+                            name: "Mill",
+                            state: variant("down", { reason: "belt snapped", parts: ["belt", "tensioner"] }),
+                            calibration: none,
+                        },
+                        {
+                            name: "Wrapper",
+                            state: variant("idle", null),
+                            calibration: some(variant("auto", null)),
+                        },
+                    ],
+                }],
+                ["casting", { machines: [] }],
+            ]),
+            lineage: variant("upgraded", {
+                from: "Mark II",
+                prior: variant("upgraded", { from: "Mark I", prior: variant("original", null) }),
+            }),
+            codes: new Map([[7n, "critical"], [12n, "routine"]]),
+            tags: new Set(["food-grade", "iso-9001"]),
+            checksum: new Uint8Array([202, 254, 186]),
+            samples: new Float64Array([1.0, 1.5, 2.25]),
+            weights: East.Matrix.fromArray([[1.0, 0.0], [0.0, 1.0]]),
+            audit: ref("2026-07-01 dana"),
+        }, PlantType);
+        return (
         <ValueTree value={VALUE_TREE_KITCHEN_SINK_DATA} />
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -207,7 +141,54 @@ export const valueTreeInspect = example({
 export const valueTreeVariants = example({
     keywords: ["ValueTree", "onUpdate", "rebuilt value", "editable", "edit", "add", "remove", "collection", "leaf", "virtualized", "height", "scroll", "fill", "parent", "bounded", "Reactive", "State", "SegmentGroup", "Configurator", "configurator"],
     description: "Editable ValueTree configurator — one live 24-machine tree with whole-value onUpdate; the size axis (auto / scroll / fill) feeds the height expression",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const LineType = StructType({
+            machines: ArrayType(StructType({
+                name: StringType,
+                commissioned: DateTimeType,
+                active: BooleanType,
+                batch: IntegerType,
+                rate: FloatType,
+                operator: OptionType(StringType),
+                state: VariantType({
+                    running: StructType({ rate: FloatType }),
+                    down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
+                    idle: NullType,
+                }),
+            })),
+            thresholds: DictType(StringType, FloatType),
+        });
+        const VALUE_TREE_EDITABLE_LINE_DATA = East.value({
+            machines: East.Array.range(0n, 24n).map((_$, i) => ({
+                name: East.str`machine-${i}`,
+                commissioned: new Date("2021-06-01T00:00:00Z"),
+                active: i.remainder(2n).equals(0n),
+                batch: i.multiply(3n),
+                rate: i.toFloat().multiply(0.25).add(1.0),
+                operator: i.remainder(3n).equals(0n).ifElse(() => some("dana"), () => East.value(none, OptionType(StringType))),
+                state: i.remainder(3n).equals(0n).ifElse(
+                    () => East.value(variant("running", { rate: 2.5 }), VariantType({
+                        running: StructType({ rate: FloatType }),
+                        down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
+                        idle: NullType,
+                    })),
+                    () => i.remainder(3n).equals(1n).ifElse(
+                        () => East.value(variant("down", { reason: "belt snapped", parts: ["belt"] }), VariantType({
+                            running: StructType({ rate: FloatType }),
+                            down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
+                            idle: NullType,
+                        })),
+                        () => East.value(variant("idle", null), VariantType({
+                            running: StructType({ rate: FloatType }),
+                            down: StructType({ reason: StringType, parts: ArrayType(StringType) }),
+                            idle: NullType,
+                        })),
+                    ),
+                ),
+            })),
+            thresholds: new Map([["base", 0.15], ["peak", 0.4]]),
+        }, LineType);
+        return (
         <Reactive>{$ => {
             const sizes = $.const(["auto", "scroll", "fill"], ArrayType(StringType));
             const sizeBind = $.let(State.bind([StringType], "valuetree_size", "scroll"));
@@ -247,7 +228,8 @@ export const valueTreeVariants = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -258,7 +240,18 @@ export const valueTreeVariants = example({
 export const valueTreeScoped = example({
     keywords: ["ValueTree", "at", "scope", "subtree", "handler", "bubble", "onUpdate", "dispatch", "Reactive", "State"],
     description: "Scoped edits — ValueTree.at routes the press entry to a typed handler while the rest bubbles to onUpdate",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const MachineType = StructType({
+            name: StringType,
+            rate: FloatType,
+            operator: OptionType(StringType),
+            state: VariantType({ running: NullType, down: StringType }),
+        });
+        const VALUE_TREE_SCOPED_DATA = new Map([
+            ["press", { name: "Press", rate: 2.5, operator: some("dana"), state: variant("running", null) }],
+            ["mill", { name: "Mill", rate: 1.25, operator: none, state: variant("down", "belt snapped") }],
+        ]);
+        return (
         <Reactive>{$ => {
             const PlantDict = DictType(StringType, MachineType);
             const scopedBind = $.let(State.bind([PlantDict], "vt_plant", VALUE_TREE_SCOPED_DATA));
@@ -279,7 +272,8 @@ export const valueTreeScoped = example({
                 />
             );
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });
 
@@ -290,7 +284,9 @@ export const valueTreeScoped = example({
 export const valueTreePaths = example({
     keywords: ["ValueTree", "onEdit", "path", "leaf", "raw", "typed", "Reactive", "State"],
     description: "Raw paths — onEdit receives the typed path + leaf for hosts with a finer-grained store",
-    fn: East.function([], UIComponentType, (_$) => (
+    fn: East.function([], UIComponentType, (_$) => {
+        const VALUE_TREE_RAW_PATHS_DATA = new Map([["base", 0.15], ["peak", 0.4]]);
+        return (
         <Reactive>{$ => {
             const ratesBind = $.let(State.bind([DictType(StringType, FloatType)], "vt_rates", VALUE_TREE_RAW_PATHS_DATA));
             const rates = $.let(ratesBind.read());
@@ -305,6 +301,7 @@ export const valueTreePaths = example({
             ));
             return <ValueTree value={rates} onEdit={onEdit} />;
         }}</Reactive>
-    )),
+    );
+    }),
     inputs: [],
 });

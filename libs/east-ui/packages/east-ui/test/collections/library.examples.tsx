@@ -32,15 +32,6 @@ const LIBRARY_FILL_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
 // (remainder indexing into literal pools — no host randomness).
 // ============================================================================
 
-const CrewType = StructType({
-    id: StringType,
-    name: StringType,
-    role: StringType,
-    depot: StringType,
-    hours: FloatType,
-    skills: ArrayType(StringType),
-});
-
 /** Row shapes for the two small folded-in datasets (the old variant panel's
  *  asset and flat-room palettes) — each gets its own Slice config so the
  *  sliced mode composes across every dataset. */
@@ -48,21 +39,6 @@ const CrewType = StructType({
 // The ONE shared 400-card crew generator all three libraryLarge configurator
 // branches consume (the literal pools live inside the generator body so the
 // fixture is a self-contained module-scope expression).
-const LIBRARY_LARGE_CARDS = East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {
-    const surnames = $.let(["Patel", "Cho", "Rivera", "Okafor", "Nguyen", "Kim", "Ali", "Silva", "Weber", "Rossi", "Tanaka", "Novak"], ArrayType(StringType));
-    const roles = $.let(["Senior", "Mid", "Junior", "Contract", "Casual"], ArrayType(StringType));
-    const depots = $.let(["North", "South", "East", "West", "Central", "Airport", "Harbor", "Rail"], ArrayType(StringType));
-    const skillPool = $.let(["Forklift", "HazMat", "CDL-B", "Crane", "Rigging", "First aid", "Welding", "Night"], ArrayType(StringType));
-    const row = $.let({
-        id: East.str`crew-${i}`,
-        name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,
-        role: roles.get(i.remainder(5n)),
-        depot: depots.get(i.remainder(8n)),
-        hours: i.remainder(41n).toFloat(),
-        skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],
-    }, CrewType);
-    return row;
-}));
 
 export const libraryPeople = example({
     keywords: ["Library", "card", "meter", "chips", "group", "status", "search", "drag", "palette"],
@@ -117,6 +93,29 @@ export const libraryLarge = example({
     keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance", "slice", "chrome", "filter", "search", "rail", "count", "footer", "Slice.rows", "SegmentGroup", "Configurator", "getTag", "configurator", "card", "chips", "meter", "maxHeight", "bounded", "fill", "#320"],
     description: "Large-library configurator — a size axis (auto / scroll / fill) on one live sliced, grouped crew palette of hundreds of cards",
     fn: East.function([], UIComponentType, (_$) => {
+        const CrewType = StructType({
+            id: StringType,
+            name: StringType,
+            role: StringType,
+            depot: StringType,
+            hours: FloatType,
+            skills: ArrayType(StringType),
+        });
+        const LIBRARY_LARGE_CARDS = East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {
+            const surnames = $.let(["Patel", "Cho", "Rivera", "Okafor", "Nguyen", "Kim", "Ali", "Silva", "Weber", "Rossi", "Tanaka", "Novak"], ArrayType(StringType));
+            const roles = $.let(["Senior", "Mid", "Junior", "Contract", "Casual"], ArrayType(StringType));
+            const depots = $.let(["North", "South", "East", "West", "Central", "Airport", "Harbor", "Rail"], ArrayType(StringType));
+            const skillPool = $.let(["Forklift", "HazMat", "CDL-B", "Crane", "Rigging", "First aid", "Welding", "Night"], ArrayType(StringType));
+            const row = $.let({
+                id: East.str`crew-${i}`,
+                name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,
+                role: roles.get(i.remainder(5n)),
+                depot: depots.get(i.remainder(8n)),
+                hours: i.remainder(41n).toFloat(),
+                skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],
+            }, CrewType);
+            return row;
+        }));
         const cfg = Slice.config(CrewType, {
             fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
             searchFieldIds: ["name", "role", "depot"],

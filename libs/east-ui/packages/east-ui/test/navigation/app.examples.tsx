@@ -7,10 +7,6 @@ import { ArrayType, East, NullType, StringType, StructType, example } from "@ela
 import { UIComponentType } from "@elaraai/east-ui";
 import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Text, Button, Image } from "@elaraai/east-ui";
 
-/** Self-contained brand mark for the shell logo region (a teal disc). */
-const LOGO =
-    "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%233a7780'/%3E%3C/svg%3E";
-
 /**
  * Full application shell from one `Navigation.bind` handle — a collapsible rail
  * whose rows / icons / sections come straight from the `Navigation.config`, a
@@ -22,6 +18,8 @@ export const appBasic = example({
     keywords: ["App", "app shell", "Navigation", "rail", "breadcrumb", "Pages", "logo", "collapsible", "sidebar"],
     description: "Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle",
     fn: East.function([], UIComponentType, (_$) => {
+        const LOGO =
+            "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%233a7780'/%3E%3C/svg%3E";
         const LineRow = StructType({ id: StringType, line: StringType });
         const routes = Navigation.config({
             overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
@@ -91,6 +89,8 @@ export const appVariants = example({
     keywords: ["App", "app shell", "density", "comfortable", "compact", "condensed", "app bar", "Navigation", "Reactive", "State", "SegmentGroup", "Configurator", "configurator"],
     description: "App-shell configurator — a density axis (comfortable / compact / condensed) over one live shell",
     fn: East.function([], UIComponentType, (_$) => {
+        const LOGO =
+            "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%233a7780'/%3E%3C/svg%3E";
         const routes = Navigation.config({
             overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
             throughput: { value: NullType, label: "Throughput", section: "Analyse", icon: { prefix: "fas", name: "chart-line" } },
