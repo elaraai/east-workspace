@@ -85,8 +85,8 @@ def create_parser() -> argparse.ArgumentParser:
         "--stream",
         type=int,
         metavar="N",
-        help="Streamed input marker (0-based -i index; inputs currently decode "
-        "eagerly on this runner)",
+        help="Feed the given -i input lazily (0-based index; segment-fed "
+        "iteration, O(segment) decoded memory)",
     )
 
     # convert command

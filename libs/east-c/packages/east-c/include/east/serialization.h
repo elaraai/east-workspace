@@ -175,6 +175,24 @@ bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last,
 // east_builtin_get_error).
 EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i);
 void east_beast2_pages_free(Beast2Pages *p);
+// The pager's root collection type (borrowed — owned by the pager).
+EastType *east_beast2_pages_type(Beast2Pages *p);
+
+// Lazy pager-backed collection value (issue #505): wraps an indexed,
+// self-contained v5 blob as an EAST_VAL_PAGED value whose size, keyed reads
+// and for-loop iteration answer from the pager, and whose every other
+// operation hydrates once and delegates. Takes ownership of `data`
+// (free()-compatible) ON SUCCESS; on NULL (no index, aliased segments, or a
+// malformed container — message via east_builtin_get_error) the caller keeps
+// ownership. `type` must be the blob's Array/Set/Dict decode type.
+EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type);
+
+// The eager collection behind a paged value, decoding the whole blob on
+// first use (cached on the wrapper; iteration locks carry over). Returns a
+// BORROWED value kept alive by `v` — retain to keep it past `v` — or NULL on
+// decode failure (message via east_builtin_get_error). Non-paged values pass
+// through unchanged, so call sites can unpage unconditionally.
+EastValue *east_paged_hydrated(EastValue *v);
 
 // Byte extents of an indexed v5 collection blob, for splicing (issue #484):
 // everything a host needs to byte-copy the blob's segment frames into a merged

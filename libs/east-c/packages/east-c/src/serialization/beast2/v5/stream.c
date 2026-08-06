@@ -1320,6 +1320,49 @@ EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
     return seg;
 }
 
+EastType *east_beast2_pages_type(Beast2Pages *p)
+{
+    return p ? p->type : NULL;
+}
+
+/* ================================================================== */
+/*  Lazy pager-backed collection values (issue #505)                    */
+/* ================================================================== */
+
+EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
+{
+    Beast2Pages *pages = east_beast2_pages_new(data, len, type);
+    if (!pages) return NULL;
+    /* Random access (and therefore every pager-served operation) needs
+     * self-contained segments; refuse now rather than on first read. */
+    if (!east_beast2_pages_self_contained(pages)) {
+        east_beast2_pages_free(pages);
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — lazy paged values need "
+                           "self-contained segments");
+        return NULL;
+    }
+    EastValue *v = east_paged_new(pages, data, len);
+    if (!v) {
+        east_beast2_pages_free(pages);
+        return NULL;
+    }
+    return v;
+}
+
+EastValue *east_paged_hydrated(EastValue *v)
+{
+    if (!v || v->kind != EAST_VAL_PAGED) return v;
+    if (v->data.paged.hydrated) return v->data.paged.hydrated;
+    EastValue *whole = east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
+                                               east_beast2_pages_type(v->data.paged.pages));
+    if (!whole) return NULL;
+    /* Iteration locks taken on the wrapper carry over, so a body that
+     * hydrates mid-loop still cannot mutate the collection it iterates. */
+    whole->iter_lock += v->iter_lock;
+    v->data.paged.hydrated = whole;
+    return whole;
+}
+
 bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out)
 {
     if (!p || !target || !index_out) {

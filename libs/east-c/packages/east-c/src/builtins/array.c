@@ -68,6 +68,14 @@ static EastValue *array_has_impl(EastValue **args, size_t n)
 /* ================================================================== */
 /* ArrayGet                                                           */
 /* ================================================================== */
+/* A paged arg that still answers from its pager (pre-hydration). The
+ * trampoline forwards paged args only to the pager-served builtins; these
+ * branches keep the read at one decoded segment. */
+static inline bool arg_paged_live(const EastValue *v)
+{
+    return v->kind == EAST_VAL_PAGED && v->data.paged.hydrated == NULL;
+}
+
 static EastValue *array_get_impl(EastValue **args, size_t n)
 {
     (void)n;
@@ -77,6 +85,10 @@ static EastValue *array_get_impl(EastValue **args, size_t n)
         snprintf(msg, sizeof(msg), "Array index %lld out of bounds", (long long)index);
         east_builtin_error(msg);
         return NULL;
+    }
+    if (arg_paged_live(args[0])) {
+        /* Retained by the pager (NULL posts the error). */
+        return east_beast2_pages_element(args[0]->data.paged.pages, (size_t)index);
     }
     EastValue *v = east_array_get(args[0], (size_t)index);
     if (v) east_value_retain(v);
@@ -91,6 +103,8 @@ static EastValue *array_get_or_default_impl(EastValue **args, size_t n)
     (void)n;
     int64_t index = args[1]->data.integer;
     if (index >= 0 && (size_t)index < east_array_len(args[0])) {
+        if (arg_paged_live(args[0]))
+            return east_beast2_pages_element(args[0]->data.paged.pages, (size_t)index);
         EastValue *v = east_array_get(args[0], (size_t)index);
         if (v) east_value_retain(v);
         return v;
@@ -107,6 +121,13 @@ static EastValue *array_try_get_impl(EastValue **args, size_t n)
     (void)n;
     int64_t index = args[1]->data.integer;
     if (index >= 0 && (size_t)index < east_array_len(args[0])) {
+        if (arg_paged_live(args[0])) {
+            EastValue *val = east_beast2_pages_element(args[0]->data.paged.pages, (size_t)index);
+            if (!val) return NULL;
+            EastValue *opt = east_variant_new("some", val, _option_ctx);
+            east_value_release(val);
+            return opt;
+        }
         EastValue *val = east_array_get(args[0], (size_t)index);
         return east_variant_new("some", val, _option_ctx);
     }

@@ -70,6 +70,23 @@ def test_stream_fold_reads_ts_written_input(tmp_path):
     assert sums[-1] == 2499 * 2500 // 2
 
 
+def test_threshold_forces_the_lazy_input_path(tmp_path, monkeypatch):
+    # A 1-byte threshold lazily opens EVERY indexed collection input, so this
+    # run and the (eager, threshold-disabled) control must agree — the paged
+    # value kind is observationally equivalent to the whole decode (#505).
+    out_lazy = tmp_path / "lazy.beast2"
+    monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
+    run_program(
+        FIXTURES / "emit_fold.beast2", [], [], [FIXTURES / "events.beast2"], out_lazy, emit="array"
+    )
+    out_eager = tmp_path / "eager.beast2"
+    monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "0")
+    run_program(
+        FIXTURES / "emit_fold.beast2", [], [], [FIXTURES / "events.beast2"], out_eager, emit="array"
+    )
+    assert out_lazy.read_bytes() == out_eager.read_bytes()
+
+
 def test_dict_emit_decodes_with_index(tmp_path):
     out = tmp_path / "out.beast2"
     run_program(FIXTURES / "emit_dict.beast2", [], [], [], out, emit="dict")

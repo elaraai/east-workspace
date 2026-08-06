@@ -284,6 +284,43 @@ static EastValue *load_value(const char *path, EastType *type)
     return NULL;
 }
 
+/* east-node parity: the size threshold at or above which indexed beast2
+ * collection inputs open lazily. EAST_LAZY_INPUT_BYTES overrides (0
+ * disables); default 64 MiB. */
+static size_t lazy_input_threshold(void)
+{
+    const char *env = getenv("EAST_LAZY_INPUT_BYTES");
+    if (env && *env) {
+        char *end = NULL;
+        unsigned long long v = strtoull(env, &end, 10);
+        if (end && *end == '\0') return (size_t)v;
+    }
+    return (size_t)64 * 1024 * 1024;
+}
+
+/* Loads input value `path`: when `want_lazy`, an indexed beast2 collection
+ * blob opens as a lazy paged value (O(segment) decoded memory — issue #505);
+ * anything not pageable (other formats, non-collection types, index-less or
+ * aliased blobs) silently decodes whole, exactly like east-node's runner. */
+static EastValue *load_input_value(const char *path, EastType *type, bool want_lazy)
+{
+    if (!want_lazy || detect_format(path) != FMT_BEAST2 ||
+        (type->kind != EAST_TYPE_ARRAY && type->kind != EAST_TYPE_SET &&
+         type->kind != EAST_TYPE_DICT)) {
+        return load_value(path, type);
+    }
+    size_t len = 0;
+    uint8_t *data = read_file_binary(path, &len);
+    if (!data) return NULL;
+    EastValue *paged = east_beast2_open_paged(data, len, type);
+    if (paged) return paged; /* took ownership of data */
+    free(east_builtin_get_error());
+    EastValue *val = east_beast2_decode_full(data, len, type);
+    free(data);
+    if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
+    return val;
+}
+
 static int save_value(const char *path, EastValue *value, EastType *type)
 {
     FileFormat fmt = detect_format(path);
@@ -769,11 +806,19 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
      * Function section above). The emit capability, when present, is the
      * trailing argument. */
     size_t num_args = (size_t)num_inputs + (emit_sink ? 1u : 0u);
+    size_t threshold = lazy_input_threshold();
     EastValue **args = NULL;
     if (num_args > 0) {
         args = calloc(num_args, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
-            args[i] = load_value(input_files[i], param_types[i]);
+            /* The streamed input always opens lazily; other collection
+             * inputs open lazily at or above the size threshold. */
+            bool want_lazy = i == stream_input;
+            if (!want_lazy && threshold > 0) {
+                struct stat st;
+                want_lazy = stat(input_files[i], &st) == 0 && (size_t)st.st_size >= threshold;
+            }
+            args[i] = load_input_value(input_files[i], param_types[i], want_lazy);
             if (!args[i]) {
                 char *ts = format_type(param_types[i]);
                 fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n", i, input_files[i],
@@ -876,9 +921,16 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             free(ts);
         }
     } else {
-        /* Save or print result */
-        if (output_file) {
-            if (save_value(output_file, result.value, return_type) != 0) {
+        /* Save or print result. A paged input returned as the output
+         * hydrates here — the encoders and printer walk eager values. */
+        EastValue *out_val = east_paged_hydrated(result.value);
+        if (!out_val) {
+            char *err = east_builtin_get_error();
+            fprintf(stderr, "Error: %s\n", err ? err : "failed to hydrate the paged output");
+            free(err);
+            exit_code = 1;
+        } else if (output_file) {
+            if (save_value(output_file, out_val, return_type) != 0) {
                 exit_code = 1;
             } else if (verbose) {
                 char *ts = format_type(return_type);
@@ -889,7 +941,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             }
         } else {
             /* Print as .east format to stdout */
-            char *text = east_print_value(result.value, return_type);
+            char *text = east_print_value(out_val, return_type);
             if (text) {
                 printf("%s\n", text);
                 free(text);
@@ -1070,8 +1122,8 @@ static void print_usage(const char *prog)
             "  -v, --verbose           Enable verbose output\n"
             "      --emit KIND         Write the output incrementally from the function's\n"
             "                          trailing emit parameter (array|set|dict)\n"
-            "      --stream N          Streamed input marker (0-based -i index; inputs\n"
-            "                          currently decode eagerly on this runner)\n"
+            "      --stream N          Feed the given -i input lazily (0-based index;\n"
+            "                          segment-fed iteration, O(segment) decoded memory)\n"
             "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
             "      --from-snapshot PATH  Replay from a .east-snapshot bundle (exclusive\n"
             "                            with <ir_file>, -i, -p)\n"

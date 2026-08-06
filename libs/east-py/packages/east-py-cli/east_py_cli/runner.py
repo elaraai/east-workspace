@@ -8,6 +8,7 @@ All formats (JSON, BEAST2, East text) go straight from raw bytes to C
 with no Python IR round-trip.
 """
 
+import os
 import sys
 from pathlib import Path
 from time import perf_counter
@@ -43,6 +44,23 @@ def _format_file_size(path: Path) -> str:
 # One flush per this many emitted elements; the managed file writer
 # re-batches toward its own byte-sized segments underneath.
 _EMIT_BATCH = 1000
+
+# east-node parity: indexed beast2 collection inputs at or above this many
+# bytes open as lazy paged values (EAST_LAZY_INPUT_BYTES overrides; 0
+# disables). The --stream input always opens lazily.
+_LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024
+
+
+def _lazy_input_threshold() -> int:
+    env = os.environ.get("EAST_LAZY_INPUT_BYTES", "")
+    if env:
+        try:
+            value = int(env)
+        except ValueError:
+            value = -1
+        if value >= 0:
+            return value
+    return _LAZY_INPUT_BYTES_DEFAULT
 
 
 class _EmitSink:
@@ -197,11 +215,27 @@ def run_program(
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
-    # Load inputs with type-directed parsing
-    inputs = [
-        load_value(file_path, param_type)
-        for file_path, param_type in zip(input_files, input_types, strict=False)
-    ]
+    # Load inputs with type-directed parsing. The streamed input always opens
+    # as a lazy paged value (segment-fed iteration + keyed reads at O(segment)
+    # decoded memory — #505); other indexed beast2 collection inputs open
+    # lazily at or above the size threshold. Anything not pageable falls back
+    # to the whole decode, exactly like east-node's runner.
+    from east.runtime._compiler_eastc import open_paged_value
+
+    threshold = _lazy_input_threshold()
+    inputs = []
+    for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
+        lazy = None
+        want_lazy = i == stream_input or (
+            threshold > 0 and Path(file_path).stat().st_size >= threshold
+        )
+        if (
+            want_lazy
+            and Path(file_path).suffix.lower() in (".beast2", ".beast")
+            and getattr(param_type, "type", None) in ("Array", "Set", "Dict")
+        ):
+            lazy = open_paged_value(handle._input_types[i], Path(file_path).read_bytes())
+        inputs.append(lazy if lazy is not None else load_value(file_path, param_type))
 
     # The emit capability rides the trailing FunctionType parameter as a
     # foreign function value backed by the sink's Python callable.

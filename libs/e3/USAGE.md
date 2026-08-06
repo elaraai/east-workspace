@@ -252,9 +252,10 @@ Defines a one-pass streaming task: the runner feeds the `stream` input in
 canonical order and the body writes its output incrementally through the
 `emit` capability. State is ordinary `$.let` locals — exact left-fold
 semantics, no parallelism, and any input change re-runs the whole pass.
-Runs on every stock runtime; the output always streams through `emit`, and
-the east-node runner additionally feeds the `stream` input lazily with
-O(segment) decoded memory (east-c / east-py currently decode it whole).
+Runs on every stock runtime: the output always streams through `emit`, and
+every runner feeds the `stream` input lazily with O(segment) decoded memory
+(segment-fed iteration and keyed reads; any other operation on it decodes
+the whole value once).
 
 ```typescript
 import { ArrayType } from '@elaraai/east';

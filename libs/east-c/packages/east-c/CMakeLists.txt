@@ -222,6 +222,16 @@ add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
 
+# Lazy paged collection value gate (issue #505): EAST_VAL_PAGED construction,
+# pager-served size/keyed reads, hydrate-on-demand equivalence with the eager
+# decode, and release of every lifetime state. Run under ASan/LSan
+# (run_leak_check.sh's build-asan config): the wrapper owns the pager, the
+# blob bytes and the hydrated child — the lifetimes this gate exists to feed
+# the sanitizer.
+add_executable(test_paged_value tests/test_paged_value.c)
+target_link_libraries(test_paged_value east-c)
+add_test(NAME paged_value COMMAND test_paged_value)
+
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's
 # error text is byte-identical to the TS analyzer's. Skips (exit 77) unless

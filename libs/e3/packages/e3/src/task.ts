@@ -661,11 +661,12 @@ export interface StreamTaskSpec<
    *  strictly ascending (key) order — the streaming writer enforces the
    *  canonical-segment contract at runtime; Array outputs emit freely. */
   readonly output: Output;
-  /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. All stock
-   *  runtimes stream the output through `emit`; the east-node runner
-   *  additionally feeds the `stream` input lazily (O(segment) decoded
-   *  memory), where east-c/east-py currently decode it whole. The `custom`
-   *  runtime is rejected — its argv cannot carry the streaming flags. */
+  /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. Every
+   *  stock runtime streams the output through `emit` and feeds the `stream`
+   *  input lazily (segment-fed iteration and keyed reads at O(segment)
+   *  decoded memory; any other operation on it decodes the whole value
+   *  once). The `custom` runtime is rejected — its argv cannot carry the
+   *  streaming flags. */
   readonly runner?: Runner;
   /** Execution environment declaration, as for {@link task}. */
   readonly environment?: EnvironmentDecl;

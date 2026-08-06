@@ -317,10 +317,10 @@ Define a one-pass streaming task: the runner feeds the `stream` input in
 canonical order and the body writes the output incrementally through the
 `emit` capability — exact left-fold semantics, no parallelism and no
 partial recompute. Omit `stream` for a producer (platform-function
-ingest). Runs on every stock runtime; the output always streams through
-`emit`, and the east-node runner additionally feeds the `stream` input
-lazily with O(segment) decoded memory (east-c / east-py currently decode
-it whole).
+ingest). Runs on every stock runtime: the output always streams through
+`emit`, and every runner feeds the `stream` input lazily with O(segment)
+decoded memory (segment-fed iteration and keyed reads; any other operation
+on it decodes the whole value once).
 
 ```typescript
 const events = e3.input('events', ArrayType(EventType));
