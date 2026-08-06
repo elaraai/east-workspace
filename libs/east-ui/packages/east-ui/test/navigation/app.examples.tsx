@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, NullType, StringType, StructType, example } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Text, Button, Image } from "@elaraai/east-ui";
+import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from "@elaraai/east-ui";
 
 /**
  * Full application shell from one `Navigation.bind` handle — a collapsible rail
@@ -98,7 +98,9 @@ export const appVariants = example({
         });
         return (
             <Reactive>{$ => {
-                const densities = $.const(["comfortable", "compact", "condensed"], ArrayType(StringType));
+                const densities = $.const([
+                    variant("comfortable", null), variant("compact", null), variant("condensed", null),
+                ], ArrayType(Style.Types.Density));
                 const densityBind = $.let(State.bind([StringType], "app_density", "comfortable"));
                 const dKey = $.let(densityBind.read());
                 const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
@@ -108,43 +110,23 @@ export const appVariants = example({
                 const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));
                 const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));
 
-                // density is a build-time enum on the shell, so the axis picks
-                // between three shells over the one nav handle.
-                const preview = $.const(dKey.equal("compact").ifElse(
-                    _$ => (
-                        <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)} density="compact"
-                            pages={{
-                                overview: () => overviewPage(),
-                                throughput: () => throughputPage(),
-                                audit: () => auditPage(),
-                            }} />
-                    ),
-                    _$ => dKey.equal("condensed").ifElse(
-                        _$ => (
-                            <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)} density="condensed"
-                                pages={{
-                                    overview: () => overviewPage(),
-                                    throughput: () => throughputPage(),
-                                    audit: () => auditPage(),
-                                }} />
-                        ),
-                        _$ => (
-                            <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)}
-                                pages={{
-                                    overview: () => overviewPage(),
-                                    throughput: () => throughputPage(),
-                                    audit: () => auditPage(),
-                                }} />
-                        ),
-                    ),
-                ));
+                // density feeds as an expression — ONE shell over the nav handle.
+                const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+                const preview = $.const(
+                    <App nav={nav} config={routes} title="Acme Operations" logo={Image.dataUri(LOGO)} density={densitySel}
+                        pages={{
+                            overview: () => overviewPage(),
+                            throughput: () => throughputPage(),
+                            audit: () => auditPage(),
+                        }} />,
+                );
 
                 return (
                     <Configurator
                         controls={[
                             Configurator.Control("Density", dKey,
                                 <SegmentGroup value={dKey} onChange={onDensity} size="sm"
-                                    items={densities.map((_$, v) => SegmentGroup.Item(v, <Text>{v.upperCase()}</Text>))} />),
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
                         ]}
                         preview={preview}
                         spec={[
