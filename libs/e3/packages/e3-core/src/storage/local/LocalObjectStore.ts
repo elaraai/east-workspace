@@ -267,6 +267,33 @@ export class LocalObjectStore implements ObjectStore {
     return objectRead(repo, hash);
   }
 
+  async readRange(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array> {
+    const filePath = objectPath(repo, hash);
+    let handle;
+    try {
+      handle = await fs.open(filePath, 'r');
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        throw new ObjectNotFoundError(hash);
+      }
+      throw err;
+    }
+    try {
+      const buffer = new Uint8Array(length);
+      let read = 0;
+      // A positional read may return short even mid-file — loop until the
+      // range is filled or the file ends.
+      while (read < length) {
+        const { bytesRead } = await handle.read(buffer, read, length - read, offset + read);
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      return read === length ? buffer : buffer.subarray(0, read);
+    } finally {
+      await handle.close();
+    }
+  }
+
   async exists(repo: string, hash: string): Promise<boolean> {
     return objectExists(repo, hash);
   }

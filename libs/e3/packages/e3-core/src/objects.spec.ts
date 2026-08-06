@@ -13,6 +13,7 @@ import {
   objectWriteStream,
   objectRead,
   objectExists,
+  LocalObjectStore,
 } from './storage/local/LocalObjectStore.js';
 import { objectPath, objectAbbrev } from './storage/local/localHelpers.js';
 import { ObjectNotFoundError } from './errors.js';
@@ -229,6 +230,34 @@ describe('objects', () => {
       const loaded = await objectRead(testRepo, hash);
 
       assert.deepStrictEqual(new Uint8Array(loaded), original);
+    });
+  });
+
+  describe('readRange', () => {
+    it('reads exact byte ranges without the whole object', async () => {
+      const data = new Uint8Array(Array.from({ length: 1000 }, (_, i) => i % 251));
+      const store = new LocalObjectStore();
+      const hash = await store.write(testRepo, data);
+
+      assert.deepStrictEqual(await store.readRange(testRepo, hash, 0, 10), data.subarray(0, 10));
+      assert.deepStrictEqual(await store.readRange(testRepo, hash, 500, 100), data.subarray(500, 600));
+      assert.deepStrictEqual(await store.readRange(testRepo, hash, 990, 10), data.subarray(990, 1000));
+    });
+
+    it('clamps a range past the end to the available bytes', async () => {
+      const data = new Uint8Array([1, 2, 3, 4, 5]);
+      const store = new LocalObjectStore();
+      const hash = await store.write(testRepo, data);
+
+      assert.deepStrictEqual(await store.readRange(testRepo, hash, 3, 100), data.subarray(3));
+    });
+
+    it('throws on non-existent hash', async () => {
+      const store = new LocalObjectStore();
+      await assert.rejects(
+        () => store.readRange(testRepo, 'a'.repeat(64), 0, 10),
+        ObjectNotFoundError
+      );
     });
   });
 
