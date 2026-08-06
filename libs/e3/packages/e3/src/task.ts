@@ -371,8 +371,13 @@ export interface PartitionTaskSpec<
   readonly partitions: [...Partitions];
   /** Boundary-alignment projection: rows with equal `by(key)` never split
    *  across partitions. Must read a leading prefix of every partitioned
-   *  dataset's key — the identity, one leading field, or a struct of leading
-   *  fields in order — so aligned runs stay contiguous in canonical order. */
+   *  dataset's key, so aligned runs stay contiguous in canonical order.
+   *  Accepted shapes (validated at build time): the key itself; a leading
+   *  field (`key.f`); a nested leading-field path (`key.a.b`, each step the
+   *  first field of its level); or a struct literal of leading fields in
+   *  declared order (`{ f1: key.f1, f2: key.f2 }`). Any other body is
+   *  rejected at build time — semantically monotone projections outside
+   *  these shapes are deliberately not inferred. */
   readonly by?: ($: BlockBuilder<NeverType>, key: ExprType<PartitionByKey<Partitions>>) => unknown;
   /** Ordinary inputs, passed whole to every partition execution (small ⇒
    *  broadcast; huge + indexed ⇒ opened lazily by the runner). Any change to
@@ -408,10 +413,25 @@ function collectionKeyType(name: string, dataset: DatasetDef): EastType {
   }
 }
 
-/** Extracts the leading-prefix field path a `by` projection reads: `[]` for
- *  the identity, `[f]` for one field, `[f1..fn]` for a struct of fields in
- *  declaration order — or `null` for any other shape. */
-function projectionFieldPrefix(ir: FunctionIR): string[] | null {
+/**
+ * The shape a `by` projection reads, as extracted from its IR.
+ *
+ * - `fields`: the identity (`names: []`), or a leading prefix of the key's
+ *   top-level fields — one field, or a struct literal of fields in declared
+ *   order. Validated against each dataset's top-level key field order.
+ * - `path`: a nested leading-field path (`key.a.b`, two or more steps).
+ *   Validated per step: each must read the FIRST field of its level's
+ *   struct, which is what keeps the projection monotone in canonical key
+ *   order.
+ */
+interface ProjectionShape {
+  kind: 'fields' | 'path';
+  names: string[];
+}
+
+/** Extracts the shape a `by` projection reads — see {@link ProjectionShape}
+ *  — or `null` for any other (unaccepted) shape. */
+function projectionFieldPrefix(ir: FunctionIR): ProjectionShape | null {
   const param = ir.value.parameters[0]?.value.name;
   if (param === undefined) return null;
 
@@ -435,11 +455,24 @@ function projectionFieldPrefix(ir: FunctionIR): string[] | null {
   const isParam = (node: any): boolean => node.type === 'Variable' && node.value.name === param;
   const fieldOf = (node: any): string | null =>
     node.type === 'GetField' && isParam(unwrap(node.value.struct)) ? node.value.field as string : null;
+  // Walks a GetField chain down to the parameter: `key.a.b` → ['a', 'b'].
+  const pathOf = (node: any): string[] | null => {
+    const path: string[] = [];
+    let cur = node;
+    while (cur.type === 'GetField') {
+      path.unshift(cur.value.field as string);
+      cur = unwrap(cur.value.struct);
+    }
+    return isParam(cur) && path.length > 0 ? path : null;
+  };
 
   const body = unwrap(ir.value.body as any);
-  if (isParam(body)) return [];
-  const single = fieldOf(body);
-  if (single !== null) return [single];
+  if (isParam(body)) return { kind: 'fields', names: [] };
+  const chain = pathOf(body);
+  if (chain !== null) {
+    // A one-step chain is a top-level field read — the `fields` family.
+    return chain.length === 1 ? { kind: 'fields', names: chain } : { kind: 'path', names: chain };
+  }
   if (body.type === 'Struct') {
     const fields: string[] = [];
     for (const { value } of body.value.fields) {
@@ -447,7 +480,7 @@ function projectionFieldPrefix(ir: FunctionIR): string[] | null {
       if (f === null) return null;
       fields.push(f);
     }
-    return fields;
+    return { kind: 'fields', names: fields };
   }
   return null;
 }
@@ -462,8 +495,12 @@ function projectionFieldPrefix(ir: FunctionIR): string[] | null {
  * `fn` always returns the output type: without `combine` each execution
  * returns its *shard* of the output (Array shards concatenate freely;
  * Dict/Set shard key ranges must ascend disjointly in partition order — any
- * key-preserving or monotone re-keying transform qualifies, and a violation
- * fails the task at splice naming the offending partitions); with `combine`
+ * key-preserving or monotone re-keying transform qualifies). The shard
+ * contract is deliberately enforced at SPLICE TIME, not build time: whether
+ * an arbitrary body preserves key order is not decidable from types, and a
+ * static rule would false-reject permitted monotone re-keys — a violation
+ * fails the task deterministically at splice, naming the offending
+ * partitions and the remedies (`combine` / `customTask`). With `combine`
  * each execution returns a *partial* and the partials fold.
  *
  * Parameter order is fixed and fully typed: the partition slices first (in
@@ -560,14 +597,16 @@ export function partitionTask<
   if (spec.by !== undefined) {
     const byFn = East.function([byParamType], undefined, spec.by as any);
     const bundle = byFn.toIR();
-    const prefix = projectionFieldPrefix(bundle.ir as FunctionIR);
-    if (prefix === null) {
+    const shape = projectionFieldPrefix(bundle.ir as FunctionIR);
+    if (shape === null) {
       throw new Error(
         `partitionTask '${name}': \`by\` must project a leading prefix of the partition key — ` +
-        `the key itself, one leading field, or a struct of leading fields in order`
+        `accepted shapes: the key itself, a leading field (\`key.f\`), a nested leading-field ` +
+        `path (\`key.a.b\`, each step the first field of its level), or a struct literal of ` +
+        `leading fields in declared order (\`{ f1: key.f1, f2: key.f2 }\`)`
       );
     }
-    if (prefix.length > 0) {
+    if (shape.names.length > 0) {
       for (let i = 0; i < partitions.length; i++) {
         const keyType = keyTypes[i]!;
         if (keyType.type !== 'Struct') {
@@ -575,13 +614,38 @@ export function partitionTask<
             `partitionTask '${name}': \`by\` reads key fields, but partitioned dataset '${partitions[i]!.name}' has a non-struct key (${keyType.type}) — use the identity projection`
           );
         }
-        const order = Object.keys((keyType as EastType & { fields: Record<string, EastType> }).fields);
-        const misaligned = prefix.length > order.length || prefix.some((f, j) => order[j] !== f);
-        if (misaligned) {
-          throw new Error(
-            `partitionTask '${name}': \`by\` projects (${prefix.join(', ')}), which is not a leading prefix of ` +
-            `partitioned dataset '${partitions[i]!.name}' key field order (${order.join(', ')})`
-          );
+        if (shape.kind === 'fields') {
+          const order = Object.keys((keyType as EastType & { fields: Record<string, EastType> }).fields);
+          const misaligned = shape.names.length > order.length || shape.names.some((f, j) => order[j] !== f);
+          if (misaligned) {
+            throw new Error(
+              `partitionTask '${name}': \`by\` projects (${shape.names.join(', ')}), which is not a leading prefix of ` +
+              `partitioned dataset '${partitions[i]!.name}' key field order (${order.join(', ')})`
+            );
+          }
+        } else {
+          // Nested path: every step must read the FIRST field of its
+          // level's struct — struct keys sort lexicographically by declared
+          // field order, so only first-field descent preserves it.
+          let level: EastType = keyType;
+          for (let j = 0; j < shape.names.length; j++) {
+            const step = shape.names[j]!;
+            if (level.type !== 'Struct') {
+              throw new Error(
+                `partitionTask '${name}': \`by\` path (key.${shape.names.join('.')}) descends into a ${level.type} at '${step}' — ` +
+                `every step must read the first field of a struct level of partitioned dataset '${partitions[i]!.name}'`
+              );
+            }
+            const levelFields: Record<string, EastType> = (level as EastType & { fields: Record<string, EastType> }).fields;
+            const order = Object.keys(levelFields);
+            if (order[0] !== step) {
+              throw new Error(
+                `partitionTask '${name}': \`by\` path (key.${shape.names.slice(0, j + 1).join('.')}) reads '${step}', which is not ` +
+                `the first field of partitioned dataset '${partitions[i]!.name}' key level (${order.join(', ')})`
+              );
+            }
+            level = levelFields[step]!;
+          }
         }
       }
     }

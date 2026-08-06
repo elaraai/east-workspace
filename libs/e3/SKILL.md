@@ -296,18 +296,22 @@ const delta = e3.partitionTask('delta', {
 
 Spec fields: `partitions` (1+ huge Dict/Set/Array inputs; 2+ co-partition and
 must all be Dict or all Set), `by` (boundary alignment — must read a leading
-prefix of every partitioned dataset's key: the key itself, one leading field,
-or a struct of leading fields in order; validated at build time), `inputs`
-(ordinary broadcast inputs — any change re-runs all partitions), `output`,
-`combine` (associative fold; its presence is the whole mode switch),
+prefix of every partitioned dataset's key: the key itself, a leading field, a
+nested leading-field path like `key.a.b` where each step is the first field
+of its level, or a struct literal of leading fields in declared order;
+validated at build time, any other body rejected), `inputs` (ordinary
+broadcast inputs — any change re-runs all partitions), `output`, `combine`
+(associative fold; its presence is the whole mode switch),
 `targetPartitionBytes` (the only sizing knob, default 256 MiB), `runner`,
 `environment`.
 
 Splice-mode contract: Array shards concatenate freely; Dict/Set shard key
 ranges must ascend disjointly in partition order (key-preserving and monotone
 re-keys qualify). A violation fails the task at splice naming the offending
-partitions; a huge→huge re-key needs `combine`, `customTask`, or future
-shuffle support. Partition memoization is append-friendly: appends and
+partitions — deliberately a runtime check, not build-time: whether an
+arbitrary body preserves key order is undecidable from types, and a static
+rule would false-reject permitted monotone re-keys. A huge→huge re-key needs
+`combine`, `customTask`, or future shuffle support. Partition memoization is append-friendly: appends and
 tail-localized changes re-run only the affected partitions, while a
 mid-key-space insertion re-runs partitions from the insertion point on.
 

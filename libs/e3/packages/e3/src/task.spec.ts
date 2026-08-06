@@ -361,7 +361,7 @@ describe('partitionTask', () => {
     );
   });
 
-  it('rejects unsupported by projection shapes', () => {
+  it('rejects unsupported by projection shapes, echoing the accepted shapes', () => {
     const sales = input('sales', DictType(SaleKeyType, IntegerType));
 
     assert.throws(
@@ -370,8 +370,72 @@ describe('partitionTask', () => {
         by: (_$, key) => East.str`${key.sku}-x`,
         output: DictType(SaleKeyType, IntegerType),
       }, ($, slice) => $.return(slice)),
-      /`by` must project a leading prefix of the partition key/,
+      /`by` must project a leading prefix of the partition key — accepted shapes: the key itself, a leading field/,
     );
+  });
+
+  describe('`by` nested leading-field paths', () => {
+    const NestedKeyType = StructType({
+      head: StructType({ region: StringType, store: IntegerType }),
+      seq: IntegerType,
+    });
+
+    it('accepts a nested path that follows the first-field spine', () => {
+      const sales = input('nsales', DictType(NestedKeyType, IntegerType));
+
+      // head is the key's first field and region is head's first field, so
+      // projecting key.head.region is monotone in canonical key order.
+      const nested = partitionTask('by_nested', {
+        partitions: [sales],
+        by: (_$, key) => key.head.region,
+        output: DictType(NestedKeyType, IntegerType),
+      }, ($, slice) => $.return(slice));
+      assert.strictEqual(decodePartitionTaskMetadata(nested.metadata!).by.type, 'some');
+
+      // One level of the same spine (a whole-struct leading field).
+      const oneLevel = partitionTask('by_nested_head', {
+        partitions: [sales],
+        by: (_$, key) => key.head,
+        output: DictType(NestedKeyType, IntegerType),
+      }, ($, slice) => $.return(slice));
+      assert.strictEqual(decodePartitionTaskMetadata(oneLevel.metadata!).by.type, 'some');
+    });
+
+    it('rejects a nested path that leaves the first-field spine, naming the level', () => {
+      const sales = input('nsales2', DictType(NestedKeyType, IntegerType));
+
+      assert.throws(
+        () => partitionTask('bad_nested', {
+          partitions: [sales],
+          by: (_$, key) => key.head.store,
+          output: DictType(NestedKeyType, IntegerType),
+        }, ($, slice) => $.return(slice)),
+        /path \(key\.head\.store\) reads 'store', which is not the first field of partitioned dataset 'nsales2' key level \(region, store\)/,
+      );
+
+      // A non-leading top-level field stays rejected with the prefix error.
+      assert.throws(
+        () => partitionTask('bad_nested_top', {
+          partitions: [sales],
+          by: (_$, key) => key.seq,
+          output: DictType(NestedKeyType, IntegerType),
+        }, ($, slice) => $.return(slice)),
+        /projects \(seq\), which is not a leading prefix of partitioned dataset 'nsales2' key field order \(head, seq\)/,
+      );
+    });
+
+    it('rejects a struct literal over nested paths (deliberately unsupported)', () => {
+      const sales = input('nsales3', DictType(NestedKeyType, IntegerType));
+
+      assert.throws(
+        () => partitionTask('bad_struct_nested', {
+          partitions: [sales],
+          by: (_$, key) => ({ r: key.head.region }),
+          output: DictType(NestedKeyType, IntegerType),
+        }, ($, slice) => $.return(slice)),
+        /accepted shapes: the key itself/,
+      );
+    });
   });
 
   it('rejects non-collection partitions and mixed-kind co-partitioning', () => {
