@@ -142,6 +142,110 @@ export async function datasetGet(
   return { data, hash, size };
 }
 
+/** Window addressing for {@link datasetGetPage}: an element window or one
+ *  writer segment, optionally pinned to a content hash. Pinned windows are
+ *  immutable-cacheable (same URL ⇒ same bytes); a stale pin is refused with
+ *  an error rather than answered with different bytes — refetch the status
+ *  for the current hash and retry. */
+export type DatasetPageWindow = ({ offset: number; limit: number } | { segment: number }) & { hash?: string };
+
+/** One page of a collection dataset. */
+export interface DatasetPage {
+  /** Raw BEAST2 bytes of the window — a valid value of the dataset's own
+   *  type, decodable with `decodeBeast2For(datasetType)`. */
+  data: Uint8Array;
+  /** Total elements in the dataset (pairs for Dict datasets). */
+  totalElements: number;
+  /** Byte size of the whole stored blob (the page body's own size is
+   *  `data.length`). */
+  totalBytes: number;
+  /** Whether `totalElements` is exact. Always `true` against current
+   *  servers — v5 Set/Dict segments are disjoint ranges of the canonical
+   *  value, so counts never overlap. */
+  totalExact: boolean;
+  /** Segments in the stored blob; 0 when the blob carries no index. */
+  segmentCount: number;
+  /** Global element offset of the window's first element. */
+  offset: number;
+  /** Elements actually in this page (the server may clamp the requested
+   *  limit by count and by byte budget). */
+  count: number;
+  /** Content hash of the source object — cache key for the page. */
+  hash: string;
+}
+
+/**
+ * Get one window of a collection (Array/Set/Dict) dataset.
+ *
+ * Element windows (`{ offset, limit }`) are exact for every collection kind:
+ * Array windows address stream order, Set/Dict windows the canonical East
+ * (key) order — the wire order of v5 blobs. Segment windows (`{ segment }`)
+ * return one writer batch and need a blob stored with a segment index.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset (e.g., ['inputs', 'rows'])
+ * @param window - The window to read
+ * @param options - Request options including auth token
+ * @returns The page bytes plus totals and window placement
+ * @throws {ApiError} On application-level errors (non-collection dataset, bad window)
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetGetPage(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  window: DatasetPageWindow,
+  options: RequestOptions
+): Promise<DatasetPage> {
+  const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
+  const params = new URLSearchParams({ page: 'true' });
+  if ('segment' in window) {
+    params.set('segment', String(window.segment));
+  } else {
+    params.set('offset', String(window.offset));
+    params.set('limit', String(window.limit));
+  }
+  if (window.hash !== undefined) {
+    params.set('hash', window.hash);
+  }
+  const response = await fetchWithAuth(
+    `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: { 'Accept': BEAST2_CONTENT_TYPE },
+    },
+    options
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = parseErrorBody(text, `http_${response.status}`);
+    if (response.status === 401) {
+      throw new AuthError(error.details as string ?? 'Authentication required');
+    }
+    throw error;
+  }
+
+  const buffer = await response.arrayBuffer();
+  const intHeader = (name: string): number => {
+    const value = response.headers.get(name);
+    return value === null ? 0 : Number(value);
+  };
+  return {
+    data: new Uint8Array(buffer),
+    totalElements: intHeader('X-Total-Elements'),
+    totalBytes: intHeader('X-Total-Bytes'),
+    totalExact: response.headers.get('X-Total-Exactness') !== 'upper-bound',
+    segmentCount: intHeader('X-Segment-Count'),
+    offset: intHeader('X-Page-Offset'),
+    count: intHeader('X-Page-Count'),
+    hash: response.headers.get('X-Content-SHA256') ?? '',
+  };
+}
+
 const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 
 /**

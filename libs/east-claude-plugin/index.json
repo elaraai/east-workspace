@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1527,
+    "totalEntries": 1528,
     "totalFiles": 192,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 763,
+      "east-ui": 764,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -19585,6 +19585,30 @@
         "import { Box, Reactive, ValueTree } from \"@elaraai/east-ui\";"
       ],
       "source": "// A pinned-height tree over hundreds of rows — rows virtualize and scroll position persists\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const SeriesType = DictType(StringType, ArrayType(FloatType));\n            const bind = $.let(State.bind([SeriesType], \"vt_series\", new Map<string, number[]>()));\n            $.if(bind.read().size().equals(0n), $ => {\n                const seeded = $.let(East.Array.range(0n, 24n).toDict(\n                    (_$, i) => East.str`sensor ${i}`,\n                    (_$, i) => East.Array.range(0n, 8n).map((_$2, j) => j.toFloat().multiply(0.5).add(i.toFloat())),\n                ));\n                $(bind.write(seeded));\n            });\n            const series = $.let(bind.read());\n            const onUpdate = $.const(East.function([SeriesType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={series} onUpdate={onUpdate} style={{ height: \"320px\" }} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeControls",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Expansion controls — openDepth sets how many levels start open (0 = all collapsed) and toolbar adds collapse-all / expand-all; Alt-click a chevron to collapse that whole subtree",
+      "keywords": [
+        "ValueTree",
+        "toolbar",
+        "collapse",
+        "expand",
+        "openDepth",
+        "collapse all",
+        "expand all",
+        "controls"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Expansion controls — openDepth sets how many levels start open (0 = all collapsed) and toolbar adds collapse-all / expand-all; Alt-click a chevron to collapse that whole subtree\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={East.value(new Map([\n                [\"m1\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                [\"m2\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n            ]), DictType(StringType, MachineType))}\n            style={{ openDepth: 0n, toolbar: true }}\n        />\n    ))"
     },
     {
       "id": "east-ui:value-tree.examples.tsx:valueTreeFillsBoundedParent",

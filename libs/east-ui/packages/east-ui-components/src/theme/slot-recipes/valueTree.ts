@@ -24,6 +24,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         "root", "row", "twist", "label", "value",
         "valueText", "summary", "opaque", "controls", "ctl",
         "setBtn", "keyInput", "tagWrap", "empty", "append",
+        "toolbar", "toolbarBtn",
     ],
     base: {
         /* Bare like Table / Deck — identity chrome is host composition. */
@@ -184,6 +185,30 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             padding: "{spacing.4}",
             fontSize: "{fontSizes.xs}",
             color: "fg.subtle",
+        },
+        /* Collapse-all / expand-all bar — pins above the rows (the
+         * VirtualRows header slot) with the row grid's own horizontals. */
+        toolbar: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.1}",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.1}",
+            borderBottomWidth: "1px",
+            borderColor: "border.subtle",
+            background: "bg.surface",
+        },
+        toolbarBtn: {
+            display: "inline-flex",
+            alignItems: "center",
+            fontSize: "{fontSizes.xs}",
+            color: "fg.subtle",
+            borderRadius: "{radii.sm}",
+            paddingX: "{spacing.2}",
+            height: "22px",
+            cursor: "pointer",
+            _hover: { background: "bg.emphasized", color: "fg.default" },
+            _coarse: { height: "32px" },
         },
         /* "Add item" / "Add entry" ghost-row affordance. */
         append: {

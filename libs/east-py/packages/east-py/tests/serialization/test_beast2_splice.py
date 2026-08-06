@@ -131,7 +131,12 @@ def test_sources_are_consumed_lazily(tmp_path):
     assert len(decode_beast2_with_header_for(AT)(dest.read_bytes())) == 300
 
 
-def test_dict_and_set_sources_keep_merge_semantics(tmp_path):
+def test_dict_and_set_sources_splice_canonically_or_fail_as_corrupt(tmp_path):
+    """Set/Dict wire content is the canonical value split at segment
+    boundaries, so splice sources must ascend disjointly in source order —
+    then the result decodes as plain concatenation. Sources whose ranges
+    overlap produce a blob that is the encoding of no East value, and the
+    strict decoders reject it."""
     disjoint = []
     for k in range(2):
         p = tmp_path / f"d{k}.beast2"
@@ -143,23 +148,23 @@ def test_dict_and_set_sources_keep_merge_semantics(tmp_path):
     merged = decode_beast2_with_header_for(DT)(dest.read_bytes())
     assert len(merged) == 1000 and merged["k0750"] == 750
 
-    # Overlapping keys behave exactly like decoding the segments in order:
-    # the later occurrence wins.
+    st = SetType(IntegerType)
+    s0, s1 = tmp_path / "set0.beast2", tmp_path / "set1.beast2"
+    write_beast2_file(s0, st, EastSet(IntegerType, [1, 2, 3]))
+    write_beast2_file(s1, st, EastSet(IntegerType, [4, 5]))
+    sd = tmp_path / "set.beast2"
+    splice_beast2_files(sd, st, [s0, s1])
+    assert sorted(decode_beast2_with_header_for(st)(sd.read_bytes())) == [1, 2, 3, 4, 5]
+
+    # Overlapping sources byte-copy fine but the result is non-canonical —
+    # a duplicate key across the splice boundary is corruption on read.
     a, b = tmp_path / "o0.beast2", tmp_path / "o1.beast2"
     write_beast2_file(a, DT, EastDict(StringType, IntegerType, {"k": 1, "x": 7}))
     write_beast2_file(b, DT, EastDict(StringType, IntegerType, {"k": 2}))
     overlap = tmp_path / "o.beast2"
     splice_beast2_files(overlap, DT, [a, b])
-    winner = decode_beast2_with_header_for(DT)(overlap.read_bytes())
-    assert winner["k"] == 2 and winner["x"] == 7 and len(winner) == 2
-
-    st = SetType(IntegerType)
-    s0, s1 = tmp_path / "set0.beast2", tmp_path / "set1.beast2"
-    write_beast2_file(s0, st, EastSet(IntegerType, [1, 2, 3]))
-    write_beast2_file(s1, st, EastSet(IntegerType, [3, 4]))
-    sd = tmp_path / "set.beast2"
-    splice_beast2_files(sd, st, [s0, s1])
-    assert sorted(decode_beast2_with_header_for(st)(sd.read_bytes())) == [1, 2, 3, 4]
+    with pytest.raises((RuntimeError, ValueError), match="strictly ascending"):
+        decode_beast2_with_header_for(DT)(overlap.read_bytes())
 
 
 def test_preconditions_refuse_naming_the_path_and_leave_nothing(tmp_path):

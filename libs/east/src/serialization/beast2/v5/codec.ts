@@ -27,6 +27,11 @@
  *   global one.
  * - Array/Set/Dict content is segment-terminated:
  *   `repeat[varint(n>0) + n elements] varint(0)` — no up-front totals.
+ *   Set/Dict content is the canonical value split at segment boundaries:
+ *   strictly ascending in East (key) order across the whole stream, no
+ *   duplicates — segments concatenate, and decoders reject anything else
+ *   as corrupt. Encoders sort plain `Map`/`Set` inputs to keep logical
+ *   value → bytes independent of the JS container flavor.
  * - Function values emit a source-map delta (`varint(n_new)` + stacks not yet
  *   written to this stream), then their IR, then `varint(capture_count)` +
  *   captures. Location ids inside IR stay plain integer data, so round-trips
@@ -262,12 +267,18 @@ export function buildV5Encoder(type: EastTypeValue, typeCtx: Map<bigint, V5Encod
 
     case "Set": {
       let elem: V5Encoder;
+      const cmp = compareFor(type.value);
       const ret: V5Encoder = (value, writer, ctx) => {
         if (!beginContainer(value, writer, ctx)) return;
         const n = value.size;
         if (n > 0) {
           writer.writeVarint(n);
-          for (const item of value) elem(item, writer, ctx);
+          // The wire holds the canonical value: elements in East total order.
+          // A SortedSet iterates in that order already; a plain Set iterates
+          // in insertion order and is sorted first, so the same logical value
+          // always produces the same bytes (and the same content hash).
+          const items: Iterable<any> = value instanceof SortedSet ? value : [...value].sort(cmp);
+          for (const item of items) elem(item, writer, ctx);
         }
         writer.writeVarint(0);
       };
@@ -278,12 +289,17 @@ export function buildV5Encoder(type: EastTypeValue, typeCtx: Map<bigint, V5Encod
     case "Dict": {
       let key: V5Encoder;
       let val: V5Encoder;
+      const cmpKey = compareFor(type.value.key);
       const ret: V5Encoder = (value, writer, ctx) => {
         if (!beginContainer(value, writer, ctx)) return;
         const n = value.size;
         if (n > 0) {
           writer.writeVarint(n);
-          for (const [k, v] of value) {
+          // Canonical wire order, as for Set: plain Maps sort by key first.
+          const entries: Iterable<[any, any]> = value instanceof SortedMap
+            ? value
+            : [...value.entries()].sort((a: [any, any], b: [any, any]) => cmpKey(a[0], b[0]));
+          for (const [k, v] of entries) {
             key(k, writer, ctx);
             val(v, writer, ctx);
           }
@@ -491,14 +507,25 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       const ret: V5Decoder = (reader, ctx) => {
         const aliased = readContainerTag(reader, ctx);
         if (aliased !== undefined) return aliased;
-        // A SortedSet keeps East's total order, which also gives the
-        // cross-segment merge semantics for free: inserts sort and dedup.
+        // The wire must hold the canonical value: strictly ascending in East
+        // order across the container's whole content (segments concatenate).
+        // Anything else is corrupt — decoders validate, never repair.
         const set = new SortedSet<any>(undefined, cmp);
         ctx.containers.push(set);
+        let has = false;
+        let prev: any;
         for (;;) {
           const n = reader.readVarint();
           if (n === 0) break;
-          for (let i = 0; i < n; i++) set.add(elem(reader, ctx));
+          for (let i = 0; i < n; i++) {
+            const item = elem(reader, ctx);
+            if (has && cmp(prev, item) >= 0) {
+              throw new Error(`beast2 v5: Set elements are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+            }
+            prev = item;
+            has = true;
+            set.add(item);
+          }
         }
         return set;
       };
@@ -513,15 +540,22 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       const ret: V5Decoder = (reader, ctx) => {
         const aliased = readContainerTag(reader, ctx);
         if (aliased !== undefined) return aliased;
-        // A SortedMap keeps East's total order; a later set() on an existing
-        // key overwrites, which IS the cross-segment last-wins rule.
+        // Canonical wire order, as for Set: keys strictly ascending across
+        // the whole content, no duplicates. Validate, never repair.
         const map = new SortedMap<any, any>(undefined, cmpKey);
         ctx.containers.push(map);
+        let has = false;
+        let prev: any;
         for (;;) {
           const n = reader.readVarint();
           if (n === 0) break;
           for (let i = 0; i < n; i++) {
             const k = key(reader, ctx);
+            if (has && cmpKey(prev, k) >= 0) {
+              throw new Error(`beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+            }
+            prev = k;
+            has = true;
             const v = val(reader, ctx);
             map.set(k, v);
           }
@@ -977,16 +1011,21 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
   }
 
   const kind = typeValue.type as "Array" | "Set" | "Dict";
-  // Sorted containers keep East's total order and give the cross-segment
-  // merge rules for free (Set inserts dedup; a later Dict set() overwrites).
+  // Set/Dict wire content is the canonical value split at segment boundaries:
+  // strictly ascending in East order across the whole stream, no duplicates.
+  // Segments concatenate; a violation is corruption, not data to repair.
+  const cmp: ((a: any, b: any) => number) | null = kind === "Array" ? null
+    : compareFor(kind === "Set" ? (typeValue as any).value : (typeValue as any).value.key);
   const container: any = kind === "Array" ? []
-    : kind === "Set" ? new SortedSet<any>(undefined, compareFor((typeValue as any).value))
-    : new SortedMap<any, any>(undefined, compareFor((typeValue as any).value.key));
+    : kind === "Set" ? new SortedSet<any>(undefined, cmp!)
+    : new SortedMap<any, any>(undefined, cmp!);
   ctx.containers.push(container);
 
   const typeCtx = new Map<bigint, V5Decoder>();
   const { elemDec, keyDec, valDec } = cachedElementDecoders(typeValue, kind, typeCtx);
 
+  let has = false;
+  let prev: any;
   for (;;) {
     if (reader.offset === reader.buffer.length) reader = cursor.next();
     const n = reader.readVarint();
@@ -995,10 +1034,23 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
     if (kind === "Array") {
       for (let i = 0; i < n; i++) container.push(elemDec!(reader, ctx));
     } else if (kind === "Set") {
-      for (let i = 0; i < n; i++) container.add(elemDec!(reader, ctx));
+      for (let i = 0; i < n; i++) {
+        const item = elemDec!(reader, ctx);
+        if (has && cmp!(prev, item) >= 0) {
+          throw new Error(`beast2 v5: Set elements are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+        }
+        prev = item;
+        has = true;
+        container.add(item);
+      }
     } else {
       for (let i = 0; i < n; i++) {
         const k = keyDec!(reader, ctx);
+        if (has && cmp!(prev, k) >= 0) {
+          throw new Error(`beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+        }
+        prev = k;
+        has = true;
         const v = valDec!(reader, ctx);
         container.set(k, v);
       }

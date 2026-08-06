@@ -346,6 +346,21 @@ export const valueTreeVirtualized = example({
     inputs: [],
 });
 
+export const valueTreeControls = example({
+    keywords: ["ValueTree", "toolbar", "collapse", "expand", "openDepth", "collapse all", "expand all", "controls"],
+    description: "Expansion controls — openDepth sets how many levels start open (0 = all collapsed) and toolbar adds collapse-all / expand-all; Alt-click a chevron to collapse that whole subtree",
+    fn: East.function([], UIComponentType, (_$) => (
+        <ValueTree
+            value={East.value(new Map([
+                ["m1", { name: "Press", rate: 2.5, operator: some("dana"), state: variant("running", null) }],
+                ["m2", { name: "Mill", rate: 1.25, operator: none, state: variant("down", "belt snapped") }],
+            ]), DictType(StringType, MachineType))}
+            style={{ openDepth: 0n, toolbar: true }}
+        />
+    )),
+    inputs: [],
+});
+
 export const valueTreeFillsBoundedParent = example({
     keywords: ["ValueTree", "virtualized", "height", "100%", "fill", "parent", "bounded", "scroll", "preview"],
     description: "A tree told to fill a bounded parent scrolls inside it instead of growing to its content",

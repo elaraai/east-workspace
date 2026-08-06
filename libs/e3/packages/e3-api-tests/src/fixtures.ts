@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3 from '@elaraai/e3';
-import { IntegerType, StringType, East } from '@elaraai/east';
+import { ArrayType, DictType, IntegerType, StringType, StructType, East } from '@elaraai/east';
 import { Time } from '@elaraai/east-node-std';
 
 /**
@@ -208,6 +208,44 @@ export async function createMultiInputPackageZip(
     East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
   );
   const pkg = e3.package(name, version, task);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
+ * Create a package with collection ("table") inputs for paged-read testing.
+ *
+ * Creates a package with:
+ * - Input: "rows" (Array<{id, name}>, default [])
+ * - Input: "lookup" (Dict<String, Integer>, default {})
+ * - Input: "label" (String, default "x") — a non-pageable control
+ * - Task: "count" - returns rows.size()
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createTablePackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const RowType = StructType({ id: IntegerType, name: StringType });
+  const rows = e3.input('rows', ArrayType(RowType), []);
+  const lookup = e3.input('lookup', DictType(StringType, IntegerType), new Map());
+  const label = e3.input('label', StringType, 'x');
+  const count = e3.task(
+    'count',
+    [rows, lookup, label],
+    East.function([ArrayType(RowType), DictType(StringType, IntegerType), StringType], IntegerType, ($, r, _l, _s) => r.size())
+  );
+  const pkg = e3.package(name, version, count);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

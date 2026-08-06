@@ -192,12 +192,23 @@ Every mutable container position starts with a tag byte:
     (`n` counts pairs). Segment counts are never 0 (the terminator is
     unambiguous; writers skip empty batches).
   - Ref: the single inner value (no segmenting).
-- Multi-segment Set/Dict content merges with container semantics: Set
-  segments union (structural equality), Dict segments insert with **later
-  occurrences of a key winning** (update semantics). Decoders canonicalize
-  multi-segment Set/Dict content to sorted order (the C runtime's btrees do
-  this inherently). Nested containers written by these runtimes always use a
-  single segment.
+- **Set/Dict content is the canonical value, split at segment boundaries.**
+  East Set/Dict values are total-order-canonical in every runtime, and the
+  wire holds exactly that value: elements (Set) / keys (Dict) MUST be
+  strictly ascending in East total order within each segment, consecutive
+  segments MUST be disjoint ascending ranges (`last(segment i) <
+  first(segment i+1)`), and no element/key repeats anywhere in a stream
+  (strict ascent implies this; it also outlaws duplicates within a single
+  segment). Multi-segment Set/Dict content is therefore **concatenation**,
+  exactly like Array roots. This applies to root and nested containers
+  alike (nested containers written by these runtimes always use a single
+  segment). Writers enforce it — encoders emit canonical order regardless
+  of the source container's iteration order, and streaming writers reject
+  out-of-order batches. Decoders validate it and reject violations as
+  malformed, like any other corruption; a blob holding unsorted or
+  duplicated Set/Dict content is not the encoding of any East value.
+  Streams whose element order is genuinely data belong in an Array typed
+  as such.
 
 ### Functions
 
@@ -241,14 +252,17 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
   exactly at the index boundary yields a complete index-less stream (no
   value bytes are lost); any truncation that loses value bytes fails.
 - **Paging readers** seek to EOF, verify the footer magic, load the index,
-  then: `len()` in O(1) from the counts (exact for Array roots; an upper
-  bound for Set/Dict roots, where cross-segment duplicates collapse on
-  merge); row N → binary search → seek → decode ONE segment. Implemented in
-  all three runtimes: `openBeast2PagesFor` (TS), `east_beast2_pages_*` (C),
-  `open_beast2_pages_for` (Python). A paged segment decodes against an EMPTY
-  definition table — REF deltas are relative, so a self-contained segment
-  resolves identically, and a blob whose `self_contained` flag lies trips the
-  delta bounds check instead of silently resolving to the wrong container.
+  then: `len()` in O(1) from the counts (exact for every root kind —
+  Set/Dict segments are disjoint ranges of the canonical value); row N →
+  binary search → seek → decode ONE segment. Set/Dict rows address the
+  canonical sorted order; readers verify the per-segment first-key fences
+  ascend strictly before trusting it, and keyed lookup binary-searches the
+  fences. Implemented in all three runtimes: `openBeast2PagesFor` (TS),
+  `east_beast2_pages_*` (C), `open_beast2_pages_for` (Python). A paged
+  segment decodes against an EMPTY definition table — REF deltas are
+  relative, so a self-contained segment resolves identically, and a blob
+  whose `self_contained` flag lies trips the delta bounds check instead of
+  silently resolving to the wrong container.
 - `self_contained_segments` asserts that no REF delta and no source-map
   delta crosses a root-segment boundary, so each indexed segment decodes
   independently (and in parallel). Random access requires it; sequential

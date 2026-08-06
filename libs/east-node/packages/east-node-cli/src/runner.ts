@@ -8,6 +8,7 @@ import { extname } from 'path';
 import {
     EastIR,
     encodeBeast2For,
+    encodeBeast2PagedFor,
     encodeEastFor,
     encodeJSONFor,
     printFor,
@@ -149,12 +150,34 @@ function printTimingAndMemory(t0: bigint, t1: bigint, t2: bigint, t3: bigint, t4
     console.error(`  Peak RSS: ${rssMB.toFixed(1).padStart(8)} MB`);
 }
 
+/** Collection outputs above this element count are written segmented +
+ *  indexed so e3's paged dataset reads can seek instead of whole-decoding.
+ *  At or below it, the whole-value encode is kept byte-for-byte. */
+const OUTPUT_SEGMENT_THRESHOLD = 1_000;
+
+/** Element count of a collection value for a collection root type, or null
+ *  when the output type is not a collection root. */
+function collectionElementCount(value: unknown, type: EastTypeValue): number | null {
+    switch (type.type) {
+        case 'Array':
+            return (value as unknown[]).length;
+        case 'Set':
+        case 'Dict':
+            return (value as { size: number }).size;
+        default:
+            return null;
+    }
+}
+
 function writeOutput(filePath: string, value: unknown, type: unknown): void {
     const ext = extname(filePath).toLowerCase();
     switch (ext) {
         case '.beast2':
         case '.beast': {
-            const encoder = encodeBeast2For(type as any);
+            const count = collectionElementCount(value, type as EastTypeValue);
+            const encoder = count !== null && count > OUTPUT_SEGMENT_THRESHOLD
+                ? encodeBeast2PagedFor(type as any)
+                : encodeBeast2For(type as any);
             writeFileSync(filePath, encoder(value));
             break;
         }

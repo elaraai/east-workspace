@@ -266,31 +266,61 @@ def test_array_find_sorted_matches_the_eager_array(tmp_path):
             assert (span["start"], span["end"]) == (eager_span["start"], eager_span["end"])
 
 
-def test_keyed_reads_detect_non_disjoint_segments(tmp_path):
-    """Keyed reads require key-disjoint segments; a foreign writer that broke
-    the contract fails loudly instead of reporting false misses. Both shapes:
-    batches written out of key order (fences not ascending — caught by the
-    one-time fence verification) and overlapping ranges behind ascending
+def _swap_wire_bytes(path, a: bytes, b: bytes) -> None:
+    """Swap two equal-length byte runs of a ``codec="none"`` blob in place —
+    manufacturing the non-canonical wire the writers can no longer emit."""
+    blob = bytearray(path.read_bytes())
+    ia, ib = blob.index(a), blob.index(b)
+    blob[ia:ia + len(a)] = b
+    blob[ib:ib + len(b)] = a
+    path.write_bytes(bytes(blob))
+
+
+def test_writer_rejects_non_canonical_batches(tmp_path):
+    """Set/Dict segment content is the canonical value split at segment
+    boundaries: a batch at or below the previous batch's greatest key — out
+    of key order or overlapping — is refused at write time, so nothing
+    non-canonical reaches disk."""
+    with open(tmp_path / "unsorted.beast2", "wb") as stream:
+        writer = Beast2Writer(DT, stream)
+        writer.write(EastDict(StringType, IntegerType, {"m": 1, "z": 2}))
+        with pytest.raises(RuntimeError, match="strictly ascending"):
+            writer.write(EastDict(StringType, IntegerType, {"a": 3, "b": 4}))
+    with open(tmp_path / "overlap.beast2", "wb") as stream:
+        writer = Beast2Writer(DT, stream)
+        writer.write(EastDict(StringType, IntegerType, {"a": 1, "m": 2}))
+        with pytest.raises(RuntimeError, match="strictly ascending"):
+            writer.write(EastDict(StringType, IntegerType, {"b": 3, "z": 4}))
+
+
+def test_keyed_reads_detect_corrupt_non_canonical_blobs(tmp_path):
+    """Keyed reads trust the canonical-order contract only after verifying
+    it — a corrupt blob (bytes reordered after writing) fails loudly instead
+    of reporting false misses. Both shapes: fences out of order (caught by
+    the one-time fence verification) and overlapping ranges behind ascending
     fences (caught by the decoded segment's tail guard)."""
     unsorted_path = tmp_path / "unsorted.beast2"
-    with open(unsorted_path, "wb") as stream, Beast2Writer(DT, stream) as writer:
-        writer.write(EastDict(StringType, IntegerType, {"m": 1, "z": 2}))
-        writer.write(EastDict(StringType, IntegerType, {"a": 3, "b": 4}))
+    write_beast2_file(unsorted_path, DT, EastDict(StringType, IntegerType,
+                                                  {"a": 1, "c": 2, "e": 3}),
+                      codec="none", segment_rows=1)
+    _swap_wire_bytes(unsorted_path, b"\x01a\x02", b"\x01c\x04")  # fences now c, a, e
     with (
         open_beast2_file(unsorted_path, DT) as bad,
-        pytest.raises(RuntimeError, match="not key-disjoint"),
+        pytest.raises(RuntimeError, match="not disjoint ascending"),
     ):
-        bad.has("a")
+        bad.has("e")
 
     overlap_path = tmp_path / "overlap.beast2"
-    with open(overlap_path, "wb") as stream, Beast2Writer(DT, stream) as writer:
-        writer.write(EastDict(StringType, IntegerType, {"a": 1, "m": 2}))
-        writer.write(EastDict(StringType, IntegerType, {"b": 3, "z": 4}))
+    write_beast2_file(overlap_path, DT,
+                      EastDict(StringType, IntegerType,
+                               {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6}),
+                      codec="none", segment_rows=2)
+    _swap_wire_bytes(overlap_path, b"\x01b\x04", b"\x01c\x06")  # segments {a,c} {b,d} {e,f}
     with (
         open_beast2_file(overlap_path, DT) as bad,
-        pytest.raises(RuntimeError, match="not key-disjoint"),
+        pytest.raises(RuntimeError, match="not disjoint ascending"),
     ):
-        bad.has("a")  # lands on segment 0, whose tail "m" >= next fence "b"
+        bad.has("a")  # lands on segment 0, whose tail "c" >= next fence "b"
 
 
 def test_keyed_reads_refuse_non_self_contained_blobs(tmp_path):
@@ -708,13 +738,17 @@ def test_compute_works_without_an_index(tmp_path):
         assert list(f.map(lambda x: x * 2)) == [6, 2, 8, 2, 10]
 
 
-def test_dict_set_compute_requires_disjoint_segments(tmp_path):
-    with open(tmp_path / "bad.beast2", "wb") as stream, Beast2Writer(DT, stream) as writer:
-        writer.write(EastDict(StringType, IntegerType, {"m": 1, "z": 2}))
-        writer.write(EastDict(StringType, IntegerType, {"a": 3, "b": 4}))
+def test_dict_set_compute_requires_canonical_segments(tmp_path):
+    """Dict/Set compute streams disjointness-verified segments; a corrupt
+    blob (bytes reordered after writing) fails loudly instead of folding
+    wrong data."""
+    path = tmp_path / "bad.beast2"
+    write_beast2_file(path, DT, EastDict(StringType, IntegerType, {"a": 1, "c": 2, "e": 3}),
+                      codec="none", segment_rows=1)
+    _swap_wire_bytes(path, b"\x01a\x02", b"\x01c\x04")
     with (
-        open_beast2_file(tmp_path / "bad.beast2", DT) as bad,
-        pytest.raises(RuntimeError, match="not key-disjoint"),
+        open_beast2_file(path, DT) as bad,
+        pytest.raises(RuntimeError, match="not disjoint ascending"),
     ):
         bad.reduce(0, lambda a, k, v: a + v)
 

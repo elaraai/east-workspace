@@ -177,10 +177,16 @@ export type ValueTreeNodeType = typeof ValueTreeNodeType;
  *
  * @property height - Pinned height (CSS length; rows virtualize within)
  * @property maxHeight - Height cap (content-sized up to it, then scrolls)
+ * @property openDepth - How many levels start expanded (rows deeper start
+ *   collapsed; per-row toggles persist over this baseline). Default 1.
+ * @property toolbar - Show the collapse-all / expand-all toolbar above the
+ *   rows. Default off.
  */
 export const ValueTreeStyleType = StructType({
     height: OptionType(StringType),
     maxHeight: OptionType(StringType),
+    openDepth: OptionType(IntegerType),
+    toolbar: OptionType(BooleanType),
 });
 
 /**

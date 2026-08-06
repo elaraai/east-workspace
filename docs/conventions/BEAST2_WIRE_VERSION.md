@@ -44,6 +44,18 @@ release cannot read the new output until it is upgraded. Since e3
 content-addresses beast2 bytes, a bump also re-keys every stored object —
 cache invalidation, not corruption.
 
+**Bytes that were never the encoding of any East value.** The
+reader-accepts-every-released-container promise covers valid encodings, not
+the output of writer bugs. When a writer defect let bytes ship that no East
+value canonicalizes to — the v5 case: Set/Dict segment content in a plain
+JS container's insertion order rather than East total order, which also made
+one logical value hash to different content addresses — those blobs are
+carved out as corruption. Readers reject them (v5 readers validate strict
+key ascent and segment disjointness), the writer bug is fixed in the same
+release, and re-encoding the value from any runtime container yields
+canonical bytes. There is no tolerant window for such blobs: keeping a
+repair path alive would preserve the ambiguity the fix exists to remove.
+
 ## How the tests are arranged
 
 This bit matters, because it was wrong for a long time and the failure was

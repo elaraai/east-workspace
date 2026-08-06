@@ -12,16 +12,45 @@ import {
   listDatasetsRecursivePaths,
   listDatasetsWithStatus,
   getDataset,
+  getDatasetPage,
   getDatasetStatus,
   setDataset,
+  DecodedValueCache,
 } from '../handlers/datasets.js';
+
+/** Options for {@link createDatasetRoutes}. */
+export interface DatasetRouteOptions {
+  /** Decoded-value LRU entries backing paged reads of un-indexed blobs.
+   *  Defaults to 4. */
+  pageCacheEntries?: number;
+  /** Byte budget clamping each page's share of the source blob. Defaults to
+   *  4 MiB; deployments with tighter response limits (e.g. Lambda proxy's
+   *  6 MB, base64-inflated) pass a smaller budget. */
+  pageByteBudget?: number;
+  /** Whole-decode cap for paging un-indexed blobs (and sorted Set/Dict
+   *  windows). Defaults to 64 MiB — a synchronous decode beyond this would
+   *  wedge the server process for every caller. */
+  pageUnindexedMaxBytes?: number;
+  /** Absolute blob-buffering cap for the page endpoint. Defaults to
+   *  512 MiB, until range reads land. */
+  pageReadMaxBytes?: number;
+}
+
+/** Parses an integer query param; `undefined` when absent, `NaN` when
+ *  malformed (the handler rejects NaN with a 400). */
+function intParam(value: string | undefined): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  return Number(value);
+}
 
 export function createDatasetRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend?: TransferBackend,
+  options?: DatasetRouteOptions,
 ) {
   const app = new Hono();
+  const pageCache = new DecodedValueCache(options?.pageCacheEntries ?? 4);
 
   // GET /api/repos/:repo/workspaces/:ws/datasets - List root fields
   app.get('/', async (c) => {
@@ -59,6 +88,7 @@ export function createDatasetRoutes(
     const list = c.req.query('list') === 'true';
     const recursive = c.req.query('recursive') === 'true';
     const status = c.req.query('status') === 'true';
+    const page = c.req.query('page') === 'true';
 
     if (recursive && !list) {
       return c.json({ error: 'recursive requires list=true' }, 400);
@@ -69,6 +99,20 @@ export function createDatasetRoutes(
     if (list && status)              return listDatasetsWithStatus(storage, repoPath, ws, treePath);
     if (list)                        return listDatasets(storage, repoPath, ws, treePath);
     if (status)                      return getDatasetStatus(storage, repoPath, ws, treePath);
+    if (page) {
+      const hash = c.req.query('hash');
+      const window = {
+        ...(intParam(c.req.query('offset')) !== undefined && { offset: intParam(c.req.query('offset'))! }),
+        ...(intParam(c.req.query('limit')) !== undefined && { limit: intParam(c.req.query('limit'))! }),
+        ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
+        ...(hash !== undefined && hash !== '' && { hash }),
+      };
+      return getDatasetPage(storage, repoPath, ws, treePath, window, pageCache, {
+        ...(options?.pageByteBudget !== undefined && { byteBudget: options.pageByteBudget }),
+        ...(options?.pageUnindexedMaxBytes !== undefined && { unindexedMaxBytes: options.pageUnindexedMaxBytes }),
+        ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
+      });
+    }
 
     return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend);
   });

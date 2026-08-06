@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, decodeBeast2, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, decodeBeast2, decodeBeast2For, encodeBeast2For, openBeast2PagesFor, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -106,6 +106,306 @@ export async function getDataset(
         'Content-Type': BEAST2_CONTENT_TYPE,
         'Content-Length': String(data.byteLength),
         'X-Content-SHA256': hash,
+      },
+    });
+  } catch (err) {
+    return sendJsonError(err);
+  }
+}
+
+/** Elements returned per page when the request names no limit. */
+const PAGE_DEFAULT_LIMIT = 1_000;
+
+/** Hard cap on elements per page. */
+const PAGE_MAX_LIMIT = 10_000;
+
+/** Default cap on a page's share of the source blob, in bytes. The
+ *  effective limit shrinks so `limit × avgElementBytes` stays under the
+ *  budget, bounding page payloads even for very wide rows. Deployments with
+ *  tighter response limits (e.g. Lambda proxy's 6 MB, base64-inflated) pass
+ *  a smaller budget through the route options. */
+export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
+
+/** Largest un-indexed blob the fallback will whole-decode. The decode runs
+ *  synchronously in the server process — an unbounded one wedges the event
+ *  loop (or the whole process) and takes every other request down with it,
+ *  which is fatal for in-process hosts like the VS Code extension. Above
+ *  this, paging an un-indexed blob is refused with a clear remedy. */
+export const PAGE_UNINDEXED_MAX_BYTES_DEFAULT = 64 * 1024 * 1024;
+
+/** Largest blob the page endpoint will buffer at all. Indexed blobs decode
+ *  O(segment) but are still read whole today (a transient allocation);
+ *  above this cap even that is refused until range reads land. */
+export const PAGE_READ_MAX_BYTES_DEFAULT = 512 * 1024 * 1024;
+
+/** Window addressing for {@link getDatasetPage}: an element window
+ *  (`offset`/`limit`) or one writer segment (`segment`), optionally pinned
+ *  to a content hash. */
+export interface DatasetPageWindow {
+  offset?: number;
+  limit?: number;
+  segment?: number;
+  /** Content hash the window is addressed against. When it matches the
+   *  current value the response is immutable (`Cache-Control: immutable`) —
+   *  the URL is then a pure function of the bytes, so any HTTP cache (edge
+   *  CDN, browser) can hold it forever with zero staleness. A stale hash is
+   *  refused with 409 rather than answered with different bytes, keeping
+   *  caches sound. */
+  hash?: string;
+}
+
+/**
+ * Per-hash LRU of decoded dataset values.
+ *
+ * Backs the whole-decode fallback for blobs without a pageable segment
+ * index. Objects are immutable and content-addressed, so entries never
+ * invalidate — capacity is the only bound.
+ */
+export class DecodedValueCache {
+  private readonly map = new Map<string, unknown>();
+
+  constructor(private readonly capacity: number) {}
+
+  get(hash: string): unknown | undefined {
+    if (!this.map.has(hash)) return undefined;
+    const value = this.map.get(hash);
+    this.map.delete(hash);
+    this.map.set(hash, value);
+    return value;
+  }
+
+  set(hash: string, value: unknown): void {
+    if (this.map.has(hash)) this.map.delete(hash);
+    this.map.set(hash, value);
+    if (this.map.size > this.capacity) {
+      this.map.delete(this.map.keys().next().value!);
+    }
+  }
+}
+
+function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify({ error: { type, message } }), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers },
+  });
+}
+
+/**
+ * Get one window of a collection dataset as raw BEAST2 bytes.
+ *
+ * The body is a valid value of the dataset's own type holding only the
+ * window; totals and window placement ride on `X-*` headers. Element windows
+ * are exact for every collection kind: Array windows address stream order,
+ * Set/Dict windows the canonical East (key) order — which IS the wire order,
+ * since v5 Set/Dict segments hold the canonical value in disjoint ascending
+ * ranges. Segment windows return one writer batch verbatim and need an
+ * indexed blob.
+ *
+ * Strategy: indexed blobs of every kind slice via the trailing index,
+ * decoding only the touched segments (Set/Dict windows verify the segment
+ * fences first and reject non-canonical blobs as corrupt); blobs without a
+ * pageable index decode whole once into the per-hash LRU and slice per
+ * request.
+ */
+/** Server-side limits for {@link getDatasetPage}. */
+export interface DatasetPageLimits {
+  /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
+  byteBudget?: number;
+  /** Whole-decode cap for blobs without a pageable segment index
+   *  (default {@link PAGE_UNINDEXED_MAX_BYTES_DEFAULT}). */
+  unindexedMaxBytes?: number;
+  /** Absolute blob-buffering cap (default {@link PAGE_READ_MAX_BYTES_DEFAULT}). */
+  readMaxBytes?: number;
+}
+
+export async function getDatasetPage(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  treePath: TreePath,
+  window: DatasetPageWindow,
+  cache: DecodedValueCache,
+  limits?: DatasetPageLimits,
+): Promise<Response> {
+  const byteBudget = limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
+  const unindexedMaxBytes = limits?.unindexedMaxBytes ?? PAGE_UNINDEXED_MAX_BYTES_DEFAULT;
+  const readMaxBytes = limits?.readMaxBytes ?? PAGE_READ_MAX_BYTES_DEFAULT;
+  try {
+    if (treePath.length === 0) {
+      return pageError('bad_request', 'Path required for paged get');
+    }
+
+    const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath);
+    if (status.refType === 'unassigned') {
+      return pageError('dataset_unassigned', 'Dataset is unassigned (pending task output)', 404);
+    }
+    if (status.refType === 'null' || !status.hash) {
+      return pageError('dataset_null', 'Dataset is null', 404);
+    }
+    // A hash-pinned window must never answer with different bytes — refuse
+    // stale pins (the client refetches status for the current hash) so a
+    // hash-keyed URL is a pure function of the response and caches stay sound.
+    if (window.hash !== undefined && window.hash !== status.hash) {
+      return pageError('dataset_hash_mismatch',
+        `Dataset content is ${status.hash}, not ${window.hash} — refetch status and retry`,
+        409, { 'X-Content-SHA256': status.hash });
+    }
+
+    const typeValue: EastTypeValue = isVariant(status.datasetType)
+      ? status.datasetType
+      : toEastTypeValue(status.datasetType as never);
+    const kind = typeValue.type;
+    if (kind !== 'Array' && kind !== 'Set' && kind !== 'Dict') {
+      return pageError('dataset_not_pageable', `Paged reads address Array, Set or Dict datasets; this dataset holds ${kind}`);
+    }
+
+    const segmentMode = window.segment !== undefined;
+    if (segmentMode && (window.offset !== undefined || window.limit !== undefined)) {
+      return pageError('bad_request', 'Pass either segment or offset/limit, not both');
+    }
+    if (segmentMode && (!Number.isInteger(window.segment) || window.segment! < 0)) {
+      return pageError('bad_request', `segment must be a non-negative integer, got ${window.segment}`);
+    }
+    const offset = window.offset ?? 0;
+    const requestedLimit = window.limit ?? PAGE_DEFAULT_LIMIT;
+    if (!segmentMode && (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(requestedLimit) || requestedLimit < 1)) {
+      return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
+    }
+
+    // The absolute buffering cap protects the server process itself — the
+    // endpoint reads the whole blob today (range reads are the follow-up).
+    const statSize = status.size ?? 0;
+    if (statSize > readMaxBytes) {
+      return pageError('dataset_too_large',
+        `Dataset is ${Math.round(statSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
+    }
+
+    const data = await storage.objects.read(repoPath, status.hash);
+    let pages: Beast2Pages | null = null;
+    try {
+      pages = openBeast2PagesFor(typeValue)(data);
+    } catch {
+      pages = null; // No index/footer — every existing whole-value blob.
+    }
+
+    // The byte budget turns the requested element limit into an effective one
+    // using the blob's average element size, so pages stay bounded even for
+    // very wide rows.
+    const effectiveLimit = (totalElements: number): number => {
+      const avgBytes = totalElements > 0 ? data.byteLength / totalElements : 1;
+      const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
+      return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
+    };
+
+    let windowValue: unknown;
+    let totalElements: number;
+    let pageOffset: number;
+    let pageCount: number;
+
+    if (segmentMode) {
+      if (!pages) {
+        return pageError('dataset_not_segmented', 'Blob carries no segment index — address it with offset/limit instead');
+      }
+      const seg = window.segment!;
+      if (seg >= pages.segmentCount) {
+        return pageError('bad_request', `segment ${seg} out of range (${pages.segmentCount} segments)`);
+      }
+      try {
+        windowValue = pages.segment(seg);
+      } catch (err) {
+        return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
+      }
+      totalElements = pages.elementCount;
+      pageCount = pages.counts[seg]!;
+      pageOffset = 0;
+      for (let i = 0; i < seg; i++) pageOffset += pages.counts[i]!;
+    } else if (pages !== null && pages.selfContained) {
+      // The indexed fast path, every collection kind: Array windows address
+      // stream order, Set/Dict windows the canonical key order (fences are
+      // verified on first access; a non-canonical blob is corrupt).
+      totalElements = pages.elementCount;
+      const limit = effectiveLimit(totalElements);
+      try {
+        windowValue = pages.slice(offset, limit);
+      } catch (err) {
+        return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
+      }
+      pageCount = kind === 'Array'
+        ? (windowValue as unknown[]).length
+        : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
+      pageOffset = offset;
+    } else {
+      let merged = cache.get(status.hash);
+      // The whole-decode guardrail: a huge synchronous decode wedges the
+      // server for every caller. Already-cached values serve for free.
+      if (merged === undefined && data.byteLength > unindexedMaxBytes) {
+        const mb = Math.round(data.byteLength / 1024 / 1024);
+        const capMb = Math.round(unindexedMaxBytes / 1024 / 1024);
+        return pageError('dataset_too_large_unindexed',
+          `Dataset is ${mb} MB and stored without a pageable segment index — beyond the ${capMb} MB whole-decode cap. Re-run the producing task (current runners store large collections segmented) or download it.`);
+      }
+      if (merged === undefined) {
+        merged = decodeBeast2For(typeValue)(data);
+        cache.set(status.hash, merged);
+      }
+      if (kind === 'Array') {
+        const arr = merged as unknown[];
+        totalElements = arr.length;
+        const limit = effectiveLimit(totalElements);
+        windowValue = arr.slice(offset, offset + limit);
+        pageCount = (windowValue as unknown[]).length;
+      } else if (kind === 'Set') {
+        const set = merged as Set<unknown>;
+        totalElements = set.size;
+        const limit = effectiveLimit(totalElements);
+        const win = new Set<unknown>();
+        let i = 0;
+        for (const item of set) {
+          if (i >= offset + limit) break;
+          if (i >= offset) win.add(item);
+          i++;
+        }
+        windowValue = win;
+        pageCount = win.size;
+      } else {
+        const map = merged as Map<unknown, unknown>;
+        totalElements = map.size;
+        const limit = effectiveLimit(totalElements);
+        const win = new Map<unknown, unknown>();
+        let i = 0;
+        for (const [k, v] of map.entries()) {
+          if (i >= offset + limit) break;
+          if (i >= offset) win.set(k, v);
+          i++;
+        }
+        windowValue = win;
+        pageCount = win.size;
+      }
+      pageOffset = offset;
+    }
+
+    const body = encodeBeast2For(typeValue)(windowValue);
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': BEAST2_CONTENT_TYPE,
+        'Content-Length': String(body.byteLength),
+        // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
+        // forever — cacheable at any layer with no invalidation. Unpinned
+        // windows track the mutable current value and must not be cached.
+        'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+        'X-Content-SHA256': status.hash,
+        // The stored blob's full byte size — the page endpoint is then
+        // self-describing (no separate status call needed for the header
+        // line); Content-Length remains the page's own bytes.
+        'X-Total-Bytes': String(data.byteLength),
+        'X-Total-Elements': String(totalElements),
+        // Always exact: Array counts index stream order, and v5 Set/Dict
+        // segments are disjoint ranges of the canonical value.
+        'X-Total-Exactness': 'exact',
+        'X-Segment-Count': String(pages ? pages.segmentCount : 0),
+        'X-Page-Offset': String(pageOffset),
+        'X-Page-Count': String(pageCount),
       },
     });
   } catch (err) {

@@ -184,9 +184,29 @@ bool b2v5_dec_ctx_push(B2V5DecodeCtx *ctx, EastValue *container);
 EastValue *b2v5_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
                              B2V5DecodeCtx *ctx);
 
-/* Decode n elements (pairs for Dict) from the current chunk into container. */
+/* Running strict-ascent state for Set/Dict content. The wire must hold the
+ * canonical value — elements/keys strictly ascending across the container's
+ * whole content, segments concatenating — so decoders validate against the
+ * previously accepted key and reject violations as corruption. Threading one
+ * state across consecutive segments extends the check over the boundary; a
+ * fresh state validates a single segment in isolation. */
+typedef struct {
+    EastValue *prev; /* retained; NULL until the first element lands */
+} B2V5OrderCheck;
+
+static inline void b2v5_order_check_dispose(B2V5OrderCheck *order)
+{
+    if (order && order->prev) {
+        east_value_release(order->prev);
+        order->prev = NULL;
+    }
+}
+
+/* Decode n elements (pairs for Dict) from the current chunk into container.
+ * `order` is required for Set/Dict content (pass NULL for Array). */
 bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, uint64_t n,
-                               const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx);
+                               const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx,
+                               B2V5OrderCheck *order);
 
 /* ================================================================== */
 /*  Whole-value entry helpers (v5/container.c)                          */

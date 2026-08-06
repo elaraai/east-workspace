@@ -439,8 +439,31 @@ static int b2v5_read_container_tag(const uint8_t *data, size_t len, size_t *offs
     return 1;
 }
 
+/* Accept `next` into the running strict-ascent state. The wire must hold
+ * the canonical value — a non-ascending element/key is corruption, never
+ * data to repair. Takes ownership decisions away from the caller: on
+ * failure `next` is untouched (caller still releases it). */
+static bool b2v5_order_accept(B2V5OrderCheck *order, EastValue *next, bool is_dict)
+{
+    if (order->prev && east_value_compare(order->prev, next) >= 0) {
+        east_builtin_error(is_dict
+                               ? "beast2 v5: Dict keys are not strictly ascending in East order — "
+                                 "the wire must hold the canonical value (corrupt or pre-contract "
+                                 "blob)"
+                               : "beast2 v5: Set elements are not strictly ascending in East order "
+                                 "— the wire must hold the canonical value (corrupt or "
+                                 "pre-contract blob)");
+        return false;
+    }
+    if (order->prev) east_value_release(order->prev);
+    order->prev = next;
+    east_value_retain(next);
+    return true;
+}
+
 bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, uint64_t n,
-                               const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx)
+                               const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx,
+                               B2V5OrderCheck *order)
 {
     switch (container_type->kind) {
     case EAST_TYPE_ARRAY: {
@@ -458,7 +481,11 @@ bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, u
         for (uint64_t j = 0; j < n; j++) {
             EastValue *val = b2v5_decode_value(data, len, offset, elem, ctx);
             if (!val) return false;
-            east_set_insert(container, val); /* btree insert: sorted + deduped */
+            if (order && !b2v5_order_accept(order, val, false)) {
+                east_value_release(val);
+                return false;
+            }
+            east_set_insert(container, val);
             east_value_release(val);
         }
         return true;
@@ -469,12 +496,16 @@ bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, u
         for (uint64_t j = 0; j < n; j++) {
             EastValue *k = b2v5_decode_value(data, len, offset, kt, ctx);
             if (!k) return false;
+            if (order && !b2v5_order_accept(order, k, true)) {
+                east_value_release(k);
+                return false;
+            }
             EastValue *v = b2v5_decode_value(data, len, offset, vt, ctx);
             if (!v) {
                 east_value_release(k);
                 return false;
             }
-            east_dict_set(container, k, v); /* btree insert: later keys win */
+            east_dict_set(container, k, v);
             east_value_release(k);
             east_value_release(v);
         }
@@ -489,15 +520,30 @@ bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, u
 static bool b2v5_decode_container_content(EastValue *container, EastType *type, const uint8_t *data,
                                           size_t len, size_t *offset, B2V5DecodeCtx *ctx)
 {
+    B2V5OrderCheck order = {0};
+    B2V5OrderCheck *op =
+        (type->kind == EAST_TYPE_SET || type->kind == EAST_TYPE_DICT) ? &order : NULL;
+    bool ok = true;
     for (;;) {
         uint64_t n;
-        if (!read_varint_checked(data, len, offset, &n)) return false;
-        if (n == 0) return true;
+        if (!read_varint_checked(data, len, offset, &n)) {
+            ok = false;
+            break;
+        }
+        if (n == 0) break;
         /* Each element costs at least one byte — except for zero-width
          * element types (Array<Null>), where only the absolute cap applies. */
-        if (!b2_container_count_within_bounds(n, type, len - *offset)) return false;
-        if (!b2v5_decode_elements_into(container, type, n, data, len, offset, ctx)) return false;
+        if (!b2_container_count_within_bounds(n, type, len - *offset)) {
+            ok = false;
+            break;
+        }
+        if (!b2v5_decode_elements_into(container, type, n, data, len, offset, ctx, op)) {
+            ok = false;
+            break;
+        }
     }
+    b2v5_order_check_dispose(&order);
+    return ok;
 }
 
 static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_t *offset,

@@ -7,7 +7,8 @@
  * Beast2 v5 test suite — the segment-terminated record stream (#416).
  * Round-trips through the version-agnostic entry points, streaming writer /
  * segment iterator / pages, aliasing and cycles, source maps, well-known type
- * sections, merge semantics, cross-runtime byte pins, and hardening.
+ * sections, canonical Set/Dict segment order, cross-runtime byte pins, and
+ * hardening.
  */
 
 import { describe, test } from "node:test";
@@ -19,8 +20,8 @@ import {
   type EastType,
 } from "../../../types.js";
 import { toEastTypeValue, EastTypeValueType, type EastTypeValue } from "../../../type_of_type.js";
-import { equalFor } from "../../../comparison.js";
-import { East, variant, ref, some, none } from "../../../index.js";
+import { equalFor, compareFor } from "../../../comparison.js";
+import { East, variant, ref, some, none, SortedMap, SortedSet } from "../../../index.js";
 import { matrix } from "../../../containers/matrix.js";
 import { BufferWriter } from "../../binary-utils.js";
 import {
@@ -32,12 +33,13 @@ import {
   decodeEastIR,
   Beast2Writer,
   encodeBeast2SegmentsFor,
+  encodeBeast2PagedFor,
   iterBeast2SegmentsFor,
   openBeast2PagesFor,
   MAGIC_BYTES_V5,
 } from "../index.js";
 import { writeTypeSection } from "./type-section.js";
-import { writeSourceMapSectionV5, FOOTER_MAGIC_V5 } from "./codec.js";
+import { writeSourceMapSectionV5, writeIndexAndFooter, FOOTER_MAGIC_V5 } from "./codec.js";
 import { writeFrame, inflateRawSync } from "./frames.js";
 import { deterministicDeflateRaw } from "./deflate.js";
 import { inflateRawPure } from "./inflate.js";
@@ -232,7 +234,7 @@ function bigintReplacer(_k: string, v: any) {
 }
 
 // =============================================================================
-// 4. Streaming writer + iterator + merge semantics (salvaged from PR #415)
+// 4. Streaming writer + iterator + canonical segment order
 // =============================================================================
 
 describe("Beast2 v5 — Streaming (#414/#416)", () => {
@@ -292,27 +294,122 @@ describe("Beast2 v5 — Streaming (#414/#416)", () => {
     assert.deepEqual(segments[19], expected.slice(9500));
   });
 
-  test("set segments union with structural dedup and dict segments keep the last occurrence", () => {
+  // The SAME bytes are pinned in east-py's test_beast2_v5.py and east-c's
+  // test_beast2_hardening.c — the canonical (sorted, disjoint) Dict sibling
+  // of SHARED_HEX, proving all three runtimes produce and accept identical
+  // canonical Set/Dict streams.
+  const SHARED_DICT_HEX = "89456173740d0a050007020301020b0001010000010100000707020161020162040004040101630600010100010217020a012c0000000000000089456173740d0af5";
+
+  test("sorted set and dict batches concatenate; dict bytes match the cross-runtime fixture", () => {
     const ST = SetType(IntegerType);
-    const sBlob = writeAll(ST, [new Set([3n, 1n]), new Set([1n, 2n])], { codec: "none" });
-    const merged = decodeBeast2For(ST)(sBlob) as Set<bigint>;
-    assert.deepEqual([...merged], [1n, 2n, 3n], "sorted union");
+    const sBlob = writeAll(ST, [new Set([1n, 2n]), new Set([3n, 5n])], { codec: "none" });
+    const s = decodeBeast2For(ST)(sBlob) as Set<bigint>;
+    assert.deepEqual([...s], [1n, 2n, 3n, 5n], "disjoint ascending batches concatenate");
 
     const DT = DictType(StringType, IntegerType);
-    const dBlob = writeAll(DT, [
-      new Map([["a", 1n], ["b", 2n]]),
-      new Map([["b", 9n]]),
-    ], { codec: "none" });
-    const mergedD = decodeBeast2For(DT)(dBlob) as Map<string, bigint>;
-    assert.equal(mergedD.get("a"), 1n);
-    assert.equal(mergedD.get("b"), 9n, "later segment wins");
-    assert.equal(mergedD.size, 2);
+    const dBlob = writeAll(DT, [new Map([["a", 1n], ["b", 2n]]), new Map([["c", 3n]])], { codec: "none" });
+    assert.equal(Buffer.from(dBlob).toString("hex"), SHARED_DICT_HEX, "pinned cross-runtime bytes");
+    const d = decodeBeast2For(DT)(Buffer.from(SHARED_DICT_HEX, "hex")) as Map<string, bigint>;
+    assert.deepEqual([...d.entries()], [["a", 1n], ["b", 2n], ["c", 3n]]);
+    const pages = openBeast2PagesFor(DT)(Buffer.from(SHARED_DICT_HEX, "hex"));
+    assert.equal(pages.elementCount, 3);
+    assert.deepEqual([...(pages.slice(1, 2) as Map<string, bigint>).entries()], [["b", 2n], ["c", 3n]]);
+    assert.equal(pages.get("b"), 2n);
+    assert.equal(pages.get("zz"), undefined);
+  });
 
-    // Structs as set elements dedup structurally across segments.
-    const SS = SetType(StructType({ k: StringType }));
-    const ssBlob = writeAll(SS, [new Set([{ k: "x" }]), new Set([{ k: "x" }, { k: "y" }])], { codec: "none" });
-    const mergedS = decodeBeast2For(SS)(ssBlob) as Set<{ k: string }>;
-    assert.equal(mergedS.size, 2, "structural dedup across segments");
+  test("the writer rejects out-of-order, overlapping, and duplicate Set/Dict batches", () => {
+    const ST = SetType(IntegerType);
+    // In-batch violation: a plain Set iterates insertion order.
+    assert.throws(() => writeAll(ST, [new Set([3n, 1n])]), /strictly ascending/);
+    // Cross-batch violations: overlapping ranges and repeated keys.
+    assert.throws(() => writeAll(ST, [new Set([1n, 2n]), new Set([2n, 3n])]), /strictly ascending/);
+    const DT = DictType(StringType, IntegerType);
+    assert.throws(() => writeAll(DT, [new Map([["a", 1n], ["b", 2n]]), new Map([["b", 9n]])]), /strictly ascending/);
+  });
+
+  test("sequential decode rejects non-canonical Set/Dict wire as corrupt", () => {
+    // Hand-assemble v5 blobs the fixed writers can no longer produce.
+    function blobOf(type: EastType, build: (logical: BufferWriter) => void): Uint8Array {
+      const head = new BufferWriter();
+      head.writeBytes(MAGIC_BYTES_V5);
+      writeTypeSection(toEastTypeValue(type), head);
+      writeSourceMapSectionV5(null, head);
+      const logical = new BufferWriter();
+      build(logical);
+      writeFrame(head, logical.toUint8Array(), "none");
+      return head.toUint8Array();
+    }
+
+    // Elements out of order inside one segment.
+    const unsortedSet = blobOf(SetType(IntegerType), (l) => {
+      l.writeUint8(0x00);           // root NEW
+      l.writeVarint(2);
+      l.writeZigzag(2n);
+      l.writeZigzag(1n);
+      l.writeVarint(0);
+    });
+    assert.throws(() => decodeBeast2For(SetType(IntegerType))(unsortedSet), /strictly ascending/);
+
+    // A duplicate key across segments (the old last-wins shape).
+    const dupDict = blobOf(DictType(StringType, IntegerType), (l) => {
+      l.writeUint8(0x00);
+      l.writeVarint(1);
+      l.writeStringUtf8Varint("b");
+      l.writeZigzag(2n);
+      l.writeVarint(1);
+      l.writeStringUtf8Varint("b");
+      l.writeZigzag(9n);
+      l.writeVarint(0);
+    });
+    assert.throws(() => decodeBeast2For(DictType(StringType, IntegerType))(dupDict), /strictly ascending/);
+
+    // Nested containers are held to the same contract.
+    const nested = blobOf(ArrayType(SetType(IntegerType)), (l) => {
+      l.writeUint8(0x00);           // root array NEW
+      l.writeVarint(1);             // one element
+      l.writeUint8(0x00);           // nested set NEW
+      l.writeVarint(2);
+      l.writeZigzag(5n);
+      l.writeZigzag(4n);
+      l.writeVarint(0);             // nested terminator
+      l.writeVarint(0);             // root terminator
+    });
+    assert.throws(() => decodeBeast2For(ArrayType(SetType(IntegerType)))(nested), /strictly ascending/);
+
+    // The segment iterator applies the contract across segment boundaries.
+    const dupAcross = blobOf(SetType(IntegerType), (l) => {
+      l.writeUint8(0x00);
+      l.writeVarint(1);
+      l.writeZigzag(3n);
+      l.writeVarint(1);
+      l.writeZigzag(3n);
+      l.writeVarint(0);
+    });
+    assert.throws(() => [...iterBeast2SegmentsFor(SetType(IntegerType))(dupAcross)], /strictly ascending/);
+  });
+
+  test("plain and sorted containers encode identical canonical bytes", () => {
+    const DT = DictType(StringType, IntegerType);
+    const encode = encodeBeast2For(DT, V5_PLAIN);
+    const plain = new Map([["b", 2n], ["a", 1n]]);        // insertion order b, a
+    const sorted = new SortedMap<string, bigint>([["a", 1n], ["b", 2n]], compareFor(StringType));
+    assert.deepEqual(Array.from(encode(plain)), Array.from(encode(sorted as any)), "dict bytes are container-flavor independent");
+    const decoded = decodeBeast2For(DT)(encode(plain)) as Map<string, bigint>;
+    assert.deepEqual([...decoded.entries()], [["a", 1n], ["b", 2n]], "decode is canonical");
+
+    const ST = SetType(IntegerType);
+    const encodeS = encodeBeast2For(ST, V5_PLAIN);
+    assert.deepEqual(
+      Array.from(encodeS(new Set([3n, 1n, 2n]))),
+      Array.from(encodeS(new SortedSet<bigint>([1n, 2n, 3n], compareFor(IntegerType)) as any)),
+      "set bytes are container-flavor independent");
+
+    // Nested dict fields canonicalize the same way.
+    const S = StructType({ bag: DictType(StringType, IntegerType) });
+    const a = encodeBeast2For(S, V5_PLAIN)({ bag: new Map([["y", 2n], ["x", 1n]]) });
+    const b = encodeBeast2For(S, V5_PLAIN)({ bag: new Map([["x", 1n], ["y", 2n]]) });
+    assert.deepEqual(Array.from(a), Array.from(b), "nested bytes are insertion-order independent");
   });
 
   test("zero batches decode to the empty collection of each kind", () => {
@@ -388,6 +485,143 @@ describe("Beast2 v5 — Paging", () => {
     const seg1 = pages.segment(1) as Map<string, bigint>;
     assert.deepEqual([...seg1.entries()], [["b", 2n], ["c", 3n]]);
     assert.throws(() => pages.element(0), /Array roots/);
+  });
+
+  test("slice() reads element windows across segment boundaries", () => {
+    const AT = ArrayType(IntegerType);
+    const rows = Array.from({ length: 2500 }, (_, i) => BigInt(i));
+    const blob = encodeBeast2PagedFor(AT, { batchSize: 1000 })(rows);
+    const pages = openBeast2PagesFor(AT)(blob);
+    assert.deepEqual([...pages.counts], [1000, 1000, 500]);
+    // Window spanning two segments.
+    assert.deepEqual(pages.slice(900, 200), rows.slice(900, 1100));
+    // Window inside one segment, at the start, and the whole collection.
+    assert.deepEqual(pages.slice(0, 10), rows.slice(0, 10));
+    assert.deepEqual(pages.slice(1500, 100), rows.slice(1500, 1600));
+    assert.deepEqual(pages.slice(0, 2500), rows);
+    // Clamping like Array.prototype.slice: short tail, past-the-end, empty.
+    assert.deepEqual(pages.slice(2400, 1000), rows.slice(2400));
+    assert.deepEqual(pages.slice(9999, 10), []);
+    assert.deepEqual(pages.slice(0, 0), []);
+    // Invalid windows are refused; keyed get addresses Set/Dict roots only.
+    assert.throws(() => pages.slice(-1, 10), /non-negative/);
+    assert.throws(() => pages.slice(0, 1.5), /non-negative/);
+    assert.throws(() => pages.get(0n as never), /Set and Dict roots/);
+  });
+
+  test("slice() and get() address the canonical order of Set and Dict roots", () => {
+    const ST = SetType(IntegerType);
+    const setValue = new Set(Array.from({ length: 250 }, (_, i) => BigInt(i)));
+    const sp = openBeast2PagesFor(ST)(encodeBeast2PagedFor(ST, { batchSize: 100 })(setValue));
+    assert.equal(sp.segmentCount, 3);
+    assert.deepEqual([...(sp.slice(95, 10) as Set<bigint>)], Array.from({ length: 10 }, (_, i) => BigInt(95 + i)), "set window crosses a segment boundary in sorted order");
+    assert.deepEqual([...(sp.slice(240, 100) as Set<bigint>)], Array.from({ length: 10 }, (_, i) => BigInt(240 + i)), "set window clamps at the tail");
+    assert.equal((sp.slice(0, 0) as Set<bigint>).size, 0);
+    assert.equal(sp.get(137n), 137n);
+    assert.equal(sp.get(999n), undefined);
+    assert.equal(sp.get(-1n), undefined, "below the minimum fence");
+
+    const DT = DictType(StringType, IntegerType);
+    const dictValue = new Map(Array.from({ length: 250 }, (_, i) => [`k${String(i).padStart(3, "0")}`, BigInt(i)] as [string, bigint]));
+    const dp = openBeast2PagesFor(DT)(encodeBeast2PagedFor(DT, { batchSize: 100 })(dictValue));
+    assert.deepEqual(
+      [...(dp.slice(98, 4) as Map<string, bigint>).entries()],
+      [["k098", 98n], ["k099", 99n], ["k100", 100n], ["k101", 101n]],
+      "dict window crosses the segment boundary in key order");
+    assert.equal((dp.slice(9999, 5) as Map<string, bigint>).size, 0);
+    assert.equal(dp.get("k042"), 42n);
+    assert.equal(dp.get("zzz"), undefined);
+  });
+
+  test("paging rejects non-canonical Set segments (fences and overlap)", () => {
+    const ST = SetType(IntegerType);
+    function indexedSetBlob(segments: bigint[][]): Uint8Array {
+      const head = new BufferWriter();
+      head.writeBytes(MAGIC_BYTES_V5);
+      writeTypeSection(toEastTypeValue(ST), head);
+      writeSourceMapSectionV5(null, head);
+      writeFrame(head, new Uint8Array([0x00]), "none");   // root NEW tag frame
+      const index: { offset: number; count: number }[] = [];
+      for (const seg of segments) {
+        const logical = new BufferWriter();
+        logical.writeVarint(seg.length);
+        for (const v of seg) logical.writeZigzag(v);
+        index.push({ offset: head.size, count: seg.length });
+        writeFrame(head, logical.toUint8Array(), "none");
+      }
+      writeFrame(head, new Uint8Array([0x00]), "none");   // terminator frame
+      writeIndexAndFooter(head, index, true);
+      return head.toUint8Array();
+    }
+
+    // First keys out of order across segments.
+    const badFences = openBeast2PagesFor(ST)(indexedSetBlob([[5n], [3n]]));
+    assert.throws(() => badFences.slice(0, 2), /disjoint ascending/);
+    assert.throws(() => badFences.get(3n), /disjoint ascending/);
+    // Fences ascend, but segment 0's tail overlaps segment 1's range.
+    const overlap = openBeast2PagesFor(ST)(indexedSetBlob([[1n, 5n], [3n, 6n]]));
+    assert.throws(() => overlap.slice(0, 4), /disjoint ascending/);
+    // A canonical hand-assembly pages exactly.
+    const good = openBeast2PagesFor(ST)(indexedSetBlob([[1n, 2n], [3n]]));
+    assert.deepEqual([...(good.slice(0, 3) as Set<bigint>)], [1n, 2n, 3n]);
+    assert.equal(good.get(2n), 2n);
+  });
+
+  test("encodeBeast2PagedFor writes indexed blobs that decode to the input", () => {
+    const Row = StructType({ id: IntegerType, name: StringType });
+    const AT = ArrayType(Row);
+    const rows = Array.from({ length: 2500 }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
+    const blob = encodeBeast2PagedFor(AT)(rows);
+    const pages = openBeast2PagesFor(AT)(blob);
+    assert.equal(pages.segmentCount, 3, "default 1000-element batches");
+    assert.equal(pages.elementCount, 2500);
+    assert.ok(pages.selfContained);
+    assert.ok(equalFor(AT)(decodeBeast2For(AT)(blob), rows), "whole decode equals input");
+    // Identical batching through the batch API produces identical bytes — the
+    // paged encode is the same wire form, just chunked from one value.
+    const batches = [rows.slice(0, 1000), rows.slice(1000, 2000), rows.slice(2000)];
+    assert.deepEqual(Array.from(blob), Array.from(encodeBeast2SegmentsFor(AT)(batches)));
+    // A collection at or below one batch is a single indexed segment.
+    const small = encodeBeast2PagedFor(AT)(rows.slice(0, 10));
+    assert.equal(openBeast2PagesFor(AT)(small).segmentCount, 1);
+  });
+
+  test("paged Set and Dict encodes round-trip and stay canonical", () => {
+    const ST = SetType(IntegerType);
+    const setValue = new Set(Array.from({ length: 250 }, (_, i) => BigInt(i)));
+    const sBlob = encodeBeast2PagedFor(ST, { batchSize: 100 })(setValue);
+    assert.equal(openBeast2PagesFor(ST)(sBlob).segmentCount, 3);
+    assert.ok(equalFor(ST)(decodeBeast2For(ST)(sBlob), setValue));
+
+    const DT = DictType(StringType, IntegerType);
+    const dictValue = new Map(Array.from({ length: 250 }, (_, i) => [`k${String(i).padStart(3, "0")}`, BigInt(i)] as [string, bigint]));
+    const dBlob = encodeBeast2PagedFor(DT, { batchSize: 100 })(dictValue);
+    const dPages = openBeast2PagesFor(DT)(dBlob);
+    assert.equal(dPages.segmentCount, 3);
+    assert.ok(equalFor(DT)(decodeBeast2For(DT)(dBlob), dictValue));
+    // Each segment is itself a valid Dict value of the root type.
+    const seg = dPages.segment(1) as Map<string, bigint>;
+    assert.ok(equalFor(DT)(decodeBeast2For(DT)(encodeBeast2For(DT)(seg)), seg));
+    // One source Map cannot repeat a key, so segments partition the pairs.
+    assert.equal([...dPages.counts].reduce((a, b) => a + b, 0), 250);
+  });
+
+  test("segments adapt to the byte target for wide rows", () => {
+    const AT = ArrayType(StringType);
+    const rows = Array.from({ length: 40 }, (_, i) => `row-${i}-` + String(i).padStart(4, "0").repeat(50));
+    // A 1-byte target forces one element per segment — the adaptation floor.
+    const tiny = encodeBeast2PagedFor(AT, { targetSegmentBytes: 1 })(rows);
+    const tp = openBeast2PagesFor(AT)(tiny);
+    assert.equal(tp.segmentCount, 40);
+    assert.ok(equalFor(AT)(decodeBeast2For(AT)(tiny), rows));
+    // Small data under the default target stays at the element cap.
+    assert.equal(openBeast2PagesFor(AT)(encodeBeast2PagedFor(AT)(rows)).segmentCount, 1);
+    // Batching is a pure function of the value — bytes are deterministic.
+    assert.deepEqual(Array.from(encodeBeast2PagedFor(AT, { targetSegmentBytes: 1 })(rows)), Array.from(tiny));
+  });
+
+  test("non-collection types are refused by the paged encoder", () => {
+    assert.throws(() => encodeBeast2PagedFor(StringType as any), /Array, Set or Dict/);
   });
 });
 
