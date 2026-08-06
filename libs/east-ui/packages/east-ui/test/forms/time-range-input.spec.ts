@@ -12,6 +12,7 @@ describeEast("TimeRangeInput", (test) => {
     Assert.examples(test, {
         timeRangeInputBasic: ex.timeRangeInputBasic,
         timeRangeInputVariants: ex.timeRangeInputVariants,
+        timeRangeInputCustomColours: ex.timeRangeInputCustomColours,
     });
 
     // =========================================================================

@@ -60,16 +60,10 @@ export const dateRangeInputVariants = example({
                 // together, with no single value to name them by. The `recipe`
                 // row carries empty slots because the preview drops the
                 // overrides entirely for it (below).
-                const colours = $.const([
-                    { label: "recipe",  color: "",           background: "",          borderColor: "",             focusBorder: "" },
-                    { label: "branded", color: "fg.default", background: "bg.subtle", borderColor: "border.brand", focusBorder: "border.brand" },
-                ], ArrayType(StructType({ label: StringType, color: StringType, background: StringType, borderColor: StringType, focusBorder: StringType })));
 
                 const precisionBind = $.let(State.bind([StringType], "date_range_input_precision", "date"));
                 const sizeBind      = $.let(State.bind([StringType], "date_range_input_size", "md"));
-                const colourBind    = $.let(State.bind([StringType], "date_range_input_color", "recipe"));
                 const disabledBind  = $.let(State.bind([BooleanType], "date_range_input_disabled", false));
-                const presetsBind   = $.let(State.bind([BooleanType], "date_range_input_presets", false));
 
                 // The preview is a live control, so the range keeps its own
                 // State-bound start / end pair — the old reactive row's binds.
@@ -78,17 +72,13 @@ export const dateRangeInputVariants = example({
 
                 const pKey      = $.let(precisionBind.read());
                 const sKey      = $.let(sizeBind.read());
-                const cKey      = $.let(colourBind.read());
                 const disabled  = $.let(disabledBind.read());
-                const presetsOn = $.let(presetsBind.read());
                 const start     = $.let(startBind.read(), DateTimeType);
                 const end       = $.let(endBind.read(), DateTimeType);
 
                 const onPrecision = $.const(East.function([StringType], NullType, ($, next) => { $(precisionBind.write(next)); }));
                 const onSize      = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-                const onColour    = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
                 const onDisabled  = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
-                const onPresets   = $.const(East.function([BooleanType], NullType, ($, next) => { $(presetsBind.write(next)); }));
                 const onChange    = $.const(East.function([DateTimeType, DateTimeType], NullType, ($, s, e) => {
                     $(startBind.write(s));
                     $(endBind.write(e));
@@ -97,36 +87,13 @@ export const dateRangeInputVariants = example({
                 // Each selection is a lookup into the same array the control renders.
                 const precision = $.let(precisions.filter((_$, v) => v.getTag().equal(pKey)).get(0n));
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
-                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
-                // The colour slots and the preset rail are escape hatches the
-                // factory omits from the IR entirely when absent — presence IS
-                // the demo — so the preview picks between four ranges (slots ×
-                // presets) rather than feeding empty values.
-                const range = $.const(cKey.equal("recipe").ifElse(
-                    _$ => presetsOn.ifElse(
-                        _$ => (
-                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
-                                disabled={disabled} onChange={onChange} presets={DATE_RANGE_PRESETS} />
-                        ),
-                        _$ => (
-                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
-                                disabled={disabled} onChange={onChange} />
-                        ),
-                    ),
-                    _$ => presetsOn.ifElse(
-                        _$ => (
-                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
-                                disabled={disabled} onChange={onChange} presets={DATE_RANGE_PRESETS}
-                                color={colour.color} background={colour.background} borderColor={colour.borderColor} focusBorderColor={colour.focusBorder} />
-                        ),
-                        _$ => (
-                            <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
-                                disabled={disabled} onChange={onChange}
-                                color={colour.color} background={colour.background} borderColor={colour.borderColor} focusBorderColor={colour.focusBorder} />
-                        ),
-                    ),
-                ));
+                // ONE input — the preset rail composes on permanently; the
+                // colour escape hatches live in their own example.
+                const range = $.const(
+                    <DateRangeInput startValue={start} endValue={end} precision={precision} size={size}
+                        disabled={disabled} onChange={onChange} presets={DATE_RANGE_PRESETS} />,
+                );
 
                 return (
                     <Configurator
@@ -137,16 +104,12 @@ export const dateRangeInputVariants = example({
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switches report as the
                             // Disabled / Presets spec rows below rather than as
                             // one value each.
                             Configurator.Slot("Flags",
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
-                                    <Switch checked={presetsOn} label="Presets" onChange={onPresets} />
                                 </HStack>),
                         ]}
                         preview={range}
@@ -155,20 +118,23 @@ export const dateRangeInputVariants = example({
                             body: <Text.MonoLabel>{East.str`${start} → ${end}`}</Text.MonoLabel>,
                         }}
                         spec={[
-                            Configurator.Spec("Presets", presetsOn.ifElse(
-                                _$ => "Last 7 days · MTD · QTD · YTD · Q2 2026",
-                                _$ => "hidden",
-                            )),
                             Configurator.Spec("Disabled", disabled.ifElse(_$ => "both inputs", _$ => "off")),
-                            Configurator.Spec("Slots", cKey.equal("recipe").ifElse(
-                                _$ => "input recipe",
-                                _$ => East.str`${colour.color} · ${colour.background} · ${colour.borderColor}`,
-                            )),
                         ]}
                     />
                 );
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches on a static range input. */
+export const dateRangeInputCustomColours = example({
+    keywords: ["DateRangeInput", "color", "background", "borderColor", "focusBorderColor", "override", "custom"],
+    description: "Colour overrides — brand border and focus ring on a static range input",
+    fn: East.function([], UIComponentType, (_$) => (
+        <DateRangeInput startValue={new Date("2026-07-01T00:00:00Z")} endValue={new Date("2026-07-14T00:00:00Z")}
+            color="fg.default" background="bg.canvas" borderColor="border.brand" focusBorderColor="border.brand" />
+    )),
     inputs: [],
 });

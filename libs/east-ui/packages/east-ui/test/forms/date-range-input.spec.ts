@@ -12,6 +12,7 @@ describeEast("DateRangeInput", (test) => {
     Assert.examples(test, {
         dateRangeInputBasic: ex.dateRangeInputBasic,
         dateRangeInputVariants: ex.dateRangeInputVariants,
+        dateRangeInputCustomColours: ex.dateRangeInputCustomColours,
     });
 
     // =========================================================================

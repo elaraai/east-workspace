@@ -54,15 +54,9 @@ export const timeRangeInputVariants = example({
                 // together, with no single value to name them by. The `recipe`
                 // row carries empty slots because the preview drops the
                 // overrides entirely for it (below).
-                const colours = $.const([
-                    { label: "recipe",  color: "",           background: "",          borderColor: "",             focusBorder: "" },
-                    { label: "branded", color: "fg.default", background: "bg.subtle", borderColor: "border.brand", focusBorder: "border.brand" },
-                ], ArrayType(StructType({ label: StringType, color: StringType, background: StringType, borderColor: StringType, focusBorder: StringType })));
 
                 const sizeBind     = $.let(State.bind([StringType], "time_range_input_size", "md"));
-                const colourBind   = $.let(State.bind([StringType], "time_range_input_color", "recipe"));
                 const disabledBind = $.let(State.bind([BooleanType], "time_range_input_disabled", false));
-                const presetsBind  = $.let(State.bind([BooleanType], "time_range_input_presets", false));
 
                 // The preview is a live control, so the window keeps its own
                 // State-bound start / end pair — the old reactive row's binds.
@@ -70,16 +64,12 @@ export const timeRangeInputVariants = example({
                 const endBind   = $.let(State.bind([IntegerType], "time_range_input_end", 840n));
 
                 const sKey      = $.let(sizeBind.read());
-                const cKey      = $.let(colourBind.read());
                 const disabled  = $.let(disabledBind.read());
-                const presetsOn = $.let(presetsBind.read());
                 const start     = $.let(startBind.read(), IntegerType);
                 const end       = $.let(endBind.read(), IntegerType);
 
                 const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
-                const onColour   = $.const(East.function([StringType], NullType, ($, next) => { $(colourBind.write(next)); }));
                 const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
-                const onPresets  = $.const(East.function([BooleanType], NullType, ($, next) => { $(presetsBind.write(next)); }));
                 const onChange   = $.const(East.function([IntegerType, IntegerType], NullType, ($, s, e) => {
                     $(startBind.write(s));
                     $(endBind.write(e));
@@ -87,36 +77,13 @@ export const timeRangeInputVariants = example({
 
                 // Each selection is a lookup into the same array the control renders.
                 const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
-                const colour = $.let(colours.filter((_$, o) => o.label.equal(cKey)).get(0n));
 
-                // The colour slots and the preset rail are escape hatches the
-                // factory omits from the IR entirely when absent — presence IS
-                // the demo — so the preview picks between four windows (slots ×
-                // presets) rather than feeding empty values.
-                const window = $.const(cKey.equal("recipe").ifElse(
-                    _$ => presetsOn.ifElse(
-                        _$ => (
-                            <TimeRangeInput startValue={start} endValue={end} step={15n} size={size}
-                                disabled={disabled} onChange={onChange} presets={TIME_RANGE_PRESETS} />
-                        ),
-                        _$ => (
-                            <TimeRangeInput startValue={start} endValue={end} step={15n} size={size}
-                                disabled={disabled} onChange={onChange} />
-                        ),
-                    ),
-                    _$ => presetsOn.ifElse(
-                        _$ => (
-                            <TimeRangeInput startValue={start} endValue={end} step={15n} size={size}
-                                disabled={disabled} onChange={onChange} presets={TIME_RANGE_PRESETS}
-                                color={colour.color} background={colour.background} borderColor={colour.borderColor} focusBorderColor={colour.focusBorder} />
-                        ),
-                        _$ => (
-                            <TimeRangeInput startValue={start} endValue={end} step={15n} size={size}
-                                disabled={disabled} onChange={onChange}
-                                color={colour.color} background={colour.background} borderColor={colour.borderColor} focusBorderColor={colour.focusBorder} />
-                        ),
-                    ),
-                ));
+                // ONE input — the preset rail composes on permanently; the
+                // colour escape hatches live in their own example.
+                const window = $.const(
+                    <TimeRangeInput startValue={start} endValue={end} step={15n} size={size}
+                        disabled={disabled} onChange={onChange} presets={TIME_RANGE_PRESETS} />,
+                );
 
                 return (
                     <Configurator
@@ -124,16 +91,12 @@ export const timeRangeInputVariants = example({
                             Configurator.Control("Size", sKey,
                                 <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                     items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                            Configurator.Control("Colour", cKey,
-                                <SegmentGroup value={cKey} onChange={onColour} size="sm"
-                                    items={colours.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
                             // A Slot, not a Control: the switches report as the
                             // Disabled / Presets spec rows below rather than as
                             // one value each.
                             Configurator.Slot("Flags",
                                 <HStack gap="5" align="center" wrap="wrap">
                                     <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
-                                    <Switch checked={presetsOn} label="Presets" onChange={onPresets} />
                                 </HStack>),
                         ]}
                         preview={window}
@@ -142,15 +105,7 @@ export const timeRangeInputVariants = example({
                             body: <Text.MonoLabel>{East.str`MIN · ${start} → ${end}`}</Text.MonoLabel>,
                         }}
                         spec={[
-                            Configurator.Spec("Presets", presetsOn.ifElse(
-                                _$ => "Morning · Afternoon · Night",
-                                _$ => "hidden",
-                            )),
                             Configurator.Spec("Disabled", disabled.ifElse(_$ => "both inputs", _$ => "off")),
-                            Configurator.Spec("Slots", cKey.equal("recipe").ifElse(
-                                _$ => "input recipe",
-                                _$ => East.str`${colour.color} · ${colour.background} · ${colour.borderColor}`,
-                            )),
                             Configurator.Spec("Step", "15 min"),
                         ]}
                     />
@@ -158,5 +113,16 @@ export const timeRangeInputVariants = example({
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+/** Raw colour escape hatches on a static time-range input. */
+export const timeRangeInputCustomColours = example({
+    keywords: ["TimeRangeInput", "color", "background", "borderColor", "focusBorderColor", "override", "custom"],
+    description: "Colour overrides — brand border and focus ring on a static time window",
+    fn: East.function([], UIComponentType, (_$) => (
+        <TimeRangeInput startValue={360n} endValue={840n}
+            color="fg.default" background="bg.canvas" borderColor="border.brand" focusBorderColor="border.brand" />
+    )),
     inputs: [],
 });

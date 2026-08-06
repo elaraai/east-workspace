@@ -30,34 +30,23 @@ export const avatarGroupVariants = example({
 
             const sizeBind = $.let(State.bind([StringType], "avatargroup_size", "md"));
             const densityBind = $.let(State.bind([StringType], "avatargroup_density", "compact"));
-            const overflowBind = $.let(State.bind([BooleanType], "avatargroup_overflow", true));
-            const borderBind = $.let(State.bind([BooleanType], "avatargroup_border", false));
 
             const sKey = $.let(sizeBind.read());
             const dKey = $.let(densityBind.read());
-            const overflowOn = $.let(overflowBind.read());
-            const borderOn = $.let(borderBind.read());
 
             const onSize = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
             const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
-            const onOverflow = $.const(East.function([BooleanType], NullType, ($, next) => { $(overflowBind.write(next)); }));
-            const onBorder = $.const(East.function([BooleanType], NullType, ($, next) => { $(borderBind.write(next)); }));
 
             const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
             const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
 
             // max and borderColor are presence-typed, so the switches pick
             // between prebuilt groups.
-            const preview = $.const(overflowOn.ifElse(
-                _$ => borderOn.ifElse(
-                    _$ => <AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }, { name: "Dan" }, { name: "Eve" }]} max={3n} size={size} density={density} borderColor="border.brand" />,
-                    _$ => <AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }, { name: "Dan" }, { name: "Eve" }]} max={3n} size={size} density={density} />,
-                ),
-                _$ => borderOn.ifElse(
-                    _$ => <AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]} size={size} density={density} borderColor="border.brand" />,
-                    _$ => <AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]} size={size} density={density} />,
-                ),
-            ));
+            // ONE group — the overflow +N chip and the branded border are
+            // presence-typed, so both compose on permanently.
+            const preview = $.const(
+                <AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }, { name: "Dan" }, { name: "Eve" }]} max={3n} size={size} density={density} borderColor="border.brand" />,
+            );
 
             return (
                 <Configurator
@@ -68,15 +57,10 @@ export const avatarGroupVariants = example({
                         Configurator.Control("Density", dKey,
                             <SegmentGroup value={dKey} onChange={onDensity} size="sm"
                                 items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
-                        Configurator.Slot("Members",
-                            <HStack gap="5" align="center" wrap="wrap">
-                                <Switch checked={overflowOn} label="Overflow +N" onChange={onOverflow} />
-                                <Switch checked={borderOn} label="Branded border" onChange={onBorder} />
-                            </HStack>),
                     ]}
                     preview={preview}
                     spec={[
-                        Configurator.Spec("Avatars", overflowOn.ifElse(_$ => "5 · max 3", _$ => "3")),
+                        Configurator.Spec("Avatars", "5 · max 3"),
                     ]}
                 />
             );
