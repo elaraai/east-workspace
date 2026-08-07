@@ -262,10 +262,10 @@ def _nested_value_type():
     """A value shaped like the one that crashed: a struct holding an inner
     Array<Struct> of all-Option fields plus a nested struct of Options."""
     inner = StructType([
-        ("mpf", OptionType(StringType)),
-        ("vintage", OptionType(StringType)),
-        ("litres_before", OptionType(FloatType)),
-        ("litres_after", OptionType(FloatType)),
+        ("grade", OptionType(StringType)),
+        ("batch", OptionType(StringType)),
+        ("level_before", OptionType(FloatType)),
+        ("level_after", OptionType(FloatType)),
     ])
     return StructType([
         ("allocations", ArrayType(inner)),
@@ -324,26 +324,26 @@ def test_update_many_rejects_length_mismatch_for_east_arrays():
 def test_update_many_deeply_nested_option_values_at_scale():
     """The regression: 61k kernel-produced nested Option values used to SIGSEGV."""
     val_t = _nested_value_type()
-    key_t = StructType([("chit", StringType), ("tank", StringType)])
+    key_t = StructType([("job", StringType), ("station", StringType)])
     n = 61_238
 
     # `allocations` comes from a source field: a bare `[]` cannot be lifted
     # into a kernel, and the point here is the value SHAPE, not how it is built.
     inner = val_t.value[0]["type"].value
-    src = StructType([("id", StringType), ("tank", OptionType(StringType)),
+    src = StructType([("id", StringType), ("station", OptionType(StringType)),
                       ("allocs", ArrayType(inner))])
-    rows = array(src, [{"id": f"C{i}", "tank": some(f"T{i}"),
-                        "allocs": [{"mpf": some("SHZ"), "vintage": some("18"),
-                                    "litres_before": some(1.0),
-                                    "litres_after": none}]} for i in range(n)])
+    rows = array(src, [{"id": f"C{i}", "station": some(f"S{i}"),
+                        "allocs": [{"grade": some("A1"), "batch": some("18"),
+                                    "level_before": some(1.0),
+                                    "level_after": none}]} for i in range(n)])
 
-    k_key = kernel(src, lambda r: {"chit": r["id"],
-                                   "tank": r["tank"].unwrap_or("")})
+    k_key = kernel(src, lambda r: {"job": r["id"],
+                                   "station": r["station"].unwrap_or("")})
     k_val = kernel(src, lambda r: {
         "allocations": r["allocs"],
-        "unallocated": {"before": where(r["tank"].is_some(), some(1.0), none),
-                        "after": where(r["tank"].is_some(), some(2.0), none)},
-        "quality": where(r["tank"].is_some(), some("D2"), none),
+        "unallocated": {"before": where(r["station"].is_some(), some(1.0), none),
+                        "after": where(r["station"].is_some(), some(2.0), none)},
+        "quality": where(r["station"].is_some(), some("D2"), none),
     })
     keys = rows.map(k_key, out=key_t)
     values = rows.map(k_val, out=val_t)
