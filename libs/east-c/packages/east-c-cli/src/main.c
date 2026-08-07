@@ -13,6 +13,7 @@
 
 #include "snapshot.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -284,6 +285,57 @@ static EastValue *load_value(const char *path, EastType *type)
     return NULL;
 }
 
+/* east-node parity: the size threshold at or above which indexed beast2
+ * collection inputs open lazily. EAST_LAZY_INPUT_BYTES overrides (0
+ * disables); default 64 MiB. Digits only, no overflow: strtoull silently
+ * wraps negatives ("-5" parses as a huge value) and saturates past
+ * ULLONG_MAX — both must fall back to the default, like the sibling
+ * runners, rather than enabling a bogus threshold. */
+static size_t lazy_input_threshold(void)
+{
+    const char *env = getenv("EAST_LAZY_INPUT_BYTES");
+    if (env && *env) {
+        bool digits = true;
+        for (const char *p = env; *p; p++) {
+            if (*p < '0' || *p > '9') {
+                digits = false;
+                break;
+            }
+        }
+        if (digits) {
+            errno = 0;
+            char *end = NULL;
+            unsigned long long v = strtoull(env, &end, 10);
+            if (errno == 0 && end && *end == '\0' && v <= (unsigned long long)SIZE_MAX)
+                return (size_t)v;
+        }
+    }
+    return (size_t)64 * 1024 * 1024;
+}
+
+/* Loads input value `path`: when `want_lazy`, an indexed beast2 collection
+ * blob opens as a lazy paged value (O(segment) decoded memory — issue #505);
+ * anything not pageable (other formats, non-collection types, index-less or
+ * aliased blobs) silently decodes whole, exactly like east-node's runner. */
+static EastValue *load_input_value(const char *path, EastType *type, bool want_lazy)
+{
+    if (!want_lazy || detect_format(path) != FMT_BEAST2 ||
+        (type->kind != EAST_TYPE_ARRAY && type->kind != EAST_TYPE_SET &&
+         type->kind != EAST_TYPE_DICT)) {
+        return load_value(path, type);
+    }
+    size_t len = 0;
+    uint8_t *data = read_file_binary(path, &len);
+    if (!data) return NULL;
+    EastValue *paged = east_beast2_open_paged(data, len, type);
+    if (paged) return paged; /* took ownership of data */
+    free(east_builtin_get_error());
+    EastValue *val = east_beast2_decode_full(data, len, type);
+    free(data);
+    if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
+    return val;
+}
+
 static int save_value(const char *path, EastValue *value, EastType *type)
 {
     FileFormat fmt = detect_format(path);
@@ -352,12 +404,209 @@ static bool is_std_package(const char *name)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Streaming emit sink (--emit)                                       */
+/* ------------------------------------------------------------------ */
+
+typedef enum {
+    EMIT_NONE = -1,
+    EMIT_ARRAY = 0,
+    EMIT_SET = 1,
+    EMIT_DICT = 2,
+} EmitKind;
+
+/* Batching mirrors the paged encoder: an element cap, refined toward a
+ * byte target from the writer's actual output as segments flush. */
+#define EMIT_BATCH_CAP 1000
+#define EMIT_TARGET_BYTES (2u * 1024u * 1024u)
+
+/* The body's trailing parameter is a runner-provided function value; each
+ * call appends one element (pair for dict outputs) through a streaming
+ * beast2 writer to the output file — O(batch) memory end to end. Set/Dict
+ * emission must be strictly ascending in East (key) order: the check runs
+ * per call so a violation names the offending emit, and a duplicate key
+ * can never collapse silently inside a batch container. */
+typedef struct {
+    FILE *out;
+    Beast2StreamWriter *writer;
+    EastType *out_type; /* owned: the output collection type */
+    EmitKind kind;
+    EastValue *batch;    /* owned accumulator of the collection kind */
+    EastValue *last_key; /* owned: previous key/element for the ascent check */
+    size_t batch_count;
+    size_t next_batch;
+    size_t written_elements;
+    size_t written_bytes;
+} EmitSink;
+
+static EastValue *emit_new_batch(EmitSink *s)
+{
+    switch (s->kind) {
+    case EMIT_ARRAY:
+    case EMIT_SET:
+        return s->kind == EMIT_ARRAY ? east_array_new(s->out_type->data.element)
+                                     : east_set_new(s->out_type->data.element);
+    default:
+        return east_dict_new(s->out_type->data.dict.key, s->out_type->data.dict.value);
+    }
+}
+
+static bool emit_drain(EmitSink *s)
+{
+    ByteBuffer *buf = east_beast2_writer_take(s->writer);
+    if (!buf) return true;
+    size_t wrote = fwrite(buf->data, 1, buf->len, s->out);
+    bool ok = wrote == buf->len;
+    s->written_bytes += wrote;
+    byte_buffer_free(buf);
+    return ok;
+}
+
+static bool emit_flush(EmitSink *s)
+{
+    if (s->batch_count == 0) return true;
+    if (!east_beast2_writer_write(s->writer, s->batch)) return false;
+    if (!emit_drain(s)) return false;
+    s->written_elements += s->batch_count;
+    east_value_release(s->batch);
+    s->batch = emit_new_batch(s);
+    s->batch_count = 0;
+    if (!s->batch) return false;
+    /* written_bytes includes the header — a slight average overestimate
+     * that only makes batches marginally smaller. */
+    size_t avg = s->written_bytes / (s->written_elements > 0 ? s->written_elements : 1);
+    if (avg == 0) avg = 1;
+    size_t next = EMIT_TARGET_BYTES / avg;
+    if (next < 1) next = 1;
+    if (next > EMIT_BATCH_CAP) next = EMIT_BATCH_CAP;
+    s->next_batch = next;
+    return true;
+}
+
+static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_args)
+{
+    EmitSink *s = (EmitSink *)self->invoke_userdata;
+    size_t expected = s->kind == EMIT_DICT ? 2 : 1;
+    if (n_args != expected || !args[0] || (expected == 2 && !args[1])) {
+        return eval_error("emit called with the wrong number of arguments");
+    }
+    EastValue *key = args[0];
+    if (s->kind != EMIT_ARRAY) {
+        if (s->last_key && east_value_compare(s->last_key, key) >= 0) {
+            return eval_error(
+                s->kind == EMIT_DICT
+                    ? "beast2 v5: Dict stream batches must be strictly ascending in East key "
+                      "order — segment content is the canonical value; emit in ascending key "
+                      "order, or emit arrival order as an Array"
+                    : "beast2 v5: Set stream batches must be strictly ascending in East element "
+                      "order — segment content is the canonical value; emit in ascending element "
+                      "order, or emit arrival order as an Array");
+        }
+        east_value_retain(key);
+        if (s->last_key) east_value_release(s->last_key);
+        s->last_key = key;
+    }
+    switch (s->kind) {
+    case EMIT_ARRAY:
+        east_array_push(s->batch, args[0]);
+        break;
+    case EMIT_SET:
+        east_set_insert(s->batch, args[0]);
+        break;
+    default:
+        east_dict_set(s->batch, args[0], args[1]);
+        break;
+    }
+    s->batch_count++;
+    if (s->batch_count >= s->next_batch && !emit_flush(s)) {
+        return eval_error("emit: failed to write output segment");
+    }
+    return eval_ok(east_null());
+}
+
+/* Builds the sink + its output collection type from the emit parameter's
+ * function type. Returns NULL with a message on stderr when the shape or
+ * output destination is unusable. */
+static EmitSink *emit_sink_new(EmitKind kind, EastType *emit_param_type, const char *output_file)
+{
+    if (!output_file || detect_format(output_file) != FMT_BEAST2) {
+        fprintf(stderr, "Error: --emit requires a .beast2 output file (-o)\n");
+        return NULL;
+    }
+    if (!emit_param_type || emit_param_type->kind != EAST_TYPE_FUNCTION) {
+        fprintf(stderr, "Error: --emit requires the function's trailing parameter to be the emit "
+                        "capability (a function type)\n");
+        return NULL;
+    }
+    size_t arity = emit_param_type->data.function.num_inputs;
+    size_t expected = kind == EMIT_DICT ? 2 : 1;
+    if (arity != expected) {
+        fprintf(stderr, "Error: --emit expects an emit parameter taking %zu argument(s), got %zu\n",
+                expected, arity);
+        return NULL;
+    }
+    EastType **ins = emit_param_type->data.function.inputs;
+    EastType *out_type = kind == EMIT_DICT  ? east_dict_type(ins[0], ins[1])
+                         : kind == EMIT_SET ? east_set_type(ins[0])
+                                            : east_array_type(ins[0]);
+    if (!out_type) return NULL;
+
+    EmitSink *s = calloc(1, sizeof(EmitSink));
+    if (!s) {
+        east_type_release(out_type);
+        return NULL;
+    }
+    s->kind = kind;
+    s->out_type = out_type;
+    s->next_batch = EMIT_BATCH_CAP;
+    s->out = fopen(output_file, "wb");
+    if (!s->out) {
+        fprintf(stderr, "Error: Cannot write file: %s\n", output_file);
+        east_type_release(out_type);
+        free(s);
+        return NULL;
+    }
+    s->writer = east_beast2_writer_new(out_type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    s->batch = emit_new_batch(s);
+    if (!s->writer || !s->batch) {
+        if (s->writer) east_beast2_writer_free(s->writer);
+        if (s->batch) east_value_release(s->batch);
+        fclose(s->out);
+        east_type_release(out_type);
+        free(s);
+        return NULL;
+    }
+    return s;
+}
+
+/* Flushes the final batch and the terminator + index, then closes the file. */
+static bool emit_sink_finish(EmitSink *s)
+{
+    bool ok = emit_flush(s);
+    ok = east_beast2_writer_finish(s->writer) && ok;
+    ok = emit_drain(s) && ok;
+    ok = fclose(s->out) == 0 && ok;
+    s->out = NULL;
+    return ok;
+}
+
+static void emit_sink_free(EmitSink *s)
+{
+    if (!s) return;
+    if (s->out) fclose(s->out);
+    if (s->writer) east_beast2_writer_free(s->writer);
+    if (s->batch) east_value_release(s->batch);
+    if (s->last_key) east_value_release(s->last_key);
+    if (s->out_type) east_type_release(s->out_type);
+    free(s);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Commands                                                           */
 /* ------------------------------------------------------------------ */
 
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                    const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   const char *snapshot_out_path)
+                   const char *snapshot_out_path, EmitKind emit_kind, int stream_input)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -498,6 +747,19 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     EastType **param_types = fn_type->data.function.inputs;
     EastType *return_type = fn_type->data.function.output;
 
+    /* With --emit the body takes one trailing runner-provided parameter (the
+     * emit capability) beyond the input files; the output file is written
+     * incrementally by the sink instead of from the return value. */
+    size_t file_params = emit_kind != EMIT_NONE && num_params > 0 ? num_params - 1 : num_params;
+    if (stream_input >= 0 && (size_t)stream_input >= file_params) {
+        fprintf(stderr, "Error: --stream index %d out of range (%zu inputs)\n", stream_input,
+                file_params);
+        ir_node_release(ir);
+        platform_registry_free(platform);
+        builtin_registry_free(builtins);
+        return 1;
+    }
+
     if (verbose) {
         fprintf(stderr, "Function: %zu inputs, %s\n", num_params,
                 ir->kind == IR_ASYNC_FUNCTION ? "async" : "sync");
@@ -519,7 +781,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     }
 
     /* Validate input count */
-    if ((size_t)num_inputs != num_params) {
+    if ((size_t)num_inputs != file_params) {
         char sig_buf[1024];
         int off = snprintf(sig_buf, sizeof(sig_buf), "(");
         for (size_t i = 0; i < num_params; i++) {
@@ -533,7 +795,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", rs ? rs : "?");
         free(rs);
 
-        fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", num_params,
+        fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", file_params,
                 num_inputs, sig_buf);
         ir_node_release(ir);
         platform_registry_free(platform);
@@ -541,13 +803,37 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         return 1;
     }
 
+    /* The emit sink writes the output; built before the inputs so a bad
+     * emit shape fails fast. */
+    EmitSink *emit_sink = NULL;
+    if (emit_kind != EMIT_NONE) {
+        emit_sink = emit_sink_new(emit_kind, num_params > 0 ? param_types[num_params - 1] : NULL,
+                                  output_file);
+        if (!emit_sink) {
+            ir_node_release(ir);
+            platform_registry_free(platform);
+            builtin_registry_free(builtins);
+            return 1;
+        }
+    }
+
     /* Load inputs with type-directed parsing (paths already listed in the
-     * Function section above). */
+     * Function section above). The emit capability, when present, is the
+     * trailing argument. */
+    size_t num_args = (size_t)num_inputs + (emit_sink ? 1u : 0u);
+    size_t threshold = lazy_input_threshold();
     EastValue **args = NULL;
-    if (num_inputs > 0) {
-        args = calloc((size_t)num_inputs, sizeof(EastValue *));
+    if (num_args > 0) {
+        args = calloc(num_args, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
-            args[i] = load_value(input_files[i], param_types[i]);
+            /* The streamed input always opens lazily; other collection
+             * inputs open lazily at or above the size threshold. */
+            bool want_lazy = i == stream_input;
+            if (!want_lazy && threshold > 0) {
+                struct stat st;
+                want_lazy = stat(input_files[i], &st) == 0 && (size_t)st.st_size >= threshold;
+            }
+            args[i] = load_input_value(input_files[i], param_types[i], want_lazy);
             if (!args[i]) {
                 char *ts = format_type(param_types[i]);
                 fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n", i, input_files[i],
@@ -556,6 +842,22 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 for (int j = 0; j < i; j++)
                     east_value_release(args[j]);
                 free(args);
+                emit_sink_free(emit_sink);
+                ir_node_release(ir);
+                platform_registry_free(platform);
+                builtin_registry_free(builtins);
+                return 1;
+            }
+        }
+        if (emit_sink) {
+            args[num_inputs] =
+                east_foreign_function(emit_invoke, emit_sink, NULL, param_types[num_params - 1]);
+            if (!args[num_inputs]) {
+                fprintf(stderr, "Error: failed to construct the emit capability\n");
+                for (int j = 0; j < num_inputs; j++)
+                    east_value_release(args[j]);
+                free(args);
+                emit_sink_free(emit_sink);
                 ir_node_release(ir);
                 platform_registry_free(platform);
                 builtin_registry_free(builtins);
@@ -578,9 +880,10 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     if (!fn) {
         fprintf(stderr, "Error: %s\n", compile_err ? compile_err : "Failed to compile IR");
         free(compile_err);
-        for (int i = 0; i < num_inputs; i++)
+        for (size_t i = 0; i < num_args; i++)
             east_value_release(args[i]);
         free(args);
+        emit_sink_free(emit_sink);
         ir_node_release(ir);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
@@ -605,7 +908,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     /* Execute */
     clock_gettime(CLOCK_MONOTONIC, &t2);
 
-    EvalResult result = east_call(fn, args, (size_t)num_inputs);
+    EvalResult result = east_call(fn, args, num_args);
     clock_gettime(CLOCK_MONOTONIC, &t3);
 
     int exit_code = 0;
@@ -619,10 +922,30 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                     (long)result.locations[i].line, (long)result.locations[i].column);
         }
         exit_code = 1;
+    } else if (emit_sink) {
+        /* The sink wrote the output incrementally; the (Null) return value
+         * is unused. Finish appends the terminator + index. */
+        if (!emit_sink_finish(emit_sink)) {
+            fprintf(stderr, "Error: failed to finalize the emitted output\n");
+            exit_code = 1;
+        } else if (verbose) {
+            char *ts = format_type(emit_sink->out_type);
+            char sz[32];
+            format_file_size(output_file, sz, sizeof(sz));
+            fprintf(stderr, "Output: %s  (%s)\n  %s\n", output_file, sz, ts ? ts : "?");
+            free(ts);
+        }
     } else {
-        /* Save or print result */
-        if (output_file) {
-            if (save_value(output_file, result.value, return_type) != 0) {
+        /* Save or print result. A paged input returned as the output
+         * hydrates here — the encoders and printer walk eager values. */
+        EastValue *out_val = east_paged_hydrated(result.value);
+        if (!out_val) {
+            char *err = east_builtin_get_error();
+            fprintf(stderr, "Error: %s\n", err ? err : "failed to hydrate the paged output");
+            free(err);
+            exit_code = 1;
+        } else if (output_file) {
+            if (save_value(output_file, out_val, return_type) != 0) {
                 exit_code = 1;
             } else if (verbose) {
                 char *ts = format_type(return_type);
@@ -633,7 +956,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             }
         } else {
             /* Print as .east format to stdout */
-            char *text = east_print_value(result.value, return_type);
+            char *text = east_print_value(out_val, return_type);
             if (text) {
                 printf("%s\n", text);
                 free(text);
@@ -647,9 +970,10 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     if (result.value) east_value_release(result.value);
     eval_result_free(&result);
     east_compiled_fn_free(fn);
-    for (int i = 0; i < num_inputs; i++)
+    for (size_t i = 0; i < num_args; i++)
         east_value_release(args[i]);
     free(args);
+    emit_sink_free(emit_sink);
     ir_node_release(ir);
     platform_registry_free(platform);
     builtin_registry_free(builtins);
@@ -811,6 +1135,10 @@ static void print_usage(const char *prog)
             "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
             "  -o, --output FILE       Output file for result\n"
             "  -v, --verbose           Enable verbose output\n"
+            "      --emit KIND         Write the output incrementally from the function's\n"
+            "                          trailing emit parameter (array|set|dict)\n"
+            "      --stream N          Feed the given -i input lazily (0-based index;\n"
+            "                          segment-fed iteration, O(segment) decoded memory)\n"
             "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
             "      --from-snapshot PATH  Replay from a .east-snapshot bundle (exclusive\n"
             "                            with <ir_file>, -i, -p)\n"
@@ -852,6 +1180,8 @@ static int cli_main(void *arg)
     const char *ir_path = NULL;
     const char *snapshot_out_path = NULL;
     const char *from_snapshot_path = NULL;
+    EmitKind emit_kind = EMIT_NONE;
+    int stream_input = -1;
 
     if (strcmp(command, "run") == 0) {
         /* Single-pass parse — --from-snapshot makes <ir_file> optional, so we
@@ -885,6 +1215,31 @@ static int cli_main(void *arg)
             } else if (strcmp(a, "--from-snapshot") == 0 && i + 1 < argc) {
                 from_snapshot_path = argv[i + 1];
                 i += 2;
+            } else if (strcmp(a, "--emit") == 0 && i + 1 < argc) {
+                const char *k = argv[i + 1];
+                if (strcmp(k, "array") == 0)
+                    emit_kind = EMIT_ARRAY;
+                else if (strcmp(k, "set") == 0)
+                    emit_kind = EMIT_SET;
+                else if (strcmp(k, "dict") == 0)
+                    emit_kind = EMIT_DICT;
+                else {
+                    fprintf(stderr, "Error: --emit must be one of array, set or dict, got '%s'\n",
+                            k);
+                    return 1;
+                }
+                i += 2;
+            } else if (strcmp(a, "--stream") == 0 && i + 1 < argc) {
+                char *end = NULL;
+                long v = strtol(argv[i + 1], &end, 10);
+                if (!end || *end != '\0' || v < 0) {
+                    fprintf(stderr,
+                            "Error: --stream must be a non-negative input index, got '%s'\n",
+                            argv[i + 1]);
+                    return 1;
+                }
+                stream_input = (int)v;
+                i += 2;
             } else if (a[0] != '-' && !ir_path) {
                 ir_path = a;
                 i++;
@@ -903,11 +1258,20 @@ static int cli_main(void *arg)
             }
             SnapshotExtract ex;
             if (snapshot_read(from_snapshot_path, &ex) != 0) return 1;
+            /* The manifest carries no streaming flags (format v1), so an emit
+             * task's flags must be passed explicitly on replay — forward them. */
             int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
                              (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
-                             verbose, NULL);
+                             verbose, NULL, emit_kind, stream_input);
             snapshot_extract_free(&ex);
             return rc;
+        }
+
+        if (snapshot_out_path && (emit_kind != EMIT_NONE || stream_input >= 0)) {
+            fprintf(stderr, "Error: --snapshot does not capture --emit/--stream (snapshot format "
+                            "v1 has no streaming flags); replay with --from-snapshot passing "
+                            "--emit/--stream explicitly\n");
+            return 1;
         }
 
         if (!ir_path) {
@@ -917,7 +1281,7 @@ static int cli_main(void *arg)
         }
 
         return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose, snapshot_out_path);
+                       verbose, snapshot_out_path, emit_kind, stream_input);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;

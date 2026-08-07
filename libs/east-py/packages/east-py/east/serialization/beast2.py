@@ -220,7 +220,7 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
             values = value.to_array(lambda _k, v: v, out=vt)
 
             def chunk(i: int, j: int):
-                rebuilt = EastDict(kt, vt)
+                rebuilt: Any = EastDict(kt, vt)
                 rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
                 return rebuilt
 
@@ -2493,6 +2493,17 @@ class Beast2FileWriter:
     def segments(self) -> int:
         """Segments written so far."""
         return self._writer.segments
+
+    @property
+    def bytes_written(self) -> int:
+        """Logical bytes appended to the file so far (header included).
+
+        Streaming callers use this to re-batch byte-adaptively: the running
+        average of ``bytes_written / elements written`` sizes the next batch
+        toward a wire-byte target, the segment-size discipline the paged
+        encoders follow.
+        """
+        return self._file.tell()
 
     def write(self, batch) -> None:
         """Append ``batch`` — an East collection of the declared type, or the

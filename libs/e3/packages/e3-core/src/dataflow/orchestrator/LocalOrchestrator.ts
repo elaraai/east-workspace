@@ -1102,6 +1102,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       signal: options.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
+      partitionConcurrency: options.partitionConcurrency,
+      // Forward partition progress to the caller's callback ONLY. It is
+      // deliberately not persisted as execution events: ExecutionEventType
+      // is a frozen beast2 wire (appending cases breaks released readers —
+      // see its wire warning), nothing consumes persisted partition
+      // progress, and a per-unit state rewrite would make persistence
+      // O(partitions²) under the orchestrator mutex.
+      onPartitionProgress: options.onPartitionProgress
+        ? (progress) => options.onPartitionProgress!(taskName, progress)
+        : undefined,
     };
 
     // Use provided runner if available, otherwise call taskExecute directly

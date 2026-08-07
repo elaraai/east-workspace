@@ -17,7 +17,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type TaskObject, decodeTaskObject, withRunnerVerbose } from '@elaraai/e3-types';
+import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -49,6 +49,12 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   /** Stream stderr callback */
   onStderr?: (data: string) => void;
+  /** Maximum concurrent per-partition executions of a partitioned task
+   *  (default: 4). Runtime-only: never affects hashes or caching. */
+  partitionConcurrency?: number;
+  /** Called as each unit of a partitioned task (slice execution or combine
+   *  step) starts and completes. Runtime-only progress reporting. */
+  onPartitionProgress?: (progress: PartitionProgress) => void;
 }
 
 /**
@@ -94,6 +100,8 @@ export class LocalTaskRunner implements TaskRunner {
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
+      partitionConcurrency: options?.partitionConcurrency,
+      onPartitionProgress: options?.onPartitionProgress,
     });
 
     // Convert ExecutionResult to TaskResult
@@ -163,22 +171,8 @@ export async function taskExecute(
 
   // Step 1: Check cache (unless force)
   if (!options.force) {
-    const existingOutput = await storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
-    if (existingOutput !== null) {
-      const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-      if (status && status.type === 'success') {
-        return {
-          inputsHash: inHash,
-          executionId: status.value.executionId,
-          cached: true,
-          state: 'success',
-          outputHash: existingOutput,
-          exitCode: 0,
-          duration: 0,
-          error: null,
-        };
-      }
-    }
+    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
+    if (cached !== null) return cached;
   }
 
   // Step 2: Generate a new execution ID
@@ -212,6 +206,100 @@ export async function taskExecute(
       error: `Failed to read task object: ${err}`,
     };
   }
+
+  // Partitioned tasks fan out below this point: carve the partitioned
+  // input(s), run each slice through the standard path as its own
+  // content-addressed execution, and splice/combine the shards. Loaded
+  // lazily — partitionExec imports back into this module for the standard
+  // per-slice path.
+  if (task.kind.type === 'some' && task.kind.value === TASK_KIND_PARTITION) {
+    const { partitionTaskExecute } = await import('./partitionExec.js');
+    return partitionTaskExecute(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
+  }
+
+  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
+}
+
+/** Probes the execution cache for a successful prior execution. */
+async function probeExecutionCache(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  inHash: string
+): Promise<ExecutionResult | null> {
+  const existingOutput = await storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
+  if (existingOutput !== null) {
+    const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
+    if (status && status.type === 'success') {
+      return {
+        inputsHash: inHash,
+        executionId: status.value.executionId,
+        cached: true,
+        state: 'success',
+        outputHash: existingOutput,
+        exitCode: 0,
+        duration: 0,
+        error: null,
+      };
+    }
+  }
+  return null;
+}
+
+/** The identity of one execution attempt, computed by {@link taskExecute}
+ *  before dispatch. @internal */
+export interface ExecutionIds {
+  /** Combined inputs hash. */
+  inHash: string;
+  /** Fresh execution ID (UUIDv7). */
+  executionId: string;
+  /** Wall-clock start of the attempt (epoch ms). */
+  startTime: number;
+}
+
+/**
+ * Executes one content-addressed execution of an already-decoded task
+ * through the standard marshal → spawn → store path, with the ordinary
+ * cache probe.
+ *
+ * Partition fan-out uses this for its per-slice and combine executions —
+ * dispatching through {@link taskExecute} would re-enter the partition path
+ * on the same task object.
+ *
+ * @internal
+ */
+export async function taskExecuteStandard(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  task: TaskObject,
+  inputHashes: string[],
+  options: ExecuteOptions = {}
+): Promise<ExecutionResult> {
+  const inHash = inputsHash(inputHashes);
+  const startTime = Date.now();
+  if (!options.force) {
+    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
+    if (cached !== null) return cached;
+  }
+  const executionId = uuidv7();
+  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
+}
+
+/** The standard execution body: scratch dir, input marshalling, command IR
+ *  evaluation, spawn, and verbatim output store. Exported for the partition
+ *  path's single-partition short-circuit, which runs the body once under the
+ *  LOGICAL execution identity (the whole input is the one slice). @internal */
+export async function taskExecuteBody(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  task: TaskObject,
+  inputHashes: string[],
+  ids: ExecutionIds,
+  options: ExecuteOptions = {}
+): Promise<ExecutionResult> {
+  const { inHash, executionId, startTime } = ids;
 
   // Step 4: Create scratch directory
   // Include PID to prevent collisions when multiple e3 processes run the same

@@ -23,10 +23,19 @@ typedef enum {
     EAST_VAL_VECTOR,
     EAST_VAL_MATRIX,
     EAST_VAL_FUNCTION,
+    /* A lazy pager-backed collection (issue #505): an indexed beast2 v5 blob
+     * served through the Beast2Pages reader. Size, keyed get/has and for-loop
+     * iteration answer from the pager; any other operation hydrates the whole
+     * value once (east_paged_hydrated) and delegates — observationally
+     * equivalent to the eager collection, only lazier. Appended after
+     * FUNCTION so existing kind numbering (shared with east-py through one
+     * libeast-c) is unchanged. */
+    EAST_VAL_PAGED,
 } EastValueKind;
 
 typedef struct EastValue EastValue;
 typedef struct EastCompiledFn EastCompiledFn;
+typedef struct Beast2Pages Beast2Pages;
 
 /* tidwall/btree.c — the ordered store backing Set (and, later, Dict). Only
  * values.c touches the concrete type; everywhere else holds the opaque pointer. */
@@ -137,6 +146,12 @@ struct EastValue {
         struct {
             EastCompiledFn *compiled;
         } function;
+        struct {
+            Beast2Pages *pages; /* fences + segment LRU over `data` */
+            uint8_t *data;      /* owned blob bytes */
+            size_t len;
+            EastValue *hydrated; /* NULL until the first unsupported op */
+        } paged;
     } data;
 
     /* Cycle-collector and iteration state. Present ONLY on kinds satisfying
@@ -154,7 +169,7 @@ struct EastValue {
 #define EAST_VAL_GC_KIND_MASK                                                                      \
     ((1u << EAST_VAL_ARRAY) | (1u << EAST_VAL_SET) | (1u << EAST_VAL_DICT) |                       \
      (1u << EAST_VAL_STRUCT) | (1u << EAST_VAL_VARIANT) | (1u << EAST_VAL_REF) |                   \
-     (1u << EAST_VAL_FUNCTION))
+     (1u << EAST_VAL_FUNCTION) | (1u << EAST_VAL_PAGED))
 
 static inline bool east_value_kind_has_gc(EastValueKind kind)
 {
@@ -338,6 +353,11 @@ EastValue *east_vector_new(EastType *elem_type, size_t len);
 EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols);
 
 EastValue *east_function_value(EastCompiledFn *fn);
+
+/* Wraps an already-open pager and its owned blob bytes as an EAST_VAL_PAGED
+ * value. Construction seam for east_beast2_open_paged (serialization.h),
+ * which is the public entry — it validates the blob and builds the pager. */
+EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len);
 
 // Ref counting
 void east_value_retain(EastValue *v);

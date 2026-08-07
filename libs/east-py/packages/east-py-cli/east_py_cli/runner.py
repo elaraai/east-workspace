@@ -8,9 +8,11 @@ All formats (JSON, BEAST2, East text) go straight from raw bytes to C
 with no Python IR round-trip.
 """
 
+import os
 import sys
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 try:
     import resource  # Unix-only (getrusage); not present on Windows
@@ -39,6 +41,114 @@ def _format_file_size(path: Path) -> str:
         return "?"
 
 
+# Batching mirrors east-node / east-c: an element cap, refined toward a
+# wire-byte target from the writer's actual output as segments flush — wide
+# rows shrink the batch so a segment never grossly overshoots the target.
+# (Beast2FileWriter's own re-batching is ROW-based and passes batches at or
+# under its row target through untouched, so byte adaptation must happen
+# here.)
+_EMIT_BATCH_CAP = 1000
+_EMIT_TARGET_BYTES = 2 * 1024 * 1024
+
+# east-node parity: indexed beast2 collection inputs at or above this many
+# bytes open as lazy paged values (EAST_LAZY_INPUT_BYTES overrides; 0
+# disables). The --stream input always opens lazily.
+_LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024
+
+
+def _lazy_input_threshold() -> int:
+    env = os.environ.get("EAST_LAZY_INPUT_BYTES", "")
+    if env:
+        try:
+            value = int(env)
+        except ValueError:
+            value = -1
+        if value >= 0:
+            return value
+    return _LAZY_INPUT_BYTES_DEFAULT
+
+
+class _EmitSink:
+    """The ``--emit`` capability: a Python callable passed as the body's
+    trailing FunctionType parameter, appending elements (pairs for dict
+    outputs) through the managed streaming beast2 writer — O(batch) memory
+    end to end. Set/Dict emission must be strictly ascending in East (key)
+    order; the check runs per call so a violation names the offending emit
+    and a duplicate key can never collapse silently inside a batch."""
+
+    def __init__(self, kind: str, emit_param_type: object, output_file: Path):
+        from east import ArrayType, DictType, SetType, compare_for
+        from east.serialization.beast2 import open_beast2_file
+
+        if Path(output_file).suffix.lower() not in (".beast2", ".beast"):
+            raise ValueError("--emit requires a .beast2 output file (-o)")
+        if getattr(emit_param_type, "type", None) not in ("Function", "AsyncFunction"):
+            raise ValueError(
+                "--emit requires the function's trailing parameter to be the emit "
+                "capability (a function type)"
+            )
+        ins = emit_param_type.value["inputs"]  # type: ignore[attr-defined]
+        expected = 2 if kind == "dict" else 1
+        if len(ins) != expected:
+            raise ValueError(
+                f"--emit {kind} expects an emit parameter taking {expected} "
+                f"argument(s), got {len(ins)}"
+            )
+        self.kind = kind
+        self.emit_types = list(ins)
+        self.output_file = Path(output_file)
+        self.out_type: Any = (
+            DictType(ins[0], ins[1]) if kind == "dict"
+            else SetType(ins[0]) if kind == "set"
+            else ArrayType(ins[0])
+        )
+        self._cmp = None if kind == "array" else compare_for(ins[0])
+        self._last_key: object = None
+        self._has_last = False
+        self._batch: list = []
+        self._written = 0
+        self._next_batch = _EMIT_BATCH_CAP
+        self._writer = open_beast2_file(output_file, self.out_type, mode="w")
+
+    def emit(self, *args: object) -> None:
+        if self._cmp is not None:
+            key = args[0]
+            if self._has_last and self._cmp(self._last_key, key) >= 0:
+                noun = ("Dict", "key") if self.kind == "dict" else ("Set", "element")
+                raise ValueError(
+                    f"beast2 v5: {noun[0]} stream batches must be strictly ascending in "
+                    f"East {noun[1]} order — segment content is the canonical value; "
+                    f"emit in ascending {noun[1]} order, or emit arrival order as an Array"
+                )
+            self._last_key = key
+            self._has_last = True
+        self._batch.append((args[0], args[1]) if self.kind == "dict" else args[0])
+        if len(self._batch) >= self._next_batch:
+            self._flush()
+
+    def _flush(self) -> None:
+        if not self._batch:
+            return
+        flushed = len(self._batch)
+        if self.kind == "dict":
+            self._writer.write(dict(self._batch))
+        elif self.kind == "set":
+            self._writer.write(set(self._batch))
+        else:
+            self._writer.write(list(self._batch))
+        self._batch = []
+        self._written += flushed
+        # Refine toward the byte target from real output. bytes_written
+        # includes the header — a slight average overestimate that only
+        # makes batches marginally smaller (east-node/east-c parity).
+        avg = max(1, self._writer.bytes_written // max(self._written, 1))
+        self._next_batch = max(1, min(_EMIT_BATCH_CAP, _EMIT_TARGET_BYTES // avg))
+
+    def finish(self) -> None:
+        self._flush()
+        self._writer.close()
+
+
 def run_program(
     ir_file: Path,
     platform_fns: list[PlatformFunction],
@@ -46,6 +156,8 @@ def run_program(
     input_files: list[Path],
     output_file: Path | None = None,
     verbose: bool = False,
+    emit: str | None = None,
+    stream_input: int | None = None,
 ) -> object:
     """Run an East IR program."""
     fmt = detect_format(ir_file)
@@ -74,13 +186,30 @@ def run_program(
     input_types = handle.get_input_types()
     output_type = handle.get_output_type()
 
+    # With --emit the body takes one trailing runner-provided parameter (the
+    # emit capability) beyond the input files; the output file is written
+    # incrementally by the sink instead of from the return value.
+    file_params = len(input_types) - 1 if emit is not None and input_types else len(input_types)
+
     # Validate input count
-    if len(input_files) != len(input_types):
+    if len(input_files) != file_params:
         sig_params = ", ".join(print_type(t) for t in input_types)
         raise ValueError(
-            f"Function expects {len(input_types)} inputs, got {len(input_files)}\n"
+            f"Function expects {file_params} inputs, got {len(input_files)}\n"
             f"Signature: ({sig_params}) -> {print_type(output_type)}"
         )
+    if stream_input is not None and not 0 <= stream_input < file_params:
+        # east-node / east-c parity: `--stream 0` on a zero-input program is
+        # an error, not a silent no-op.
+        raise ValueError(f"--stream index {stream_input} out of range ({file_params} inputs)")
+
+    sink = None
+    if emit is not None:
+        if output_file is None:
+            raise ValueError("--emit requires an output file (-o)")
+        # A zero-parameter function has no trailing parameter to be the emit
+        # capability — the shaped error, not an IndexError.
+        sink = _EmitSink(emit, input_types[-1] if input_types else None, output_file)
 
     # Verbose header
     if verbose:
@@ -104,11 +233,35 @@ def run_program(
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
-    # Load inputs with type-directed parsing
-    inputs = [
-        load_value(file_path, param_type)
-        for file_path, param_type in zip(input_files, input_types, strict=False)
-    ]
+    # Load inputs with type-directed parsing. The streamed input always opens
+    # as a lazy paged value (segment-fed iteration + keyed reads at O(segment)
+    # decoded memory — #505); other indexed beast2 collection inputs open
+    # lazily at or above the size threshold. Anything not pageable falls back
+    # to the whole decode, exactly like east-node's runner.
+    from east.runtime._compiler_eastc import open_paged_value
+
+    threshold = _lazy_input_threshold()
+    inputs = []
+    for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
+        lazy = None
+        want_lazy = i == stream_input or (
+            threshold > 0 and Path(file_path).stat().st_size >= threshold
+        )
+        if (
+            want_lazy
+            and Path(file_path).suffix.lower() in (".beast2", ".beast")
+            and getattr(param_type, "type", None) in ("Array", "Set", "Dict")
+        ):
+            lazy = open_paged_value(handle._input_types[i], Path(file_path).read_bytes())
+        inputs.append(lazy if lazy is not None else load_value(file_path, param_type))
+
+    # The emit capability rides the trailing FunctionType parameter as a
+    # foreign function value backed by the sink's Python callable.
+    if sink is not None:
+        from east import EastFunction, NullType
+        from east.runtime._compiler_eastc import foreign_function_value
+
+        inputs.append(foreign_function_value(EastFunction(sink.emit, sink.emit_types, NullType)))
 
     t2 = perf_counter()
 
@@ -120,7 +273,17 @@ def run_program(
     t3 = perf_counter()
 
     # Output
-    if output_file is not None:
+    if sink is not None:
+        # The sink wrote the output incrementally; the (Null) return value is
+        # unused. Closing writes the terminator, index and footer.
+        sink.finish()
+        if verbose:
+            print(
+                f"Output: {sink.output_file}  ({_format_file_size(sink.output_file)})",
+                file=sys.stderr,
+            )
+            print(f"  {print_type(sink.out_type)}", file=sys.stderr)
+    elif output_file is not None:
         save_value(output_file, result, output_type)
         if verbose:
             print(f"Output: {output_file}  ({_format_file_size(output_file)})", file=sys.stderr)

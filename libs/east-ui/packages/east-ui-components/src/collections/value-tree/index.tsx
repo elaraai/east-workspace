@@ -330,7 +330,13 @@ function childrenOf(node: ValueTreeNodeValue): ChildEntry[] {
         return node.value.items.map((n, i) => ({ label: itemTitle(n, i), node: n, step: variant("index", BigInt(i)) }));
     }
     if (node.type === "dict") {
-        return node.value.entries.map(e => ({ label: e.key, node: e.node, step: variant("key", e.key) }));
+        // `label` is display, `key` the round-trippable step text; the
+        // fallback covers host-constructed node shapes that predate `label`.
+        return node.value.entries.map(e => ({
+            label: (e as { label?: string }).label ?? e.key,
+            node: e.node,
+            step: variant("key", e.key),
+        }));
     }
     return [];
 }

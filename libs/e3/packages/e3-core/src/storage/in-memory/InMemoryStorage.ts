@@ -66,6 +66,14 @@ class InMemoryObjectStore implements ObjectStore {
     return data;
   }
 
+  async readRange(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array> {
+    const data = this.getRepoObjects(repo).get(hash);
+    if (!data) {
+      throw new ObjectNotFoundError(hash);
+    }
+    return data.subarray(offset, offset + length);
+  }
+
   async exists(repo: string, hash: string): Promise<boolean> {
     return this.getRepoObjects(repo).has(hash);
   }

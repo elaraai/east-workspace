@@ -192,6 +192,20 @@ jobs:
           echo "--- east-c version via launcher ---"
           "$STAGE/proj/node_modules/.bin/east-c" version
 
+      # ── Cross-runtime pin for the CLI emit sink (#507) ─────────────────
+      # Replay the checked-in --emit fixtures through the Release binary
+      # built above and decode the emitted blobs with the TypeScript reader
+      # (the ctest gate validates the same blobs with east-c's own readers).
+      # One leg suffices for a byte-format pin; ubuntu is the cheapest.
+      - uses: pnpm/action-setup@v4
+        if: runner.os == 'Linux'
+      - name: Cross-decode emitted blobs (TS reader)
+        if: runner.os == 'Linux'
+        run: |
+          pnpm install
+          make -C libs/east build
+          make -C libs/east-c test-emit-cross
+
   # ASan + LSan over the whole compliance corpus. east-c is refcounted with a
   # cycle collector and a hand-rolled value slab, so a lifetime regression is
   # invisible to the compliance suites — they assert results, not memory.

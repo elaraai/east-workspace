@@ -74,6 +74,20 @@ def create_parser() -> argparse.ArgumentParser:
         dest="from_snapshot",
         help="Replay from a .east-snapshot bundle (exclusive with ir_file, -i, -p)",
     )
+    run_parser.add_argument(
+        "--emit",
+        choices=("array", "set", "dict"),
+        metavar="KIND",
+        help="Write the output incrementally from the function's trailing emit "
+        "parameter (array|set|dict)",
+    )
+    run_parser.add_argument(
+        "--stream",
+        type=int,
+        metavar="N",
+        help="Feed the given -i input lazily (0-based index; segment-fed "
+        "iteration, O(segment) decoded memory)",
+    )
 
     # convert command
     convert_parser = subparsers.add_parser(
@@ -144,6 +158,19 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print(f"Error: Input file not found: {input_file}", file=sys.stderr)
                 return 1
 
+        # The manifest carries no streaming flags (format v1), so a captured
+        # emit/stream invocation would replay with the wrong arity — refuse
+        # at capture with the fix instead of failing confusingly at replay.
+        if args.snapshot is not None and (
+            getattr(args, "emit", None) is not None or getattr(args, "stream", None) is not None
+        ):
+            print(
+                "Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no "
+                "streaming flags); replay with --from-snapshot passing --emit/--stream explicitly",
+                file=sys.stderr,
+            )
+            return 1
+
         # Write snapshot BEFORE execution so crashes still leave the bundle.
         if args.snapshot is not None:
             try:
@@ -178,6 +205,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             input_files=args.input,
             output_file=args.output,
             verbose=args.verbose,
+            emit=getattr(args, "emit", None),
+            stream_input=getattr(args, "stream", None),
         )
 
         return 0

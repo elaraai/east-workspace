@@ -64,6 +64,14 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
 
 /* --- implementations --- */
 
+/* A paged arg that still answers from its pager (pre-hydration). The
+ * trampoline forwards paged args only to the pager-served builtins; these
+ * branches keep a keyed read at one decoded segment. */
+static inline bool arg_paged_live(const EastValue *v)
+{
+    return v->kind == EAST_VAL_PAGED && v->data.paged.hydrated == NULL;
+}
+
 static EastValue *dict_size_impl(EastValue **args, size_t n)
 {
     (void)n;
@@ -73,12 +81,27 @@ static EastValue *dict_size_impl(EastValue **args, size_t n)
 static EastValue *dict_has_impl(EastValue **args, size_t n)
 {
     (void)n;
+    if (arg_paged_live(args[0])) {
+        /* Take the pager path directly: east_dict_has's bool contract would
+         * degrade a read error (-1, message posted) to `false` — Get
+         * propagates it, and Has must not answer wrongly on corrupt input. */
+        int found = east_beast2_pages_get_key(args[0]->data.paged.pages, args[1], NULL);
+        if (found == -1) return NULL; /* pager error already posted */
+        return east_boolean(found == 1);
+    }
     return east_boolean(east_dict_has(args[0], args[1]));
 }
 
 static EastValue *dict_get_impl(EastValue **args, size_t n)
 {
     (void)n;
+    if (arg_paged_live(args[0])) {
+        EastValue *v = NULL;
+        int found = east_beast2_pages_get_key(args[0]->data.paged.pages, args[1], &v);
+        if (found == 1) return v; /* retained by the pager */
+        if (found == 0) dict_key_not_found_error(args[1]);
+        return NULL; /* -1: pager error already posted */
+    }
     if (!east_dict_has(args[0], args[1])) {
         dict_key_not_found_error(args[1]);
         return NULL;
@@ -91,6 +114,14 @@ static EastValue *dict_get_impl(EastValue **args, size_t n)
 static EastValue *dict_get_or_default_impl(EastValue **args, size_t n)
 {
     (void)n;
+    if (arg_paged_live(args[0])) {
+        EastValue *v = NULL;
+        int found = east_beast2_pages_get_key(args[0]->data.paged.pages, args[1], &v);
+        if (found == 1) return v;
+        if (found == -1) return NULL;
+        EastValue *call_args[] = {args[1]};
+        return call_fn(args[2], call_args, 1);
+    }
     if (east_dict_has(args[0], args[1])) {
         EastValue *v = east_dict_get(args[0], args[1]);
         if (v) east_value_retain(v);
@@ -103,6 +134,17 @@ static EastValue *dict_get_or_default_impl(EastValue **args, size_t n)
 static EastValue *dict_try_get_impl(EastValue **args, size_t n)
 {
     (void)n;
+    if (arg_paged_live(args[0])) {
+        EastValue *val = NULL;
+        int found = east_beast2_pages_get_key(args[0]->data.paged.pages, args[1], &val);
+        if (found == -1) return NULL;
+        if (found == 1) {
+            EastValue *opt = east_variant_new("some", val, _option_ctx);
+            east_value_release(val);
+            return opt;
+        }
+        return east_variant_new("none", east_null(), _option_ctx);
+    }
     if (east_dict_has(args[0], args[1])) {
         EastValue *val = east_dict_get(args[0], args[1]);
         return east_variant_new("some", val, _option_ctx);

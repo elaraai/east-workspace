@@ -281,6 +281,7 @@ program
       .argument('<ws>', 'Workspace name')
       .option('--filter <pattern>', 'Only run tasks matching pattern')
       .option('--concurrency <n>', 'Max concurrent tasks', '4')
+      .option('--partition-concurrency <n>', 'Max concurrent partition slices/combine steps within a partitioned task (local runs)', '4')
       .option('--force', 'Force re-execution even if cached')
       .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .action(withDefaultRepo(startCommand))

@@ -277,6 +277,9 @@ importers:
         specifier: ^2.5.1
         version: 2.5.1
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/cross-spawn':
         specifier: ^6.0.6
         version: 6.0.6
@@ -398,7 +401,11 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
-  libs/east-c/packages/east-c-cli: {}
+  libs/east-c/packages/east-c-cli:
+    devDependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../../../east
 
   libs/east-claude-plugin:
     dependencies:

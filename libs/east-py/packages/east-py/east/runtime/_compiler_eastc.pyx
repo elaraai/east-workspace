@@ -15,6 +15,7 @@ east-c via east_register_all_builtins — no Python builtins are used.
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
 from libc.stdlib cimport malloc, free
+from libc.string cimport memcpy
 from cpython.ref cimport Py_INCREF, Py_DECREF
 
 from east cimport _eastc
@@ -79,6 +80,7 @@ cdef _eastc.EvalResult _py_invoke_trampoline(_eastc.EastCompiledFn* self,
     cdef _eastc.EastType* c_in
     cdef _eastc.EastType* c_out
     cdef _eastc.EastValue* c_result
+    cdef _eastc.EastValue* av
     cdef size_t i, n_types
     cdef bytes msg
     pyfn = ud[0]
@@ -91,7 +93,15 @@ cdef _eastc.EvalResult _py_invoke_trampoline(_eastc.EastCompiledFn* self,
             in_type = input_types[i] if i < n_types else input_types[n_types - 1]
             c_in = py_type_to_c(in_type)
             try:
-                py_args.append(c_value_to_py(args[i], c_in))
+                # A paged collection handed to a python callback hydrates
+                # first — the py decode walks eager values (#505).
+                av = args[i]
+                if av != NULL and av.kind == _eastc.EAST_VAL_PAGED:
+                    av = _eastc.east_paged_hydrated(av)
+                    if av == NULL:
+                        free(_eastc.east_builtin_get_error())
+                        return _eastc.eval_error("failed to hydrate a paged argument")
+                py_args.append(c_value_to_py(av, c_in))
             finally:
                 _eastc.east_type_release(c_in)
         py_result = pyfn(*py_args)
@@ -279,6 +289,75 @@ def native_kernel_for(object east_fn):
     thing to every consumer. Returns the native callable or None.
     """
     return _native_kernel_for(east_fn)
+
+
+def foreign_function_value(object east_fn):
+    """Wrap an :class:`EastFunction` as an argument-passable function value.
+
+    The returned hold carries the C function-value handle the Function-typed
+    argument conversion fast-path reads (``_east_c_handle``), so a
+    host-provided Python callable — e.g. a runner's ``emit`` capability — can
+    be passed where a compiled body's signature declares a FunctionType
+    parameter. The C value is released when the hold is garbage-collected.
+    """
+    cdef _eastc.EastValue* fv = _wrap_pyfn(east_fn)
+    cdef uintptr_t fv_ptr = <uintptr_t>fv
+
+    class _ForeignFnHold:
+        __slots__ = ("_east_c_handle", "_released")
+
+        def __init__(self):
+            self._east_c_handle = fv_ptr
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_handle)
+
+    return _ForeignFnHold()
+
+
+def open_paged_value(uintptr_t type_ptr, bytes data):
+    """Open an indexed beast2 collection blob as a lazy paged C value (#505).
+
+    The returned hold carries the ``EAST_VAL_PAGED`` value's pointer (released
+    on garbage collection) and is recognised by ``_eastc_call``'s argument
+    conversion, so a runner can pass a huge ``--stream`` input straight into a
+    compiled body with O(segment) decoded memory. Returns ``None`` when the
+    blob is not pageable (no index, aliased segments, or not a v5 container) —
+    the caller falls back to the eager load, exactly like east-node's runner.
+    """
+    _ensure_runtime()
+    cdef size_t n = len(data)
+    cdef uint8_t* buf = <uint8_t*>malloc(n if n > 0 else 1)
+    if buf == NULL:
+        raise MemoryError()
+    memcpy(buf, <const uint8_t*><char*>data, n)
+    cdef _eastc.EastValue* v = _eastc.east_beast2_open_paged(
+        buf, n, <_eastc.EastType*>type_ptr)
+    if v == NULL:
+        free(buf)  # ownership stayed with us on failure
+        free(_eastc.east_builtin_get_error())
+        return None
+    cdef uintptr_t v_ptr = <uintptr_t>v
+
+    class _PagedValueHold:
+        __slots__ = ("_east_c_paged", "_east_c_paged_type", "_released")
+
+        def __init__(self):
+            self._east_c_paged = v_ptr
+            self._east_c_paged_type = type_ptr
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_paged)
+
+    return _PagedValueHold()
 
 
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
@@ -1158,6 +1237,7 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
     cdef size_t i, n_types = len(input_type_ptrs)
     cdef _eastc.EvalResult result
     cdef _eastc.EastType* out_type
+    cdef _eastc.EastValue* hydrated_val
     cdef bint heap_allocated = False
 
     if nargs > 0:
@@ -1170,7 +1250,18 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
             heap_allocated = True
         try:
             for i in range(nargs):
-                if i < n_types:
+                # A paged hold (open_paged_value) passes its C value straight
+                # through — the lazy input seam (#505). Pointer-compare the
+                # declared parameter type: the hold was opened with the same
+                # interned EastType*, and a mismatched hold must not hand
+                # east-c a wrongly-typed pager (#467 discipline).
+                paged = getattr(args[i], "_east_c_paged", None)
+                if paged is not None:
+                    if i < n_types and getattr(args[i], "_east_c_paged_type", 0) != input_type_ptrs[i]:
+                        raise TypeError("paged input type does not match the parameter type")
+                    c_args[i] = <_eastc.EastValue*><uintptr_t>paged
+                    _eastc.east_value_retain(c_args[i])
+                elif i < n_types:
                     c_args[i] = py_value_to_c(args[i], <_eastc.EastType*><uintptr_t>input_type_ptrs[i])
                 else:
                     c_args[i] = _eastc.east_null()
@@ -1194,6 +1285,20 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
         # Success — convert result to Python
         if result.value == NULL:
             return None
+        if result.value.kind == _eastc.EAST_VAL_PAGED:
+            # A paged input returned as the output hydrates here — the py
+            # decode walks eager values.
+            hydrated_val = _eastc.east_paged_hydrated(result.value)
+            if hydrated_val == NULL:
+                _eastc.east_value_release(result.value)
+                err_c = _eastc.east_builtin_get_error()
+                msg = err_c.decode("utf-8") if err_c != NULL else "failed to hydrate the paged output"
+                free(err_c)
+                from east.runtime.errors import EastError
+                raise EastError(msg, [])
+            _eastc.east_value_retain(hydrated_val)
+            _eastc.east_value_release(result.value)
+            result.value = hydrated_val
         out_type = <_eastc.EastType*>output_type_ptr
         if out_type == NULL:
             # No declared output type — use null type as fallback

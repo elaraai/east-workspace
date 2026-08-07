@@ -45,7 +45,7 @@ const POLL_INTERVAL = 500;
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: { filter?: string; concurrency?: string; force?: boolean; verbose?: boolean }
+  options: { filter?: string; concurrency?: string; partitionConcurrency?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -64,7 +64,21 @@ export async function startCommand(
 
   try {
     const location = await parseRepoLocation(repoArg);
+    // Non-numeric values would flow through parseInt as NaN: --concurrency
+    // NaN launches no tasks and dies later as "Dataflow stuck", and
+    // --partition-concurrency NaN collapses the partition worker pool to
+    // zero and crashes with an opaque TypeError — both must be argument
+    // errors instead.
     const concurrency = options.concurrency ? parseInt(options.concurrency, 10) : 4;
+    if (!Number.isInteger(concurrency) || concurrency < 1) {
+      exitError(`--concurrency must be a positive integer, got '${options.concurrency}'`);
+    }
+    const partitionConcurrency = options.partitionConcurrency !== undefined
+      ? parseInt(options.partitionConcurrency, 10)
+      : undefined;
+    if (partitionConcurrency !== undefined && (!Number.isInteger(partitionConcurrency) || partitionConcurrency < 1)) {
+      exitError(`--partition-concurrency must be a positive integer, got '${options.partitionConcurrency}'`);
+    }
 
     console.log(`Starting tasks in workspace: ${ws}`);
     if (options.filter) {
@@ -83,6 +97,7 @@ export async function startCommand(
     if (location.type === 'local') {
       await executeLocal(location.path, ws, {
         concurrency,
+        partitionConcurrency,
         force: options.force,
         verbose: options.verbose,
         filter: options.filter,
@@ -122,6 +137,7 @@ export async function startCommand(
 
 interface LocalExecuteOptions {
   concurrency: number;
+  partitionConcurrency?: number;
   force?: boolean;
   verbose?: boolean;
   filter?: string;
@@ -140,6 +156,7 @@ async function executeLocal(
 
   const handle = await orchestrator.start(storage, repoPath, ws, {
     concurrency: options.concurrency,
+    partitionConcurrency: options.partitionConcurrency,
     force: options.force,
     verbose: options.verbose,
     filter: options.filter,
@@ -149,6 +166,12 @@ async function executeLocal(
     },
     onTaskComplete: (taskResult: TaskCompletedCallback) => {
       printTaskResult(taskResult);
+    },
+    onPartitionProgress: (task, progress) => {
+      if (progress.state !== 'completed') return;
+      const label = progress.phase === 'combine' ? 'MERGE' : 'PART';
+      const cached = progress.cached ? ' (cached)' : '';
+      console.log(`  [${label}] ${task} ${progress.index + 1}/${progress.total}${cached} [${Math.round(progress.duration ?? 0)}ms]`);
     },
   });
 

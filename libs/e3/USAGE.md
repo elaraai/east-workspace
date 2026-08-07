@@ -196,6 +196,92 @@ const wrapped = e3.task(
 );
 ```
 
+### `e3.partitionTask(name, spec, fn)`
+
+Defines a task over huge collection datasets with bounded memory. e3 carves
+the partitioned input(s) into key-range slices (deterministically, from the
+dataset's segment index and the `targetPartitionBytes` knob), runs the body
+once per partition as an ordinary content-addressed execution — parallel,
+and memoized per partition — and assembles the one output dataset: shards
+splice in partition order, or partials fold pairwise when `combine` is
+given. The dataflow graph sees one task with one output, exactly like
+`e3.task`.
+
+```typescript
+import { DictType, StringType, IntegerType } from '@elaraai/east';
+
+const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
+
+// Row-local transform: each execution returns its shard of the output.
+const cleaned = e3.partitionTask('cleaned', {
+  partitions: [sales],
+  output: DictType(SaleKeyType, SaleType),
+}, ($, slice) => slice.filter(($, sale) => East.greater(sale.qty, 0n)));
+
+// Aggregate to a small result: with `combine`, each execution returns a
+// partial and the partials fold pairwise (combine must be associative).
+const totals = e3.partitionTask('totals', {
+  partitions: [sales],
+  by: (_$, key) => key.sku,   // rows with equal by(key) never split apart
+  output: DictType(StringType, IntegerType),
+  combine: ($, a, b) => {
+    $(a.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
+    $.return(a);
+  },
+}, ($, slice) => /* aggregate the slice */ ...);
+```
+
+The body's parameters are the partition slices (each typed as its dataset's
+own collection type), then any ordinary `inputs` in order. `by` must read a
+leading prefix of every partitioned dataset's key — the key itself, one
+leading field, or a struct of leading fields in order — and is validated
+when the task is built. Two or more `partitions` entries co-partition
+same-keyed Dict/Set datasets at shared boundary keys (the reconcile/delta
+shape). Without `combine`, Dict/Set shard key ranges must ascend disjointly
+in partition order — key-preserving and monotone re-keying transforms
+qualify; anything else fails at splice naming the offending partitions.
+
+Memoization is append-friendly: appends and tail-localized changes leave
+earlier slices byte-identical, so their executions are served from the
+cache; a mid-key-space insertion re-runs partitions from the insertion
+point on.
+
+### `e3.streamTask(name, spec, fn)`
+
+Defines a one-pass streaming task: the runner feeds the `stream` input in
+canonical order and the body writes its output incrementally through the
+`emit` capability. State is ordinary `$.let` locals — exact left-fold
+semantics, no parallelism, and any input change re-runs the whole pass.
+Runs on every stock runtime: the output always streams through `emit`, and
+every runner feeds the `stream` input lazily with O(segment) decoded memory
+(segment-fed iteration and keyed reads; any other operation on it decodes
+the whole value once).
+
+```typescript
+import { ArrayType } from '@elaraai/east';
+
+const events = e3.input('events', ArrayType(EventType));
+
+const balances = e3.streamTask('balances', {
+  stream: events,
+  output: ArrayType(BalanceType),
+}, ($, events, emit) => {
+  const balance = $.let(0.0);
+  $.for(events, ($, event) => {
+    $.assign(balance, balance.add(event.amount));
+    $(emit({ at: event.at, balance }));
+  });
+});
+```
+
+`emit(key, value)` writes one Dict entry, `emit(element)` one Array/Set
+element. Dict/Set outputs must be emitted in strictly ascending (key)
+order — the writer enforces it at runtime; Array outputs emit freely. Omit
+`stream` for a producer task whose body loops over platform-function
+sources (paginated APIs, database cursors) and emits — ingest usually
+targets an Array output, with keying and grouping done downstream in a
+`partitionTask`.
+
 ### `e3.customTask(name, inputs, outputType, command)`
 
 Defines a task that runs a shell command instead of an East function.

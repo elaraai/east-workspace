@@ -4,6 +4,7 @@
 #include "east/compiler.h"
 #include "east/env.h"
 #include "east/hashmap.h"
+#include "east/serialization.h" /* Beast2Pages free for EAST_VAL_PAGED */
 #include "east/types.h"
 
 #include <limits.h>
@@ -236,6 +237,10 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include
         }
         break;
 
+    case EAST_VAL_PAGED:
+        if (v->data.paged.hydrated) visit(v->data.paged.hydrated, ctx);
+        break;
+
     default:
         break;
     }
@@ -294,6 +299,17 @@ static void gc_destroy_contents(EastValue *v)
             east_compiled_fn_free(v->data.function.compiled);
             v->data.function.compiled = NULL;
         }
+        break;
+
+    case EAST_VAL_PAGED:
+        if (v->data.paged.pages) {
+            east_beast2_pages_free(v->data.paged.pages);
+            v->data.paged.pages = NULL;
+        }
+        east_free(v->data.paged.data);
+        v->data.paged.data = NULL;
+        east_value_release(v->data.paged.hydrated);
+        v->data.paged.hydrated = NULL;
         break;
 
     default:

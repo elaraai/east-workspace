@@ -96,6 +96,25 @@ Options:
 | `.east` | Text East format |
 | `.json` | JSON format |
 
+## Large Inputs
+
+Indexed `.beast2` collection inputs (Array/Set/Dict) at or above 64 MiB open
+**lazily by default**: size, single-pass iteration, and keyed reads are served
+from the blob's segment index with O(segment) decoded memory, and any other
+operation transparently decodes the whole value once. Semantics are identical
+to an eager decode, so the threshold is a memory knob, not a behavior toggle.
+
+Control it with the `EAST_LAZY_INPUT_BYTES` environment variable: a byte
+threshold, or `0` to disable lazy opening entirely. The `--stream` input of a
+streaming task always opens lazily regardless of size.
+
+Lazy opening applies only to **value-semantic element shapes** (scalars,
+structs, variants). An element type that transitively contains an Array, Set,
+Dict or Ref — which East mutates in place through read-out elements — or a
+Vector/Matrix/function (identity-compared) always decodes whole, keeping
+writes and identity semantics exactly eager. The same rule applies in the
+east-c and east-py runners.
+
 ## Platform Packages
 
 Platform packages provide the runtime implementations for East platform functions:

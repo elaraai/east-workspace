@@ -228,6 +228,20 @@ describe('gc', () => {
       assert.strictEqual(result.skippedYoung, 1);
       assert.ok(existsSync(partialPath));
     });
+
+    it('deletes orphaned root-level streaming stage files', async () => {
+      // Streaming writes stage at the objects/ root (the content path is
+      // unknown until the digest names it) — a crashed writer leaves the
+      // stage file there, outside every hash-prefix subdir.
+      mkdirSync(join(testRepoPath, 'objects'), { recursive: true });
+      const stagingPath = join(testRepoPath, 'objects', 'stage.123456.abc123.partial');
+      writeFileSync(stagingPath, 'crashed streaming write');
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+
+      assert.strictEqual(result.deletedPartials, 1);
+      assert.ok(!existsSync(stagingPath));
+    });
   });
 
   describe('minAge option', () => {

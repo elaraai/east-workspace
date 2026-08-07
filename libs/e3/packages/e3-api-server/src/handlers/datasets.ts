@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, decodeBeast2, encodeBeast2For, openBeast2PagesFor, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, decodeBeast2, encodeBeast2For, openBeast2PagesFor, readBeast2ExtentsRanged, carveBeast2Ranged, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type Beast2RangedExtents, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -126,10 +126,76 @@ const PAGE_MAX_LIMIT = 10_000;
  *  a smaller budget through the route options. */
 export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 
-/** Largest blob the page endpoint will buffer at all. Indexed blobs decode
- *  O(segment) but are still read whole today (a transient allocation);
- *  above this cap even that is refused until range reads land. */
+/** Largest blob the page endpoint will buffer when the storage backend
+ *  cannot serve ranged reads (`objects.readRange` absent) and every page
+ *  request must read the blob whole. Backends with ranged reads never
+ *  buffer the blob, so no cap applies — per-window memory is O(window) at
+ *  any blob size. */
 export const PAGE_READ_MAX_BYTES_DEFAULT = 512 * 1024 * 1024;
+
+/** Ranged extents cached per content hash. Page requests are hash-pinned
+ *  immutable, so entries never invalidate — the LRU only bounds memory.
+ *  Each entry holds the parsed index (offsets/counts/cumulative) plus the
+ *  header bytes windows are assembled under — O(segmentCount) memory, so
+ *  the cache is bounded by RETAINED BYTES, not entry count: 64 entries of a
+ *  500k-segment blob would otherwise pin hundreds of MB. */
+interface CachedRangedExtents {
+  extents: Beast2RangedExtents;
+  /** Prefix sums of `extents.counts`, for offset→segment addressing. */
+  cumulative: number[];
+  /** Approximate retained bytes (index arrays + header bytes). */
+  bytes: number;
+}
+
+const EXTENTS_CACHE_MAX_ENTRIES = 64;
+/** Cap on the cache's total retained bytes. The newest entry always stays
+ *  (serving the request needs it regardless), so one giant index can still
+ *  be held — but never alongside others. */
+const EXTENTS_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const extentsCache = new Map<string, CachedRangedExtents>();
+let extentsCacheBytes = 0;
+
+/** Evicts oldest entries until the count and byte budgets hold, always
+ *  keeping at least the newest entry. */
+function evictExtents(): void {
+  while (
+    extentsCache.size > 1 &&
+    (extentsCache.size > EXTENTS_CACHE_MAX_ENTRIES || extentsCacheBytes > EXTENTS_CACHE_MAX_BYTES)
+  ) {
+    const oldest = extentsCache.keys().next().value!;
+    extentsCacheBytes -= extentsCache.get(oldest)!.bytes;
+    extentsCache.delete(oldest);
+  }
+}
+
+/** Fetches (or reuses) a blob's ranged extents, LRU-cached per hash and
+ *  bounded by retained bytes. */
+async function cachedRangedExtents(
+  hash: string,
+  size: number,
+  readRange: (offset: number, length: number) => Promise<Uint8Array>,
+): Promise<CachedRangedExtents> {
+  const cached = extentsCache.get(hash);
+  if (cached) {
+    extentsCache.delete(hash);
+    extentsCache.set(hash, cached); // refresh recency
+    return cached;
+  }
+  const extents = await readBeast2ExtentsRanged({ size, read: readRange });
+  const cumulative: number[] = new Array(extents.counts.length);
+  let running = 0;
+  for (let i = 0; i < extents.counts.length; i++) {
+    running += extents.counts[i]!;
+    cumulative[i] = running;
+  }
+  // offsets + counts + cumulative at 8 bytes per element, plus the header.
+  const bytes = extents.head.byteLength + 24 * extents.counts.length;
+  const entry: CachedRangedExtents = { extents, cumulative, bytes };
+  extentsCache.set(hash, entry);
+  extentsCacheBytes += bytes;
+  evictExtents();
+  return entry;
+}
 
 /** Window addressing for {@link getDatasetPage}: an element window
  *  (`offset`/`limit`) or one writer segment (`segment`), optionally pinned
@@ -174,7 +240,10 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
 export interface DatasetPageLimits {
   /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
   byteBudget?: number;
-  /** Absolute blob-buffering cap (default {@link PAGE_READ_MAX_BYTES_DEFAULT}). */
+  /** Blob-buffering cap for the whole-read fallback, applied only when the
+   *  storage backend has no ranged reads (default
+   *  {@link PAGE_READ_MAX_BYTES_DEFAULT}). Ranged backends never buffer the
+   *  blob, so no cap applies there. */
   readMaxBytes?: number;
 }
 
@@ -230,9 +299,140 @@ export async function getDatasetPage(
       return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
     }
 
-    // The absolute buffering cap protects the server process itself — the
-    // endpoint reads the whole blob today (range reads are the follow-up).
-    const statSize = status.size ?? 0;
+    const statSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
+
+    // The byte budget turns the requested element limit into an effective one
+    // using the blob's average element size, so pages stay bounded even for
+    // very wide rows.
+    const effectiveLimit = (totalElements: number): number => {
+      const avgBytes = totalElements > 0 ? statSize / totalElements : 1;
+      const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
+      return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
+    };
+
+    const pageHeaders = (totalElements: number, segmentCount: number, pageOffset: number, pageCount: number): Record<string, string> => ({
+      'Content-Type': BEAST2_CONTENT_TYPE,
+      // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
+      // forever — cacheable at any layer with no invalidation. Unpinned
+      // windows track the mutable current value and must not be cached.
+      'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+      'X-Content-SHA256': status.hash!,
+      // The stored blob's full byte size — the page endpoint is then
+      // self-describing (no separate status call needed for the header
+      // line); Content-Length remains the page's own bytes.
+      'X-Total-Bytes': String(statSize),
+      'X-Total-Elements': String(totalElements),
+      // Always exact: Array counts index stream order, and v5 Set/Dict
+      // segments are disjoint ranges of the canonical value.
+      'X-Total-Exactness': 'exact',
+      'X-Segment-Count': String(segmentCount),
+      'X-Page-Offset': String(pageOffset),
+      'X-Page-Count': String(pageCount),
+    });
+
+    // Ranged path: backends with `objects.readRange` never buffer the blob.
+    // The tail (index) and head (header sections) are read once per content
+    // hash and cached; each window then reads only the byte ranges of the
+    // segments it touches — per-request memory is O(window) at any blob
+    // size, so no cap applies (#513).
+    const readRange = storage.objects.readRange?.bind(storage.objects);
+    if (readRange) {
+      let cached: CachedRangedExtents;
+      try {
+        cached = await cachedRangedExtents(status.hash, statSize,
+          (offset, length) => readRange(repoPath, status.hash!, offset, length));
+      } catch (err) {
+        // Only the reader's own blob-shape refusals mean "not indexed" — a
+        // blob predating the stored-segmented contract (or injected raw).
+        // Anything else (storage I/O, missing object) is a real failure and
+        // must surface as one, not masquerade as a re-write suggestion.
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/^(beast2 v5:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
+          throw err;
+        }
+        return pageError('dataset_not_indexed',
+          'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
+      }
+      const { extents, cumulative } = cached;
+      if (!extents.selfContained) {
+        return pageError('dataset_not_indexed',
+          'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
+      }
+      const segmentCount = extents.offsets.length;
+      const totalElements = extents.elementCount;
+
+      // The touched segment span [from, to) and the window placement.
+      let from: number;
+      let to: number;
+      let limit = 0;
+      if (segmentMode) {
+        const seg = window.segment!;
+        if (seg >= segmentCount) {
+          return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
+        }
+        from = seg;
+        to = seg + 1;
+      } else {
+        limit = effectiveLimit(totalElements);
+        if (offset >= totalElements) {
+          from = 0;
+          to = 0; // empty window past the end
+        } else {
+          from = 0;
+          while (cumulative[from]! <= offset) from++;
+          const lastRow = Math.min(offset + limit, totalElements) - 1;
+          to = from;
+          while (cumulative[to]! <= lastRow) to++;
+          to++;
+        }
+      }
+
+      const spanStart = to > from ? extents.offsets[from]! : 0;
+      const spanEnd = to > from
+        ? (to < segmentCount ? extents.offsets[to]! : extents.segmentsEnd)
+        : 0;
+      const frames = to > from
+        ? await readRange(repoPath, status.hash, spanStart, spanEnd - spanStart)
+        : new Uint8Array(0);
+      const windowBlob = carveBeast2Ranged(extents, frames, from, to);
+      const pages = openBeast2PagesFor(typeValue)(windowBlob);
+
+      let windowValue: unknown;
+      let pageOffset: number;
+      let pageCount: number;
+      if (segmentMode) {
+        try {
+          windowValue = pages.segment(0);
+        } catch (err) {
+          return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
+        }
+        pageCount = extents.counts[from]!;
+        pageOffset = from === 0 ? 0 : cumulative[from - 1]!;
+      } else {
+        const base = from > 0 ? cumulative[from - 1]! : 0;
+        try {
+          windowValue = pages.slice(to > from ? offset - base : 0, limit);
+        } catch (err) {
+          return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
+        }
+        pageCount = kind === 'Array'
+          ? (windowValue as unknown[]).length
+          : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
+        pageOffset = offset;
+      }
+
+      const body = encodeBeast2For(typeValue)(windowValue);
+      return new Response(body, {
+        status: 200,
+        headers: {
+          ...pageHeaders(totalElements, segmentCount, pageOffset, pageCount),
+          'Content-Length': String(body.byteLength),
+        },
+      });
+    }
+
+    // Fallback path (no ranged reads): the whole blob is buffered per
+    // request, so the absolute cap protects the server process itself.
     if (statSize > readMaxBytes) {
       return pageError('dataset_too_large',
         `Dataset is ${Math.round(statSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
@@ -245,15 +445,6 @@ export async function getDatasetPage(
     } catch {
       pages = null; // No index/footer — every existing whole-value blob.
     }
-
-    // The byte budget turns the requested element limit into an effective one
-    // using the blob's average element size, so pages stay bounded even for
-    // very wide rows.
-    const effectiveLimit = (totalElements: number): number => {
-      const avgBytes = totalElements > 0 ? data.byteLength / totalElements : 1;
-      const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
-      return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
-    };
 
     let windowValue: unknown;
     let totalElements: number;
@@ -305,24 +496,8 @@ export async function getDatasetPage(
     return new Response(body, {
       status: 200,
       headers: {
-        'Content-Type': BEAST2_CONTENT_TYPE,
+        ...pageHeaders(totalElements, pages ? pages.segmentCount : 0, pageOffset, pageCount),
         'Content-Length': String(body.byteLength),
-        // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
-        // forever — cacheable at any layer with no invalidation. Unpinned
-        // windows track the mutable current value and must not be cached.
-        'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
-        'X-Content-SHA256': status.hash,
-        // The stored blob's full byte size — the page endpoint is then
-        // self-describing (no separate status call needed for the header
-        // line); Content-Length remains the page's own bytes.
-        'X-Total-Bytes': String(data.byteLength),
-        'X-Total-Elements': String(totalElements),
-        // Always exact: Array counts index stream order, and v5 Set/Dict
-        // segments are disjoint ranges of the canonical value.
-        'X-Total-Exactness': 'exact',
-        'X-Segment-Count': String(pages ? pages.segmentCount : 0),
-        'X-Page-Offset': String(pageOffset),
-        'X-Page-Count': String(pageCount),
       },
     });
   } catch (err) {

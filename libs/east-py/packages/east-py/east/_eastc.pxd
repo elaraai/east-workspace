@@ -164,6 +164,7 @@ cdef extern from "east/values.h":
         EAST_VAL_VECTOR
         EAST_VAL_MATRIX
         EAST_VAL_FUNCTION
+        EAST_VAL_PAGED
 
     ctypedef struct Environment:
         pass
@@ -418,6 +419,13 @@ cdef extern from "east/serialization.h":
                                        size_t *index_out)
     EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
     void east_beast2_pages_free(Beast2Pages *p)
+
+    # Lazy pager-backed collection value (issue #505). open_paged takes
+    # ownership of `data` (free()-compatible) ON SUCCESS only; hydrated
+    # returns a BORROWED value kept alive by the wrapper (NULL on decode
+    # failure, message via east_builtin_get_error).
+    EastValue *east_beast2_open_paged(uint8_t *data, size_t length, EastType *type)
+    EastValue *east_paged_hydrated(EastValue *v)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)
     ctypedef struct Beast2SpliceExtents:

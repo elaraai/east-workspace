@@ -122,6 +122,12 @@ jobs:
         working-directory: libs/east-py/packages/east-py
         run: uv run pytest tests/serialization -q --no-cov
 
+      # Runner streaming execution (--emit / --stream) through run_program,
+      # against the checked-in cross-runner IR fixtures (#507).
+      - name: Run east-py-cli tests
+        working-directory: libs/east-py/packages/east-py-cli
+        run: uv run pytest tests -q --no-cov
+
   test-east-py-std:
     name: Test east-py-std (${{ matrix.os }})
     needs: export-ir

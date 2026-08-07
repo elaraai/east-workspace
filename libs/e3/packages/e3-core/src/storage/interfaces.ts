@@ -142,6 +142,25 @@ export interface ObjectStore {
   read(repo: string, hash: string): Promise<Uint8Array>;
 
   /**
+   * Read a byte range of an object without buffering it whole.
+   *
+   * Optional: backends that can serve positional reads (a file, an S3/HTTP
+   * ranged GET) implement it so consumers like the paged dataset endpoint
+   * stay O(range) in memory; callers fall back to {@link read} when it is
+   * absent. Ranges past the end return the available bytes (objects are
+   * immutable and sized via {@link stat}, so callers can always request
+   * exact ranges).
+   *
+   * @param repo - Repository identifier
+   * @param hash - SHA256 hash of the object
+   * @param offset - Byte offset to start reading at
+   * @param length - Number of bytes to read
+   * @returns The requested bytes (short only at end of object)
+   * @throws {ObjectNotFoundError} If object doesn't exist
+   */
+  readRange?(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array>;
+
+  /**
    * Check if an object exists.
    * @param repo - Repository identifier
    * @param hash - SHA256 hash of the object

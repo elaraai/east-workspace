@@ -154,6 +154,190 @@ static bool is_truthy(EastValue *v)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Lazy paged collections (issue #505)                                */
+/* ------------------------------------------------------------------ */
+
+/* Builtins that answer from the pager and so receive the paged wrapper
+ * itself; every other builtin gets the hydrated collection (observational
+ * equivalence — hydrate once, delegate). Consulted only when an argument is
+ * actually paged, so the strcmp scan is off the hot path. */
+static bool builtin_serves_paged(const char *name)
+{
+    static const char *const served[] = {
+        "ArraySize", "ArrayHas", "ArrayGet",   "ArrayTryGet",      "ArrayGetOrDefault", "DictSize",
+        "DictHas",   "DictGet",  "DictTryGet", "DictGetOrDefault", "SetSize",           "SetHas",
+    };
+    for (size_t i = 0; i < sizeof(served) / sizeof(served[0]); i++)
+        if (strcmp(name, served[i]) == 0) return true;
+    return false;
+}
+
+/* Replace an owned paged argument with an owned reference to its hydrated
+ * collection. Returns false when hydration fails (error posted). */
+static bool hydrate_owned_arg(EastValue **slot)
+{
+    EastValue *h = east_paged_hydrated(*slot);
+    if (!h) return false;
+    east_value_retain(h);
+    east_value_release(*slot);
+    *slot = h;
+    return true;
+}
+
+/* Iteration locks on a paged wrapper cover its hydrated child too: the child
+ * inherits the count at hydration (east_paged_hydrated), and unlock must
+ * mirror the decrement on whichever child exists by then. */
+static void paged_iter_lock(EastValue *v)
+{
+    v->iter_lock++;
+    if (v->data.paged.hydrated) v->data.paged.hydrated->iter_lock++;
+}
+
+static void paged_iter_unlock(EastValue *v)
+{
+    v->iter_lock--;
+    if (v->data.paged.hydrated) v->data.paged.hydrated->iter_lock--;
+}
+
+/* The paged fallthrough error for a loop or argument that failed a pager
+ * read or hydration: prefer the pager's own posted message. */
+static EvalResult paged_error(IRNode *node)
+{
+    char *err = east_builtin_get_error();
+    return err ? eval_error_at_owned(err, node)
+               : eval_error_at(node, "beast2 v5: paged read failed");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Paged for-loops: segment-fed iteration at O(segment) decoded memory */
+/* ------------------------------------------------------------------ */
+
+/* One iteration step's loop-control disposition. */
+typedef enum { PAGED_LOOP_NEXT, PAGED_LOOP_STOP, PAGED_LOOP_RETURN } PagedLoopStep;
+
+/* Applies the eager loops' break/continue/label/error rules to one body
+ * result. On PAGED_LOOP_RETURN the caller propagates *out. */
+static PagedLoopStep paged_loop_step(EvalResult *body_res, const char *loop_label, EvalResult *out)
+{
+    if (body_res->status == EVAL_BREAK) {
+        if (labels_match(body_res->label, loop_label)) {
+            eval_result_free(body_res);
+            return PAGED_LOOP_STOP;
+        }
+        *out = *body_res;
+        return PAGED_LOOP_RETURN;
+    }
+    if (body_res->status == EVAL_CONTINUE) {
+        if (labels_match(body_res->label, loop_label)) {
+            eval_result_free(body_res);
+            return PAGED_LOOP_NEXT;
+        }
+        *out = *body_res;
+        return PAGED_LOOP_RETURN;
+    }
+    if (body_res->status != EVAL_OK) {
+        *out = *body_res;
+        return PAGED_LOOP_RETURN;
+    }
+    east_value_release(body_res->value);
+    east_gc_maybe_collect_young(); /* safe point: loop back-edge */
+    return PAGED_LOOP_NEXT;
+}
+
+/* Shared driver for the three paged for-loops: walks segments in stream
+ * order, binds each element through `bind`, and evaluates the body — one
+ * decoded segment live at a time (Array) or the pager's small LRU (Set/Dict
+ * via the disjointness-checked read). Owns and releases `subject`. */
+typedef void (*PagedBindFn)(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
+                            size_t global_index);
+
+static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistry *platform,
+                                 BuiltinRegistry *builtins, EastValue *subject, IRNode *body,
+                                 const char *loop_label, bool disjoint, PagedBindFn bind)
+{
+    Beast2Pages *pages = subject->data.paged.pages;
+    size_t seg_count = east_beast2_pages_segment_count(pages);
+    size_t base = 0;
+    paged_iter_lock(subject);
+
+    for (size_t s = 0; s < seg_count; s++) {
+        EastValue *seg = disjoint ? east_beast2_pages_segment_disjoint(pages, s)
+                                  : east_beast2_pages_segment(pages, s);
+        if (!seg) {
+            paged_iter_unlock(subject);
+            east_value_release(subject);
+            return paged_error(node);
+        }
+        size_t seg_len =
+            disjoint ? (east_beast2_pages_type(pages)->kind == EAST_TYPE_DICT ? east_dict_len(seg)
+                                                                              : east_set_len(seg))
+                     : east_array_len(seg);
+        for (size_t i = 0; i < seg_len; i++) {
+            Environment *iter_env = env_new(env);
+            bind(node, iter_env, seg, i, base + i);
+            EvalResult body_res = eval_ir(body, iter_env, platform, builtins);
+            env_release(iter_env);
+
+            EvalResult out;
+            PagedLoopStep step = paged_loop_step(&body_res, loop_label, &out);
+            if (step == PAGED_LOOP_RETURN) {
+                east_value_release(seg);
+                paged_iter_unlock(subject);
+                east_value_release(subject);
+                return out;
+            }
+            if (step == PAGED_LOOP_STOP) {
+                east_value_release(seg);
+                paged_iter_unlock(subject);
+                east_value_release(subject);
+                return eval_ok(east_null());
+            }
+        }
+        base += seg_len;
+        east_value_release(seg);
+    }
+
+    paged_iter_unlock(subject);
+    east_value_release(subject);
+    return eval_ok(east_null());
+}
+
+static void paged_bind_array(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
+                             size_t global_index)
+{
+    env_set(iter_env, node->data.for_array.var.name, east_array_get(seg, i));
+    if (node->data.for_array.index_var.name) {
+        EastValue *idx = east_integer((int64_t)global_index);
+        env_set(iter_env, node->data.for_array.index_var.name, idx);
+        east_value_release(idx);
+    }
+}
+
+static void paged_bind_set(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
+                           size_t global_index)
+{
+    (void)global_index;
+    env_set(iter_env, node->data.for_set.var.name, east_set_at(seg, i));
+}
+
+static void paged_bind_dict(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
+                            size_t global_index)
+{
+    (void)global_index;
+    env_set(iter_env, node->data.for_dict.key.name, east_dict_key_at(seg, i));
+    env_set(iter_env, node->data.for_dict.val.name, east_dict_val_at(seg, i));
+}
+
+/* Whether a paged loop subject still pages (pre-hydration) with the given
+ * root kind; a hydrated or mismatched subject falls back to the eager loop
+ * over its hydrated collection. */
+static bool paged_loop_serves(EastValue *v, EastTypeKind root)
+{
+    return v->kind == EAST_VAL_PAGED && v->data.paged.hydrated == NULL &&
+           east_beast2_pages_type(v->data.paged.pages)->kind == root;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main eval dispatch                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -310,6 +494,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         if (arr_res.status != EVAL_OK) return arr_res;
 
         EastValue *arr = arr_res.value;
+        if (paged_loop_serves(arr, EAST_TYPE_ARRAY)) {
+            return eval_for_paged(node, env, platform, builtins, arr, node->data.for_array.body,
+                                  node->data.for_array.label.name, false, paged_bind_array);
+        }
+        if (arr->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&arr)) {
+            east_value_release(arr);
+            return paged_error(node);
+        }
         if (arr->kind != EAST_VAL_ARRAY) {
             east_value_release(arr);
             return eval_error_at(node, "for-array: expression is not an array");
@@ -376,6 +568,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         if (set_res.status != EVAL_OK) return set_res;
 
         EastValue *set = set_res.value;
+        if (paged_loop_serves(set, EAST_TYPE_SET)) {
+            return eval_for_paged(node, env, platform, builtins, set, node->data.for_set.body,
+                                  node->data.for_set.label.name, true, paged_bind_set);
+        }
+        if (set->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&set)) {
+            east_value_release(set);
+            return paged_error(node);
+        }
         if (set->kind != EAST_VAL_SET) {
             east_value_release(set);
             return eval_error_at(node, "for-set: expression is not a set");
@@ -436,6 +636,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         if (dict_res.status != EVAL_OK) return dict_res;
 
         EastValue *dict = dict_res.value;
+        if (paged_loop_serves(dict, EAST_TYPE_DICT)) {
+            return eval_for_paged(node, env, platform, builtins, dict, node->data.for_dict.body,
+                                  node->data.for_dict.label.name, true, paged_bind_dict);
+        }
+        if (dict->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&dict)) {
+            east_value_release(dict);
+            return paged_error(node);
+        }
         if (dict->kind != EAST_VAL_DICT) {
             east_value_release(dict);
             return eval_error_at(node, "for-dict: expression is not a dict");
@@ -579,6 +787,19 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     }
                     args[i] = arg_res.value;
                 }
+                /* Foreign encoders (the emit sink, embedding-host bridges)
+                 * are kind-blind — hydrate paged args at the boundary,
+                 * exactly like the builtin and platform trampolines. */
+                for (size_t i = 0; i < nargs; i++) {
+                    if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
+                        !hydrate_owned_arg(&args[i])) {
+                        for (size_t j = 0; j < nargs; j++)
+                            east_value_release(args[j]);
+                        free(args);
+                        east_value_release(func_val);
+                        return paged_error(node);
+                    }
+                }
             }
             EvalResult body_res = cfn->invoke(cfn, args, nargs);
             for (size_t i = 0; i < nargs; i++)
@@ -688,6 +909,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
         }
 
+        /* Platform functions always see eager collections (issue #505). */
+        for (size_t i = 0; i < nargs; i++) {
+            if (args[i] && args[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&args[i])) {
+                for (size_t j = 0; j < nargs; j++)
+                    east_value_release(args[j]);
+                free(args);
+                return paged_error(node);
+            }
+        }
+
         if (platform->pre_call) {
             platform->pre_call(platform, node->data.platform.name, node->data.platform.type_params,
                                node->data.platform.num_type_params);
@@ -735,6 +966,18 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     return arg_res;
                 }
                 args[i] = arg_res.value;
+            }
+        }
+
+        /* Paged args reach only the pager-served builtins; every other
+         * builtin sees the hydrated collection (issue #505). */
+        for (size_t i = 0; i < nargs; i++) {
+            if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
+                !builtin_serves_paged(node->data.builtin.name) && !hydrate_owned_arg(&args[i])) {
+                for (size_t j = 0; j < nargs; j++)
+                    east_value_release(args[j]);
+                free(args);
+                return paged_error(node);
             }
         }
 
@@ -910,6 +1153,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 east_value_release(arr);
                 return item_res;
             }
+            /* Containers hold eager values only — a paged wrapper nested in
+             * a container would reach the type-driven encoders (#505). */
+            if (item_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&item_res.value)) {
+                east_value_release(item_res.value);
+                east_value_release(arr);
+                return paged_error(node);
+            }
             east_array_push(arr, item_res.value);
             east_value_release(item_res.value);
         }
@@ -933,6 +1183,11 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             if (item_res.status != EVAL_OK) {
                 east_value_release(set);
                 return item_res;
+            }
+            if (item_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&item_res.value)) {
+                east_value_release(item_res.value);
+                east_value_release(set);
+                return paged_error(node);
             }
             east_set_insert(set, item_res.value);
             east_value_release(item_res.value);
@@ -965,6 +1220,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 east_value_release(dict);
                 return v_res;
             }
+            if ((k_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&k_res.value)) ||
+                (v_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&v_res.value))) {
+                east_value_release(k_res.value);
+                east_value_release(v_res.value);
+                east_value_release(dict);
+                return paged_error(node);
+            }
             east_dict_set(dict, k_res.value, v_res.value);
             east_value_release(k_res.value);
             east_value_release(v_res.value);
@@ -978,6 +1240,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.new_ref.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
+        if (val_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&val_res.value)) {
+            east_value_release(val_res.value);
+            return paged_error(node);
+        }
         EastValue *ref = east_ref_new(val_res.value);
         east_value_release(val_res.value);
         return eval_ok(ref);
@@ -1083,6 +1349,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 return fv_res;
             }
             vals[i] = fv_res.value;
+            if (vals[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&vals[i])) {
+                for (size_t j = 0; j <= i; j++)
+                    east_value_release(vals[j]);
+                free(names);
+                free(vals);
+                return paged_error(node);
+            }
         }
 
         EastValue *s = east_struct_new(names, vals, n, node->type);
@@ -1124,6 +1397,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.variant.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
+        if (val_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&val_res.value)) {
+            east_value_release(val_res.value);
+            return paged_error(node);
+        }
         EastValue *v = east_variant_new(node->data.variant.case_name, val_res.value, node->type);
         east_value_release(val_res.value);
         return eval_ok(v);

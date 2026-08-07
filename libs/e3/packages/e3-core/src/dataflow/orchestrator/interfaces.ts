@@ -11,6 +11,7 @@
  * - StepFunctionsOrchestrator: AWS Step Functions state machine (in e3-aws)
  */
 
+import type { PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { TaskRunner } from '../../execution/interfaces.js';
 import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
@@ -76,10 +77,18 @@ export interface OrchestratorStartOptions {
   lock?: LockHandle;
   /** Task runner for executing individual tasks */
   runner?: TaskRunner;
+  /** Maximum concurrent per-partition executions within each partitioned
+   *  task (default: 4). Runtime-only: never affects hashes or caching. */
+  partitionConcurrency?: number;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
   onTaskComplete?: (result: TaskCompletedCallback) => void;
+  /** Called as each unit of a partitioned task (slice execution or combine
+   *  step) starts and completes. Callback-only progress — deliberately not
+   *  persisted as execution events (the persisted event wire is frozen; see
+   *  `ExecutionEventType`'s wire warning). */
+  onPartitionProgress?: (taskName: string, progress: PartitionProgress) => void;
   /** Callback for task stdout */
   onStdout?: (taskName: string, data: string) => void;
   /** Callback for task stderr */

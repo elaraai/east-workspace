@@ -3,7 +3,8 @@
 #include "east/arena.h"
 #include "east/gc.h"
 #include "east/types.h"
-#include "east/compat.h" /* EAST_PRINTF_FMT */
+#include "east/serialization.h" /* Beast2Pages API for EAST_VAL_PAGED */
+#include "east/compat.h"        /* EAST_PRINTF_FMT */
 
 #include "btree.h" /* tidwall/btree.c — Set's ordered store */
 
@@ -24,6 +25,8 @@ EastValue east_null_value = {.kind = EAST_VAL_NULL, .ref_count = -1};
  * arm widens, the inline buffer must shrink to match or every value grows. */
 _Static_assert(sizeof(((EastValue *)0)->data.string) <= sizeof(((EastValue *)0)->data.dict),
                "string inline buffer must not widen the value union");
+_Static_assert(sizeof(((EastValue *)0)->data.paged) <= sizeof(((EastValue *)0)->data.dict),
+               "paged arm must not widen the value union");
 /* A freed slot holds the slab's free-list link in its own memory, so no size
  * class may be narrower than a pointer. */
 _Static_assert(EAST_VALUE_ARM_SIZE(datetime) >= sizeof(void *),
@@ -325,16 +328,38 @@ void east_array_push(EastValue *arr, EastValue *val)
     arr->data.array.items[arr->data.array.len++] = val;
 }
 
+/* Whether a paged value still answers from its pager: once hydrated, every
+ * operation delegates to the eager child so mutations stay coherent. */
+static inline bool paged_live(const EastValue *v)
+{
+    return v->kind == EAST_VAL_PAGED && v->data.paged.hydrated == NULL;
+}
+
 EastValue *east_array_get(EastValue *arr, size_t index)
 {
-    if (!arr || arr->kind != EAST_VAL_ARRAY) return NULL;
+    if (!arr) return NULL;
+    if (arr->kind == EAST_VAL_PAGED) {
+        /* The borrowed-return contract cannot be served from the pager (a
+         * decoded element has no owner after return) — delegate through the
+         * hydrated collection. Lazy indexed reads go through the ArrayGet
+         * builtins, which return owned values. */
+        return east_array_get(east_paged_hydrated(arr), index);
+    }
+    if (arr->kind != EAST_VAL_ARRAY) return NULL;
     if (index >= arr->data.array.len) return NULL;
     return arr->data.array.items[index];
 }
 
 size_t east_array_len(EastValue *arr)
 {
-    if (!arr || arr->kind != EAST_VAL_ARRAY) return 0;
+    if (!arr) return 0;
+    if (arr->kind == EAST_VAL_PAGED) {
+        if (paged_live(arr) &&
+            east_beast2_pages_type(arr->data.paged.pages)->kind == EAST_TYPE_ARRAY)
+            return east_beast2_pages_element_count(arr->data.paged.pages);
+        return east_array_len(arr->data.paged.hydrated);
+    }
+    if (arr->kind != EAST_VAL_ARRAY) return 0;
     return arr->data.array.len;
 }
 
@@ -465,7 +490,17 @@ void east_set_insert(EastValue *set, EastValue *val)
 
 bool east_set_has(EastValue *set, EastValue *val)
 {
-    if (!set || set->kind != EAST_VAL_SET) return false;
+    if (!set) return false;
+    if (set->kind == EAST_VAL_PAGED) {
+        if (paged_live(set) && east_beast2_pages_type(set->data.paged.pages)->kind == EAST_TYPE_SET)
+            /* -1 (read error, message posted) degrades to false — the bool
+             * contract has no error channel. The SetHas builtin takes the
+             * pager path itself and propagates the error instead; this
+             * branch serves direct C callers only. */
+            return east_beast2_pages_get_key(set->data.paged.pages, val, NULL) == 1;
+        return east_set_has(east_paged_hydrated(set), val);
+    }
+    if (set->kind != EAST_VAL_SET) return false;
     return btree_get(set->data.set.tree, &val) != NULL;
 }
 
@@ -489,7 +524,13 @@ void east_set_clear(EastValue *set)
 
 size_t east_set_len(EastValue *set)
 {
-    if (!set || set->kind != EAST_VAL_SET) return 0;
+    if (!set) return 0;
+    if (set->kind == EAST_VAL_PAGED) {
+        if (paged_live(set) && east_beast2_pages_type(set->data.paged.pages)->kind == EAST_TYPE_SET)
+            return east_beast2_pages_element_count(set->data.paged.pages);
+        return east_set_len(set->data.paged.hydrated);
+    }
+    if (set->kind != EAST_VAL_SET) return 0;
     return set->data.set.len;
 }
 
@@ -653,7 +694,13 @@ void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
 
 EastValue *east_dict_get(EastValue *dict, EastValue *key)
 {
-    if (!dict || dict->kind != EAST_VAL_DICT) return NULL;
+    if (!dict) return NULL;
+    if (dict->kind == EAST_VAL_PAGED) {
+        /* Borrowed-return contract — delegate through the hydrated dict
+         * (lazy keyed reads go through the DictGet builtins, which own). */
+        return east_dict_get(east_paged_hydrated(dict), key);
+    }
+    if (dict->kind != EAST_VAL_DICT) return NULL;
     DictPair probe = {key, NULL};
     const DictPair *found = (const DictPair *)btree_get(dict->data.dict.tree, &probe);
     return found ? found->val : NULL;
@@ -661,7 +708,17 @@ EastValue *east_dict_get(EastValue *dict, EastValue *key)
 
 bool east_dict_has(EastValue *dict, EastValue *key)
 {
-    if (!dict || dict->kind != EAST_VAL_DICT) return false;
+    if (!dict) return false;
+    if (dict->kind == EAST_VAL_PAGED) {
+        if (paged_live(dict) &&
+            east_beast2_pages_type(dict->data.paged.pages)->kind == EAST_TYPE_DICT)
+            /* -1 (read error, message posted) degrades to false — the DictHas
+             * builtin takes the pager path itself and propagates the error;
+             * this branch serves direct C callers only. */
+            return east_beast2_pages_get_key(dict->data.paged.pages, key, NULL) == 1;
+        return east_dict_has(east_paged_hydrated(dict), key);
+    }
+    if (dict->kind != EAST_VAL_DICT) return false;
     DictPair probe = {key, NULL};
     return btree_get(dict->data.dict.tree, &probe) != NULL;
 }
@@ -701,7 +758,14 @@ void east_dict_clear(EastValue *dict)
 
 size_t east_dict_len(EastValue *dict)
 {
-    if (!dict || dict->kind != EAST_VAL_DICT) return 0;
+    if (!dict) return 0;
+    if (dict->kind == EAST_VAL_PAGED) {
+        if (paged_live(dict) &&
+            east_beast2_pages_type(dict->data.paged.pages)->kind == EAST_TYPE_DICT)
+            return east_beast2_pages_element_count(dict->data.paged.pages);
+        return east_dict_len(dict->data.paged.hydrated);
+    }
+    if (dict->kind != EAST_VAL_DICT) return 0;
     return dict->data.dict.len;
 }
 
@@ -993,6 +1057,22 @@ EastValue *east_function_value(EastCompiledFn *fn)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Paged (lazy pager-backed collection)                               */
+/* ------------------------------------------------------------------ */
+
+EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len)
+{
+    if (!pages || !data) return NULL;
+    EastValue *v = alloc_value(EAST_VAL_PAGED);
+    if (!v) return NULL;
+    v->data.paged.pages = pages;
+    v->data.paged.data = data;
+    v->data.paged.len = len;
+    v->data.paged.hydrated = NULL;
+    return v;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Ref counting                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -1088,6 +1168,12 @@ void east_value_release(EastValue *v)
             east_compiled_fn_free(v->data.function.compiled);
         }
         break;
+
+    case EAST_VAL_PAGED:
+        if (v->data.paged.pages) east_beast2_pages_free(v->data.paged.pages);
+        east_free(v->data.paged.data);
+        east_value_release(v->data.paged.hydrated);
+        break;
     }
 
     east_value_slab_free(v, east_value_alloc_size(v->kind));
@@ -1101,6 +1187,18 @@ bool east_value_equal(EastValue *a, EastValue *b)
 {
     if (a == b) return true;
     if (!a || !b) return false;
+    /* Paged values compare as the collection they page — unpage before the
+     * kind checks so eager/paged mixes see one representation. A failed
+     * hydration (decode error) leaves the wrapper, and the PAGED case below
+     * then answers by identity (already handled by `a == b` above). */
+    if (a->kind == EAST_VAL_PAGED) {
+        EastValue *h = east_paged_hydrated(a);
+        if (h) a = h;
+    }
+    if (b->kind == EAST_VAL_PAGED) {
+        EastValue *h = east_paged_hydrated(b);
+        if (h) b = h;
+    }
     if (a->kind != b->kind) return false;
 
     switch (a->kind) {
@@ -1195,6 +1293,9 @@ bool east_value_equal(EastValue *a, EastValue *b)
 
     case EAST_VAL_FUNCTION:
         return a->data.function.compiled == b->data.function.compiled;
+
+    case EAST_VAL_PAGED:
+        return false; /* both failed to hydrate and are not identical */
     }
 
     return false;
@@ -1245,6 +1346,8 @@ static int kind_rank(EastValueKind k)
         return 14;
     case EAST_VAL_FUNCTION:
         return 15;
+    case EAST_VAL_PAGED:
+        return 16; /* unreachable in practice — compare unpages first */
     }
     return (int)k;
 }
@@ -1288,6 +1391,17 @@ int east_value_compare(EastValue *a, EastValue *b)
     /* Handle NULLs (C pointer null, not EAST_VAL_NULL). */
     if (!a) return -1;
     if (!b) return 1;
+
+    /* Paged values order as the collection they page — unpage before the
+     * kind ranking so eager/paged mixes compare by content. */
+    if (a->kind == EAST_VAL_PAGED) {
+        EastValue *h = east_paged_hydrated(a);
+        if (h) a = h;
+    }
+    if (b->kind == EAST_VAL_PAGED) {
+        EastValue *h = east_paged_hydrated(b);
+        if (h) b = h;
+    }
 
     int ra = kind_rank(a->kind);
     int rb = kind_rank(b->kind);
@@ -1414,6 +1528,10 @@ int east_value_compare(EastValue *a, EastValue *b)
         if (a->data.function.compiled < b->data.function.compiled) return -1;
         if (a->data.function.compiled > b->data.function.compiled) return 1;
         return 0;
+
+    case EAST_VAL_PAGED:
+        /* Both failed to hydrate: fall back to identity order. */
+        return a < b ? -1 : 1;
     }
 
     return 0;
@@ -1634,6 +1752,12 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos)
 
     case EAST_VAL_FUNCTION:
         return pos + buf_append(buf, buf_size, pos, "<function>");
+
+    case EAST_VAL_PAGED: {
+        EastValue *h = east_paged_hydrated(v);
+        if (h) return print_value(h, buf, buf_size, pos);
+        return pos + buf_append(buf, buf_size, pos, "<paged>");
+    }
     }
 
     return pos;
@@ -1690,6 +1814,8 @@ const char *east_value_kind_name(EastValueKind kind)
         return "Matrix";
     case EAST_VAL_FUNCTION:
         return "Function";
+    case EAST_VAL_PAGED:
+        return "Paged";
     }
     return "Unknown";
 }

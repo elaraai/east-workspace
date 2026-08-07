@@ -12,6 +12,7 @@
 export CMAKE_GENERATOR := Ninja
 
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
+        test-east-py-cli \
         reinstall-east-py reinstall-east-py-std reinstall-east-py-io reinstall-east-py-datascience build-deps \
         test-export lint lint-headers lint-headers-fix format typecheck check \
         vendor build-wheels clean build help
@@ -87,6 +88,9 @@ test-east-py:
 	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
 	cd packages/east-py && uv run pytest tests/serialization -q --no-cov
 
+test-east-py-cli:
+	cd packages/east-py-cli && uv run pytest tests -q --no-cov
+
 test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
 
@@ -102,6 +106,7 @@ test:
 	@cd packages/east-py-datascience && pnpm run test:export
 	@exit_code=0; \
 	$(MAKE) test-east-py || exit_code=1; \
+	$(MAKE) test-east-py-cli || exit_code=1; \
 	$(MAKE) test-east-py-std || exit_code=1; \
 	$(MAKE) test-east-py-io || exit_code=1; \
 	$(MAKE) test-east-py-datascience || exit_code=1; \
@@ -205,6 +210,7 @@ help:
 	@echo ""
 	@echo "  test              - Run all tests"
 	@echo "  test-east-py      - Run east-py compliance tests"
+	@echo "  test-east-py-cli  - Run east-py-cli tests (runner --emit/--stream)"
 	@echo "  test-east-py-std  - Run east-py-std tests"
 	@echo "  test-east-py-io   - Run east-py-io tests"
 	@echo "  test-east-py-datascience - Run east-py-datascience tests"

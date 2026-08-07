@@ -21,8 +21,9 @@
  * whole-stream aliasing at the cost of random access.
  */
 
-import { type EastTypeValue } from "../../../type_of_type.js";
+import { type EastTypeValue, EastTypeValueType, isTypeValueEqual } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
+import { printFor } from "../../east.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { SourceMap } from "../../../location.js";
 import { compareFor } from "../../../comparison.js";
@@ -80,6 +81,12 @@ export type Beast2WriterOptions = {
   index?: boolean;
   /** Source map for function values in the stream, written to the header. */
   sourceMap?: SourceMap | null;
+  /** Emit these exact bytes as the blob's header (magic + type section +
+   *  source-map section + root tag frame) instead of building one. The bytes
+   *  must come from a v5 blob of the same wire type — used by splice tooling
+   *  to rebuild segments byte-compatible with an existing blob's header.
+   *  When set, `sourceMap` must be the prefix's own decoded source map. */
+  headerPrefix?: Uint8Array;
 };
 
 // =============================================================================
@@ -128,7 +135,8 @@ export class Beast2Writer<T extends EastType = EastType> {
    * @param type - the collection type this stream holds (Array/Set/Dict)
    * @param sink - receives output bytes as they are produced
    * @param options - codec, self-containment, index, and source map options
-   * @throws {TypeError} When `type` is not an Array, Set or Dict type.
+   * @throws {TypeError} When `type` is not an Array, Set or Dict type, or
+   *   when `options.headerPrefix` is not a v5 header of exactly `type`.
    */
   constructor(type: T | EastTypeValue, sink: (bytes: Uint8Array) => void, options?: Beast2WriterOptions) {
     const typeValue = asTypeValue(type);
@@ -160,7 +168,23 @@ export class Beast2Writer<T extends EastType = EastType> {
     }
 
     // Header: magic + type section + source map section, then the root tag
-    // as its own frame so every indexed segment frame is pure.
+    // as its own frame so every indexed segment frame is pure. A caller-
+    // provided prefix (splice tooling) is emitted verbatim instead — after
+    // verifying its wire type IS the declared type, since a mismatched
+    // prefix would write a blob whose header lies about its contents.
+    if (options?.headerPrefix !== undefined) {
+      verifyV5Magic(options.headerPrefix);
+      const prefixReader = new BufferReader(options.headerPrefix, MAGIC_BYTES_V5.length);
+      const { rootType } = readTypeSection(prefixReader);
+      if (!isTypeValueEqual(rootType, typeValue)) {
+        const printType = printFor(EastTypeValueType);
+        throw new TypeError(`beast2 v5: headerPrefix declares wire type ${printType(rootType)}, not the writer's ${printType(typeValue)} — the prefix must come from a blob of the same wire type`);
+      }
+      this.ctx.containerCount = 1;
+      this.ctx.segmentBaseDef = 1;
+      this.emit(options.headerPrefix);
+      return;
+    }
     const head = new BufferWriter();
     head.writeBytes(MAGIC_BYTES_V5);
     writeTypeSection(typeValue, head);
@@ -579,13 +603,23 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
 // Paging reader
 // =============================================================================
 
+/** Decoded segments retained by a {@link Beast2Pages} for its element and
+ *  keyed read paths (mirrors east-c's `B2V5_PAGES_LRU`): a keyed/indexed
+ *  read loop over neighbouring rows then decodes each segment once instead
+ *  of once per element. Bounded — at most this many decoded segments live
+ *  per reader. */
+const SEGMENT_CACHE_CAPACITY = 4;
+
 /**
  * Random access over an indexed, self-contained v5 collection blob.
  *
  * Reads the footer + index once; `elementCount` is O(1) from the index, and
  * {@link segment} seeks to and decodes exactly one segment. Requires the blob
  * to carry an index (written by default by {@link Beast2Writer}); random
- * access additionally requires self-contained segments.
+ * access additionally requires self-contained segments. The element and keyed
+ * read paths ({@link element} / {@link get}) reuse decoded segments through a
+ * small LRU, so a read loop over neighbouring rows decodes each segment once
+ * rather than once per element; {@link segment} itself always decodes fresh.
  *
  * Set/Dict blobs page like Arrays: the wire holds the canonical value split
  * at segment boundaries (strictly ascending, disjoint segments), so row
@@ -617,6 +651,14 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** First key/element of each segment, in segment order (Set/Dict only). */
   private fences: any[] | null = null;
   private fenceDec: ((reader: BufferReader, ctx: V5DecodeContext) => any) | null = null;
+  /** Decoded segments kept hot for the element and keyed read paths, keyed
+   *  by segment index in LRU order (mirrors east-c's `B2V5_PAGES_LRU`).
+   *  Only {@link element} and {@link get} route through it — the public
+   *  {@link segment} stays a fresh decode, so a caller mutating its result
+   *  cannot poison the cache. `first`/`last` carry a Set/Dict segment's key
+   *  range so a hit can maintain the caller's order threading without a
+   *  container walk. */
+  private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
 
   /** @internal Use {@link openBeast2PagesFor}. */
   constructor(data: Uint8Array, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
@@ -690,11 +732,46 @@ export class Beast2Pages<T extends EastType = EastType> {
     return value;
   }
 
+  /** Decodes segment `i` through the LRU cache, threading the caller's
+   *  order state exactly as a fresh decode would: a hit replays the
+   *  boundary-ascent check against the cached segment's first key and
+   *  advances `order` to its last. Serves {@link element} and {@link get}
+   *  only — see {@link segmentCache}. */
+  private segmentCached(i: number, order: SegmentOrder | undefined): any {
+    const hit = this.segmentCache.get(i);
+    if (hit !== undefined) {
+      this.segmentCache.delete(i);
+      this.segmentCache.set(i, hit); // refresh recency
+      if (order !== undefined && this.orderCmp !== null) {
+        if (order.has && this.orderCmp(order.prev, hit.first) >= 0) {
+          throw new Error(`beast2 v5: ${this.kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+        }
+        order.prev = hit.last;
+        order.has = true;
+      }
+      return hit.seg;
+    }
+    const seg = this.decodeSegmentCore(i, order);
+    let first: any;
+    let last: any;
+    if (this.kind !== "Array") {
+      first = (this.kind === "Set" ? (seg as Set<any>).values() : (seg as Map<any, any>).keys()).next().value;
+      // Segments are never empty, so a Set/Dict decode leaves the caller's
+      // order state on the segment's last key.
+      last = order?.prev;
+    }
+    this.segmentCache.set(i, { seg, first, last });
+    if (this.segmentCache.size > SEGMENT_CACHE_CAPACITY) {
+      this.segmentCache.delete(this.segmentCache.keys().next().value!);
+    }
+    return seg;
+  }
+
   /** Decodes just the first key/element of segment `i` — a bounded probe
    *  (one frame inflate, one element decode), not a whole-segment decode. */
   private firstKey(i: number): any {
     if (!this.fenceDec) {
-      const keyType = this.kind === "Set" ? (this.typeValue as any).value : (this.typeValue as any).value.key;
+      const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
       this.fenceDec = buildV5Decoder(keyType);
     }
     const cursor = new FrameReader(this.data, this.indexData.offsets[i]!);
@@ -702,6 +779,30 @@ export class Beast2Pages<T extends EastType = EastType> {
     reader.readVarint();  // element count — segments are never empty
     const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, ...buildPlatformContext(this.platform) };
     return this.fenceDec(reader, ctx);
+  }
+
+  /**
+   * Probes segment `i`'s fence: its first Dict key, Set element, or Array
+   * element, decoded without decoding the rest of the segment (one frame
+   * inflate, one element decode).
+   *
+   * For Set/Dict roots the fences bound each segment's canonical key range —
+   * segment `i` holds exactly the keys in `[fence(i), fence(i+1))` — which is
+   * what partition-boundary selection walks.
+   *
+   * @param i - zero-based segment index
+   * @returns the segment's first key or element
+   * @throws {Error} When `i` is out of range or the blob is not
+   *   self-contained.
+   */
+  fence(i: number): ValueTypeOf<T> extends Map<infer K, any> ? K : ValueTypeOf<T> extends Set<infer E> ? E : ValueTypeOf<T> extends (infer E)[] ? E : never {
+    if (!this.selfContained) {
+      throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
+    }
+    if (i < 0 || i >= this.indexData.offsets.length) {
+      throw new Error(`beast2 v5: segment ${i} out of range (${this.indexData.offsets.length} segments)`);
+    }
+    return this.firstKey(i);
   }
 
   /** Probes and verifies the segment fences once: each segment's first
@@ -724,9 +825,10 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /** Decodes segment `i` with order threading, then checks its tail stays
-   *  below the next segment's fence (segments must be disjoint ranges). */
-  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[]): any {
-    const value = this.decodeSegmentCore(i, order);
+   *  below the next segment's fence (segments must be disjoint ranges).
+   *  Pass `cached` on the keyed read path to route through the segment LRU. */
+  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[], cached = false): any {
+    const value = cached ? this.segmentCached(i, order) : this.decodeSegmentCore(i, order);
     if (i + 1 < fences.length && order.has && this.orderCmp!(order.prev, fences[i + 1]) >= 0) {
       throw new Error(`beast2 v5: segments ${i} and ${i + 1} are not disjoint ascending ${this.kind === "Dict" ? "key" : "element"} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
     }
@@ -761,7 +863,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       throw new Error(`beast2 v5: element ${row} out of range (${this.elementCount} elements)`);
     }
     const { seg, base } = this.rowSegment(row);
-    const segment = this.segment(seg) as any[];
+    const segment = this.segmentCached(seg, undefined) as any[];
     return segment[row - base];
   }
 
@@ -868,7 +970,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       else hi = mid - 1;
     }
     const order: SegmentOrder = { prev: undefined, has: false };
-    const segment = this.decodeDisjoint(lo, order, fences);
+    const segment = this.decodeDisjoint(lo, order, fences, true);
     if (this.kind === "Set") {
       for (const item of segment as Set<any>) {
         if (this.orderCmp!(item, key) === 0) return item;

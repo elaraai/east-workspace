@@ -48,10 +48,26 @@ export {
   encodeBeast2PagedFor,
   type Beast2PagedEncodeOptions,
   BEAST2_PAGED_BATCH_DEFAULT,
+  BEAST2_PAGED_TARGET_BYTES_DEFAULT,
   iterBeast2SegmentsFor,
   Beast2Pages,
   openBeast2PagesFor,
 } from "./v5/stream.js";
+export {
+  type Beast2Extents,
+  readBeast2Extents,
+  carveBeast2,
+  spliceBeast2,
+  rebuildBeast2,
+  type RebuildBeast2Options,
+  type Beast2RangeReader,
+  type Beast2RangedExtents,
+  type ReadBeast2ExtentsRangedOptions,
+  readBeast2ExtentsRanged,
+  carveBeast2Ranged,
+  spliceBeast2Tail,
+} from "./v5/geometry.js";
+export { openBeast2LazyFor, isBeast2LazySafe } from "./v5/lazy.js";
 import { readIndex } from "./v5/codec.js";
 
 /**
