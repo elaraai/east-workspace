@@ -29,7 +29,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Reactive, SegmentGroup, Text, ValueTree } from "@elaraai/east-ui";
+import { Box, Configurator, HStack, Input, Reactive, SegmentGroup, Switch, Text, ValueTree } from "@elaraai/east-ui";
 
 export const valueTreeBasic = example({
     keywords: ["ValueTree", "value", "tree", "inspector", "leaf", "struct", "read-only"],
@@ -136,11 +136,15 @@ export const valueTreeInspect = example({
  * 24-machine line: every editable leaf kind, nested variants, options and
  * collection add/remove through one whole-value `onUpdate`; the size axis
  * feeds the height expression (auto / bounded scroll / fill — an empty height
- * reads as unbounded), so the sizing contracts need no second tree.
+ * reads as unbounded), the open-depth axis feeds `style.openDepth` (0 = all
+ * collapsed; per-row toggles shadow it) and the toolbar switch feeds
+ * `style.toolbar` (collapse-all / expand-all header; Alt-click a twist
+ * collapses that whole subtree), so the sizing and expansion contracts need
+ * no second tree.
  */
 export const valueTreeVariants = example({
-    keywords: ["ValueTree", "onUpdate", "rebuilt value", "editable", "edit", "add", "remove", "collection", "leaf", "virtualized", "height", "scroll", "fill", "parent", "bounded", "Reactive", "State", "SegmentGroup", "Configurator", "configurator"],
-    description: "Editable ValueTree configurator — one live 24-machine tree with whole-value onUpdate; the size axis (auto / scroll / fill) feeds the height expression",
+    keywords: ["ValueTree", "onUpdate", "rebuilt value", "editable", "edit", "add", "remove", "collection", "leaf", "virtualized", "height", "scroll", "fill", "parent", "bounded", "openDepth", "toolbar", "collapse", "expand", "collapse all", "expand all", "controls", "Alt-click", "subtree", "Reactive", "State", "SegmentGroup", "Input", "Switch", "Configurator", "configurator"],
+    description: "Editable ValueTree configurator — one live 24-machine tree with whole-value onUpdate; the size axis (auto / scroll / fill) feeds the height expression, openDepth and the toolbar switch feed the expansion contract (Alt-click a twist collapses its subtree)",
     fn: East.function([], UIComponentType, (_$) => {
         const LineType = StructType({
             machines: ArrayType(StructType({
@@ -201,6 +205,14 @@ export const valueTreeVariants = example({
                 $(lineBind.write(next));
             }));
 
+            const depthBind = $.let(State.bind([IntegerType], "vt_depth", 1n));
+            const depth = $.let(depthBind.read());
+            const onDepth = $.const(East.function([IntegerType], NullType, ($, next) => { $(depthBind.write(next)); }));
+
+            const toolbarBind = $.let(State.bind([BooleanType], "vt_toolbar", true));
+            const toolbarOn = $.let(toolbarBind.read());
+            const onToolbar = $.const(East.function([BooleanType], NullType, ($, next) => { $(toolbarBind.write(next)); }));
+
             // An empty height string reads as "unbounded"; the wrapper Box only
             // bounds in fill mode.
             const boxHeight = $.let(sKey.equal("fill").ifElse(_$ => "280px", _$ => ""));
@@ -215,10 +227,16 @@ export const valueTreeVariants = example({
                         Configurator.Control("Size", sKey,
                             <SegmentGroup value={sKey} onChange={onSize} size="sm"
                                 items={sizes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),
+                        Configurator.Control("Open depth", East.print(depth),
+                            <Input.Integer value={depth} min={0n} max={5n} step={1n} size="sm" onChange={onDepth} />),
+                        Configurator.Slot("Chrome",
+                            <HStack gap="5" align="center" wrap="wrap">
+                                <Switch checked={toolbarOn} label="Toolbar" onChange={onToolbar} />
+                            </HStack>),
                     ]}
                     preview={
                         <Box width="100%" height={boxHeight} overflow="hidden">
-                            <ValueTree value={line} onUpdate={onLine} style={{ height: treeHeight }} />
+                            <ValueTree value={line} onUpdate={onLine} style={{ height: treeHeight, openDepth: depth, toolbar: toolbarOn }} />
                         </Box>
                     }
                     spec={[

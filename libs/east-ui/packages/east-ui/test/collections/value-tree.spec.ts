@@ -134,15 +134,33 @@ describeEast("ValueTree", (test) => {
         $(Assert.equal(fields.get(2n).node.unwrap().unwrap("opaque"), "Vector · 3 values"));
     });
 
-    test("materializes non-string dict keys as browsable read-only entries", $ => {
+    test("materializes non-string dict keys with canonical key text and labels", $ => {
         const value = $.const(new Map([[7n, "critical"], [12n, "routine"]]),
             DictType(IntegerType, StringType));
         const ui = $.let(ValueTree.Root(value));
         const dict = $.let(ui.unwrap().unwrap("ValueTree").root.unwrap().unwrap("dict"));
+        // Entry insert/remove needs a typed NEW key — string-keyed only.
         $(Assert.equal(dict.editable, false));
         $(Assert.equal(dict.entries.size(), 2n));
         $(Assert.equal(dict.entries.get(0n).key, "7"));
+        $(Assert.equal(dict.entries.get(0n).label, "7"));
         $(Assert.equal(dict.entries.get(0n).node.unwrap().unwrap("leaf").unwrap("string"), "critical"));
+    });
+
+    test("struct dict keys mint canonical key text and · -joined labels", $ => {
+        const MachineKey = StructType({ machine: StringType, shift: IntegerType });
+        const value = $.const(new Map([
+            [{ machine: "press", shift: 2n }, 1980n],
+            [{ machine: "mill", shift: 1n }, 1200n],
+        ]), DictType(MachineKey, IntegerType));
+        const ui = $.let(ValueTree.Root(value));
+        const dict = $.let(ui.unwrap().unwrap("ValueTree").root.unwrap().unwrap("dict"));
+        // `key` is the canonical East print (identity, round-trippable);
+        // `label` is the display join.
+        $(Assert.equal(dict.entries.get(0n).key, "(machine=\"mill\", shift=1)"));
+        $(Assert.equal(dict.entries.get(0n).label, "mill · 1"));
+        $(Assert.equal(dict.entries.get(1n).key, "(machine=\"press\", shift=2)"));
+        $(Assert.equal(dict.entries.get(1n).label, "press · 2"));
     });
 
     test("materializes empty collections with zero children", $ => {
@@ -164,6 +182,14 @@ describeEast("ValueTree", (test) => {
         const payload = $.let(ui.unwrap().unwrap("ValueTree"));
         $(Assert.equal(payload.onEdit.hasTag("none"), true));
         $(Assert.equal(payload.style.unwrap("some").height.unwrap("some"), "320px"));
+    });
+
+    test("carries the expansion controls through the style payload", $ => {
+        const ui = $.let(ValueTree.Root({ n: 1n }, { style: { openDepth: 0n, toolbar: true } }));
+        const style = $.let(ui.unwrap().unwrap("ValueTree").style.unwrap("some"));
+        $(Assert.equal(style.openDepth.unwrap("some"), 0n));
+        $(Assert.equal(style.toolbar.unwrap("some"), true));
+        $(Assert.equal(style.height.hasTag("none"), true));
     });
 
     test("zero delegates to east's defaultValue across every data type", $ => {
@@ -334,6 +360,45 @@ describeEast("ValueTree", (test) => {
         $(insert.call([variant("key", "b")]));
         $(Assert.equal(captured.get("root").size(), 2n));
         $(Assert.equal(captured.get("root").get("b"), []));
+    });
+
+    test("non-string-keyed dict values edit through their canonical key step", $ => {
+        const T = DictType(IntegerType, FloatType);
+        const data = $.let(new Map([[7n, 0.15], [12n, 0.4]]), T);
+        const captured = $.let(new Map(), DictType(StringType, T));
+        const onUpdate = $.const(East.function([T], NullType, ($h, next) => {
+            $h(captured.insertOrUpdate("root", next));
+        }));
+        const ui = $.let(ValueTree.Root(data, { onUpdate }));
+        const edit = $.let(ui.unwrap().unwrap("ValueTree").onEdit.unwrap("some"));
+        // The step text is the entry's canonical `key` — the value edits,
+        // sibling entries and the source stay untouched.
+        $(edit.call([variant("key", "7")], variant("float", 0.99)));
+        $(Assert.equal(captured.get("root").get(7n), 0.99));
+        $(Assert.equal(captured.get("root").get(12n), 0.4));
+        $(Assert.equal(captured.get("root").size(), 2n));
+        $(Assert.equal(data.get(7n), 0.15));
+    });
+
+    test("struct-keyed dict values edit through the printed key step", $ => {
+        const MachineKey = StructType({ machine: StringType, shift: IntegerType });
+        const T = DictType(MachineKey, StructType({ units: IntegerType }));
+        const data = $.let(new Map([
+            [{ machine: "press", shift: 2n }, { units: 1980n }],
+            [{ machine: "mill", shift: 1n }, { units: 1200n }],
+        ]), T);
+        const captured = $.let(new Map(), DictType(StringType, T));
+        const onUpdate = $.const(East.function([T], NullType, ($h, next) => {
+            $h(captured.insertOrUpdate("root", next));
+        }));
+        const ui = $.let(ValueTree.Root(data, { onUpdate }));
+        const edit = $.let(ui.unwrap().unwrap("ValueTree").onEdit.unwrap("some"));
+        $(edit.call(
+            [variant("key", "(machine=\"press\", shift=2)"), variant("field", "units")],
+            variant("integer", 2000n)));
+        $(Assert.equal(captured.get("root").get({ machine: "press", shift: 2n }).units, 2000n));
+        $(Assert.equal(captured.get("root").get({ machine: "mill", shift: 1n }).units, 1200n));
+        $(Assert.equal(captured.get("root").size(), 2n));
     });
 
     test("dict removes drop the keyed entry and leave the source untouched", $ => {
