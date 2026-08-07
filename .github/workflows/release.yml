@@ -654,6 +654,17 @@ jobs:
             echo "  publish: ${NAME}@${VERSION} ← ${TGZ}"
             npm publish "$TGZ" --access public --provenance --tag "$TAG" $DRY
           done
+      # The launcher's manifest declares a workspace:* devDependency (the
+      # fixture generator in its tests/ imports @elaraai/east), and
+      # `pnpm publish` must rewrite every workspace range — devDependencies
+      # included — to a concrete version, which requires the workspace to be
+      # installed. Without this step the publish hard-fails with
+      # ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL (v1.0.59's first run).
+      # Must run BEFORE the optionalDependencies injection below: the
+      # injected deps are deliberately not in the lockfile, so a frozen
+      # install after injection would reject the manifest.
+      - name: Install workspace (pnpm publish rewrites workspace:* ranges)
+        run: pnpm install --frozen-lockfile
       - name: Inject launcher optionalDependencies (not committed; see scripts/inject-east-c-platform-deps.mjs)
         run: |
           node scripts/inject-east-c-platform-deps.mjs \
