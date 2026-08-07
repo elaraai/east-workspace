@@ -220,7 +220,7 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
             values = value.to_array(lambda _k, v: v, out=vt)
 
             def chunk(i: int, j: int):
-                rebuilt = EastDict(kt, vt)
+                rebuilt: Any = EastDict(kt, vt)
                 rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
                 return rebuilt
 

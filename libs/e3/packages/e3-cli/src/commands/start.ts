@@ -64,10 +64,15 @@ export async function startCommand(
 
   try {
     const location = await parseRepoLocation(repoArg);
+    // Non-numeric values would flow through parseInt as NaN: --concurrency
+    // NaN launches no tasks and dies later as "Dataflow stuck", and
+    // --partition-concurrency NaN collapses the partition worker pool to
+    // zero and crashes with an opaque TypeError — both must be argument
+    // errors instead.
     const concurrency = options.concurrency ? parseInt(options.concurrency, 10) : 4;
-    // A non-numeric value would flow through as NaN, collapsing the
-    // partition worker pool to zero and crashing with an opaque TypeError
-    // instead of an argument error.
+    if (!Number.isInteger(concurrency) || concurrency < 1) {
+      exitError(`--concurrency must be a positive integer, got '${options.concurrency}'`);
+    }
     const partitionConcurrency = options.partitionConcurrency !== undefined
       ? parseInt(options.partitionConcurrency, 10)
       : undefined;
