@@ -41,9 +41,14 @@ def _format_file_size(path: Path) -> str:
         return "?"
 
 
-# One flush per this many emitted elements; the managed file writer
-# re-batches toward its own byte-sized segments underneath.
-_EMIT_BATCH = 1000
+# Batching mirrors east-node / east-c: an element cap, refined toward a
+# wire-byte target from the writer's actual output as segments flush — wide
+# rows shrink the batch so a segment never grossly overshoots the target.
+# (Beast2FileWriter's own re-batching is ROW-based and passes batches at or
+# under its row target through untouched, so byte adaptation must happen
+# here.)
+_EMIT_BATCH_CAP = 1000
+_EMIT_TARGET_BYTES = 2 * 1024 * 1024
 
 # east-node parity: indexed beast2 collection inputs at or above this many
 # bytes open as lazy paged values (EAST_LAZY_INPUT_BYTES overrides; 0
@@ -101,6 +106,8 @@ class _EmitSink:
         self._last_key: object = None
         self._has_last = False
         self._batch: list = []
+        self._written = 0
+        self._next_batch = _EMIT_BATCH_CAP
         self._writer = open_beast2_file(output_file, self.out_type, mode="w")
 
     def emit(self, *args: object) -> None:
@@ -116,12 +123,13 @@ class _EmitSink:
             self._last_key = key
             self._has_last = True
         self._batch.append((args[0], args[1]) if self.kind == "dict" else args[0])
-        if len(self._batch) >= _EMIT_BATCH:
+        if len(self._batch) >= self._next_batch:
             self._flush()
 
     def _flush(self) -> None:
         if not self._batch:
             return
+        flushed = len(self._batch)
         if self.kind == "dict":
             self._writer.write(dict(self._batch))
         elif self.kind == "set":
@@ -129,6 +137,12 @@ class _EmitSink:
         else:
             self._writer.write(list(self._batch))
         self._batch = []
+        self._written += flushed
+        # Refine toward the byte target from real output. bytes_written
+        # includes the header — a slight average overestimate that only
+        # makes batches marginally smaller (east-node/east-c parity).
+        avg = max(1, self._writer.bytes_written // max(self._written, 1))
+        self._next_batch = max(1, min(_EMIT_BATCH_CAP, _EMIT_TARGET_BYTES // avg))
 
     def finish(self) -> None:
         self._flush()
@@ -184,14 +198,18 @@ def run_program(
             f"Function expects {file_params} inputs, got {len(input_files)}\n"
             f"Signature: ({sig_params}) -> {print_type(output_type)}"
         )
-    if stream_input is not None and not 0 <= stream_input < max(file_params, 1):
+    if stream_input is not None and not 0 <= stream_input < file_params:
+        # east-node / east-c parity: `--stream 0` on a zero-input program is
+        # an error, not a silent no-op.
         raise ValueError(f"--stream index {stream_input} out of range ({file_params} inputs)")
 
     sink = None
     if emit is not None:
         if output_file is None:
             raise ValueError("--emit requires an output file (-o)")
-        sink = _EmitSink(emit, input_types[-1], output_file)
+        # A zero-parameter function has no trailing parameter to be the emit
+        # capability — the shaped error, not an IndexError.
+        sink = _EmitSink(emit, input_types[-1] if input_types else None, output_file)
 
     # Verbose header
     if verbose:

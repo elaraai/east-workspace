@@ -1329,8 +1329,74 @@ EastType *east_beast2_pages_type(Beast2Pages *p)
 /*  Lazy pager-backed collection values (issue #505)                    */
 /* ================================================================== */
 
+/* Whether every value of `t` is value-semantic for the lazy paged contract:
+ * no East-mutable container (Array/Set/Dict/Ref — a write through a freshly
+ * decoded pager-served element would be dropped) and no identity-compared or
+ * state-carrying kind (Vector/Matrix under `Is`; functions' captures).
+ * Structs/variants/scalars compare by value and have no in-place mutation
+ * builtins. Mirrors the TS gate (east lazy.ts `isBeast2LazySafe`).
+ * `recursive` carries the enclosing Recursive wrapper for cycle protection
+ * (self-references point back at the wrapper). */
+static bool lazy_safe_element(const EastType *t, const EastType *recursive)
+{
+    if (!t) return false;
+    if (t == recursive) return true; /* back-reference: already on the checked path */
+    switch (t->kind) {
+    case EAST_TYPE_NEVER:
+    case EAST_TYPE_NULL:
+    case EAST_TYPE_BOOLEAN:
+    case EAST_TYPE_INTEGER:
+    case EAST_TYPE_FLOAT:
+    case EAST_TYPE_STRING:
+    case EAST_TYPE_DATETIME:
+    case EAST_TYPE_BLOB:
+        return true;
+    case EAST_TYPE_STRUCT:
+        for (size_t i = 0; i < t->data.struct_.num_fields; i++)
+            if (!lazy_safe_element(t->data.struct_.fields[i].type, recursive)) return false;
+        return true;
+    case EAST_TYPE_VARIANT:
+        for (size_t i = 0; i < t->data.variant.num_cases; i++)
+            if (!lazy_safe_element(t->data.variant.cases[i].type, recursive)) return false;
+        return true;
+    case EAST_TYPE_RECURSIVE:
+        return lazy_safe_element(t->data.recursive.node, t);
+    default:
+        /* Array/Set/Dict/Ref, Vector/Matrix, Function/AsyncFunction. */
+        return false;
+    }
+}
+
+/* The root-level shape gate: only collection roots whose element (and key)
+ * shapes are value-semantic may open lazily; anything else must decode
+ * eagerly. Non-collection roots pass through to east_beast2_pages_new's own
+ * (more specific) refusal. */
+static bool lazy_shape_safe(const EastType *type)
+{
+    if (!type) return false;
+    switch (type->kind) {
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+        return lazy_safe_element(type->data.element, NULL);
+    case EAST_TYPE_DICT:
+        return lazy_safe_element(type->data.dict.key, NULL) &&
+               lazy_safe_element(type->data.dict.value, NULL);
+    default:
+        return true;
+    }
+}
+
 EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
 {
+    /* Shape gate (#516): element shapes East can mutate in place (or observe
+     * by identity) must not be served as fresh pager decodes — the caller
+     * falls back to the eager whole decode, which is always correct. */
+    if (type && !lazy_shape_safe(type)) {
+        east_builtin_error("beast2 v5: lazy paged values need value-semantic element shapes — "
+                           "an element containing an Array/Set/Dict/Ref (mutable in place) or a "
+                           "Vector/Matrix/function (identity-compared) must decode eagerly");
+        return NULL;
+    }
     Beast2Pages *pages = east_beast2_pages_new(data, len, type);
     if (!pages) return NULL;
     /* Random access (and therefore every pager-served operation) needs

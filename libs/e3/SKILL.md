@@ -295,15 +295,18 @@ const delta = e3.partitionTask('delta', {
 ```
 
 Spec fields: `partitions` (1+ huge Dict/Set/Array inputs; 2+ co-partition and
-must all be Dict or all Set), `by` (boundary alignment — must read a leading
-prefix of every partitioned dataset's key: the key itself, a leading field, a
-nested leading-field path like `key.a.b` where each step is the first field
-of its level, or a struct literal of leading fields in declared order;
-validated at build time, any other body rejected), `inputs` (ordinary
-broadcast inputs — any change re-runs all partitions), `output`, `combine`
-(associative fold; its presence is the whole mode switch),
-`targetPartitionBytes` (the only sizing knob, default 256 MiB), `runner`,
-`environment`.
+must all be Dict or all Set — and when their key types differ, the effective
+boundary projection, implicit or explicit, must still follow every dataset's
+own key field order, validated at build time), `by` (boundary alignment —
+must read a leading prefix of every partitioned dataset's key: the key
+itself, a leading field, a nested leading-field path like `key.a.b` where
+each step is the first field of its level, or a struct literal of leading
+fields in declared order; validated at build time, any other body rejected),
+`inputs` (ordinary broadcast inputs — any change re-runs all partitions),
+`output` (a collection unless `combine` is given — splice mode assembles the
+output from shards), `combine` (associative fold; its presence is the whole
+mode switch), `targetPartitionBytes` (the only sizing knob, default 256
+MiB), `runner`, `environment`.
 
 Splice-mode contract: Array shards concatenate freely; Dict/Set shard key
 ranges must ascend disjointly in partition order (key-preserving and monotone
@@ -328,7 +331,10 @@ on it decodes the whole value once). Ordinary indexed collection inputs of
 any task open the same way by default once they reach 64 MiB on the wire —
 `EAST_LAZY_INPUT_BYTES` overrides the threshold, `0` forces eager decodes —
 and semantics are identical either way, so the threshold is a memory knob,
-not a behavior toggle.
+not a behavior toggle. Only value-semantic element shapes (scalars, structs,
+variants) open lazily: an element type that transitively contains an
+Array/Set/Dict/Ref (East mutates those in place through read-out elements),
+a Vector/Matrix, or a function always decodes whole, on every runtime.
 
 ```typescript
 const events = e3.input('events', ArrayType(EventType));

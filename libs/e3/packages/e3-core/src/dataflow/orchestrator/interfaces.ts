@@ -85,8 +85,9 @@ export interface OrchestratorStartOptions {
   /** Callback when a task completes */
   onTaskComplete?: (result: TaskCompletedCallback) => void;
   /** Called as each unit of a partitioned task (slice execution or combine
-   *  step) starts and completes; also persisted as `partition_started` /
-   *  `partition_completed` execution events. */
+   *  step) starts and completes. Callback-only progress — deliberately not
+   *  persisted as execution events (the persisted event wire is frozen; see
+   *  `ExecutionEventType`'s wire warning). */
   onPartitionProgress?: (taskName: string, progress: PartitionProgress) => void;
   /** Callback for task stdout */
   onStdout?: (taskName: string, data: string) => void;

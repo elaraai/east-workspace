@@ -96,16 +96,23 @@ export const DatasetPreview = memo(function DatasetPreview({
     const sizeBytes = status?.sizeBytes ?? 0;
     const isOversized = hasValue && sizeBytes > sizeLimit;
     const type = status?.type as EastTypeValue | undefined;
-    // Read-only collection roots ALWAYS render through the paged windowed
-    // view, at every size — whole-value materialization is reserved for
-    // editable inputs and non-collection roots, so an entry-heavy collection
-    // can never exhaust the inline materializer mid-list. Editable
-    // collections keep the inline (editing) path until they outgrow the
-    // size limit, at which point they page read-only like before.
+    // Content hash the server refused to page (`dataset_not_indexed` — a
+    // legacy blob predating the stored-segmented contract). Keyed by hash so
+    // a re-written (indexed) value automatically pages again.
+    const [notIndexedHash, setNotIndexedHash] = useState<string | null>(null);
+    // Read-only collection roots render through the paged windowed view, at
+    // every size — whole-value materialization is reserved for editable
+    // inputs and non-collection roots, so an entry-heavy collection can
+    // never exhaust the inline materializer mid-list. Editable collections
+    // keep the inline (editing) path until they outgrow the size limit, at
+    // which point they page read-only like before. Legacy pre-index blobs
+    // fall back to the inline tree (or the oversize download) instead of
+    // dead-ending in the paged view.
     const pageable = hasValue && type !== undefined &&
         (type.type === 'Array' || type.type === 'Set' || type.type === 'Dict');
     const usePaged = pageable && (!editable || isOversized) &&
-        workspace != null && path != null && status?.hash != null;
+        workspace != null && path != null && status?.hash != null &&
+        status.hash !== notIndexedHash;
     const shouldFetch = hasValue && !isOversized && !usePaged;
 
     const valueQuery = useDatasetValue(apiUrl, repo, workspace, path, {
@@ -162,6 +169,7 @@ export const DatasetPreview = memo(function DatasetPreview({
     if (!hasValue) return <StatusDisplay variant="info" title="No data available" message="Waiting for a value to be set" />;
 
     if (usePaged && type !== undefined && workspace != null && path != null && status.hash != null) {
+        const pagedHash = status.hash;
         return (
             <PagedDatasetPreview
                 apiUrl={apiUrl}
@@ -169,10 +177,11 @@ export const DatasetPreview = memo(function DatasetPreview({
                 workspace={workspace}
                 path={path}
                 type={type}
-                hash={status.hash}
+                hash={pagedHash}
                 sizeBytes={sizeBytes}
                 {...(requestOptions != null && { requestOptions })}
                 onDownload={download}
+                onNotIndexed={() => setNotIndexedHash(pagedHash)}
             />
         );
     }

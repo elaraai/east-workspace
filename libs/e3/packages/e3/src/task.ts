@@ -354,14 +354,12 @@ type IntersectKeysAll<A, Rest> =
 
 /** What a `by` projection may return: an expression over the key (the
  *  identity, a field read, or a nested path — leading-prefix ORDER is
- *  validated at build time, since TypeScript types carry no field order), a
- *  struct literal drawn from the key's own fields with their own expression
- *  types, or void for `$.return`-style block bodies. Anything else is a
- *  type error at the call site. */
+ *  validated at build time, since TypeScript types carry no field order), or
+ *  a struct literal drawn from the key's own fields with their own
+ *  expression types. Anything else is a type error at the call site. */
 type ByResult<K> =
   | Expr<any>
-  | (K extends StructType<infer F> ? { [P in keyof F]?: ExprType<F[P]> } : never)
-  | void;
+  | (K extends StructType<infer F> ? { [P in keyof F]?: ExprType<F[P]> } : never);
 
 /**
  * The declaration half of {@link partitionTask} — everything structural about
@@ -531,8 +529,10 @@ function projectionFieldPrefix(ir: FunctionIR): ProjectionShape | null {
  * @returns A TaskDef with `.output` for chaining
  * @throws {Error} When a partitioned dataset is not a collection, partitions
  *   mix collection kinds (or include Arrays) under co-partitioning, key
- *   types cannot align, or `by` does not read a leading prefix of every
- *   partitioned dataset's key.
+ *   types cannot align, `by` (explicit or the implicit alignment under
+ *   co-partitioning) does not read a leading prefix of every partitioned
+ *   dataset's key, or the output is not a collection in splice mode (no
+ *   `combine`).
  *
  * @example
  * ```ts
@@ -607,6 +607,7 @@ export function partitionTask<
   // dataset: struct keys sort lexicographically by declared field order, so
   // the projection must read a leading prefix of each dataset's OWN order.
   let byIr: Uint8Array | undefined;
+  let byShape: ProjectionShape | null = null;
   if (spec.by !== undefined) {
     const byFn = East.function([byParamType], undefined, spec.by as any);
     const bundle = byFn.toIR();
@@ -662,7 +663,58 @@ export function partitionTask<
         }
       }
     }
+    byShape = shape;
     byIr = encodeEastIR(bundle);
+  }
+
+  // Under co-partitioning with non-identical key types, the EFFECTIVE
+  // boundary projection must ALSO be a leading prefix of every dataset's
+  // key order when it is implicit:
+  // - with no `by`, the runtime aligns secondaries under the PRIMARY's key
+  //   comparator — the projection is the primary's full field sequence;
+  // - with an identity `by`, it is the shared-intersection struct in its
+  //   declared field order.
+  // A key set like {sku,period} × {period,sku} passes the field-wise
+  // intersection yet sorts differently per dataset — accepted, it would
+  // silently mis-assign rows at run time with a success status.
+  if (partitions.length > 1) {
+    const firstKey = toEastTypeValue(keyTypes[0]!);
+    const keysIdentical = keyTypes.every((k) => isTypeValueEqual(toEastTypeValue(k), firstKey));
+    const validatedByFields = byShape !== null && byShape.names.length > 0;
+    if (!keysIdentical && !validatedByFields) {
+      // Non-identical keys reach here only via the struct-intersection path.
+      const sourceFields = (t: EastType): Record<string, EastType> =>
+        (t as EastType & { fields: Record<string, EastType> }).fields;
+      const effective = spec.by !== undefined
+        ? { label: 'the identity `by` projection reads the shared key fields', fields: sourceFields(byParamType) }
+        : { label: `with no \`by\`, co-partition boundaries align on partitioned dataset '${partitions[0]!.name}' key order`, fields: sourceFields(keyTypes[0]!) };
+      const eff = Object.keys(effective.fields);
+      for (let i = 0; i < partitions.length; i++) {
+        const fields = sourceFields(keyTypes[i]!);
+        const order = Object.keys(fields);
+        const misaligned = eff.length > order.length || eff.some((f, j) =>
+          order[j] !== f || !isTypeValueEqual(toEastTypeValue(effective.fields[f]!), toEastTypeValue(fields[f]!)));
+        if (misaligned) {
+          throw new Error(
+            `partitionTask '${name}': ${effective.label} (${eff.join(', ')}), which is not a leading prefix of ` +
+            `partitioned dataset '${partitions[i]!.name}' key field order (${order.join(', ')}) — ` +
+            `declare \`by\` as a shared leading-prefix projection, or re-key upstream`
+          );
+        }
+      }
+    }
+  }
+
+  // Splice mode (no `combine`) assembles the output from per-partition
+  // SHARDS in partition order — only a collection can splice. A
+  // non-collection output would pass definition time and fail only when the
+  // input first carves into two or more partitions.
+  if (spec.combine === undefined && output.type !== 'Array' && output.type !== 'Set' && output.type !== 'Dict') {
+    throw new Error(
+      `partitionTask '${name}': without \`combine\`, each partition returns a shard of the output and the shards ` +
+      `splice in partition order — the output must be a collection (Array, Set or Dict), got ${output.type}. ` +
+      `Provide \`combine\` to fold non-collection partials.`
+    );
   }
 
   // Reify `combine` as a free East function (Out, Out) -> Out.

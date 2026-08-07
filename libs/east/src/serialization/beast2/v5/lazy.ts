@@ -352,7 +352,10 @@ function lazyArray(pages: Beast2Pages): unknown[] {
     if (hydrated) return;
     hydrated = true;
     for (let i = 0; i < pages.segmentCount; i++) {
-      target.push(...(pages.segment(i) as unknown[]));
+      // Element-by-element append — a spread (`push(...segment)`) passes the
+      // segment as arguments and overflows the engine's argument limit on
+      // ~100k+-element segments.
+      for (const item of pages.segment(i) as unknown[]) target.push(item);
     }
   };
   function* elements(): Generator<unknown> {
@@ -381,8 +384,11 @@ function lazyArray(pages: Beast2Pages): unknown[] {
         if (prop === "length") return pages.elementCount;
         if (LAZY_ARRAY_READS.has(prop)) return lazyReads[prop];
         if (typeof prop === "string") {
+          // Only canonical index strings are element reads — `""`, `"01"`,
+          // `" 2"` or `"1e2"` are ordinary (absent) properties on an eager
+          // array, and must stay so here.
           const row = Number(prop);
-          if (Number.isInteger(row) && row >= 0) {
+          if (Number.isInteger(row) && row >= 0 && String(row) === prop) {
             return row < pages.elementCount ? pages.element(row) : undefined;
           }
         }
@@ -451,4 +457,75 @@ export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, o
     const cmp = compareFor((typeValue as any).value.key) as (a: unknown, b: unknown) => number;
     return new LazySortedMap(pages, cmp) as ValueTypeOf<T>;
   };
+}
+
+/** Whether every value of `type` is value-semantic under the lazy contract:
+ *  no East-mutable container (Array/Set/Dict/Ref) and no identity-compared
+ *  or state-carrying kind (Vector/Matrix, whose `is()` is object identity;
+ *  functions, whose captured environment can hold mutable state).
+ *  Structs/variants/scalars compare by value and have no in-place mutation
+ *  builtins, so a fresh pager-served decode of them is unobservable. */
+function isLazySafeElement(type: EastTypeValue): boolean {
+  switch (type.type) {
+    case "Never":
+    case "Null":
+    case "Boolean":
+    case "Integer":
+    case "Float":
+    case "String":
+    case "DateTime":
+    case "Blob":
+      return true;
+    case "Struct":
+    case "Variant":
+      return (type.value as { name: string; type: EastTypeValue }[]).every((f) => isLazySafeElement(f.type));
+    case "Recursive":
+      // A wrapper's content is checked once; a back-reference re-enters a
+      // level already on the checked path, so it adds nothing new.
+      return type.value.type === "wrapper" ? isLazySafeElement((type.value.value as { inner: EastTypeValue }).inner) : true;
+    default:
+      // Array/Set/Dict/Ref (mutation through a read-out element would be
+      // dropped), Vector/Matrix (`is()` observes decode identity),
+      // Function/AsyncFunction (captured mutable state) — eager only.
+      return false;
+  }
+}
+
+/**
+ * Decides whether a collection type may be opened lazily
+ * ({@link openBeast2LazyFor}) with eager-equivalent semantics.
+ *
+ * A lazy value serves element reads as fresh decodes from the blob, and
+ * East's runtime is reference-semantic for nested containers — so an element
+ * shape that East can mutate in place (transitively containing an Array, Set,
+ * Dict or Ref) must be decoded eagerly, or writes through a read-out element
+ * would be silently dropped. Vector/Matrix and function elements are also
+ * excluded: `is()` compares them by object identity, which fresh decodes
+ * (and hydration) would change, and a decoded closure re-creates any mutable
+ * state it captured. Scalar, struct and variant element shapes are safe —
+ * they compare by value and have no in-place mutation builtins.
+ *
+ * Runners consult this before opening a large input lazily; an unsafe shape
+ * falls back to the eager whole decode (always correct, just not O(segment)).
+ *
+ * @param type - the candidate input type
+ * @returns `true` when the type is an Array, Set or Dict whose element (and
+ *   key) shapes make lazy opening observationally equivalent to the eager
+ *   decode; `false` otherwise, including for non-collection roots
+ *
+ * @example
+ * ```ts
+ * isBeast2LazySafe(DictType(IntegerType, StructType({ id: IntegerType })));  // true
+ * isBeast2LazySafe(DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) })));  // false — nested mutation
+ * isBeast2LazySafe(StringType);  // false — not a collection root
+ * ```
+ */
+export function isBeast2LazySafe(type: EastType | EastTypeValue): boolean {
+  const typeValue = asTypeValue(type);
+  if (!isSegmentedRoot(typeValue)) return false;
+  if (typeValue.type === "Dict") {
+    const dict = (typeValue as any).value as { key: EastTypeValue; value: EastTypeValue };
+    return isLazySafeElement(dict.key) && isLazySafeElement(dict.value);
+  }
+  return isLazySafeElement((typeValue as any).value as EastTypeValue);
 }

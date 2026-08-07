@@ -301,71 +301,69 @@ export async function getDataflowExecution(
     }));
   }
 
-  // Count total API-visible events, then slice for pagination
+  // Filter to API-visible events FIRST, then slice: the client advances its
+  // offset by API events RECEIVED, so slicing the unfiltered core list would
+  // re-serve part of the window every time a core-only event (execution
+  // lifecycle, reactive invalidation) sits inside it.
   const offset = options.offset ?? 0;
-  const allEvents = coreState.events;
-  let totalApiEvents = 0;
-  for (const event of allEvents) {
-    if (coreEventToApiEvent(event) !== null) {
-      totalApiEvents++;
-    }
+  const visibleEvents = [];
+  for (const event of coreState.events) {
+    const apiEvent = coreEventToApiEvent(event);
+    if (apiEvent !== null) visibleEvents.push(apiEvent);
   }
+  const totalApiEvents = visibleEvents.length;
 
-  // Apply offset and limit
-  let events = allEvents.slice(offset);
+  // Apply offset and limit over the API-visible sequence
+  let events = visibleEvents.slice(offset);
   if (options.limit !== undefined) {
     events = events.slice(0, options.limit);
   }
 
-  // Convert page events to API format
+  // Convert page events to East variant format
   const apiEvents: DataflowExecutionState['events'] = [];
-  for (const event of events) {
-    const apiEvent = coreEventToApiEvent(event);
-    if (apiEvent !== null) {
-      // Convert to East variant format
-      switch (apiEvent.type) {
-        case 'start':
-          apiEvents.push(variant('start', {
-            task: apiEvent.task,
-            timestamp: apiEvent.timestamp,
-          }));
-          break;
-        case 'complete':
-          apiEvents.push(variant('complete', {
-            task: apiEvent.task,
-            timestamp: apiEvent.timestamp,
-            duration: apiEvent.duration ?? 0,
-          }));
-          break;
-        case 'cached':
-          apiEvents.push(variant('cached', {
-            task: apiEvent.task,
-            timestamp: apiEvent.timestamp,
-          }));
-          break;
-        case 'failed':
-          apiEvents.push(variant('failed', {
-            task: apiEvent.task,
-            timestamp: apiEvent.timestamp,
-            duration: apiEvent.duration ?? 0,
-            exitCode: apiEvent.exitCode ?? BigInt(-1),
-          }));
-          break;
-        case 'error':
-          apiEvents.push(variant('error', {
-            task: apiEvent.task,
-            timestamp: apiEvent.timestamp,
-            message: apiEvent.message ?? 'Unknown error',
-          }));
-          break;
-        case 'input_unavailable':
-          apiEvents.push(variant('input_unavailable', {
-            task: apiEvent.task,
-            timestamp: apiEvent.timestamp,
-            reason: apiEvent.reason ?? 'Upstream task failed',
-          }));
-          break;
-      }
+  for (const apiEvent of events) {
+    switch (apiEvent.type) {
+      case 'start':
+        apiEvents.push(variant('start', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+        }));
+        break;
+      case 'complete':
+        apiEvents.push(variant('complete', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+          duration: apiEvent.duration ?? 0,
+        }));
+        break;
+      case 'cached':
+        apiEvents.push(variant('cached', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+        }));
+        break;
+      case 'failed':
+        apiEvents.push(variant('failed', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+          duration: apiEvent.duration ?? 0,
+          exitCode: apiEvent.exitCode ?? BigInt(-1),
+        }));
+        break;
+      case 'error':
+        apiEvents.push(variant('error', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+          message: apiEvent.message ?? 'Unknown error',
+        }));
+        break;
+      case 'input_unavailable':
+        apiEvents.push(variant('input_unavailable', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+          reason: apiEvent.reason ?? 'Upstream task failed',
+        }));
+        break;
     }
   }
 

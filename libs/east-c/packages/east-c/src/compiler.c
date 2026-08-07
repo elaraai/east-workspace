@@ -787,6 +787,19 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     }
                     args[i] = arg_res.value;
                 }
+                /* Foreign encoders (the emit sink, embedding-host bridges)
+                 * are kind-blind — hydrate paged args at the boundary,
+                 * exactly like the builtin and platform trampolines. */
+                for (size_t i = 0; i < nargs; i++) {
+                    if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
+                        !hydrate_owned_arg(&args[i])) {
+                        for (size_t j = 0; j < nargs; j++)
+                            east_value_release(args[j]);
+                        free(args);
+                        east_value_release(func_val);
+                        return paged_error(node);
+                    }
+                }
             }
             EvalResult body_res = cfn->invoke(cfn, args, nargs);
             for (size_t i = 0; i < nargs; i++)

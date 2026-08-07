@@ -19,7 +19,7 @@ import {
   variant, some, none,
   StringType, IntegerType, StructType, DictType, ArrayType,
   East, SortedMap, compareFor, equalFor,
-  encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, encodeEastIR, readBeast2Extents,
+  encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
   IRType,
 } from '@elaraai/east';
 import {
@@ -35,7 +35,7 @@ import {
 } from '@elaraai/e3-types';
 import type { PartitionProgress } from '@elaraai/e3-types';
 import { taskExecute } from './LocalTaskRunner.js';
-import { PARTITION_COPY_CHUNK_BYTES } from './partitionIo.js';
+import { bufferPart, spliceChunks } from './partitionIo.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { repoGc } from '../storage/local/gc.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
@@ -84,14 +84,16 @@ describe('partitionTaskExecute', () => {
     return objectWrite(repo, encodeEastIR(fn.toIR()));
   }
 
-  /** Writes a partition-kind TaskObject copying input `copyIndex`. */
+  /** Writes a partition-kind TaskObject copying input `copyIndex` (or
+   *  running an explicit command IR when `commandIrHash` is given). */
   async function createPartitionTask(options: {
     copyIndex: number;
     partitions: number;
     targetPartitionBytes: number;
     combine?: Uint8Array;
+    commandIrHash?: string;
   }): Promise<string> {
-    const commandIrHash = await createCopyCommandIr(options.copyIndex);
+    const commandIrHash = options.commandIrHash ?? await createCopyCommandIr(options.copyIndex);
     const metadata = encodePartitionTaskMetadata({
       partitions: BigInt(options.partitions),
       by: none,
@@ -257,16 +259,36 @@ describe('partitionTaskExecute', () => {
   });
 
   it('carves and splices at bounded orchestrator memory: partitioned inputs are never whole-read', async () => {
-    const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    // Semi-random row content defeats deflate enough that the blob dwarfs
+    // every legitimate single read — the read bound below is then real, not
+    // vacuously satisfied by a tiny fixture.
+    const entries: [bigint, { id: bigint; name: string }][] = [];
+    for (let i = 0; i < 30_000; i++) {
+      const id = BigInt(i);
+      const salt = ((i * 2654435761) >>> 0).toString(36) + ((i * 1103515245 + 12345) >>> 0).toString(36);
+      entries.push([id, { id, name: `row-${i}-${salt}` }]);
+    }
+    const table = new SortedMap(entries, compareFor(IntegerType));
+    const tableBlob = encodeBeast2PagedFor(TableType, { batchSize: 2000 })(table);
+    const tableHash = await storage.objects.write(repo, tableBlob);
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
+    // The largest legitimate single read on the ranged path: one segment
+    // frame (boundary probes, single-segment spans) or the 64 KiB tail
+    // probe. Anything approaching the whole blob is a regression.
+    const extents = readBeast2Extents(tableBlob);
+    const segmentBytes = extents.offsets.map((o, i) =>
+      (i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd) - o);
+    const readBound = Math.max(...segmentBytes, 64 * 1024);
+    assert.ok(tableBlob.length > 2 * readBound,
+      `precondition: the blob (${tableBlob.length} B) must dwarf the largest legitimate read (${readBound} B), or the bound cannot fail`);
+
     // Spy on the object store: the partitioned input must flow only through
-    // ranged reads (extents from head + tail, boundary probes, span copies),
-    // each bounded by the copy chunk — never a whole read. (Slice objects
-    // themselves are still whole-read by input marshalling to the runner,
-    // which is the standard path's documented, slice-bounded cost.)
+    // ranged reads (extents from head + tail, boundary probes, span copies)
+    // — never a whole read. (Slice objects themselves are still whole-read
+    // by input marshalling to the runner, which is the standard path's
+    // documented, slice-bounded cost.)
     const objects = storage.objects;
     let wholeInputReads = 0;
     let maxRangeLength = 0;
@@ -277,7 +299,7 @@ describe('partitionTaskExecute', () => {
       return origRead(r, h);
     };
     objects.readRange = (r: string, h: string, offset: number, length: number) => {
-      maxRangeLength = Math.max(maxRangeLength, length);
+      if (h === tableHash) maxRangeLength = Math.max(maxRangeLength, length);
       return origRange(r, h, offset, length);
     };
 
@@ -286,8 +308,8 @@ describe('partitionTaskExecute', () => {
     // The streamed carve + splice reproduce the input byte-identically.
     assert.equal(result.outputHash, tableHash);
     assert.equal(wholeInputReads, 0, 'the partitioned input must never be whole-read');
-    assert.ok(maxRangeLength <= PARTITION_COPY_CHUNK_BYTES,
-      `every ranged read (max ${maxRangeLength} bytes) must respect the copy chunk (${PARTITION_COPY_CHUNK_BYTES} bytes)`);
+    assert.ok(maxRangeLength <= readBound,
+      `every ranged read of the input (max ${maxRangeLength} B) must stay within one segment frame / tail probe (${readBound} B)`);
   });
 
   it('degrades to whole reads behind the same path when the backend has no ranged reads', async () => {
@@ -416,6 +438,108 @@ describe('partitionTaskExecute', () => {
     // Identical to the no-gc append test: 10 cache hits, only the new tail
     // partition + the new logical identity execute.
     assert.equal(await executionCount(taskHash), 13);
+  });
+
+  it('a failed partition names the LOWEST failing index and carries the runner error tail', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    // Every slice execution fails with a distinctive stderr line.
+    const failFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      (_$, _inputs, _output) => ['bash', '-c', 'echo carve-boom >&2; exit 3'],
+    );
+    const commandIrHash = await objectWrite(repo, encodeBeast2For(IRType)(failFn.toIR().ir));
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, commandIrHash });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { partitionConcurrency: 4 });
+    assert.equal(result.state, 'failed');
+    assert.equal(result.exitCode, 3);
+    // Deterministic attribution: with every partition failing, the reported
+    // one is always the first — not whichever worker settled first.
+    assert.match(result.error ?? '', /^Partition 1 of 10 failed \(exit code 3\)/);
+    // The runner's stderr tail rides the message, so the cause is visible
+    // without digging into the sub-execution's logs.
+    assert.match(result.error ?? '', /carve-boom/);
+  });
+
+  it('a failed combine step records `failed` with the exit code, not an orchestrator error', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    // Slice executions see 2 staged inputs (fnIr + slice) and copy; combine
+    // executions see 3 (combineIr + two partials) and fail with exit 7.
+    const combineFailsFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => {
+        $.if(East.equal(inputs.size(), 3n), ($) => {
+          $.return(['bash', '-c', 'echo merge-boom >&2; exit 7']);
+        });
+        $.return(['bash', '-c', 'cp "$1" "$2"', '--', inputs.get(1n), output]);
+      },
+    );
+    const commandIrHash = await objectWrite(repo, encodeBeast2For(IRType)(combineFailsFn.toIR().ir));
+    const combineFn = East.function([TableType, TableType], TableType, ($, a, _b) => $.return(a));
+    const taskHash = await createPartitionTask({
+      copyIndex: 1,
+      partitions: 1,
+      targetPartitionBytes: 1,
+      combine: encodeEastIR(combineFn.toIR()),
+      commandIrHash,
+    });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    // The runner's own exit must survive as a `failed` state (it was
+    // previously collapsed into an orchestrator `error`, dropping the code).
+    assert.equal(result.state, 'failed');
+    assert.equal(result.exitCode, 7);
+    assert.match(result.error ?? '', /^Combine step over partials 0 and 1 failed \(exit code 7\)/);
+    assert.match(result.error ?? '', /merge-boom/);
+    const latest = await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash);
+    assert.equal(latest?.type, 'failed', 'the recorded status must be failed, not error');
+  });
+
+  it('spliceChunks refuses non-self-contained parts', async () => {
+    // A cross-segment-aliasing shard would splice into a blob whose REFs
+    // resolve into the PREVIOUS shard's containers — in range, silently
+    // wrong — so the streaming splice must refuse it like spliceBeast2 does.
+    const blob = encodeBeast2SegmentsFor(TableType, { selfContained: false })([makeTable(10)]);
+    const part = bufferPart(blob);
+    assert.equal(part.selfContained, false);
+    const chunks = spliceChunks(blob.subarray(0, readBeast2Extents(blob).prefixEnd), [part]);
+    await assert.rejects(
+      (async () => { for await (const _ of chunks) { /* drain */ } })(),
+      /splice part 0 has cross-segment aliasing — splice needs self-contained segments/,
+    );
+  });
+
+  it('errors when a co-partitioned secondary does not follow the boundary projection order', async () => {
+    // Wire-level defense for task objects the SDK validation predates: the
+    // secondary's canonical order is b-major while the (implicit) boundary
+    // projection compares under the primary's a-major key — its projected
+    // fences descend, which must fail loudly instead of silently
+    // mis-assigning rows with a success status.
+    const AB = StructType({ a: IntegerType, b: IntegerType });
+    const BA = StructType({ b: IntegerType, a: IntegerType });
+    const primaryEntries: [{ a: bigint; b: bigint }, string][] =
+      Array.from({ length: 12 }, (_, i) => [{ a: BigInt(i), b: 0n }, `p-${i}`]);
+    const primary = new SortedMap(primaryEntries, compareFor(AB));
+    const primaryHash = await storage.objects.write(
+      repo, encodeBeast2PagedFor(DictType(AB, StringType), { batchSize: 2 })(primary));
+    // b-major canonical order with `a` values that DESCEND across fences.
+    const secondaryEntries: [{ b: bigint; a: bigint }, string][] =
+      Array.from({ length: 12 }, (_, i) => [{ b: BigInt(i), a: BigInt(11 - i) }, `s-${i}`]);
+    const secondary = new SortedMap(secondaryEntries, compareFor(BA));
+    const secondaryHash = await storage.objects.write(
+      repo, encodeBeast2PagedFor(DictType(BA, StringType), { batchSize: 2 })(secondary));
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 2, partitions: 2, targetPartitionBytes: 1 });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, primaryHash, secondaryHash]);
+    assert.equal(result.state, 'error');
+    assert.match(result.error ?? '', /projected segment fences are not monotone/);
   });
 
   it('rejects a partitioned input that carries no segment index', async () => {

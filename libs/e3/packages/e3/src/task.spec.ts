@@ -514,6 +514,95 @@ describe('partitionTask', () => {
     // function_ir + 2 partitions
     assert.strictEqual(reconcile.inputs.length, 3);
   });
+
+  describe('heterogeneous co-partition keys (the implicit projection)', () => {
+    // Same fields, opposite declared order — the field-wise intersection is
+    // non-empty, but the datasets SORT differently, so implicit boundary
+    // alignment would silently mis-assign rows at run time.
+    const ReversedKeyType = StructType({ period: IntegerType, sku: StringType });
+
+    it('rejects reordered key fields when no `by` is given', () => {
+      const a = input('h_a', DictType(SaleKeyType, IntegerType));
+      const b = input('h_b', DictType(ReversedKeyType, IntegerType));
+
+      assert.throws(
+        () => partitionTask('implicit_misorder', {
+          partitions: [a, b],
+          output: DictType(SaleKeyType, IntegerType),
+        }, ($, sliceA, _sliceB) => $.return(sliceA)),
+        /with no `by`, co-partition boundaries align on partitioned dataset 'h_a' key order \(sku, period\), which is not a leading prefix of partitioned dataset 'h_b' key field order \(period, sku\)/,
+      );
+    });
+
+    it('rejects reordered key fields under an identity `by` too', () => {
+      const a = input('h_c', DictType(SaleKeyType, IntegerType));
+      const b = input('h_d', DictType(ReversedKeyType, IntegerType));
+
+      assert.throws(
+        () => partitionTask('identity_misorder', {
+          partitions: [a, b],
+          by: (_$, key) => key,
+          output: DictType(SaleKeyType, IntegerType),
+        }, ($, sliceA, _sliceB) => $.return(sliceA)),
+        /the identity `by` projection reads the shared key fields \(sku, period\), which is not a leading prefix of partitioned dataset 'h_d' key field order \(period, sku\)/,
+      );
+    });
+
+    it('rejects a same-named leading field whose types differ across datasets', () => {
+      // `sku` exists in both keys at position 0 but with different types, so
+      // the intersection drops it — the primary's comparator would compare
+      // string skus against integer skus by kind rank.
+      const IntSkuKeyType = StructType({ sku: IntegerType, period: IntegerType });
+      const a = input('h_e', DictType(SaleKeyType, IntegerType));
+      const b = input('h_f', DictType(IntSkuKeyType, IntegerType));
+
+      assert.throws(
+        () => partitionTask('type_mismatch', {
+          partitions: [a, b],
+          output: DictType(SaleKeyType, IntegerType),
+        }, ($, sliceA, _sliceB) => $.return(sliceA)),
+        /with no `by`, co-partition boundaries align on partitioned dataset 'h_e' key order/,
+      );
+    });
+
+    it('accepts a secondary whose key extends the primary key with trailing fields', () => {
+      // The primary's full key IS a leading prefix of the secondary's — the
+      // implicit alignment (projecting onto the primary's fields) is
+      // monotone for both, so this stays legal without `by`.
+      const ExtendedKeyType = StructType({ sku: StringType, period: IntegerType, line: IntegerType });
+      const a = input('h_g', DictType(SaleKeyType, IntegerType));
+      const b = input('h_h', DictType(ExtendedKeyType, IntegerType));
+
+      const extended = partitionTask('extended_ok', {
+        partitions: [a, b],
+        output: DictType(SaleKeyType, IntegerType),
+      }, ($, sliceA, _sliceB) => $.return(sliceA));
+      assert.strictEqual(extended.taskKind, TASK_KIND_PARTITION);
+    });
+  });
+
+  it('rejects a non-collection output in splice mode, and accepts it with combine', () => {
+    const sales = input('splice_sales', DictType(SaleKeyType, IntegerType));
+    const TotalType = StructType({ total: IntegerType });
+
+    // Without combine, partitions return SHARDS that splice — a struct
+    // cannot; this used to surface only at run time, on the first input
+    // large enough to carve into two partitions.
+    assert.throws(
+      () => partitionTask('struct_splice', {
+        partitions: [sales],
+        output: TotalType,
+      }, ($, slice) => $.return({ total: slice.size() })),
+      /without `combine`, each partition returns a shard of the output and the shards splice in partition order — the output must be a collection \(Array, Set or Dict\), got Struct/,
+    );
+
+    const folded = partitionTask('struct_combine', {
+      partitions: [sales],
+      output: TotalType,
+      combine: ($, a, b) => $.return({ total: a.total.add(b.total) }),
+    }, ($, slice) => $.return({ total: slice.size() }));
+    assert.strictEqual(folded.taskKind, TASK_KIND_PARTITION);
+  });
 });
 
 describe('streamTask', () => {

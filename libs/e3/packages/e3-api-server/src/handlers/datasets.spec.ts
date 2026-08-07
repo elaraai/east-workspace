@@ -367,6 +367,26 @@ describe('getDatasetPage (ranged reads)', () => {
     assert.equal(spy.wholeReads(), 0, 'the refusal must come from the tail probe, not a whole read');
   });
 
+  it('surfaces storage failures as errors, never as dataset_not_indexed', async () => {
+    const storage = new InMemoryStorage();
+    // Distinct row count → distinct content hash, so the module-level
+    // extents cache cannot mask the injected failure.
+    const rows = makeRows(600);
+    const blob = encodeBeast2PagedFor(RowsType, { batchSize: 100 })(rows);
+    await seedRowsDataset(storage, blob);
+    // The blob IS indexed; the BACKEND fails at read time. The old bare
+    // catch would answer dataset_not_indexed ("re-write the dataset") for
+    // what is really an I/O failure.
+    storage.objects.readRange = () => Promise.reject(new Error('injected storage failure'));
+
+    const response = await getDatasetPage(storage, REPO, WS, rowsPath, { offset: 0, limit: 10 });
+    assert.notEqual(response.status, 200);
+    const body = await response.json() as { error: { type: string; message: string } };
+    assert.notEqual(body.error.type, 'dataset_not_indexed',
+      'an I/O failure must not masquerade as a re-write suggestion');
+    assert.match(body.error.message, /injected storage failure/);
+  });
+
   it('falls back to whole reads — and keeps the cap — when the backend has no ranged reads', async () => {
     const storage = new InMemoryStorage();
     const rows = makeRows(500);

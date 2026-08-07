@@ -135,18 +135,41 @@ export const PAGE_READ_MAX_BYTES_DEFAULT = 512 * 1024 * 1024;
 
 /** Ranged extents cached per content hash. Page requests are hash-pinned
  *  immutable, so entries never invalidate — the LRU only bounds memory.
- *  Each entry holds the parsed index (offsets/counts) plus the header
- *  bytes windows are assembled under, typically a few KB per blob. */
+ *  Each entry holds the parsed index (offsets/counts/cumulative) plus the
+ *  header bytes windows are assembled under — O(segmentCount) memory, so
+ *  the cache is bounded by RETAINED BYTES, not entry count: 64 entries of a
+ *  500k-segment blob would otherwise pin hundreds of MB. */
 interface CachedRangedExtents {
   extents: Beast2RangedExtents;
   /** Prefix sums of `extents.counts`, for offset→segment addressing. */
   cumulative: number[];
+  /** Approximate retained bytes (index arrays + header bytes). */
+  bytes: number;
 }
 
-const EXTENTS_CACHE_MAX = 64;
+const EXTENTS_CACHE_MAX_ENTRIES = 64;
+/** Cap on the cache's total retained bytes. The newest entry always stays
+ *  (serving the request needs it regardless), so one giant index can still
+ *  be held — but never alongside others. */
+const EXTENTS_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const extentsCache = new Map<string, CachedRangedExtents>();
+let extentsCacheBytes = 0;
 
-/** Fetches (or reuses) a blob's ranged extents, LRU-cached per hash. */
+/** Evicts oldest entries until the count and byte budgets hold, always
+ *  keeping at least the newest entry. */
+function evictExtents(): void {
+  while (
+    extentsCache.size > 1 &&
+    (extentsCache.size > EXTENTS_CACHE_MAX_ENTRIES || extentsCacheBytes > EXTENTS_CACHE_MAX_BYTES)
+  ) {
+    const oldest = extentsCache.keys().next().value!;
+    extentsCacheBytes -= extentsCache.get(oldest)!.bytes;
+    extentsCache.delete(oldest);
+  }
+}
+
+/** Fetches (or reuses) a blob's ranged extents, LRU-cached per hash and
+ *  bounded by retained bytes. */
 async function cachedRangedExtents(
   hash: string,
   size: number,
@@ -165,11 +188,12 @@ async function cachedRangedExtents(
     running += extents.counts[i]!;
     cumulative[i] = running;
   }
-  const entry: CachedRangedExtents = { extents, cumulative };
+  // offsets + counts + cumulative at 8 bytes per element, plus the header.
+  const bytes = extents.head.byteLength + 24 * extents.counts.length;
+  const entry: CachedRangedExtents = { extents, cumulative, bytes };
   extentsCache.set(hash, entry);
-  if (extentsCache.size > EXTENTS_CACHE_MAX) {
-    extentsCache.delete(extentsCache.keys().next().value!);
-  }
+  extentsCacheBytes += bytes;
+  evictExtents();
   return entry;
 }
 
@@ -317,10 +341,15 @@ export async function getDatasetPage(
       try {
         cached = await cachedRangedExtents(status.hash, statSize,
           (offset, length) => readRange(repoPath, status.hash!, offset, length));
-      } catch {
-        // No index/footer — a blob predating the stored-segmented contract
-        // (or injected raw). Same refusal as the fallback path, without
-        // buffering the blob to discover it.
+      } catch (err) {
+        // Only the reader's own blob-shape refusals mean "not indexed" — a
+        // blob predating the stored-segmented contract (or injected raw).
+        // Anything else (storage I/O, missing object) is a real failure and
+        // must surface as one, not masquerade as a re-write suggestion.
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/^(beast2 v5:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
+          throw err;
+        }
         return pageError('dataset_not_indexed',
           'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
       }

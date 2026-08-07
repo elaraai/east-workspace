@@ -494,7 +494,9 @@ bool east_set_has(EastValue *set, EastValue *val)
     if (set->kind == EAST_VAL_PAGED) {
         if (paged_live(set) && east_beast2_pages_type(set->data.paged.pages)->kind == EAST_TYPE_SET)
             /* -1 (read error, message posted) degrades to false — the bool
-             * contract has no error channel; the builtins surface it. */
+             * contract has no error channel. The SetHas builtin takes the
+             * pager path itself and propagates the error instead; this
+             * branch serves direct C callers only. */
             return east_beast2_pages_get_key(set->data.paged.pages, val, NULL) == 1;
         return east_set_has(east_paged_hydrated(set), val);
     }
@@ -710,6 +712,9 @@ bool east_dict_has(EastValue *dict, EastValue *key)
     if (dict->kind == EAST_VAL_PAGED) {
         if (paged_live(dict) &&
             east_beast2_pages_type(dict->data.paged.pages)->kind == EAST_TYPE_DICT)
+            /* -1 (read error, message posted) degrades to false — the DictHas
+             * builtin takes the pager path itself and propagates the error;
+             * this branch serves direct C callers only. */
             return east_beast2_pages_get_key(dict->data.paged.pages, key, NULL) == 1;
         return east_dict_has(east_paged_hydrated(dict), key);
     }

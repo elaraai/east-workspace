@@ -81,6 +81,14 @@ static EastValue *dict_size_impl(EastValue **args, size_t n)
 static EastValue *dict_has_impl(EastValue **args, size_t n)
 {
     (void)n;
+    if (arg_paged_live(args[0])) {
+        /* Take the pager path directly: east_dict_has's bool contract would
+         * degrade a read error (-1, message posted) to `false` — Get
+         * propagates it, and Has must not answer wrongly on corrupt input. */
+        int found = east_beast2_pages_get_key(args[0]->data.paged.pages, args[1], NULL);
+        if (found == -1) return NULL; /* pager error already posted */
+        return east_boolean(found == 1);
+    }
     return east_boolean(east_dict_has(args[0], args[1]));
 }
 

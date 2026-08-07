@@ -13,6 +13,7 @@
 
 #include "snapshot.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -286,14 +287,28 @@ static EastValue *load_value(const char *path, EastType *type)
 
 /* east-node parity: the size threshold at or above which indexed beast2
  * collection inputs open lazily. EAST_LAZY_INPUT_BYTES overrides (0
- * disables); default 64 MiB. */
+ * disables); default 64 MiB. Digits only, no overflow: strtoull silently
+ * wraps negatives ("-5" parses as a huge value) and saturates past
+ * ULLONG_MAX — both must fall back to the default, like the sibling
+ * runners, rather than enabling a bogus threshold. */
 static size_t lazy_input_threshold(void)
 {
     const char *env = getenv("EAST_LAZY_INPUT_BYTES");
     if (env && *env) {
-        char *end = NULL;
-        unsigned long long v = strtoull(env, &end, 10);
-        if (end && *end == '\0') return (size_t)v;
+        bool digits = true;
+        for (const char *p = env; *p; p++) {
+            if (*p < '0' || *p > '9') {
+                digits = false;
+                break;
+            }
+        }
+        if (digits) {
+            errno = 0;
+            char *end = NULL;
+            unsigned long long v = strtoull(env, &end, 10);
+            if (errno == 0 && end && *end == '\0' && v <= (unsigned long long)SIZE_MAX)
+                return (size_t)v;
+        }
     }
     return (size_t)64 * 1024 * 1024;
 }

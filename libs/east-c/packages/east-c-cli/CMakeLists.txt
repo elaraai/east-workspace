@@ -21,3 +21,13 @@ target_link_libraries(test_cli_emit east-c)
 add_test(NAME cli_emit COMMAND test_cli_emit $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_emit PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# CLI lazy paged-input gate (#516): spawns the binary with
+# EAST_LAZY_INPUT_BYTES=1 over checked-in fixtures and pins the lazy
+# contract end to end — the iteration-lock error on a paged $.for, pager
+# error propagation through keyed `has` on a corrupt blob, and the
+# mutable-nested shape gate falling back to the eager decode.
+add_executable(test_cli_paged tests/test_cli_paged.c)
+add_test(NAME cli_paged COMMAND test_cli_paged $<TARGET_FILE:east-c-cli>
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
+set_tests_properties(cli_paged PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

@@ -197,28 +197,35 @@ export async function partitionTaskExecute(
 
   let boundaries = cuts;
   if (proj !== null && cuts.length > 1) {
-    const lastKeyOf = (segment: unknown): unknown => {
-      let last: unknown;
-      if (segment instanceof Map) {
-        for (const k of segment.keys()) last = k;
-      } else {
-        for (const k of segment as Iterable<unknown>) last = k;
+    // Boundary probes decode segments and run the compiled projection — a
+    // decode or projection failure here must record an error execution, not
+    // escape as an unhandled throw (the stuck-dataflow class).
+    try {
+      const lastKeyOf = (segment: unknown): unknown => {
+        let last: unknown;
+        if (segment instanceof Map) {
+          for (const k of segment.keys()) last = k;
+        } else {
+          for (const k of segment as Iterable<unknown>) last = k;
+        }
+        return last;
+      };
+      boundaries = [0];
+      for (let cut of cuts.slice(1)) {
+        // A group spanning the cut has equal projections either side of it —
+        // advance the cut until the projection changes at the fence.
+        while (
+          cut < segCount &&
+          cmpOf(projOf(lastKeyOf(await primary.segmentValue(cut - 1))), projOf(await primary.fence(cut))) === 0
+        ) {
+          cut++;
+        }
+        if (cut < segCount && cut > boundaries[boundaries.length - 1]!) {
+          boundaries.push(cut);
+        }
       }
-      return last;
-    };
-    boundaries = [0];
-    for (let cut of cuts.slice(1)) {
-      // A group spanning the cut has equal projections either side of it —
-      // advance the cut until the projection changes at the fence.
-      while (
-        cut < segCount &&
-        cmpOf(projOf(lastKeyOf(await primary.segmentValue(cut - 1))), projOf(await primary.fence(cut))) === 0
-      ) {
-        cut++;
-      }
-      if (cut < segCount && cut > boundaries[boundaries.length - 1]!) {
-        boundaries.push(cut);
-      }
+    } catch (err) {
+      return errorResult(`Failed to align partition boundaries: ${err instanceof Error ? err.message : err}`);
     }
   }
   const partitions = boundaries.length;
@@ -261,9 +268,36 @@ export async function partitionTaskExecute(
       const blob = await PartitionBlob.open(storage, repo, partitionHashes[s]!);
       const isDict = blob.extents.typeValue.type === 'Dict';
 
+      // The soundness condition boundary alignment relies on: the secondary's
+      // fences ascend in its OWN canonical order, so the projection must be
+      // non-decreasing over them. A descending projected fence means the
+      // effective projection does not follow this dataset's key order (a
+      // heterogeneous co-partition the definition-time validation predates)
+      // — that must fail loudly, not mis-assign rows with a success status.
+      // One bounded pass (each fence is a one-element probe).
+      let prevFence: unknown;
+      let hasFence = false;
+      for (let i = 0; i < blob.extents.offsets.length; i++) {
+        const fence = projOf(await blob.fence(i));
+        if (hasFence && cmpOf(prevFence, fence) > 0) {
+          throw new Error(
+            `co-partitioned dataset's projected segment fences are not monotone (segment ${i - 1} descends to ${i}) — ` +
+            `the boundary projection must follow every partitioned dataset's own key order`
+          );
+        }
+        prevFence = fence;
+        hasFence = true;
+      }
+
+      // Boundaries ascend monotonically, so each split search resumes from
+      // the segment the previous one landed in instead of rescanning the
+      // fences from 0 — one forward pass over the secondary in total.
       const splits: SplitPoint[] = [{ seg: 0, offset: 0 }];
+      let resumeFrom = 0;
       for (const bound of bounds) {
-        splits.push(await findSplitPoint(blob, isDict, projOf, cmpOf, bound));
+        const split = await findSplitPoint(blob, isDict, projOf, cmpOf, bound, resumeFrom);
+        splits.push(split);
+        resumeFrom = Math.max(0, Math.min(split.seg, blob.extents.offsets.length - 1));
       }
       splits.push({ seg: blob.extents.offsets.length, offset: 0 });
 
@@ -287,24 +321,33 @@ export async function partitionTaskExecute(
   const progress = options.onPartitionProgress;
   const results: (ExecutionResult | undefined)[] = new Array(partitions);
   let nextPartition = 0;
-  let failedPartition = -1;
+  let hasFailure = false;
   const workers = Array.from({ length: Math.min(concurrency, partitions) }, async () => {
     for (;;) {
       const p = nextPartition++;
-      if (p >= partitions || failedPartition >= 0) return;
+      if (p >= partitions || hasFailure) return;
       const subInputs = [fnIrHash, ...sliceHashes.map((slices) => slices[p]!), ...broadcastHashes];
       progress?.({ phase: 'partition', index: p, total: partitions, state: 'started' });
       const result = await taskExecuteStandard(storage, repo, taskHash, task, subInputs, options);
       results[p] = result;
       progress?.({ phase: 'partition', index: p, total: partitions, state: 'completed', cached: result.cached, duration: result.duration });
-      if (result.state !== 'success' && failedPartition < 0) failedPartition = p;
+      if (result.state !== 'success') hasFailure = true;
     }
   });
   await Promise.all(workers);
 
+  // Attribute failure deterministically: the LOWEST-index failed partition
+  // among the completed results, not whichever failing worker settled first
+  // (that races the pool and made the reported partition nondeterministic).
+  const failedPartition = results.findIndex((r) => r !== undefined && r.state !== 'success');
   if (failedPartition >= 0) {
     const failed = results[failedPartition]!;
-    const message = `Partition ${failedPartition + 1} of ${partitions} ${failed.state === 'failed' ? `failed (exit code ${failed.exitCode})` : `errored: ${failed.error}`}`;
+    // Include the runner's error tail on the failed branch too — without it
+    // the message carries only an exit code and the cause is invisible
+    // without digging into the sub-execution's logs.
+    const message = `Partition ${failedPartition + 1} of ${partitions} ${failed.state === 'failed'
+      ? `failed (exit code ${failed.exitCode})${failed.error ? `: ${failed.error}` : ''}`
+      : `errored: ${failed.error}`}`;
     if (failed.state === 'failed') {
       await record(variant('failed', {
         executionId,
@@ -344,17 +387,19 @@ export async function partitionTaskExecute(
       const pairs = layer.length >> 1;
       const next: string[] = new Array(pairs + (layer.length % 2));
       const level = layer;
+      const mergeResults: (ExecutionResult | undefined)[] = new Array(pairs);
       let nextPair = 0;
-      let failedMerge: { left: number; merged: ExecutionResult } | null = null;
+      let mergeFailed = false;
       const mergeWorkers = Array.from({ length: Math.min(concurrency, pairs) }, async () => {
         for (;;) {
           const pair = nextPair++;
-          if (pair >= pairs || failedMerge !== null) return;
+          if (pair >= pairs || mergeFailed) return;
           const i = pair * 2;
           progress?.({ phase: 'combine', index: pair, total: pairs, state: 'started' });
           const merged = await taskExecuteStandard(storage, repo, taskHash, task, [combineIrHash, level[i]!, level[i + 1]!], options);
+          mergeResults[pair] = merged;
           if (merged.state !== 'success' || merged.outputHash === null) {
-            failedMerge ??= { left: i, merged };
+            mergeFailed = true;
             return;
           }
           progress?.({ phase: 'combine', index: pair, total: pairs, state: 'completed', cached: merged.cached, duration: merged.duration });
@@ -362,9 +407,36 @@ export async function partitionTaskExecute(
         }
       });
       await Promise.all(mergeWorkers);
-      if (failedMerge !== null) {
-        const { left, merged } = failedMerge as { left: number; merged: ExecutionResult };
-        const message = `Combine step over partials ${left} and ${left + 1} ${merged.state === 'failed' ? `failed (exit code ${merged.exitCode})` : `errored: ${merged.error}`}`;
+      // Deterministic attribution, exactly as for the partition fan-out.
+      const failedPair = mergeResults.findIndex((r) => r !== undefined && (r.state !== 'success' || r.outputHash === null));
+      if (failedPair >= 0) {
+        const merged = mergeResults[failedPair]!;
+        const left = failedPair * 2;
+        const message = `Combine step over partials ${left} and ${left + 1} ${merged.state === 'failed'
+          ? `failed (exit code ${merged.exitCode})${merged.error ? `: ${merged.error}` : ''}`
+          : `errored: ${merged.error}`}`;
+        // A failed merge is the runner's own exit — record it as `failed`
+        // with the exit code, exactly as the partition branch does, so the
+        // state distinction (failed vs orchestrator error) survives.
+        if (merged.state === 'failed') {
+          await record(variant('failed', {
+            executionId,
+            inputHashes,
+            startedAt: new Date(startTime),
+            completedAt: new Date(),
+            exitCode: BigInt(merged.exitCode ?? -1),
+          }));
+          return {
+            inputsHash: inHash,
+            executionId,
+            cached: false,
+            state: 'failed',
+            outputHash: null,
+            exitCode: merged.exitCode,
+            duration: Date.now() - startTime,
+            error: message,
+          };
+        }
         return errorResult(message);
       }
       if (layer.length % 2 === 1) next[pairs] = layer[layer.length - 1]!;
@@ -414,25 +486,32 @@ export async function partitionTaskExecute(
 }
 
 /** Finds the first global position in a co-partitioned secondary whose
- *  projected key reaches `bound`: a linear fence scan, then a decode of the
- *  single segment the boundary may fall inside. */
+ *  projected key reaches `bound`: a fence scan starting at `fromSeg` (the
+ *  segment the previous — smaller — bound landed in, so consecutive
+ *  searches make one forward pass over the secondary in total), then a
+ *  decode of the single segment the boundary may fall inside. The caller
+ *  has already verified the projected fences ascend. */
 async function findSplitPoint(
   blob: PartitionBlob,
   isDict: boolean,
   projOf: (key: unknown) => unknown,
   cmpOf: (a: unknown, b: unknown) => number,
   bound: unknown,
+  fromSeg = 0,
 ): Promise<SplitPoint> {
   const segCount = blob.extents.offsets.length;
-  let s = 0;
-  while (s < segCount && cmpOf(projOf(await blob.fence(s)), bound) < 0) s++;
-  if (s === 0) return { seg: 0, offset: 0 };
-  // The boundary may fall inside the last segment whose fence is below it.
-  const keys = segmentKeys(await blob.segmentValue(s - 1), isDict);
+  if (segCount === 0) return { seg: 0, offset: 0 };
+  let s = fromSeg;
+  if (s === 0 && cmpOf(projOf(await blob.fence(0)), bound) >= 0) return { seg: 0, offset: 0 };
+  while (s + 1 < segCount && cmpOf(projOf(await blob.fence(s + 1)), bound) < 0) s++;
+  // The boundary may fall inside the last segment whose fence is below it —
+  // segment s; when even s's fence reaches the bound (resumed searches), the
+  // decode simply lands on its first qualifying key.
+  const keys = segmentKeys(await blob.segmentValue(s), isDict);
   for (let i = 0; i < keys.length; i++) {
-    if (cmpOf(projOf(keys[i]), bound) >= 0) return { seg: s - 1, offset: i };
+    if (cmpOf(projOf(keys[i]), bound) >= 0) return { seg: s, offset: i };
   }
-  return { seg: s, offset: 0 };
+  return { seg: s + 1, offset: 0 };
 }
 
 /** The keys of a decoded segment, in canonical order. */

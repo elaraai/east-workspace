@@ -2494,6 +2494,17 @@ class Beast2FileWriter:
         """Segments written so far."""
         return self._writer.segments
 
+    @property
+    def bytes_written(self) -> int:
+        """Logical bytes appended to the file so far (header included).
+
+        Streaming callers use this to re-batch byte-adaptively: the running
+        average of ``bytes_written / elements written`` sizes the next batch
+        toward a wire-byte target, the segment-size discipline the paged
+        encoders follow.
+        """
+        return self._file.tell()
+
     def write(self, batch) -> None:
         """Append ``batch`` — an East collection of the declared type, or the
         matching python builtin (list/tuple, dict, set) — re-batched into

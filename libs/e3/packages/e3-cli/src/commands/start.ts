@@ -65,6 +65,15 @@ export async function startCommand(
   try {
     const location = await parseRepoLocation(repoArg);
     const concurrency = options.concurrency ? parseInt(options.concurrency, 10) : 4;
+    // A non-numeric value would flow through as NaN, collapsing the
+    // partition worker pool to zero and crashing with an opaque TypeError
+    // instead of an argument error.
+    const partitionConcurrency = options.partitionConcurrency !== undefined
+      ? parseInt(options.partitionConcurrency, 10)
+      : undefined;
+    if (partitionConcurrency !== undefined && (!Number.isInteger(partitionConcurrency) || partitionConcurrency < 1)) {
+      exitError(`--partition-concurrency must be a positive integer, got '${options.partitionConcurrency}'`);
+    }
 
     console.log(`Starting tasks in workspace: ${ws}`);
     if (options.filter) {
@@ -83,7 +92,7 @@ export async function startCommand(
     if (location.type === 'local') {
       await executeLocal(location.path, ws, {
         concurrency,
-        partitionConcurrency: options.partitionConcurrency ? parseInt(options.partitionConcurrency, 10) : undefined,
+        partitionConcurrency,
         force: options.force,
         verbose: options.verbose,
         filter: options.filter,

@@ -108,6 +108,13 @@ Control it with the `EAST_LAZY_INPUT_BYTES` environment variable: a byte
 threshold, or `0` to disable lazy opening entirely. The `--stream` input of a
 streaming task always opens lazily regardless of size.
 
+Lazy opening applies only to **value-semantic element shapes** (scalars,
+structs, variants). An element type that transitively contains an Array, Set,
+Dict or Ref — which East mutates in place through read-out elements — or a
+Vector/Matrix/function (identity-compared) always decodes whole, keeping
+writes and identity semantics exactly eager. The same rule applies in the
+east-c and east-py runners.
+
 ## Platform Packages
 
 Platform packages provide the runtime implementations for East platform functions:

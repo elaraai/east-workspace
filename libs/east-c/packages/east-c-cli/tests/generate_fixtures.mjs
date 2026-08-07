@@ -27,13 +27,19 @@ import { fileURLToPath } from 'node:url';
 
 import {
   ArrayType,
+  BooleanType,
+  DictType,
   East,
   FunctionType,
   IntegerType,
   NullType,
+  SortedMap,
   StringType,
+  StructType,
+  compareFor,
   encodeBeast2PagedFor,
   encodeEastIR,
+  spliceBeast2,
 } from '@elaraai/east';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,10 +92,90 @@ const fixtures = {
     }).toIR(),
   ),
 
+  // Wide-row producer: 1500 emissions of ~4 KiB strings. The first batch
+  // fills the element cap, and byte-adaptive re-batching must then shrink
+  // subsequent batches toward the segment byte target — a runner that
+  // re-batches by row count alone writes grossly oversized segments.
+  'emit_wide.beast2': encodeEastIR(
+    East.function([FunctionType([StringType], NullType)], NullType, ($, emit) => {
+      $.for(East.Array.range(0n, 1500n), ($, i) => {
+        $(emit(East.str`${'x'.repeat(4096)}-${i}`));
+      });
+    }).toIR(),
+  ),
+
+  // A zero-parameter program: `--emit` on it must fail with the shaped
+  // emit-capability error (there is no trailing parameter), never a
+  // traceback or a negative arity count.
+  'zero_param.beast2': encodeEastIR(East.function([], IntegerType, (_$) => 1n).toIR()),
+
   // The fold's input: [0..2500), written segmented + indexed by the TS
   // paged writer (500 elements per segment).
   'events.beast2': encodeBeast2PagedFor(ArrayType(IntegerType), { batchSize: 500 })(
     Array.from({ length: 2500 }, (_, i) => BigInt(i)),
+  ),
+
+  // ---- Lazy paged-input pins (#516) ----------------------------------
+
+  // Mutating a dict inside its own $.for must raise the canonical
+  // iteration-lock error on a lazily-opened input exactly as on eager.
+  'paged_for_mutate.beast2': encodeEastIR(
+    East.function([DictType(IntegerType, StringType)], NullType, ($, d) => {
+      $.for(d, (_$, _v, _k) => d.insert(999n, 'x'));
+      return null;
+    }).toIR(),
+  ),
+  'paged_table.beast2': encodeBeast2PagedFor(DictType(IntegerType, StringType), { batchSize: 2 })(
+    new SortedMap(
+      Array.from({ length: 10 }, (_, i) => [BigInt(i), `row-${i}`]),
+      compareFor(IntegerType),
+    ),
+  ),
+
+  // A corrupt paged blob (a high key range spliced BEFORE a low one, so the
+  // fences are not disjoint ascending): a keyed `has` on it must propagate
+  // the pager error, never answer `false`.
+  'paged_has.beast2': encodeEastIR(
+    East.function([DictType(IntegerType, StringType)], BooleanType, (_$, d) => d.has(5n)).toIR(),
+  ),
+  'paged_corrupt.beast2': spliceBeast2([
+    encodeBeast2PagedFor(DictType(IntegerType, StringType), { batchSize: 2 })(
+      new SortedMap(
+        Array.from({ length: 6 }, (_, i) => [BigInt(i + 1000), `row-${i + 1000}`]),
+        compareFor(IntegerType),
+      ),
+    ),
+    encodeBeast2PagedFor(DictType(IntegerType, StringType), { batchSize: 2 })(
+      new SortedMap(
+        Array.from({ length: 6 }, (_, i) => [BigInt(i), `row-${i}`]),
+        compareFor(IntegerType),
+      ),
+    ),
+  ]),
+
+  // The shape gate: a mutable-nested element type must decode eagerly, so a
+  // write through a read-out element lands in the input (result 3) even
+  // when the size threshold would otherwise open it lazily.
+  'paged_nested_mutate.beast2': encodeEastIR(
+    East.function(
+      [DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }))],
+      IntegerType,
+      ($, d) => {
+        const row = $.let(d.get(1n));
+        $(row.xs.pushLast(42n));
+        $(d.insert(99n, { xs: [] }));
+        return d.get(1n).xs.size();
+      },
+    ).toIR(),
+  ),
+  'paged_nested.beast2': encodeBeast2PagedFor(
+    DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) })),
+    { batchSize: 2 },
+  )(
+    new SortedMap(
+      [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]],
+      compareFor(IntegerType),
+    ),
   ),
 };
 

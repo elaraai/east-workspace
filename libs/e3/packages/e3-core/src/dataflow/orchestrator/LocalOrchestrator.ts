@@ -1091,7 +1091,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     error?: string;
     duration: number;
   }> {
-    const { options, state } = execution;
+    const { options } = execution;
     const startTime = Date.now();
 
     const execOptions: TaskExecuteOptions = {
@@ -1103,37 +1103,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
       partitionConcurrency: options.partitionConcurrency,
-      // Persist partition progress as execution events (under the state
-      // mutex — these fire from inside a running task, concurrently with
-      // completion handlers) and forward to the caller's callback.
-      onPartitionProgress: (progress) => {
-        options.onPartitionProgress?.(taskName, progress);
-        void execution.mutex.runExclusive(async () => {
-          const mutableState = state as Mutable<DataflowExecutionState>;
-          mutableState.eventSeq = state.eventSeq + 1n;
-          const event: ExecutionEvent = progress.state === 'started'
-            ? variant('partition_started', {
-                seq: mutableState.eventSeq,
-                timestamp: new Date(),
-                task: taskName,
-                phase: progress.phase,
-                index: BigInt(progress.index),
-                total: BigInt(progress.total),
-              })
-            : variant('partition_completed', {
-                seq: mutableState.eventSeq,
-                timestamp: new Date(),
-                task: taskName,
-                phase: progress.phase,
-                index: BigInt(progress.index),
-                total: BigInt(progress.total),
-                cached: progress.cached ?? false,
-                duration: BigInt(Math.round(progress.duration ?? 0)),
-              });
-          (mutableState.events as ExecutionEvent[]).push(event);
-          await this.persistState(execution, state);
-        }).catch(() => { /* progress persistence is best-effort */ });
-      },
+      // Forward partition progress to the caller's callback ONLY. It is
+      // deliberately not persisted as execution events: ExecutionEventType
+      // is a frozen beast2 wire (appending cases breaks released readers —
+      // see its wire warning), nothing consumes persisted partition
+      // progress, and a per-unit state rewrite would make persistence
+      // O(partitions²) under the orchestrator mutex.
+      onPartitionProgress: options.onPartitionProgress
+        ? (progress) => options.onPartitionProgress!(taskName, progress)
+        : undefined,
     };
 
     // Use provided runner if available, otherwise call taskExecute directly

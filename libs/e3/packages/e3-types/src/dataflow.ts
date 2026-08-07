@@ -247,53 +247,25 @@ export const ExecutionEventType = VariantType({
     /** Path where version conflict was detected */
     conflictPath: StringType,
   }),
-  // Cases below are appended after the initial release of this type — new
-  // cases go LAST, and released readers must keep decoding states written
-  // before they existed (variants decode by case name, so extending the
-  // type never breaks old data).
-  /** One unit of a partitioned task started (a partition slice execution or
-   *  a combine step) */
-  partition_started: StructType({
-    /** Event sequence number */
-    seq: IntegerType,
-    /** When the event occurred */
-    timestamp: DateTimeType,
-    /** Task name */
-    task: StringType,
-    /** Which phase the unit belongs to (`partition` or `combine`) */
-    phase: StringType,
-    /** Zero-based index of the unit within its phase */
-    index: IntegerType,
-    /** Total units in the phase (partitions, or combine steps in the level) */
-    total: IntegerType,
-  }),
-  /** One unit of a partitioned task completed */
-  partition_completed: StructType({
-    /** Event sequence number */
-    seq: IntegerType,
-    /** When the event occurred */
-    timestamp: DateTimeType,
-    /** Task name */
-    task: StringType,
-    /** Which phase the unit belongs to (`partition` or `combine`) */
-    phase: StringType,
-    /** Zero-based index of the unit within its phase */
-    index: IntegerType,
-    /** Total units in the phase (partitions, or combine steps in the level) */
-    total: IntegerType,
-    /** Whether the unit was served from the execution cache */
-    cached: BooleanType,
-    /** Unit duration in milliseconds */
-    duration: IntegerType,
-  }),
+  // WIRE WARNING — this variant's case list is FROZEN by the persisted
+  // beast2 state (workspaces/<ws>/execution.beast2). beast2 v5 encodes
+  // variant cases POSITIONALLY against the reader's alphabetically-sorted
+  // case list, NOT by case name — adding a case that sorts before any
+  // existing one shifts every later case's index, so released readers
+  // mis-decode (or fail to decode) old states, and vice versa. Do not add
+  // cases here without a state-file version/migration story; runtime-only
+  // signals (e.g. partition progress) belong on callbacks, not in this
+  // persisted stream.
 });
 export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
 
 /**
  * Progress notification for one unit of a partitioned task — a partition
  * slice execution or a combine step. Delivered through runner-layer
- * callbacks while the logical task runs; the orchestrator persists it as
- * `partition_started` / `partition_completed` events.
+ * callbacks while the logical task runs. Deliberately NOT persisted as
+ * execution events: {@link ExecutionEventType} is a frozen beast2 wire (see
+ * its wire warning), and nothing consumes persisted partition progress —
+ * local `[PART]`/`[MERGE]` lines come straight from this callback.
  */
 export interface PartitionProgress {
   /** Which phase the unit belongs to. */

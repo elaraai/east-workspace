@@ -31,13 +31,23 @@ import type { ObjectStore } from '../interfaces.js';
 /** Adapts a web ReadableStream to an AsyncIterable of chunks. @internal */
 async function* readableStreamChunks(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
   const reader = stream.getReader();
+  let done = false;
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      yield value;
+      const next = await reader.read();
+      if (next.done) {
+        done = true;
+        break;
+      }
+      yield next.value;
     }
   } finally {
+    // Early termination (the consumer broke or threw mid-stream): cancel
+    // the source so its underlying resource (fd, socket) is released now —
+    // releasing only the lock would leak it until GC finalization.
+    if (!done) {
+      await reader.cancel().catch(() => { /* the source may already be errored */ });
+    }
     reader.releaseLock();
   }
 }

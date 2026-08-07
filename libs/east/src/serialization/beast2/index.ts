@@ -67,7 +67,7 @@ export {
   carveBeast2Ranged,
   spliceBeast2Tail,
 } from "./v5/geometry.js";
-export { openBeast2LazyFor } from "./v5/lazy.js";
+export { openBeast2LazyFor, isBeast2LazySafe } from "./v5/lazy.js";
 import { readIndex } from "./v5/codec.js";
 
 /**

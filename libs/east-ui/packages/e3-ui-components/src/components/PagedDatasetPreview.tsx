@@ -53,6 +53,11 @@ export interface PagedDatasetPreviewProps {
     requestOptions?: RequestOptions;
     /** Triggers a whole-value download (the existing download flow). */
     onDownload: () => void | Promise<void>;
+    /** Called when the server refuses the blob as un-pageable
+     *  (`dataset_not_indexed` — a legacy blob predating the stored-segmented
+     *  contract). The parent falls back to the inline tree so pre-index
+     *  values keep rendering instead of dead-ending here. */
+    onNotIndexed?: () => void;
 }
 
 /** Materializes one decoded page into the renderer's paged-row contract. */
@@ -96,6 +101,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     sizeBytes,
     requestOptions,
     onDownload,
+    onNotIndexed,
 }: PagedDatasetPreviewProps) {
     const queryClient = useQueryClient();
     const [pages, setPages] = useState<ReadonlyMap<number, readonly ValueTreePagedRow[]>>(new Map());
@@ -138,12 +144,18 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             setPages((prev) => new Map(prev).set(pageIdx, rows));
         }).catch((err: unknown) => {
             pagingDebug(`p${pageIdx} FAILED:`, err);
+            if (err instanceof ApiError && err.code === 'dataset_not_indexed') {
+                // A legacy (pre-index) blob cannot page — hand back to the
+                // parent, which falls back to the inline tree. The error
+                // state below stays as the backstop UI if no parent handles.
+                onNotIndexed?.();
+            }
             setError(err instanceof Error ? err : new Error(String(err)));
         }).finally(() => {
             inflightRef.current.delete(pageIdx);
             setLoadingCount((n) => n - 1);
         });
-    }, [queryClient, apiUrl, repo, workspace, path, hash, requestOptions, type]);
+    }, [queryClient, apiUrl, repo, workspace, path, hash, requestOptions, type, onNotIndexed]);
 
     // First page carries the totals that size the virtual scrollbar.
     useEffect(() => {

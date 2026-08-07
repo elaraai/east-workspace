@@ -18,6 +18,7 @@ import {
     decodeAsyncEastIR,
     readBeast2Extents,
     openBeast2LazyFor,
+    isBeast2LazySafe,
     EastIR,
     AsyncEastIR,
     type EastTypeValue,
@@ -367,8 +368,15 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
  * exact semantics.
  *
  * Returns `undefined` when the file cannot be served lazily (a non-beast2
- * format, a v4 or index-less blob, or a non-collection root) — the caller
- * falls back to {@link loadInput}.
+ * format, a v4 or index-less blob, a non-collection root, or an element
+ * shape the lazy contract excludes — see below) — the caller falls back to
+ * {@link loadInput}.
+ *
+ * Element shapes that transitively contain a mutable container
+ * (Array/Set/Dict/Ref) or an identity-compared kind (Vector/Matrix,
+ * functions) always decode eagerly: East's runtime is reference-semantic for
+ * nested containers, so a write through a lazily-served (freshly decoded)
+ * element would be silently dropped. {@link isBeast2LazySafe} is the gate.
  *
  * @param filePath - Path to the input file
  * @returns The lazy collection value, or `undefined` to fall back
@@ -378,6 +386,7 @@ export function loadInputLazy(filePath: string): unknown | undefined {
     const data = readFileSync(filePath);
     try {
         const extents = readBeast2Extents(data);
+        if (!isBeast2LazySafe(extents.typeValue)) return undefined;
         return openBeast2LazyFor(extents.typeValue)(data);
     } catch {
         return undefined;

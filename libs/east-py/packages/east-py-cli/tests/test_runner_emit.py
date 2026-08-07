@@ -117,6 +117,61 @@ def test_emit_kind_must_match_the_emit_parameter_arity(tmp_path):
         run_program(FIXTURES / "emit_producer.beast2", [], [], [], tmp_path / "out.beast2", emit="dict")
 
 
+def test_emit_on_zero_parameter_function_raises_the_shaped_error(tmp_path):
+    # No trailing parameter exists to be the emit capability — the canonical
+    # message, never an IndexError traceback (#516).
+    with pytest.raises(ValueError, match="trailing parameter to be the emit capability"):
+        run_program(FIXTURES / "zero_param.beast2", [], [], [], tmp_path / "out.beast2", emit="array")
+
+
+def test_stream_index_rejected_on_a_zero_input_program(tmp_path):
+    # east-node / east-c parity: `--stream 0` with no file inputs is an
+    # error, not a silently ignored flag (#516).
+    with pytest.raises(ValueError, match=r"--stream index 0 out of range \(0 inputs\)"):
+        run_program(
+            FIXTURES / "emit_producer.beast2", [], [], [], tmp_path / "out.beast2",
+            emit="array", stream_input=0,
+        )
+
+
+def test_wide_rows_rebatch_toward_the_segment_byte_target(tmp_path):
+    # 1500 × ~4 KiB rows: the first batch fills the element cap, and the
+    # byte-adaptive refinement must shrink subsequent batches — a row-count
+    # sink would put all remaining rows in one grossly oversized segment.
+    out = tmp_path / "wide.beast2"
+    run_program(FIXTURES / "emit_wide.beast2", [], [], [], out, emit="array")
+
+    pages = open_beast2_pages_for(ArrayType(StringType))(out.read_bytes())
+    assert pages.element_count == 1500
+    assert pages.segment_count >= 2
+    # Batches after the cap-sized first one target ~2 MiB / ~4 KiB ≈ 512 rows.
+    assert max(pages.counts[1:]) < 1000
+
+
+def test_lazy_paged_input_pins(tmp_path, monkeypatch):
+    # The lazy paged-input contract end to end on the Python runner (#516),
+    # against the same fixtures the east-c cli_paged gate uses.
+    monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
+
+    # Mutating a dict inside its own $.for raises the canonical iteration
+    # error on a lazily-opened input exactly as on eager.
+    with pytest.raises(EastError, match="Cannot modify Dict during iteration"):
+        run_program(FIXTURES / "paged_for_mutate.beast2", [], [], [FIXTURES / "paged_table.beast2"])
+
+    # A keyed `has` over a corrupt blob (non-disjoint spliced key ranges)
+    # propagates the pager error instead of answering false.
+    with pytest.raises(EastError, match="not disjoint ascending key ranges"):
+        run_program(FIXTURES / "paged_has.beast2", [], [], [FIXTURES / "paged_corrupt.beast2"])
+
+    # The shape gate: a mutable-nested element type decodes eagerly despite
+    # the threshold, so a write through a read-out element lands in the
+    # input and the observed size is 3.
+    result = run_program(
+        FIXTURES / "paged_nested_mutate.beast2", [], [], [FIXTURES / "paged_nested.beast2"]
+    )
+    assert result == 3
+
+
 def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):
     # The snapshot manifest (format v1) carries no streaming flags, so a
     # captured emit invocation would replay with the wrong arity — the CLI

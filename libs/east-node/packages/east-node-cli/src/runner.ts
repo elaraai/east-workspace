@@ -45,11 +45,15 @@ export interface RunProgramOptions {
      *  parameter's function type. */
     emit?: 'array' | 'set' | 'dict';
     /** Feed the given `-i` input (0-based) lazily — segment-by-segment
-     *  iteration with O(segment) decoded memory — regardless of size. */
+     *  iteration with O(segment) decoded memory — regardless of size.
+     *  Element shapes the lazy contract excludes (nested mutable
+     *  containers, vectors/matrices, functions) decode whole instead. */
     streamInput?: number;
     /** Open indexed beast2 collection inputs at or above this many bytes as
      *  lazy pager-backed values (0 disables). Defaults to 64 MiB, or the
-     *  `EAST_LAZY_INPUT_BYTES` environment variable. */
+     *  `EAST_LAZY_INPUT_BYTES` environment variable. Applies only to
+     *  shape-gate-safe element types (see `loadInputLazy`) — others always
+     *  decode whole. */
     lazyInputBytes?: number;
 }
 
@@ -57,11 +61,17 @@ export interface RunProgramOptions {
 const LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024;
 
 /** Resolves the lazy-open threshold: explicit option, else environment, else
- *  the default. */
-function lazyThreshold(options: RunProgramOptions): number {
+ *  the default. An unset or empty `EAST_LAZY_INPUT_BYTES` falls through to
+ *  the 64 MiB default (`Number('')` is `0`, which would silently DISABLE
+ *  lazy opening); invalid or negative values fall through too, matching
+ *  east-c and east-py. Exported for the spec only. @internal */
+export function lazyThreshold(options: RunProgramOptions): number {
     if (options.lazyInputBytes !== undefined) return options.lazyInputBytes;
-    const env = Number(process.env.EAST_LAZY_INPUT_BYTES ?? '');
-    if (Number.isFinite(env) && env >= 0) return env;
+    const raw = process.env.EAST_LAZY_INPUT_BYTES;
+    if (raw !== undefined && raw !== '') {
+        const env = Number(raw);
+        if (Number.isFinite(env) && env >= 0) return env;
+    }
     return LAZY_INPUT_BYTES_DEFAULT;
 }
 
@@ -92,15 +102,22 @@ export async function runProgram(
     const outputType = ((ir as any)?.value?.type?.value?.output ?? null) as EastTypeValue | null;
 
     // With emit, the function takes one trailing runner-provided parameter
-    // beyond the input files: the emit capability.
+    // beyond the input files: the emit capability. A zero-parameter function
+    // has no trailing parameter to be it — the shaped emit error, not a
+    // negative arity count.
+    if (opts.emit !== undefined && inputTypes.length === 0) {
+        throw new Error(`--emit requires the function's trailing parameter to be the emit capability (a function type), but the function takes no parameters`);
+    }
     const fileParamCount = opts.emit !== undefined ? inputTypes.length - 1 : inputTypes.length;
     if (inputPaths.length !== fileParamCount) {
         throw new Error(
             `Function expects ${fileParamCount} input(s), but ${inputPaths.length} input file(s) provided`,
         );
     }
-    if (opts.emit !== undefined && outputPath === undefined) {
-        throw new Error(`--emit requires an output file (-o)`);
+    if (opts.emit !== undefined && (outputPath === undefined || extname(outputPath).toLowerCase() !== '.beast2')) {
+        // east-c / east-py parity: the emitted blob is a beast2 stream, so
+        // any other output extension is refused up front.
+        throw new Error(`--emit requires a .beast2 output file (-o)`);
     }
     if (opts.streamInput !== undefined && (opts.streamInput < 0 || opts.streamInput >= inputPaths.length)) {
         throw new Error(`--stream index ${opts.streamInput} out of range (${inputPaths.length} inputs)`);
@@ -214,7 +231,13 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
     let bytesWritten = 0;
     let headerBytes = -1;
     const writer = new Beast2Writer(outTypeValue, (bytes) => {
-        writeSync(fd, bytes);
+        // writeSync may return a short count; loop until the chunk is fully
+        // on disk — a silently truncated write would corrupt the blob while
+        // the process still exits 0.
+        let written = 0;
+        while (written < bytes.length) {
+            written += writeSync(fd, bytes, written, bytes.length - written);
+        }
         if (headerBytes < 0) headerBytes = bytes.length;
         bytesWritten += bytes.length;
     });
@@ -251,7 +274,7 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
                 throw new Error(
                     `beast2 v5: ${kind === 'dict' ? 'Dict' : 'Set'} stream batches must be strictly ascending in East ` +
                     `${kind === 'dict' ? 'key' : 'element'} order — segment content is the canonical value; ` +
-                    `emit in ascending key order, or emit arrival order as an Array`
+                    `emit in ascending ${kind === 'dict' ? 'key' : 'element'} order, or emit arrival order as an Array`
                 );
             }
             lastKey = key;

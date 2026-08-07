@@ -13,6 +13,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   IntegerType, StringType, ArrayType, SetType, DictType, StructType,
+  FloatType, OptionType, RecursiveType, VariantType, RefType, VectorType, FunctionType,
 } from "../../../types.js";
 import { compareFor, equalFor } from "../../../comparison.js";
 import { SortedMap, SortedSet, isEastDict, isEastSet } from "../../../index.js";
@@ -20,7 +21,10 @@ import {
   decodeBeast2For,
   encodeBeast2For,
   encodeBeast2PagedFor,
+  encodeBeast2SegmentsFor,
   openBeast2LazyFor,
+  openBeast2PagesFor,
+  isBeast2LazySafe,
   spliceBeast2,
 } from "../index.js";
 
@@ -194,5 +198,93 @@ describe("Beast2 v5 — lazy Array", () => {
     const rest = [...it];
     assert.deepEqual([...head, ...rest], rows, "the in-flight iterator completes the pre-hydration sequence");
     assert.equal(lazy.length, 261, "a fresh read sees the mutation");
+  });
+
+  test("non-canonical index strings behave exactly like the eager array", () => {
+    const blob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const eager = decodeBeast2For(Rows)(blob);
+    const lazy = openBeast2LazyFor(Rows)(blob);
+    // `Number("01")` parses to 1, but "01" is an ordinary (absent) property
+    // on an eager array — the proxy must not serve an element for it.
+    for (const prop of ["", "01", " 2", "1e2", "-0", "2.0"]) {
+      assert.equal(
+        (lazy as unknown as Record<string, unknown>)[prop],
+        (eager as unknown as Record<string, unknown>)[prop],
+        `property ${JSON.stringify(prop)}`,
+      );
+    }
+    assert.equal(lazy[2], "row-2", "canonical index reads still serve elements");
+  });
+
+  test("hydration handles very large segments without argument-limit overflow", () => {
+    const IntRows = ArrayType(IntegerType);
+    const big = Array.from({ length: 200_000 }, (_, i) => BigInt(i));
+    // One batch → one 200k-element segment: a spread-push hydration would
+    // overflow the engine's argument limit here.
+    const blob = encodeBeast2SegmentsFor(IntRows)([big]);
+    const lazy = openBeast2LazyFor(IntRows)(blob);
+    lazy.push(200_000n);  // hydrates
+    assert.equal(lazy.length, 200_001);
+    assert.equal(lazy[0], 0n);
+    assert.equal(lazy[199_999], 199_999n);
+    assert.equal(lazy[200_000], 200_000n);
+  });
+});
+
+describe("Beast2 v5 — lazy shape gate (isBeast2LazySafe)", () => {
+  test("value-semantic element shapes are lazy-eligible", () => {
+    assert.ok(isBeast2LazySafe(ArrayType(IntegerType)));
+    assert.ok(isBeast2LazySafe(SetType(StringType)));
+    assert.ok(isBeast2LazySafe(DictType(IntegerType, StructType({ id: IntegerType, name: StringType }))));
+    assert.ok(isBeast2LazySafe(ArrayType(OptionType(StructType({ a: FloatType })))));
+    const Tree = RecursiveType((t) => VariantType({ leaf: IntegerType, pair: StructType({ l: t, r: t }) }));
+    assert.ok(isBeast2LazySafe(ArrayType(Tree)), "recursion without containers stays eligible");
+  });
+
+  test("mutable-nested and identity-compared element shapes open eager", () => {
+    assert.ok(!isBeast2LazySafe(ArrayType(ArrayType(IntegerType))), "nested array — writes through a read-out element would drop");
+    assert.ok(!isBeast2LazySafe(DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }))));
+    assert.ok(!isBeast2LazySafe(DictType(IntegerType, SetType(IntegerType))));
+    assert.ok(!isBeast2LazySafe(ArrayType(DictType(StringType, IntegerType))));
+    assert.ok(!isBeast2LazySafe(ArrayType(StructType({ r: RefType(IntegerType) }))));
+    assert.ok(!isBeast2LazySafe(ArrayType(VectorType(FloatType))), "`is()` compares vectors by identity");
+    assert.ok(!isBeast2LazySafe(SetType(VectorType(FloatType))));
+    assert.ok(!isBeast2LazySafe(ArrayType(FunctionType([], IntegerType))), "closures can capture mutable state");
+    const TreeWithList = RecursiveType((t) => VariantType({ leaf: ArrayType(IntegerType), pair: StructType({ l: t, r: t }) }));
+    assert.ok(!isBeast2LazySafe(ArrayType(TreeWithList)), "a container anywhere on the recursion is reachable");
+  });
+
+  test("non-collection roots are never lazy-eligible", () => {
+    assert.ok(!isBeast2LazySafe(StringType));
+    assert.ok(!isBeast2LazySafe(StructType({ a: IntegerType })));
+  });
+});
+
+describe("Beast2 v5 — pages segment cache", () => {
+  const RowsT = ArrayType(RowType);
+  const structRows = Array.from({ length: 500 }, (_, i) => ({ id: BigInt(i), name: `r-${i}` }));
+
+  test("element reads reuse the decoded segment; eviction decodes fresh", () => {
+    const pages = openBeast2PagesFor(RowsT)(encodeBeast2PagedFor(RowsT, PAGED)(structRows));
+    const a = pages.element(42);
+    const b = pages.element(43);
+    assert.equal(a, pages.element(42), "a re-read within the cache window returns the cached decode");
+    assert.equal((a as { id: bigint }).id, 42n);
+    assert.equal((b as { id: bigint }).id, 43n);
+    // Touch more segments than the cache holds; the first segment is evicted
+    // and re-decodes to a fresh (equal) object.
+    for (const row of [142, 242, 342, 442]) pages.element(row);
+    const again = pages.element(42);
+    assert.notEqual(again, a, "evicted segments decode fresh");
+    assert.deepEqual(again, a, "with identical content");
+  });
+
+  test("keyed reads reuse the decoded segment; the public segment() stays fresh", () => {
+    const pages = openBeast2PagesFor(TableType)(encodeBeast2PagedFor(TableType, PAGED)(makeTable(350)));
+    const v1 = pages.get(42n);
+    const v2 = pages.get(42n);
+    assert.equal(v1, v2, "the same cached segment serves repeated keyed reads");
+    assert.equal((v1 as { name: string }).name, "row-42");
+    assert.notEqual(pages.segment(0), pages.segment(0), "segment() decodes fresh so callers cannot poison the cache");
   });
 });

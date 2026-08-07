@@ -7,7 +7,9 @@
  * proves the value kind end to end, with no CLI involved:
  *
  *   1. construction from a paged-encoded blob (and refusal of an
- *      index-less whole-value blob);
+ *      index-less whole-value blob), plus the element shape gate: mutable-
+ *      nested / identity-compared element types refuse to open lazily
+ *      (#516) while the same bytes open under a value-semantic type;
  *   2. pager-served reads: array length + keyed dict get/has through the
  *      core accessors, without hydration;
  *   3. observational equivalence: compare/equal/print against the eager
@@ -121,6 +123,50 @@ static void test_open_and_refuse(void)
     free(wdata); /* ownership stayed with us */
 }
 
+static void test_shape_gate(void)
+{
+    /* Mutable-nested element shapes must refuse to open lazily — a write
+     * through a freshly decoded pager-served element would be dropped, so
+     * the caller falls back to the eager decode (#516). */
+    size_t len = 0;
+    uint8_t *data = encode_int_dict(10, &len);
+    CHECK(data != NULL, "paged encode failed");
+    if (!data) return;
+
+    EastType *xs_arr = east_array_type(&east_integer_type);
+    EastType *row = east_struct_type((const char *[]){"xs"}, (EastType *[]){xs_arr}, 1);
+    EastType *nested = east_dict_type(&east_integer_type, row);
+    EastValue *refused = east_beast2_open_paged(data, len, nested);
+    CHECK(refused == NULL, "mutable-nested element shape unexpectedly opened lazily");
+    char *err = east_builtin_get_error();
+    CHECK(err != NULL && strstr(err, "value-semantic element shapes") != NULL,
+          "unexpected gate message: %s", err ? err : "(none)");
+    free(err);
+
+    /* Vector elements are identity-compared by `Is` — refused too. */
+    EastType *vec_arr = east_array_type(east_vector_type(&east_float_type));
+    EastValue *vec_refused = east_beast2_open_paged(data, len, vec_arr);
+    CHECK(vec_refused == NULL, "vector element shape unexpectedly opened lazily");
+    free(east_builtin_get_error());
+
+    /* Ref elements inside a struct — refused. */
+    EastType *ref_row = east_struct_type((const char *[]){"r"},
+                                         (EastType *[]){east_ref_type(&east_integer_type)}, 1);
+    EastValue *ref_refused = east_beast2_open_paged(data, len, east_array_type(ref_row));
+    CHECK(ref_refused == NULL, "ref element shape unexpectedly opened lazily");
+    free(east_builtin_get_error());
+
+    /* The same bytes open fine under a value-semantic type (the gate is a
+     * shape decision, not a bytes decision). */
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    EastValue *ok = east_beast2_open_paged(data, len, dt);
+    CHECK(ok != NULL && ok->kind == EAST_VAL_PAGED, "value-semantic shape failed to open");
+    if (ok)
+        east_value_release(ok); /* owns data */
+    else
+        free(data);
+}
+
 static void test_pager_served_reads(void)
 {
     EastType *at = east_array_type(&east_integer_type);
@@ -230,6 +276,7 @@ int main(void)
     east_type_of_type_init();
 
     test_open_and_refuse();
+    test_shape_gate();
     test_pager_served_reads();
     test_equivalence_and_hydration();
     test_release_states();

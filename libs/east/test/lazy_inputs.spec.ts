@@ -11,21 +11,25 @@
  *
  * Each corpus case is an East function taking Array/Set/Dict parameters,
  * executed twice — once with inputs decoded from a small-batch paged blob,
- * once with the same blob opened lazily — asserting result equality, error
- * equality, and post-call input-state equality (for mutating bodies). The
- * examples suite cannot serve as this corpus: examples inline all data inside
- * zero-argument functions, so laziness has no input boundary to enter through.
+ * once with the same blob opened under the runners' policy: lazily when the
+ * shape gate ({@link isBeast2LazySafe}) allows it, eagerly otherwise —
+ * asserting result equality, error equality, and post-call input-state
+ * equality (for mutating bodies). The examples suite cannot serve as this
+ * corpus: examples inline all data inside zero-argument functions, so
+ * laziness has no input boundary to enter through.
  *
  * A completeness gate closes the loop: the builtins mentioned in the swept
- * IR must include every registry builtin that takes a collection input, so a
- * new collection builtin cannot land without lazy coverage.
+ * IR of cases whose inputs GENUINELY opened lazily must include every
+ * registry builtin that takes a collection input, so a new collection
+ * builtin cannot land without lazy coverage — and a case the gate routes to
+ * eager cannot fake it.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   East, Expr, equalFor, IRType, toJSONFor, some, none,
-  encodeBeast2PagedFor, decodeBeast2For, openBeast2LazyFor,
+  encodeBeast2PagedFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe,
   ArrayType, SetType, DictType, IntegerType, FloatType, StringType, NullType, StructType, OptionType,
   type EastType,
 } from "../src/index.js";
@@ -42,6 +46,15 @@ const SWEEP_BATCH = { batchSize: 2 };
 const UNREACHABLE_BY_VALUE: ReadonlySet<string> = new Set([
   "DateTimePrintFormat",
   "DateTimeParseFormat",
+]);
+
+/** Builtins whose only collection input is inherently mutable-nested
+ *  (Array-of-Array / Array-of-Vector), which the shape gate ALWAYS routes to
+ *  the eager decode — by policy no lazy value can reach them. They are still
+ *  swept for gate-policy equivalence by `corpus.matrixBridges`. */
+const UNREACHABLE_BY_GATE: ReadonlySet<string> = new Set([
+  "MatrixFromArray",
+  "MatrixFromRows",
 ]);
 
 type FnShape = { type: string; inputs: EastType[]; output: EastType };
@@ -62,7 +75,7 @@ function collectionInputPositions(inputs: readonly EastType[]): number[] {
 function auditBuiltins(): BuiltinName[] {
   const names: BuiltinName[] = [];
   for (const [name, sig] of Object.entries(Builtins)) {
-    if (UNREACHABLE_BY_VALUE.has(name)) continue;
+    if (UNREACHABLE_BY_VALUE.has(name) || UNREACHABLE_BY_GATE.has(name)) continue;
     const takesCollection = sig.inputs.some((input) => {
       const t = input as { type?: string };
       return typeof input === "object" && (t.type === "Array" || t.type === "Set" || t.type === "Dict");
@@ -96,15 +109,21 @@ function safeEqual(type: EastType): ((a: unknown, b: unknown) => boolean) | null
   }
 }
 
-/** One swept unit: an East function expression plus its plain-value inputs. */
+/** One swept unit: an East function expression plus its plain-value inputs.
+ *  `expectLazy: false` marks a case whose collection inputs the shape gate
+ *  must route to the eager decode (mutable-nested element shapes). */
 type SweepCase = {
   label: string;
   fn: unknown;
   inputs: unknown[];
+  expectLazy?: boolean;
 };
 
-/** Runs one case on eager and lazy inputs and asserts observational
- *  equivalence, recording the builtins its IR mentions. */
+/** Runs one case on eager and gate-policy inputs and asserts observational
+ *  equivalence. The "lazy" side applies exactly the runners' policy —
+ *  {@link isBeast2LazySafe} decides lazy vs eager per input — and the case's
+ *  builtins count toward coverage only when its inputs really opened lazily,
+ *  so a case the gate routes to eager cannot fake lazy coverage. */
 async function sweep(c: SweepCase, mentioned: Set<string>): Promise<void> {
   const fnType = Expr.type(c.fn as never) as FnShape;
   assert.ok(fnType.type === "Function" || fnType.type === "AsyncFunction", `${c.label}: fn must be an East function`);
@@ -112,13 +131,20 @@ async function sweep(c: SweepCase, mentioned: Set<string>): Promise<void> {
   assert.ok(positions.length > 0, `${c.label}: corpus cases must take at least one collection input`);
   assert.equal(c.inputs.length, fnType.inputs.length, `${c.label}: input arity`);
 
+  const wantLazy = c.expectLazy ?? true;
   const eagerArgs = [...c.inputs];
   const lazyArgs = [...c.inputs];
   for (const i of positions) {
     const t = fnType.inputs[i]!;
     const blob = encodeBeast2PagedFor(t, SWEEP_BATCH)(c.inputs[i] as never);
     eagerArgs[i] = decodeBeast2For(t)(blob);
-    lazyArgs[i] = openBeast2LazyFor(t)(blob);
+    // The runner policy: lazy only for shape-gate-safe types. A corpus case
+    // whose eligibility does not match its declared intent has silently
+    // stopped (or started) covering the lazy path — fail loudly instead.
+    const lazySafe = isBeast2LazySafe(t);
+    assert.equal(lazySafe, wantLazy,
+      `${c.label}: input ${i} lazy-eligibility (${lazySafe}) must match the case's intent (${wantLazy})`);
+    lazyArgs[i] = lazySafe ? openBeast2LazyFor(t)(blob) : decodeBeast2For(t)(blob);
   }
 
   const ir = (c.fn as { toIR(): { ir: unknown; compile(platform: never[]): (...args: unknown[]) => unknown } }).toIR();
@@ -152,7 +178,10 @@ async function sweep(c: SweepCase, mentioned: Set<string>): Promise<void> {
     if (eq) assert.ok(eq(lazyArgs[i], eagerArgs[i]), `${c.label}: input ${i} post-call state must match`);
   }
 
-  builtinsMentioned(toJSONFor(IRType)(ir.ir as never), mentioned);
+  // Coverage counts only cases whose inputs genuinely opened lazily — the
+  // completeness gate must key on a lazy value reaching the builtins, not
+  // on builtin names merely appearing in swept IR.
+  if (wantLazy) builtinsMentioned(toJSONFor(IRType)(ir.ir as never), mentioned);
 }
 
 describe("lazy inputs — builtin corpus sweep (#510)", () => {
@@ -163,11 +192,17 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
   const IntSet = SetType(IntegerType);
   const Table = DictType(IntegerType, StringType);
   const Row = StructType({ id: IntegerType, name: StringType });
+  const NestedTable = DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }));
+  const NestedRows = ArrayType(StructType({ inner: ArrayType(IntegerType) }));
   const nums: bigint[] = [5n, 1n, 4n, 2n, 3n, 9n, 8n, 7n, 6n, 0n];
   const sortedNums: bigint[] = [0n, 1n, 2n, 3n, 4n, 4n, 5n, 6n, 7n, 8n];
   const tags = new Set(["alpha", "beta", "carrot", "delta", "echo", "fig", "grape"]);
   const intSet = new Set([0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n]);
   const table = new Map<bigint, string>(Array.from({ length: 9 }, (_, i) => [BigInt(i), `row-${i}`]));
+  const nestedTable = new Map<bigint, { xs: bigint[] }>([
+    [1n, { xs: [1n, 2n] }], [2n, { xs: [3n] }], [3n, { xs: [] }], [4n, { xs: [4n] }],
+  ]);
+  const nestedRows: { inner: bigint[] }[] = [{ inner: [5n] }, { inner: [] }, { inner: [9n, 10n] }];
 
   const corpus: SweepCase[] = [
     {
@@ -376,15 +411,27 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
       inputs: [nums, tags, table],
     },
     {
-      label: "corpus.vectorMatrixBridges",
-      fn: East.function([ArrayType(FloatType), ArrayType(ArrayType(FloatType))], ArrayType(StringType), ($, fa, nested) => {
+      label: "corpus.vectorBridges",
+      fn: East.function([ArrayType(FloatType)], ArrayType(StringType), ($, fa) => {
         const out = $.let([], ArrayType(StringType));
         $(out.pushLast(East.print(East.Vector.fromArray(fa))));
+        return out;
+      }),
+      inputs: [[1.5, 2.5, -3.5, 4.0]],
+    },
+    {
+      // Matrix bridges take Array-of-Array / Array-of-Vector inputs — shapes
+      // the gate always opens eagerly (see UNREACHABLE_BY_GATE). This case
+      // pins the policy equivalence for them regardless.
+      label: "corpus.matrixBridges",
+      expectLazy: false,
+      fn: East.function([ArrayType(ArrayType(FloatType))], ArrayType(StringType), ($, nested) => {
+        const out = $.let([], ArrayType(StringType));
         $(out.pushLast(East.print(East.Matrix.fromArray(nested))));
         $(out.pushLast(East.print(East.Matrix.fromRows(nested.map((_$, row) => East.Vector.fromArray(row))))));
         return out;
       }),
-      inputs: [[1.5, 2.5, -3.5, 4.0], [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]],
+      inputs: [[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]],
     },
     {
       label: "corpus.stringJoinAndCsv",
@@ -426,6 +473,25 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
         return null;
       }),
       inputs: [nums, table],
+    },
+    {
+      // The item-5 regression trap: element shapes that transitively contain
+      // a mutable container. East's runtime is reference-semantic for nested
+      // containers, so writes through a read-out element must land in the
+      // input — the shape gate routes these inputs to the EAGER decode.
+      // Opened lazily instead (i.e. if the gate ever weakens), the writes
+      // would land on throwaway pager decodes and the result and post-call
+      // input-state assertions here would fail.
+      label: "corpus.nestedElementMutation",
+      expectLazy: false,
+      fn: East.function([NestedTable, NestedRows], IntegerType, ($, d, a) => {
+        const row = $.let(d.get(1n));
+        $(row.xs.pushLast(42n));    // write through a read-out Dict value
+        const el = $.let(a.get(0n));
+        $(el.inner.pushLast(7n));   // write through a read-out Array element
+        return d.get(1n).xs.size().add(a.get(0n).inner.size());
+      }),
+      inputs: [nestedTable, nestedRows],
     },
   ];
 

@@ -603,13 +603,23 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
 // Paging reader
 // =============================================================================
 
+/** Decoded segments retained by a {@link Beast2Pages} for its element and
+ *  keyed read paths (mirrors east-c's `B2V5_PAGES_LRU`): a keyed/indexed
+ *  read loop over neighbouring rows then decodes each segment once instead
+ *  of once per element. Bounded — at most this many decoded segments live
+ *  per reader. */
+const SEGMENT_CACHE_CAPACITY = 4;
+
 /**
  * Random access over an indexed, self-contained v5 collection blob.
  *
  * Reads the footer + index once; `elementCount` is O(1) from the index, and
  * {@link segment} seeks to and decodes exactly one segment. Requires the blob
  * to carry an index (written by default by {@link Beast2Writer}); random
- * access additionally requires self-contained segments.
+ * access additionally requires self-contained segments. The element and keyed
+ * read paths ({@link element} / {@link get}) reuse decoded segments through a
+ * small LRU, so a read loop over neighbouring rows decodes each segment once
+ * rather than once per element; {@link segment} itself always decodes fresh.
  *
  * Set/Dict blobs page like Arrays: the wire holds the canonical value split
  * at segment boundaries (strictly ascending, disjoint segments), so row
@@ -641,6 +651,14 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** First key/element of each segment, in segment order (Set/Dict only). */
   private fences: any[] | null = null;
   private fenceDec: ((reader: BufferReader, ctx: V5DecodeContext) => any) | null = null;
+  /** Decoded segments kept hot for the element and keyed read paths, keyed
+   *  by segment index in LRU order (mirrors east-c's `B2V5_PAGES_LRU`).
+   *  Only {@link element} and {@link get} route through it — the public
+   *  {@link segment} stays a fresh decode, so a caller mutating its result
+   *  cannot poison the cache. `first`/`last` carry a Set/Dict segment's key
+   *  range so a hit can maintain the caller's order threading without a
+   *  container walk. */
+  private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
 
   /** @internal Use {@link openBeast2PagesFor}. */
   constructor(data: Uint8Array, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
@@ -714,6 +732,41 @@ export class Beast2Pages<T extends EastType = EastType> {
     return value;
   }
 
+  /** Decodes segment `i` through the LRU cache, threading the caller's
+   *  order state exactly as a fresh decode would: a hit replays the
+   *  boundary-ascent check against the cached segment's first key and
+   *  advances `order` to its last. Serves {@link element} and {@link get}
+   *  only — see {@link segmentCache}. */
+  private segmentCached(i: number, order: SegmentOrder | undefined): any {
+    const hit = this.segmentCache.get(i);
+    if (hit !== undefined) {
+      this.segmentCache.delete(i);
+      this.segmentCache.set(i, hit); // refresh recency
+      if (order !== undefined && this.orderCmp !== null) {
+        if (order.has && this.orderCmp(order.prev, hit.first) >= 0) {
+          throw new Error(`beast2 v5: ${this.kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+        }
+        order.prev = hit.last;
+        order.has = true;
+      }
+      return hit.seg;
+    }
+    const seg = this.decodeSegmentCore(i, order);
+    let first: any;
+    let last: any;
+    if (this.kind !== "Array") {
+      first = (this.kind === "Set" ? (seg as Set<any>).values() : (seg as Map<any, any>).keys()).next().value;
+      // Segments are never empty, so a Set/Dict decode leaves the caller's
+      // order state on the segment's last key.
+      last = order?.prev;
+    }
+    this.segmentCache.set(i, { seg, first, last });
+    if (this.segmentCache.size > SEGMENT_CACHE_CAPACITY) {
+      this.segmentCache.delete(this.segmentCache.keys().next().value!);
+    }
+    return seg;
+  }
+
   /** Decodes just the first key/element of segment `i` — a bounded probe
    *  (one frame inflate, one element decode), not a whole-segment decode. */
   private firstKey(i: number): any {
@@ -772,9 +825,10 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /** Decodes segment `i` with order threading, then checks its tail stays
-   *  below the next segment's fence (segments must be disjoint ranges). */
-  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[]): any {
-    const value = this.decodeSegmentCore(i, order);
+   *  below the next segment's fence (segments must be disjoint ranges).
+   *  Pass `cached` on the keyed read path to route through the segment LRU. */
+  private decodeDisjoint(i: number, order: SegmentOrder, fences: any[], cached = false): any {
+    const value = cached ? this.segmentCached(i, order) : this.decodeSegmentCore(i, order);
     if (i + 1 < fences.length && order.has && this.orderCmp!(order.prev, fences[i + 1]) >= 0) {
       throw new Error(`beast2 v5: segments ${i} and ${i + 1} are not disjoint ascending ${this.kind === "Dict" ? "key" : "element"} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
     }
@@ -809,7 +863,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       throw new Error(`beast2 v5: element ${row} out of range (${this.elementCount} elements)`);
     }
     const { seg, base } = this.rowSegment(row);
-    const segment = this.segment(seg) as any[];
+    const segment = this.segmentCached(seg, undefined) as any[];
     return segment[row - base];
   }
 
@@ -916,7 +970,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       else hi = mid - 1;
     }
     const order: SegmentOrder = { prev: undefined, has: false };
-    const segment = this.decodeDisjoint(lo, order, fences);
+    const segment = this.decodeDisjoint(lo, order, fences, true);
     if (this.kind === "Set") {
       for (const item of segment as Set<any>) {
         if (this.orderCmp!(item, key) === 0) return item;

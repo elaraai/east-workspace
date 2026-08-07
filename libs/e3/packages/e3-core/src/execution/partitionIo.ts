@@ -124,6 +124,7 @@ export class PartitionBlob {
     const end = toSegment > fromSegment ? segmentEnd(extents, toSegment - 1) : 0;
     return {
       head: extents.head,
+      selfContained: extents.selfContained,
       offsets: extents.offsets.slice(fromSegment, toSegment).map((o) => o - start),
       counts: extents.counts.slice(fromSegment, toSegment),
       frameBytes: end - start,
@@ -145,6 +146,12 @@ export interface SplicePart {
   /** The source blob's `[0, prefixEnd)` bytes — every part of a splice must
    *  carry byte-identical header sections. */
   readonly head: Uint8Array;
+  /** Whether the source blob's segments are independently decodable. A
+   *  non-self-contained part's cross-segment REFs would resolve into a
+   *  NEIGHBOURING part's container table after the splice — in range, so
+   *  nothing throws, silently wrong — so {@link spliceChunks} refuses it,
+   *  exactly as `spliceBeast2` does. */
+  readonly selfContained: boolean;
   /** Frame offsets relative to the part's first frame byte. */
   readonly offsets: readonly number[];
   /** Element (pair) counts per segment. */
@@ -165,6 +172,7 @@ export function bufferPart(blob: Uint8Array): SplicePart {
   const extents = readBeast2Extents(blob);
   return {
     head: blob.subarray(0, extents.prefixEnd),
+    selfContained: extents.selfContained,
     offsets: extents.offsets.map((o) => o - extents.prefixEnd),
     counts: [...extents.counts],
     frameBytes: extents.segmentsEnd - extents.prefixEnd,
@@ -194,8 +202,9 @@ function bytesEqual(a: Uint8Array, b: Uint8Array, length: number): boolean {
  *   source; used directly when `parts` is empty)
  * @param parts - the runs to splice, in order
  * @returns the spliced blob's bytes, chunk by chunk
- * @throws {Error} When a part's header sections differ from `head` — parts
- *   must share one wire type and source map, exactly as for
+ * @throws {Error} When a part's header sections differ from `head`, or a
+ *   part is not self-contained (its cross-segment REFs would resolve into a
+ *   neighbouring part's containers after the splice) — the same refusals as
  *   {@link spliceBeast2}.
  */
 export async function* spliceChunks(head: Uint8Array, parts: readonly SplicePart[]): AsyncIterable<Uint8Array> {
@@ -203,6 +212,9 @@ export async function* spliceChunks(head: Uint8Array, parts: readonly SplicePart
     const part = parts[p]!;
     if (part.head.length !== head.length || !bytesEqual(part.head, head, head.length)) {
       throw new Error(`beast2 v5: splice part ${p} has differing header sections — parts must share one wire type and source map`);
+    }
+    if (!part.selfContained) {
+      throw new Error(`beast2 v5: splice part ${p} has cross-segment aliasing — splice needs self-contained segments`);
     }
   }
   yield head;
