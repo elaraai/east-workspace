@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/tsserver-plugin-east",
-  "version": "1.0.58",
+  "version": "1.0.59",
   "license": "AGPL-3.0-or-later",
   "description": "TypeScript language service plugin for East — East idiom diagnostics and localized East type-diff error messages as native editor squiggles.",
   "main": "dist/index.cjs",
