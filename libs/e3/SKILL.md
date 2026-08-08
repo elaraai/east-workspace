@@ -59,7 +59,7 @@ Task → What do you need?
 │   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
 │   ├─ Huge input, per-row / per-entity / reduce → e3.partitionTask(name, spec, fn)
-│   ├─ Huge input, strict-order one-pass / ingest → e3.streamTask(name, spec, fn)
+│   ├─ Huge input, one-pass fold / re-key / ingest → e3.streamTask(name, spec, fn)
 │   ├─ Shell command task   → e3.customTask(name, [inputs], outputType, cmd)
 │   ├─ Named function (RPC) → e3.function(name, fn, config?)
 │   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
@@ -313,8 +313,9 @@ ranges must ascend disjointly in partition order (key-preserving and monotone
 re-keys qualify). A violation fails the task at splice naming the offending
 partitions — deliberately a runtime check, not build-time: whether an
 arbitrary body preserves key order is undecidable from types, and a static
-rule would false-reject permitted monotone re-keys. A huge→huge re-key needs
-`combine`, `customTask`, or future shuffle support. Partition memoization is append-friendly: appends and
+rule would false-reject permitted monotone re-keys. A PARALLEL huge→huge
+re-key needs `combine`, `customTask`, or future shuffle support (a one-pass
+re-key fits `streamTask` — its sink accepts any emission order). Partition memoization is append-friendly: appends and
 tail-localized changes re-run only the affected partitions, while a
 mid-key-space insertion re-runs partitions from the insertion point on.
 
@@ -351,16 +352,20 @@ const balances = e3.streamTask('balances', {
   });
 });
 
-// Producer (no stream input): loop over platform sources and emit. Ingest
-// usually targets an Array output; key/group downstream in a partitionTask.
+// Producer (no stream input): loop over platform sources and emit — in any
+// order, so keyed ingest can emit a Dict directly as rows arrive.
 const ingest = e3.streamTask('ingest', {
-  output: ArrayType(RowType),
-}, ($, emit) => { /* fetch pages, $(emit(row)) each */ });
+  output: DictType(StringType, RowType),
+}, ($, emit) => { /* fetch pages, $(emit(row.id, row)) each */ });
 ```
 
 `emit` is `emit(key, value)` for Dict outputs and `emit(element)` for
-Array/Set outputs. Dict/Set outputs must be emitted in strictly ascending
-(key) order — enforced at runtime; Array outputs emit freely.
+Array/Set outputs, called in **any order**: ascending Set/Dict emission
+streams straight to the output file, and out-of-order emission is sorted by
+the sink (bounded-memory spill/merge, reported on stderr when it engages)
+before the output is finalized — the stored dataset is always the canonical
+collection, so a re-keying producer emits as it reads. Duplicate Dict keys /
+Set elements are a runtime error.
 
 #### Which task kind?
 
@@ -376,7 +381,8 @@ Array/Set outputs. Dict/Set outputs must be emitted in strictly ascending
 | Global sequential state (running balances, replay, simulation) | `streamTask` |
 | Ingest from external sources | `streamTask` (no `stream`) |
 | Filter/sample huge → still-big | `partitionTask` |
-| Re-key huge → huge (shuffle) | not yet — `combine`, `customTask`, or re-key upstream |
+| Re-key huge → huge, one pass | `streamTask` (emit in any order; the sink sorts) |
+| Re-key huge → huge, parallel (shuffle) | not yet — `combine`, `customTask`, or re-key upstream |
 | ML training / genuinely non-East work | `customTask` |
 
 ### e3.customTask(name, inputs, outputType, command)

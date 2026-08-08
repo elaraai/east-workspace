@@ -11,9 +11,10 @@ the same programs. ``events.beast2`` is written by the TS paged writer, which
 makes the stream-fold case a cross-runtime decode of TS-writer bytes.
 
 These cases exercise the whole seam end to end: ``_EmitSink`` (batching, the
-strictly-ascending check, output validation), the ``foreign_function_value``
-bridge that passes the sink's ``emit`` into the compiled body, and
-``Beast2FileWriter`` finalization (terminator + index + footer).
+order-robust spill/merge path and its duplicate-key check — issue #518 —
+and output validation), the ``foreign_function_value`` bridge that passes
+the sink's ``emit`` into the compiled body, and ``Beast2FileWriter``
+finalization (terminator + index + footer).
 """
 
 from pathlib import Path
@@ -100,10 +101,42 @@ def test_dict_emit_decodes_with_index(tmp_path):
     assert table[42] == "row-42"
 
 
-def test_dict_emit_rejects_out_of_order_keys(tmp_path):
-    with pytest.raises(EastError, match="strictly ascending in East key order"):
+def test_dict_emit_accepts_out_of_order_keys(tmp_path, capsys):
+    # Since issue #518 the sink absorbs out-of-order emission (demote →
+    # spill → merge) instead of erroring; the output is the canonical dict
+    # and the transition is reported on stderr.
+    out = tmp_path / "out.beast2"
+    run_program(FIXTURES / "emit_dict_disorder.beast2", [], [], [], out, emit="dict")
+
+    blob = out.read_bytes()
+    assert read_beast2_index(INT_STR_DICT, blob) is not None
+    table = decode_beast2_with_header_for(INT_STR_DICT)(blob)
+    assert dict(table.items()) == {1: "a", 2: "b"}
+    assert "left ascending order" in capsys.readouterr().err
+
+
+def test_dict_emit_shuffled_spills_and_merges_byte_identical(tmp_path, monkeypatch):
+    # The shuffled fixture emits the same 1000 pairs as emit_dict; a tiny
+    # run cap forces spill runs, and the merged blob must be byte-identical
+    # to the ordered producer's, with the runs cleaned up (issue #518).
+    ordered = tmp_path / "ordered.beast2"
+    run_program(FIXTURES / "emit_dict.beast2", [], [], [], ordered, emit="dict")
+
+    shuffled = tmp_path / "shuffled.beast2"
+    monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", "32")
+    run_program(FIXTURES / "emit_dict_shuffled.beast2", [], [], [], shuffled, emit="dict")
+
+    assert shuffled.read_bytes() == ordered.read_bytes()
+    assert not list(tmp_path.glob("shuffled.beast2.run*"))
+
+
+def test_dict_emit_duplicate_key_raises(tmp_path):
+    # The surviving hard error of the old strictly-ascending contract:
+    # Dict keys must be unique under any emission order.
+    with pytest.raises(EastError, match="duplicate Dict key emitted"):
         run_program(
-            FIXTURES / "emit_dict_disorder.beast2", [], [], [], tmp_path / "out.beast2", emit="dict"
+            FIXTURES / "emit_dict_duplicate.beast2", [], [], [], tmp_path / "out.beast2",
+            emit="dict",
         )
 
 

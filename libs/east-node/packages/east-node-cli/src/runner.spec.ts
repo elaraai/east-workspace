@@ -11,7 +11,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,6 +21,7 @@ import {
   FunctionType,
   IntegerType,
   NullType,
+  SetType,
   StringType,
   StructType,
   East,
@@ -143,27 +144,85 @@ describe('runner streaming execution', () => {
     assert.equal(decoded[2499], (2499n * 2500n) / 2n);
   });
 
-  it('a dict emit enforces strictly ascending key order', async () => {
+  /** The 0..count keys in a deterministic Fisher-Yates shuffle, so the
+   *  disorder the sink must absorb is stable across runs. */
+  function shuffledKeys(count: number): bigint[] {
+    const keys = Array.from({ length: count }, (_, i) => BigInt(i));
+    let seed = 12345;
+    const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+    for (let i = keys.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [keys[i], keys[j]] = [keys[j]!, keys[i]!];
+    }
+    return keys;
+  }
+
+  /** A dict producer emitting `row-${i}` for each key in the given order. */
+  function dictEmitter(order: bigint[]) {
     const emitType = FunctionType([IntegerType, StringType], NullType);
-    const ordered = East.function([emitType], NullType, ($, emit) => {
-      $.for(East.Array.range(0n, 1000n), ($, i) => {
+    return East.function([emitType], NullType, ($, emit) => {
+      $.for($.const(order, ArrayType(IntegerType)), ($, i) => {
         $(emit(i, East.str`row-${i}`));
       });
     });
-    const outputPath = join(tempDir, 'output.beast2');
-    await runProgram(writeIr(ordered), [], [], [], outputPath, { emit: 'dict' });
+  }
+
+  it('a dict emit accepts any emission order and writes the canonical blob (#518)', async () => {
+    const shuffledPath = join(tempDir, 'shuffled.beast2');
+    await runProgram(writeIr(dictEmitter(shuffledKeys(1000))), [], [], [], shuffledPath, { emit: 'dict' });
+    const orderedPath = join(tempDir, 'ordered.beast2');
+    const ascending = Array.from({ length: 1000 }, (_, i) => BigInt(i));
+    await runProgram(writeIr(dictEmitter(ascending)), [], [], [], orderedPath, { emit: 'dict' });
+
+    const shuffled = new Uint8Array(readFileSync(shuffledPath));
+    assert.deepEqual(shuffled, new Uint8Array(readFileSync(orderedPath)),
+      'out-of-order emission must produce the byte-identical canonical blob');
     const DT = DictType(IntegerType, StringType);
-    const decoded = decodeBeast2For(DT)(new Uint8Array(readFileSync(outputPath)));
+    const decoded = decodeBeast2For(DT)(shuffled);
     assert.equal(decoded.size, 1000);
     assert.equal(decoded.get(42n), 'row-42');
+    assert.ok(openBeast2PagesFor(DT)(shuffled).selfContained);
+    assert.ok(!existsSync(`${shuffledPath}.run0`), 'spill runs must be cleaned up');
+  });
 
-    const descending = East.function([emitType], NullType, ($, emit) => {
-      $(emit(2n, 'b'));
+  it('a tiny EAST_EMIT_RUN_ELEMENTS cap forces spilled runs and the merge is still canonical', async () => {
+    const saved = process.env.EAST_EMIT_RUN_ELEMENTS;
+    process.env.EAST_EMIT_RUN_ELEMENTS = '16';
+    try {
+      const shuffledPath = join(tempDir, 'spilled.beast2');
+      await runProgram(writeIr(dictEmitter(shuffledKeys(300))), [], [], [], shuffledPath, { emit: 'dict' });
+      const orderedPath = join(tempDir, 'ordered300.beast2');
+      const ascending = Array.from({ length: 300 }, (_, i) => BigInt(i));
+      await runProgram(writeIr(dictEmitter(ascending)), [], [], [], orderedPath, { emit: 'dict' });
+      assert.deepEqual(new Uint8Array(readFileSync(shuffledPath)), new Uint8Array(readFileSync(orderedPath)));
+      assert.ok(!existsSync(`${shuffledPath}.run1`), 'spill runs must be cleaned up');
+    } finally {
+      if (saved === undefined) delete process.env.EAST_EMIT_RUN_ELEMENTS;
+      else process.env.EAST_EMIT_RUN_ELEMENTS = saved;
+    }
+  });
+
+  it('a duplicate dict key is a hard error, adjacent or across spilled runs', async () => {
+    const emitType = FunctionType([IntegerType, StringType], NullType);
+    const adjacent = East.function([emitType], NullType, ($, emit) => {
       $(emit(1n, 'a'));
+      $(emit(1n, 'b'));
     });
     await assert.rejects(
-      runProgram(writeIr(descending), [], [], [], join(tempDir, 'bad.beast2'), { emit: 'dict' }),
-      /strictly ascending in East key order/,
+      runProgram(writeIr(adjacent), [], [], [], join(tempDir, 'dup.beast2'), { emit: 'dict' }),
+      /duplicate Dict key emitted/,
+    );
+
+    // An inversion first (buffered mode), so the duplicate is only visible
+    // to the finalize-time merge.
+    const crossRun = East.function([emitType], NullType, ($, emit) => {
+      $(emit(5n, 'x'));
+      $(emit(3n, 'y'));
+      $(emit(5n, 'dup'));
+    });
+    await assert.rejects(
+      runProgram(writeIr(crossRun), [], [], [], join(tempDir, 'dup2.beast2'), { emit: 'dict' }),
+      /duplicate Dict key emitted/,
     );
   });
 
@@ -228,15 +287,26 @@ describe('runner streaming execution', () => {
     );
   });
 
-  it('a set emit names element order throughout the canonical violation message', async () => {
+  it('a set emit accepts any order and names duplicates with the element noun', async () => {
     const emitType = FunctionType([IntegerType], NullType);
-    const descending = East.function([emitType], NullType, ($, emit) => {
+    const disordered = East.function([emitType], NullType, ($, emit) => {
       $(emit(2n));
       $(emit(1n));
+      $(emit(3n));
+    });
+    const outputPath = join(tempDir, 'set.beast2');
+    await runProgram(writeIr(disordered), [], [], [], outputPath, { emit: 'set' });
+    const decoded = decodeBeast2For(SetType(IntegerType))(new Uint8Array(readFileSync(outputPath)));
+    assert.deepEqual([...decoded], [1n, 2n, 3n]);
+
+    const dup = East.function([emitType], NullType, ($, emit) => {
+      $(emit(2n));
+      $(emit(1n));
+      $(emit(2n));
     });
     await assert.rejects(
-      runProgram(writeIr(descending), [], [], [], join(tempDir, 'bad.beast2'), { emit: 'set' }),
-      /strictly ascending in East element order[\s\S]*emit in ascending element order/,
+      runProgram(writeIr(dup), [], [], [], join(tempDir, 'dupset.beast2'), { emit: 'set' }),
+      /duplicate Set element emitted/,
     );
   });
 });

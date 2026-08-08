@@ -122,27 +122,26 @@ describe('streamTask through taskExecute', () => {
     await assertFoldOutput(result.outputHash!);
   });
 
-  it('surfaces an out-of-order dict emit as a failed execution with the canonical message', async () => {
-    const bad = streamTask('bad_dict', {
+  it('an out-of-order dict emit succeeds and stores the canonical output (#518)', async () => {
+    // The sink absorbs out-of-order emission (demote → spill → merge), so
+    // a re-keying producer is an ordinary success whose stored output is
+    // the canonical dict.
+    const rekey = streamTask('rekey_dict', {
       output: DictType(IntegerType, StringType),
       runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] },
     }, ($, emit) => {
       $(emit(2n, 'b'));
       $(emit(1n, 'a'));
     });
-    const { taskHash, fnIrHash } = await writeTask(bad);
+    const { taskHash, fnIrHash } = await writeTask(rekey);
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash]);
-    assert.equal(result.state, 'failed');
-    assert.equal(result.exitCode, 1);
-    // The canonical message reaches the execution error via the captured
-    // stderr tail. The east-node CLI's console.error + process.exit(1) can
-    // drop that pipe write on Windows before it flushes, so the text is
-    // asserted on POSIX only — the runner-level suites (east-node runner
-    // spec, east-c ctest gate, east-py pytest) pin it on every OS.
-    if (process.platform !== 'win32') {
-      assert.match(result.error ?? '', /strictly ascending in East key order/);
-    }
+    assert.equal(result.state, 'success', result.error ?? '');
+    const output = await storage.objects.read(repo, result.outputHash!);
+    const decoded = decodeBeast2For(DictType(IntegerType, StringType))(output);
+    assert.equal(decoded.size, 2);
+    assert.equal(decoded.get(1n), 'a');
+    assert.equal(decoded.get(2n), 'b');
   });
 
   it('runs the fold on the east-py runner and its emitted blob decodes under the TS reader',
