@@ -66,25 +66,25 @@ export const densityKnob = example({
                 <VStack gap="2" align="flex-start">
                     <Text>comfortable (gap 4)</Text>
                     <HStack gap="4">
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
                     </HStack>
                 </VStack>
                 <VStack gap="2" align="flex-start">
                     <Text>compact (gap 2)</Text>
                     <HStack gap="2">
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
                     </HStack>
                 </VStack>
                 <VStack gap="2" align="flex-start">
                     <Text>condensed (gap 1)</Text>
                     <HStack gap="1">
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
-                        <Box padding="2" background="gray.100" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="sm"><Text>•</Text></Box>
                     </HStack>
                 </VStack>
             </VStack>
@@ -99,11 +99,11 @@ export const elevationScale = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <VStack gap="3" align="flex-start">
-                <Box padding="4" background="white" borderRadius="md"><Text>flat</Text></Box>
-                <Box padding="4" background="white" borderRadius="md"><Text>raised</Text></Box>
-                <Box padding="4" background="white" borderRadius="md"><Text>overlay</Text></Box>
-                <Box padding="4" background="white" borderRadius="md"><Text>floating</Text></Box>
-                <Box padding="4" background="white" borderRadius="md"><Text>modal</Text></Box>
+                <Box padding="4" background="bg.surface" borderRadius="md"><Text>flat</Text></Box>
+                <Box padding="4" background="bg.surface" borderRadius="md"><Text>raised</Text></Box>
+                <Box padding="4" background="bg.surface" borderRadius="md"><Text>overlay</Text></Box>
+                <Box padding="4" background="bg.surface" borderRadius="md"><Text>floating</Text></Box>
+                <Box padding="4" background="bg.surface" borderRadius="md"><Text>modal</Text></Box>
             </VStack>
         );
     }),
@@ -116,10 +116,10 @@ export const motionDurationSwatches = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <HStack gap="2">
-                <Box padding="2" background="gray.100" borderRadius="full"><Text>instant</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="full"><Text>fast</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="full"><Text>normal</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="full"><Text>slow</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="full"><Text>instant</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="full"><Text>fast</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="full"><Text>normal</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="full"><Text>slow</Text></Box>
             </HStack>
         );
     }),
@@ -132,11 +132,11 @@ export const statusPalette = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <HStack gap="2">
-                <Box padding="2" background="gray.100" borderRadius="md"><Text>success</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="md"><Text>warning</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="md"><Text>danger</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="md"><Text>info</Text></Box>
-                <Box padding="2" background="gray.100" borderRadius="md"><Text>neutral</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>success</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>warning</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>danger</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>info</Text></Box>
+                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>neutral</Text></Box>
             </HStack>
         );
     }),

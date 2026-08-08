@@ -3,7 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./app.examples.js";
 
 describeEast("App", (test) => {
@@ -12,8 +14,12 @@ describeEast("App", (test) => {
     // all built from the one handle bound in the enclosing Reactive.
     Assert.examples(test, {
         appBasic: ex.appBasic,
-        appCompact: ex.appCompact,
-        appCondensed: ex.appCondensed,
+        appVariants: ex.appVariants,
+    });
+
+    test("appVariants is the live configurator", $ => {
+        const panel = $.const(ex.appVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // `<App>` composes the navigation primitives; the `appBasic` example (wired

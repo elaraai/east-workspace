@@ -4,16 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, IntegerType, NullType } from "@elaraai/east";
+import { East, IntegerType, NullType, type ExprType } from "@elaraai/east";
 import { Pagination, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./pagination.examples.js";
 
 describeEast("Pagination", (test) => {
     Assert.examples(test, {
         paginationBasic: ex.paginationBasic,
-        paginationOutlineLarge: ex.paginationOutlineLarge,
-        paginationSiblings: ex.paginationSiblings,
-        paginationColourOverrides: ex.paginationColourOverrides,
+        paginationVariants: ex.paginationVariants,
+        paginationCustomColours: ex.paginationCustomColours,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("paginationVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / size / siblings /
+        // palette tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the Pagination.Root tests below, which construct each
+        // option directly.
+        const panel = $.const(ex.paginationVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -86,17 +103,17 @@ describeEast("Pagination", (test) => {
     test("applies colour escape hatches", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
         const p = $.let(Pagination.Root({ page: 0n, pageSize: 10n, count: 100n, onPageChange: noop,
-            color: "gray.700",
-            background: "white",
-            activeBackground: "blue.500",
-            activeColor: "white",
+            color: "fg.default",
+            background: "bg.surface",
+            activeBackground: "bg.brand.subtle",
+            activeColor: "fg.inverse",
         }), UIComponentType);
 
         const style = p.unwrap().unwrap("Pagination").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "gray.700"));
-        $(Assert.equal(style.background.unwrap("some"), "white"));
-        $(Assert.equal(style.activeBackground.unwrap("some"), "blue.500"));
-        $(Assert.equal(style.activeColor.unwrap("some"), "white"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(style.activeBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.activeColor.unwrap("some"), "fg.inverse"));
     });
 
 }, { platformFns: TestImpl });

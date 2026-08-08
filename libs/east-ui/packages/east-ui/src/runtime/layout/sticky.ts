@@ -25,8 +25,8 @@ import { content, type ContentProps, type JsxTag } from "../combinators.js";
  *
  * const pinned = East.function([], UIComponentType, _$ => (
  *     <Box overflowY="auto" height="240px">
- *         <Sticky offset="0" boundary="parent" background="white">
- *             <Box padding="3" background="white"><Text>Section header — stays pinned</Text></Box>
+ *         <Sticky offset="0" boundary="parent" background="bg.surface">
+ *             <Box padding="3" background="bg.surface"><Text>Section header — stays pinned</Text></Box>
  *         </Sticky>
  *         <VStack gap="2" padding="3">
  *             <Text>Row 1</Text>

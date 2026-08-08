@@ -94,10 +94,10 @@ export const commitBarSlotRecipe = defineSlotRecipe({
         btnPrimary: {
             ...btnBase,
             background: "{colors.brand.600}",
-            color: "white",
+            color: "fg.inverse",
             fontWeight: "semibold",
             borderColor: "{colors.brand.600}",
-            _hover: { background: "{colors.brand.700}", borderColor: "{colors.brand.700}", color: "white" },
+            _hover: { background: "{colors.brand.700}", borderColor: "{colors.brand.700}", color: "fg.inverse" },
             ...btnDisabled,
         },
         // Destructive commit action (Reject all / Discard) — the danger look.

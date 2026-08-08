@@ -4,20 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Flex, Text, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./flex.examples.js";
 
 describeEast("Flex", (test) => {
     Assert.examples(test, {
         flexBasic: ex.flexBasic,
-        flexRowJustify: ex.flexRowJustify,
-        flexColumn: ex.flexColumn,
-        flexWrap: ex.flexWrap,
-        flexCentered: ex.flexCentered,
-        flexNested: ex.flexNested,
-        flexAlignItems: ex.flexAlignItems,
-        flexReverse: ex.flexReverse,
+        flexVariants: ex.flexVariants,
         flexFillScroll: ex.flexFillScroll,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("flexVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the direction / justify / align /
+        // content tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-prop coverage lives in the
+        // Flex.Root tests below, which construct each style directly.
+        const panel = $.const(ex.flexVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -177,20 +190,20 @@ describeEast("Flex", (test) => {
 
     test("creates flex with background", $ => {
         const flex = $.let(Flex.Root([], {
-            background: "gray.100",
+            background: "bg.subtle",
         }));
 
         $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").background.hasTag("some"), true));
-        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "gray.100"));
+        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
     });
 
     test("creates flex with color", $ => {
         const flex = $.let(Flex.Root([], {
-            color: "blue.500",
+            color: "link",
         }));
 
         $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").color.hasTag("some"), true));
-        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").color.unwrap("some"), "blue.500"));
+        $(Assert.equal(flex.unwrap().unwrap("Flex").style.unwrap("some").color.unwrap("some"), "link"));
     });
 
     test("creates flex with borderRadius", $ => {
@@ -224,7 +237,7 @@ describeEast("Flex", (test) => {
             alignItems: "center",
             gap: "4",
             padding: Flex.Padding({ top: "4", right: "4", bottom: "4", left: "4" }),
-            background: "gray.100",
+            background: "bg.subtle",
             borderRadius: "md",
         }));
 
@@ -235,7 +248,7 @@ describeEast("Flex", (test) => {
         $(Assert.equal(style.alignItems.unwrap("some").hasTag("center"), true));
         $(Assert.equal(style.gap.unwrap("some"), "4"));
         $(Assert.equal(style.padding.unwrap("some").top.unwrap("some"), "4"));
-        $(Assert.equal(style.background.unwrap("some"), "gray.100"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
         $(Assert.equal(style.borderRadius.unwrap("some"), "md"));
         // Other styles should be none
         $(Assert.equal(style.width.hasTag("none"), true));
@@ -347,7 +360,7 @@ describeEast("Flex", (test) => {
         ], {
             direction: "column",
             padding: Flex.Padding({ top: "2", right: "2", bottom: "2", left: "2" }),
-            background: "blue.100",
+            background: "bg.brand.subtle",
         });
 
         const outerFlex = $.let(Flex.Root([
@@ -355,11 +368,11 @@ describeEast("Flex", (test) => {
         ], {
             direction: "row",
             padding: Flex.Padding({ top: "4", right: "4", bottom: "4", left: "4" }),
-            background: "gray.100",
+            background: "bg.subtle",
         }));
 
         $(Assert.equal(outerFlex.unwrap().unwrap("Flex").children.size(), 1n));
         $(Assert.equal(outerFlex.unwrap().unwrap("Flex").style.unwrap("some").padding.unwrap("some").top.unwrap("some"), "4"));
-        $(Assert.equal(outerFlex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "gray.100"));
+        $(Assert.equal(outerFlex.unwrap().unwrap("Flex").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
     });
 }, {   platformFns: TestImpl,});

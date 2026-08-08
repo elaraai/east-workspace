@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Mark, Reactive, VStack, HStack, Text } from "@elaraai/east-ui";
+import { Button, Configurator, Mark, Select, HStack, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const markBasic = example({
     keywords: ["Mark", "Root", "basic"],
@@ -16,109 +20,84 @@ export const markBasic = example({
     inputs: [],
 });
 
-export const markSubtle = example({
-    keywords: ["Mark", "Root", "variant", "subtle"],
-    description: "Soft background highlight",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Mark variant="subtle">Note</Mark>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Mark — live configurator over every style axis
+// ============================================================================
 
-export const markSolid = example({
-    keywords: ["Mark", "Root", "variant", "solid"],
-    description: "Strong background fill",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Mark variant="solid">NEW</Mark>;
-    }),
-    inputs: [],
-});
-
-export const markText = example({
-    keywords: ["Mark", "Root", "variant", "text"],
-    description: "Colored text only",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Mark variant="text">Updated</Mark>;
-    }),
-    inputs: [],
-});
-
-export const markPlain = example({
-    keywords: ["Mark", "Root", "variant", "plain"],
-    description: "Minimal styling",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Mark variant="plain">Plain</Mark>;
-    }),
-    inputs: [],
-});
-
-export const markColors = example({
-    keywords: ["Mark", "Root", "colorPalette", "yellow", "green", "blue", "red", "purple"],
-    description: "Different color schemes",
+export const markVariants = example({
+    keywords: ["Mark", "Root", "variant", "subtle", "solid", "text", "plain", "colorPalette", "yellow", "green", "blue", "red", "purple", "success", "warning", "error", "info", "inline", "context", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Mark configurator — variant and palette axes on one live mark set in a running sentence; the aside bumps a reactive mark label",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="3">
-                <Mark variant="subtle" colorPalette="yellow">Yellow</Mark>
-                <Mark variant="subtle" colorPalette="green">Green</Mark>
-                <Mark variant="subtle" colorPalette="blue">Blue</Mark>
-                <Mark variant="subtle" colorPalette="red">Red</Mark>
-                <Mark variant="subtle" colorPalette="purple">Purple</Mark>
-            </HStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const variants = $.const([
+                    variant("subtle", null), variant("solid", null),
+                    variant("text", null), variant("plain", null),
+                ], ArrayType(Mark.Types.Variant));
+
+                // A palette is just its name, so the axis is a bare array of
+                // the value itself.
+                const palettes = $.const(["warning", "success", "danger", "brand", "info"], ArrayType(StringType));
+
+                const variantBind = $.let(State.bind([StringType], "mark_variant", "subtle"));
+                const paletteBind = $.let(State.bind([StringType], "mark_palette", "warning"));
+                const counter     = $.let(State.bind([IntegerType], "mark_counter", 0n));
+
+                const vKey  = $.let(variantBind.read());
+                const pKey  = $.let(paletteBind.read());
+                const count = $.let(counter.read());
+
+                const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onPalette = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
+                const inc       = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const markVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const palette = $.let(palettes.filter((_$, s) => s.equal(pKey)).get(0n));
+
+                // ONE mark — the running-sentence placement composes on.
+                const preview = $.const(
+                    <HStack gap="1">
+                        <Text>{"This feature is "}</Text>
+                        <Mark variant={markVariant} colorPalette={palette}>deprecated</Mark>
+                        <Text>{" and will be removed."}</Text>
+                    </HStack>,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Variant", vKey,
+                                <Select value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Palette", pKey,
+                                <Select value={pKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, s) => Select.Item(s, s))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Placement spec row below rather than as one value.
+                        ]}
+                        preview={preview}
+                        aside={{
+                            label: "Bump · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Mark variant={markVariant} colorPalette={palette}>{East.str`Mark #${East.print(count)}`}</Mark>
+                                    <Button size="xs" onClick={inc}>Bump</Button>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
-    inputs: [],
-});
-
-export const markSolidColors = example({
-    keywords: ["Mark", "Root", "variant", "solid", "success", "warning", "error", "info"],
-    description: "Bold color variants",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="3">
-                <Mark variant="solid" colorPalette="green">Success</Mark>
-                <Mark variant="solid" colorPalette="orange">Warning</Mark>
-                <Mark variant="solid" colorPalette="red">Error</Mark>
-                <Mark variant="solid" colorPalette="blue">Info</Mark>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const markInContext = example({
-    keywords: ["Mark", "Root", "inline", "context", "text"],
-    description: "Mark within text flow",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="1">
-                <Text>{"This feature is "}</Text>
-                <Mark variant="subtle" colorPalette="orange">deprecated</Mark>
-                <Text>{" and will be removed."}</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const markInteractive = example({
-    keywords: ["Mark", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive marked text whose label updates from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "mark_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Text>Marked content updates as you click:</Text>
-                    <Mark variant="subtle" colorPalette="yellow">{East.str`Mark #${East.print(value)}`}</Mark>
-                    <Button onClick={increment}>Bump</Button>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

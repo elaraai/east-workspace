@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, variant, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Tag, Text, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, SegmentGroup, Select, Slider, Switch, Tag, Text } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const tagBasic = example({
     keywords: ["Tag", "Root", "basic", "filter", "chip"],
@@ -22,165 +26,178 @@ export const tagBasic = example({
     inputs: [],
 });
 
-export const tagVariants = example({
-    keywords: ["Tag", "Root", "variant", "outline", "brand", "subtle", "solid", "dashed"],
-    description: "Spec variants — outline (default), brand, subtle, solid, dashed",
+// ============================================================================
+// Tag — live configurator over every style axis
+// ============================================================================
+
+export const tagStyles = example({
+    keywords: ["Tag", "Root", "variant", "outline", "brand", "subtle", "solid", "dashed", "background", "color", "custom", "escape", "opacity", "borderWidth", "borderStyle", "borderRadius", "padding", "width", "overflow", "density", "condensed", "compact", "comfortable", "sizes", "ifElse", "dynamic", "Style", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "closable", "removable", "onClose"],
+    description: "Tag configurator — variant, density, colour, border, opacity and padding axes plus pill / fixed-width / closable switches driving one live chip; the aside resolves a variant via ifElse and counts onClose",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="2" wrap="wrap">
-                <Tag variant="outline">Outline</Tag>
-                <Tag variant="brand">Brand</Tag>
-                <Tag variant="subtle">Subtle</Tag>
-                <Tag variant="solid">Solid</Tag>
-                <Tag variant="dashed">Dashed</Tag>
-            </HStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const variants = $.const([
+                    variant("outline", null), variant("brand", null), variant("subtle", null),
+                    variant("solid", null), variant("dashed", null),
+                ], ArrayType(Style.Types.StyleVariant));
+
+                const densities = $.const([
+                    variant("condensed", null), variant("compact", null), variant("comfortable", null),
+                ], ArrayType(Style.Types.Density));
+
+                const borders = $.const([
+                    variant("solid", null), variant("dashed", null),
+                    variant("dotted", null), none,
+                ], ArrayType(Style.Types.BorderStyle));
+
+                // Numeric / token axes collapse the same way: an opacity is a
+                // percentage and a padding is a spacing-scale token, so both are
+                // bare arrays of the value itself.
+                const paddings = $.const(["0", "1", "2", "3"], ArrayType(StringType));
+
+                // Only colour needs a struct — it is a background/foreground
+                // pair, with no single value to name it by.
+                const colors = $.const([
+                    { label: "recipe", bg: "transparent", fg: "fg.default" },
+                    { label: "custom", bg: "status.neg",  fg: "fg.inverse" },
+                    { label: "brand",  bg: "brand.600",   fg: "fg.inverse" },
+                    { label: "dark",   bg: "bg.inverse",  fg: "fg.inverse" },
+                ], ArrayType(StructType({ label: StringType, bg: StringType, fg: StringType })));
+
+                const variantBind = $.let(State.bind([StringType], "tag_variant", "outline"));
+                const densityBind = $.let(State.bind([StringType], "tag_density", "compact"));
+                const colorBind   = $.let(State.bind([StringType], "tag_color", "recipe"));
+                const borderBind  = $.let(State.bind([StringType], "tag_border", "solid"));
+                const opacityBind = $.let(State.bind([FloatType], "tag_opacity", 1.0));
+                const paddingBind = $.let(State.bind([StringType], "tag_padding", "0"));
+                const pillBind    = $.let(State.bind([BooleanType], "tag_pill", false));
+                const wideBind    = $.let(State.bind([BooleanType], "tag_wide", false));
+                const activeBind  = $.let(State.bind([BooleanType], "tag_active", true));
+                const closableBind = $.let(State.bind([BooleanType], "tag_closable", true));
+                const closeCount  = $.let(State.bind([IntegerType], "tag_close_count", 0n));
+
+                const vKey = $.let(variantBind.read());
+                const dKey = $.let(densityBind.read());
+                const cKey = $.let(colorBind.read());
+                const bKey = $.let(borderBind.read());
+                const op = $.let(opacityBind.read());
+                const pKey = $.let(paddingBind.read());
+                const pill = $.let(pillBind.read());
+                const wide = $.let(wideBind.read());
+                const active = $.let(activeBind.read());
+                const closable = $.let(closableBind.read());
+                const closed = $.let(closeCount.read());
+
+                const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+                const onColor   = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
+                const onBorder  = $.const(East.function([StringType], NullType, ($, next) => { $(borderBind.write(next)); }));
+                const onOpacity = $.const(East.function([FloatType], NullType, ($, next) => { $(opacityBind.write(next)); }));
+                const onPadding = $.const(East.function([StringType], NullType, ($, next) => { $(paddingBind.write(next)); }));
+                const onPill    = $.const(East.function([BooleanType], NullType, ($, next) => { $(pillBind.write(next)); }));
+                const onWide    = $.const(East.function([BooleanType], NullType, ($, next) => { $(wideBind.write(next)); }));
+                const onActive  = $.const(East.function([BooleanType], NullType, ($, next) => { $(activeBind.write(next)); }));
+                const onClosable = $.const(East.function([BooleanType], NullType, ($, next) => { $(closableBind.write(next)); }));
+                const onClose   = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(closeCount.read());
+                    $(closeCount.write(cur.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const tagVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+                const border = $.let(borders.filter((_$, v) => v.getTag().equal(bKey)).get(0n));
+                const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
+                const pad = $.let(paddings.filter((_$, s) => s.equal(pKey)).get(0n));
+
+                // The dynamic axis: a variant resolved by ifElse rather than picked.
+                const dynamicVariant = $.let(
+                    active.ifElse(_$ => variant("brand", null), _$ => variant("outline", null)),
+                    Style.Types.StyleVariant,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Variant", vKey,
+                                <Select value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Density", dKey,
+                                <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Colour", cKey,
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Border", bKey,
+                                <Select value={bKey} onChange={onBorder} size="sm"
+                                    items={borders.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Opacity", East.str`${East.print(op.multiply(100.0).toInteger())}%`,
+                                <Slider value={op} min={0.0} max={1.0} step={0.05} size="sm" onChange={onOpacity} />),
+                            Configurator.Control("Padding", pKey,
+                                <Select value={pKey} onChange={onPadding} size="sm"
+                                    items={paddings.map((_$, s) => Select.Item(s, s))} />),
+                            // A Slot, not a Control: the two switches report as the
+                            // Radius / Width / Overflow spec rows below rather than
+                            // as one value.
+                            Configurator.Slot("Shape",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={pill} label="Pill" onChange={onPill} />
+                                    <Switch checked={wide} label="Fixed width" onChange={onWide} />
+                                </HStack>),
+                            Configurator.Slot("Dynamic",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={active} label="Active" onChange={onActive} />
+                                </HStack>),
+                            // Filter chips set by the operator always carry a
+                            // removable × — the switch drives `closable` and the
+                            // preview's onClose feeds the aside counter.
+                            Configurator.Slot("Closable",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={closable} label="Closable" onChange={onClosable} />
+                                </HStack>),
+                        ]}
+                        preview={
+                            <Tag
+                                variant={tagVariant}
+                                density={density}
+                                borderRadius={pill.ifElse(_$ => "full", _$ => "md")}
+                                width={wide.ifElse(_$ => "120px", _$ => "auto")}
+                                overflow={wide.ifElse(_$ => variant("hidden", null), _$ => variant("visible", null))}
+                                background={color.bg}
+                                color={color.fg}
+                                borderStyle={border}
+                                opacity={op}
+                                padding={{ top: some(pad), right: some(pad), bottom: some(pad), left: some(pad) }}
+                                closable={closable}
+                                onClose={onClose}
+                            >
+                                {East.str`region · ${tagVariant.getTag().upperCase()}`}
+                            </Tag>
+                        }
+                        aside={{
+                            label: "Dynamic · onClose",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Tag variant={dynamicVariant} density={density}>{East.str`ACTIVE → ${dynamicVariant.getTag().upperCase()}`}</Tag>
+                                    <Tag variant={Style.StyleVariant("solid")} density={density}>Style.StyleVariant solid</Tag>
+                                    {<Text.MonoLabel>{East.str`CLOSED · ${closed}`}</Text.MonoLabel>}
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Radius", pill.ifElse(_$ => "full", _$ => "md")),
+                            Configurator.Spec("Width", wide.ifElse(_$ => "120px", _$ => "auto")),
+                            Configurator.Spec("Overflow", wide.ifElse(_$ => "hidden", _$ => "visible")),
+                            Configurator.Spec("Dynamic", dynamicVariant.getTag()),
+                            Configurator.Spec("Closable", closable.ifElse(_$ => "removable ×", _$ => "static")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
-    inputs: [],
-});
-
-export const tagClosable = example({
-    keywords: ["Tag", "Root", "closable", "removable"],
-    description: "Filter chips set by the operator — always carry a removable ×",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="2">
-                <Tag closable={true} variant="brand">region · SE</Tag>
-                <Tag closable={true} variant="brand">status · active</Tag>
-                <Tag closable={true} variant="brand">after 2026-04-01</Tag>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const tagDynamic = example({
-    keywords: ["Tag", "Root", "ifElse", "dynamic", "variant", "Style"],
-    description: "Variant resolved dynamically — true → brand, false → outline",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" align="flex-start">
-                <HStack gap="2">
-                    <Tag variant={East.value(true).ifElse(() => variant("brand", null), () => variant("outline", null))}>True → brand</Tag>
-                    <Tag variant={East.value(false).ifElse(() => variant("brand", null), () => variant("outline", null))}>False → outline</Tag>
-                </HStack>
-                <HStack gap="2">
-                    <Tag variant={Style.StyleVariant("solid")}>Style.StyleVariant solid</Tag>
-                    <Tag variant={Style.StyleVariant("outline")}>Style.StyleVariant outline</Tag>
-                </HStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const tagCustom = example({
-    keywords: ["Tag", "Root", "background", "color", "custom", "escape", "opacity"],
-    description: "Opacity ramp on a brand tag, plus colour escape hatches",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="3" align="flex-start">
-                <HStack gap="2">
-                    <Tag variant="brand">100%</Tag>
-                    <Tag variant="brand" opacity={0.75}>75%</Tag>
-                    <Tag variant="brand" opacity={0.5}>50%</Tag>
-                    <Tag variant="brand" opacity={0.25}>25%</Tag>
-                </HStack>
-                <HStack gap="2">
-                    <Tag background="#e74c3c" color="white">Custom</Tag>
-                    <Tag background="#3498db" color="white">Brand</Tag>
-                    <Tag background="#2c3e50" color="#ecf0f1">Dark Mode</Tag>
-                </HStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const tagBorder = example({
-    keywords: ["Tag", "Root", "borderWidth", "borderStyle", "borderRadius"],
-    description: "Border style variations — outlined, pill, dashed",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="2">
-                <Tag variant="outline">Outlined</Tag>
-                <Tag variant="brand" borderRadius="full" padding="2">Pill</Tag>
-                <Tag variant="dashed">Dashed</Tag>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const tagBoxModel = example({
-    keywords: ["Tag", "Root", "padding", "width", "overflow"],
-    description: "Padding, fixed width, full-rounded — all in brand subtle",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="2">
-                <Tag padding="3" variant="subtle">Extra Padding</Tag>
-                <Tag width="120px" overflow="hidden" variant="subtle">Fixed Width Tag With Longer Text</Tag>
-                <Tag variant="brand" borderRadius="full" padding="2">Rounded Tag</Tag>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const tagDensities = example({
-    keywords: ["Tag", "density", "condensed", "compact", "comfortable", "sizes"],
-    description: "The three densities stacked — chip height + font scale condensed → compact → comfortable (matching ChipRail)",
-    fn: East.function([], UIComponentType, ($) => {
-        const condensed = $.const(
-            <HStack gap="2">
-                <Tag density="condensed">region · SE</Tag>
-                <Tag density="condensed" variant="brand">cohort · selected</Tag>
-                <Tag density="condensed" variant="dashed">+ add filter</Tag>
-            </HStack>,
-        );
-        const compact = $.const(
-            <HStack gap="2">
-                <Tag density="compact">region · SE</Tag>
-                <Tag density="compact" variant="brand">cohort · selected</Tag>
-                <Tag density="compact" variant="dashed">+ add filter</Tag>
-            </HStack>,
-        );
-        const comfortable = $.const(
-            <HStack gap="2">
-                <Tag density="comfortable">region · SE</Tag>
-                <Tag density="comfortable" variant="brand">cohort · selected</Tag>
-                <Tag density="comfortable" variant="dashed">+ add filter</Tag>
-            </HStack>,
-        );
-        return (
-            <Stack direction="column" gap="6">
-                {condensed}
-                {compact}
-                {comfortable}
-            </Stack>
-        );
-    }),
-    inputs: [],
-});
-
-export const tagOnCloseInteractive = example({
-    keywords: ["Tag", "Reactive", "State", "interactive", "onClose", "closable"],
-    description: "Closable tag whose onClose increments a reactive counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const bind = $.let(State.bind([IntegerType], "tag_close_count", 0n));
-            const value = $.let(bind.read());
-            const onClose = $.const(East.function([], NullType, $ => {
-                const cur = $.let(bind.read());
-                $(bind.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="center">
-                    <Tag closable={true} variant="brand" onClose={onClose}>Click × to close</Tag>
-                    {<Text.MonoLabel>{East.str`CLOSED · ${value}`}</Text.MonoLabel>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

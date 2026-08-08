@@ -4,20 +4,34 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, NullType, OptionType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, OptionType, none, some, variant, type ExprType } from "@elaraai/east";
 import { DragEventType, Roster, Status } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster", (test) => {
     Assert.examples(test, {
-        rosterScroll: ex.rosterScroll,
-        rosterFill: ex.rosterFill,
-        rosterEdit: ex.rosterEdit,
-        rosterPublished: ex.rosterPublished,
-        rosterInteractive: ex.rosterInteractive,
-        rosterCanDrop: ex.rosterCanDrop,
+        rosterVariants: ex.rosterVariants,
         rosterReview: ex.rosterReview,
+        rosterFill: ex.rosterFill,
+        rosterInteractive: ex.rosterInteractive,
         rosterLibraryDnd: ex.rosterLibraryDnd,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("rosterVariants drives its preview from inline option tables", $ => {
+        // The mode-preset axis is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts it inside
+        // the Reactive body, which TestImpl does not execute, so it cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. Per-mode prop coverage lives in the
+        // Roster.Root tests below.
+        const panel = $.const(ex.rosterVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a roster with target declaration and default week", $ => {

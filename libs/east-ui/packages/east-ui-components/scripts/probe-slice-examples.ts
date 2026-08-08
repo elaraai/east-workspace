@@ -6,7 +6,7 @@
  *
  * Run: pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-slice-examples.ts
  */
-import { chromium } from "playwright";
+import { launchChromium } from "../../../scripts/snapshot-capture.mts";
 import { createServer } from "vite";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -29,7 +29,7 @@ async function main() {
     const baseUrl = `http://127.0.0.1:${port}`;
     console.log(`probing slice examples at ${baseUrl}`);
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await launchChromium({ headless: true });
     const ctx = await browser.newContext({ viewport: { width: 1000, height: 640 } });
     const page = await ctx.newPage();
     page.on("pageerror", err => console.log("[pageerror]", err.message));

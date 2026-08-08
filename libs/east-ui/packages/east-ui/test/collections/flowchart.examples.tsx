@@ -142,76 +142,15 @@ export const flowchartPlant = example({
     inputs: [],
 });
 
-export const flowchartConnect = example({
-    keywords: ["Flowchart", "connect", "linkMode", "onCreateLink", "onDeleteLink", "canConnect", "onAddLane", "authoring"],
-    description: "Link authoring — connect mode with a canConnect veto; drag any handle to another state to author a transition, Del removes the selected link, + LANE appends a phase, headers click-to-rename, × removes a lane (its states fall into the last lane)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const LinkRow = StructType({ src: StringType, dst: StringType });
-            const LaneRow = StructType({ key: StringType, label: StringType });
-            const links = $.let(State.bind([ArrayType(LinkRow)], "flowchart.connect.links", [
-                { src: "RMI", dst: "CUT" },
-                { src: "CUT", dst: "ASM" },
-            ]));
-            const lanes = $.let(State.bind([ArrayType(LaneRow)], "flowchart.connect.lanes", [
-                { key: "prep", label: "Prep" },
-                { key: "build", label: "Build" },
-            ]));
-            const addLane = $.const(East.function([], NullType, ($) => {
-                const next = $.let(lanes.read());
-                const n = $.let(next.length().add(1n));
-                $(next.append([{ key: East.str`lane${n}`, label: East.str`Lane ${n}` }]));
-                $(lanes.write(next));
-            }));
-            const renameLane = $.const(East.function([Flowchart.Types.LaneRenameEvent], NullType, ($, e) => {
-                $(lanes.write(lanes.read().map(($, l) =>
-                    East.equal(l.key, e.key).ifElse(
-                        () => East.value({ key: l.key, label: e.label }, LaneRow),
-                        () => l,
-                    ))));
-            }));
-            const deleteLane = $.const(East.function([StringType], NullType, ($, key) => {
-                // Host-owned cascade: drop the lane row only — states in it
-                // fall into the LAST lane (they stay visible).
-                $(lanes.write(lanes.read().filter(($, l) => East.equal(l.key, key).not())));
-            }));
-            const onCreate = $.const(East.function([Flowchart.Types.LinkCreateEvent], NullType, ($, e) => {
-                const next = $.let(links.read());
-                $(next.append([{ src: e.from, dst: e.to }]));
-                $(links.write(next));
-            }));
-            const onDelete = $.const(East.function([StringType], NullType, ($, key) => {
-                $(links.write(links.read().filter(($, l) =>
-                    East.equal(East.str`${l.src}→${l.dst}`, key).not())));
-            }));
-            const canConnect = $.const(East.function([StringType, StringType], BooleanType,
-                (_$, from, to) => East.equal(from, to).not()));
-            return (
-                <Flowchart
-                    states={[
-                        { code: "RMI", name: "Raw intake", phase: "prep" },
-                        { code: "CUT", name: "Cut blanks", phase: "prep" },
-                        { code: "ASM", name: "Assembled", phase: "build" },
-                        { code: "QAP", name: "QA passed", phase: "build" },
-                    ]}
-                    state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-                    links={links.read()}
-                    link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
-                    lanes={lanes.read()} lane={r => ({ key: r.key, label: r.label })}
-                    orientation="TD"
-                    linkMode="connect"
-                    onAddLane={addLane} onRenameLane={renameLane} onDeleteLane={deleteLane}
-                    onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
+/**
+ * The connect-mode authoring session (old flowchartConnect) folds in here —
+ * the canConnect veto, header click-to-rename and × lane removal join the
+ * builder's State-bound editing loop; `linkMode="connect"` + drag any handle
+ * is the one link-authoring grammar.
+ */
 export const flowchartBuilder = example({
-    keywords: ["Flowchart", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onCreateLink", "onDeleteLink", "interactive", "edit", "phases", "ghost"],
-    description: "Interactive builder — State-bound lanes, states and links: + LANE appends a phase, the + STATE lane ghost commits new nodes in place, double-click edits a node, dragging a node across lanes moves it (bands highlight), drag any handle to author a link (Del removes the selected one)",
+    keywords: ["Flowchart", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onRenameLane", "onDeleteLane", "onCreateLink", "onDeleteLink", "canConnect", "connect", "linkMode", "authoring", "interactive", "edit", "phases", "ghost"],
+    description: "Interactive builder — State-bound lanes, states and links: + LANE, + STATE ghosts, double-click edit, cross-lane drag, handle-drag linking with Del delete and an intake-only canConnect veto",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LaneRow = StructType({ key: StringType, label: StringType });
@@ -232,6 +171,18 @@ export const flowchartBuilder = example({
                 const n = $.let(next.length().add(1n));
                 $(next.append([{ key: East.str`p${n}`, label: East.str`Phase ${n}` }]));
                 $(lanes.write(next));
+            }));
+            const renameLane = $.const(East.function([Flowchart.Types.LaneRenameEvent], NullType, ($, e) => {
+                $(lanes.write(lanes.read().map(($, l) =>
+                    East.equal(l.key, e.key).ifElse(
+                        () => East.value({ key: l.key, label: e.label }, LaneRow),
+                        () => l,
+                    ))));
+            }));
+            const deleteLane = $.const(East.function([StringType], NullType, ($, key) => {
+                // Host-owned cascade: drop the lane row only — states in it
+                // fall into the LAST lane (they stay visible).
+                $(lanes.write(lanes.read().filter(($, l) => East.equal(l.key, key).not())));
             }));
             const addState = $.const(East.function([Flowchart.Types.StateAddEvent], NullType, ($, e) => {
                 const next = $.let(states.read());
@@ -266,17 +217,23 @@ export const flowchartBuilder = example({
                 $(links.write(links.read().filter(($, l) =>
                     East.equal(East.str`${l.src}→${l.dst}`, key).not())));
             }));
+            // Connection validator (the no-snap veto stage): S1 is the intake —
+            // authored links never point INTO it, so a connect draft simply
+            // refuses to snap onto S1 as a target. Self-drop stays allowed
+            // (↻ in-place), which is why the veto is target-only rather than
+            // the from ≠ to rule.
+            const canConnect = $.const(East.function([StringType, StringType], BooleanType,
+                (_$, _from, to) => East.equal(to, "S1").not()));
             return (
                 <VStack gap="3" align="stretch">
-                    <Text textStyle="caption" color="fg.muted">Hover a lane → + STATE ghost (⏎ commits) · double-click a node to edit it · drag a node across lanes · drag any handle to link (drop on the SAME node = ↻ in-place) · + LANE adds a phase · Del removes the selected link</Text>
                     <Flowchart
                         states={states.read()} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                         links={links.read()} link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
                         lanes={lanes.read()} lane={r => ({ key: r.key, label: r.label })}
                         linkMode="connect"
-                        onAddLane={addLane}
+                        onAddLane={addLane} onRenameLane={renameLane} onDeleteLane={deleteLane}
                         onAddState={addState} onEditState={editState} onMoveState={moveState}
-                        onCreateLink={onCreate} onDeleteLink={onDelete}
+                        onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
                     />
                 </VStack>
             );
@@ -285,23 +242,30 @@ export const flowchartBuilder = example({
     inputs: [],
 });
 
-export const flowchartHoverCards = example({
-    keywords: ["Flowchart", "hover", "stateHover", "linkHover", "triggerHover", "Meter", "card", "glance"],
-    description: "Dev-defined hover cards — stateHover renders a utilisation Meter, linkHover the evidence glance, triggerHover the owning role (arbitrary UI in the standard 400ms shell)",
+/**
+ * Inspection depth ladder on ONE canvas (old flowchartHoverCards +
+ * flowchartDrawerDetail) — hover for the dev-defined glance card, click for
+ * the host-owned Drawer detail. The two never fight: hover is transient and
+ * read-only, click commits to the drawer.
+ */
+export const flowchartDetail = example({
+    keywords: ["Flowchart", "hover", "stateHover", "linkHover", "triggerHover", "Meter", "card", "glance", "Drawer", "onSelectLink", "onSelectState", "drill", "detail", "click", "open"],
+    description: "Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer",
     fn: East.function([], UIComponentType, ($) => {
         const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });
         const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, vol: FloatType, n: IntegerType, decision: OptionType(StringType) });
-        const states = $.const(East.value([
+        const states = $.const([
             { code: "MIX", name: "Mixing", phase: "prep", util: 72.0 },
             { code: "FIL", name: "Filling", phase: "line", util: 91.0 },
             { code: "CAP", name: "Capping", phase: "line", util: 64.0 },
             { code: "PAL", name: "Palletised", phase: "out", util: 38.0 },
-        ], ArrayType(StateRow)));
-        const links = $.const(East.value([
+        ], ArrayType(StateRow));
+        const links = $.const([
             { id: "m-f", src: "MIX", dst: "FIL", vol: 182.4, n: 9210n, decision: some("release") },
             { id: "f-c", src: "FIL", dst: "CAP", vol: 180.9, n: 9184n, decision: none },
             { id: "c-p", src: "CAP", dst: "PAL", vol: 179.7, n: 9102n, decision: none },
-        ], ArrayType(LinkRow)));
+        ], ArrayType(LinkRow));
+        // --- hover glances: dev-defined cards in the standard 400ms shell ---
         const stateHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
             const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));
             return (
@@ -326,46 +290,14 @@ export const flowchartHoverCards = example({
                 <Text textStyle="caption" color="fg.muted">owner · line-scheduler</Text>
             </VStack>
         )));
-        return (
-            <Flowchart
-                states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-                links={links}
-                link={l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
-                    evidence: { volume: some(l.vol), count: some(l.n), unit: "kt" } })}
-                lanes={[{ key: "prep", label: "Prep" }, { key: "line", label: "Line" }, { key: "out", label: "Outbound" }]}
-                triggers={[{ id: "release", name: "release", who: "line-scheduler" }]}
-                trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
-                stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const flowchartDrawerDetail = example({
-    keywords: ["Flowchart", "Drawer", "onSelectLink", "onSelectState", "drill", "detail", "click", "open"],
-    description: "Click-to-drill — onSelectState / onSelectLink open a programmatic Drawer with the entity's detail (detail surfaces are host-owned; the flowchart stays a picture)",
-    fn: East.function([], UIComponentType, ($) => {
-        const StateRow = StructType({ code: StringType, name: StringType, phase: StringType });
-        const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, vol: FloatType, n: IntegerType });
-        const states = $.const(East.value([
-            { code: "RMI", name: "Raw intake", phase: "prep" },
-            { code: "CUT", name: "Cut blanks", phase: "prep" },
-            { code: "ASM", name: "Assembled", phase: "build" },
-            { code: "QAP", name: "QA passed", phase: "build" },
-        ], ArrayType(StateRow)));
-        const links = $.const(East.value([
-            { id: "r-c", src: "RMI", dst: "CUT", vol: 44.2, n: 1204n },
-            { id: "c-a", src: "CUT", dst: "ASM", vol: 43.1, n: 1181n },
-            { id: "a-q", src: "ASM", dst: "QAP", vol: 42.8, n: 1170n },
-        ], ArrayType(LinkRow)));
+        // --- click-to-drill: the same entities open a host-owned Drawer ---
         const onSelectLink = $.const(East.function([StringType], NullType, ($, key) => {
             const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));
             $(Drawer.open(East.value({
                 body: [
                     <VStack gap="3" align="stretch">
                         <Text textStyle="body-sm">{East.str`Volume ${row.vol} kt across ${row.n} transfers.`}</Text>
-                        <Meter value={row.vol} max={50.0} tone="success" label={<Text textStyle="caption" color="fg.muted">share of line cap</Text>} />
+                        <Meter value={row.vol} max={200.0} tone="success" label={<Text textStyle="caption" color="fg.muted">share of line cap</Text>} />
                     </VStack>,
                 ],
                 eyebrow: some("Transition"),
@@ -392,9 +324,13 @@ export const flowchartDrawerDetail = example({
         return (
             <Flowchart
                 states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-                links={links} link={l => ({ key: l.id, from: l.src, to: l.dst,
+                links={links}
+                link={l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
                     evidence: { volume: some(l.vol), count: some(l.n), unit: "kt" } })}
-                lanes={[{ key: "prep", label: "Prep" }, { key: "build", label: "Build" }]}
+                lanes={[{ key: "prep", label: "Prep" }, { key: "line", label: "Line" }, { key: "out", label: "Outbound" }]}
+                triggers={[{ id: "release", name: "release", who: "line-scheduler" }]}
+                trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
+                stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
                 onSelectLink={onSelectLink} onSelectState={onSelectState}
             />
         );

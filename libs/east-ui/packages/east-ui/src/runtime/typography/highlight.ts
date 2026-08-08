@@ -24,7 +24,7 @@ import { content, type ContentProps, type JsxTag } from "../combinators.js";
  * import { Highlight, UIComponentType } from "@elaraai/east-ui";
  *
  * const snippet = East.function([], UIComponentType, _$ => (
- *     <Highlight query={["TypeScript", "JavaScript"]} background="yellow.200">
+ *     <Highlight query={["TypeScript", "JavaScript"]} background="bg.warning.subtle">
  *         TypeScript is a typed superset of JavaScript
  *     </Highlight>
  * ));

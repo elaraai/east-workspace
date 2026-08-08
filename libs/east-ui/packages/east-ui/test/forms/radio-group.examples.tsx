@@ -3,9 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example } from "@elaraai/east";
+import { East, ArrayType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { RadioGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, RadioGroup, SegmentGroup, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Module-scope fixtures — the configurator's item set, with and without the
+// disabled item (items are host-level arrays at the factory boundary).
+// ============================================================================
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const radioGroupBasic = example({
     keywords: ["RadioGroup", "Root", "radio", "select", "single-select"],
@@ -25,89 +34,90 @@ export const radioGroupBasic = example({
     inputs: [],
 });
 
-export const radioGroupHorizontal = example({
-    keywords: ["RadioGroup", "orientation", "horizontal"],
-    description: "Horizontal radio group layout",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioGroup
-                value="small"
-                items={[
-                    { value: "small", label: "Small" },
-                    { value: "medium", label: "Medium" },
-                    { value: "large", label: "Large" },
-                ]}
-                orientation="horizontal"
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// RadioGroup — live configurator over every group axis
+// ============================================================================
 
-export const radioGroupDisabledItem = example({
-    keywords: ["RadioGroup", "disabled", "item"],
-    description: "Radio group with one disabled item",
+export const radioGroupVariants = example({
+    keywords: ["RadioGroup", "orientation", "horizontal", "disabled", "item", "fillColor", "borderColor", "color", "override", "SegmentGroup", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
+    description: "RadioGroup configurator — an orientation axis on one live State-bound group with a disabled item composed in",
     fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_GROUP_DISABLED_ITEM_DATA = [
+            { value: "small", label: "Small" },
+            { value: "medium", label: "Medium" },
+            { value: "large", label: "Large", disabled: true },
+        ];
         return (
-            <RadioGroup
-                value="active"
-                items={[
-                    { value: "active", label: "Active" },
-                    { value: "pending", label: "Pending" },
-                    { value: "archived", label: "Archived", disabled: true },
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const orientations = $.const([
+                    variant("vertical", null), variant("horizontal", null),
+                ], ArrayType(RadioGroup.Types.Orientation));
 
-export const radioGroupReactive = example({
-    keywords: ["RadioGroup", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive radio group bound to State — picking an option writes to State and re-renders",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const choiceBind = $.let(State.bind([StringType], "radio_choice", "small"));
-            const choice = $.let(choiceBind.read(), StringType);
-            const onChange = $.const(East.function([StringType], NullType, ($, next) => {
-                $(choiceBind.write(next));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <RadioGroup
-                        value={choice}
-                        items={[
-                            { value: "small", label: "Small" },
-                            { value: "medium", label: "Medium" },
-                            { value: "large", label: "Large" },
+                // Only colour needs a struct — the fill / border / label slots
+                // move together, with no single value to name them by. The
+                // `recipe` row carries empty slots because the preview drops
+                // the overrides entirely for it (below).
+
+                const orientationBind = $.let(State.bind([StringType], "radio_group_orientation", "vertical"));
+                const choiceBind      = $.let(State.bind([StringType], "radio_group_value", "small"));
+
+                const oKey        = $.let(orientationBind.read());
+                const choice      = $.let(choiceBind.read(), StringType);
+
+                const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+                const onChange      = $.const(East.function([StringType], NullType, ($, next) => { $(choiceBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const orientation = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
+
+                // items is a host-level array (build-time) — the disabled item
+                // composes into the ONE set permanently; the colour escape
+                // hatches live in their own example.
+                const group = $.const(
+                    <RadioGroup value={choice} items={RADIO_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange} />,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Orientation", oKey,
+                                <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
+                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Disabled spec row below rather than as one value.
                         ]}
-                        onChange={onChange}
+                        preview={group}
+                        aside={{
+                            label: "Selection · Reactive",
+                            body: <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${choice}`}</Text>,
+                        }}
+                        spec={[
+                            Configurator.Spec("Disabled", "large item"),
+                        ]}
                     />
-                    <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${choice}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
+                );
+            }}</Reactive>
+        );
+    }),
     inputs: [],
 });
 
-export const radioGroupColourOverrides = example({
-    keywords: ["RadioGroup", "fillColor", "borderColor", "color", "override"],
-    description: "Radio group with explicit colour escape hatches for fill / border / label text",
+/** Raw colour escape hatches on a static group. */
+export const radioGroupCustomColours = example({
+    keywords: ["RadioGroup", "fillColor", "borderColor", "color", "override", "custom"],
+    description: "Colour overrides — link fill and brand border on a static radio group",
     fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_GROUP_ITEMS_DATA = [
+            { value: "small", label: "Small" },
+            { value: "medium", label: "Medium" },
+            { value: "large", label: "Large" },
+        ];
         return (
-            <RadioGroup
-                value="low"
-                items={[
-                    { value: "low", label: "Low priority" },
-                    { value: "med", label: "Medium priority" },
-                    { value: "high", label: "High priority" },
-                ]}
-                fillColor="blue.600"
-                borderColor="blue.300"
-                color="gray.700"
-            />
-        );
+        <RadioGroup value="small" items={RADIO_GROUP_ITEMS_DATA} fillColor="link" borderColor="border.brand" color="fg.default" />
+    );
     }),
     inputs: [],
 });

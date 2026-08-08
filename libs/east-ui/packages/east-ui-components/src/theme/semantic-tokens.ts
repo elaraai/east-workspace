@@ -40,6 +40,72 @@ export const semanticTokens = defineSemanticTokens({
             focusRing:   { value: "{colors.brand.500}" },
         },
 
+        /* Valence palettes. The design system already names four valences
+         * (`--pos` / `--neg` / `--warn` / `--info` in tokens/colors.css) and
+         * exposes them as ink and surface tokens, but not as `colorPalette`s —
+         * so anything reaching for a status colour through `colorPalette` had
+         * to name a Chakra built-in (`"green"`, `"red"`, …) and got Tailwind's
+         * saturated hues instead of the muted document-print ones. These four
+         * close that gap: same values as `status.*`, same per-mode behaviour,
+         * addressable as `colorPalette="success"` and friends.
+         *
+         * Deliberately built from existing tokens only — no new colour enters
+         * the system here; `subtle`/`muted` are mixes of the same solid.
+         *
+         * They are NOT the `status.*Subtle` washes: those sit at 6-14% alpha
+         * because they back full-width banners, and on a chip-sized element
+         * (Avatar / Badge / Tag) every valence rendered as the same near-white.
+         * The mixes below are opaque and chip-legible while still muted. */
+        success: {
+            solid:      { value: "{colors.status.pos}" },
+            contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
+            fg:         { value: "{colors.status.pos}" },
+            muted:      { value: "color-mix(in srgb, {colors.status.pos} 22%, {colors.bg.surface})" },
+            subtle:     { value: "color-mix(in srgb, {colors.status.pos} 12%, {colors.bg.surface})" },
+            emphasized: { value: "{colors.status.pos}" },
+            focusRing:  { value: "{colors.status.pos}" },
+        },
+        danger: {
+            solid:      { value: "{colors.status.neg}" },
+            contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
+            fg:         { value: "{colors.status.neg}" },
+            muted:      { value: "color-mix(in srgb, {colors.status.neg} 22%, {colors.bg.surface})" },
+            subtle:     { value: "color-mix(in srgb, {colors.status.neg} 12%, {colors.bg.surface})" },
+            emphasized: { value: "{colors.status.neg}" },
+            focusRing:  { value: "{colors.status.neg}" },
+        },
+        warning: {
+            solid:      { value: "{colors.status.warn}" },
+            contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
+            fg:         { value: "{colors.status.warn}" },
+            muted:      { value: "color-mix(in srgb, {colors.status.warn} 22%, {colors.bg.surface})" },
+            subtle:     { value: "color-mix(in srgb, {colors.status.warn} 12%, {colors.bg.surface})" },
+            emphasized: { value: "{colors.status.warn}" },
+            focusRing:  { value: "{colors.status.warn}" },
+        },
+        info: {
+            solid:      { value: "{colors.status.info}" },
+            contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
+            fg:         { value: "{colors.status.info}" },
+            muted:      { value: "color-mix(in srgb, {colors.status.info} 22%, {colors.bg.surface})" },
+            subtle:     { value: "color-mix(in srgb, {colors.status.info} 12%, {colors.bg.surface})" },
+            emphasized: { value: "{colors.status.info}" },
+            focusRing:  { value: "{colors.status.info}" },
+        },
+        /* `neutral` — the "idle / inactive / unknown" valence named by
+         * `ColorSchemeType`. Chakra has no built-in palette of this name, so
+         * without this entry `colorPalette="neutral"` resolved to nothing.
+         * Built on the East cool green-gray scale. */
+        neutral: {
+            solid:      { value: { base: "{colors.gray.500}", _dark: "{colors.gray.400}" } },
+            contrast:   { value: { base: "{colors.white}",    _dark: "{colors.brand.900}" } },
+            fg:         { value: { base: "{colors.gray.600}", _dark: "{colors.gray.400}" } },
+            muted:      { value: { base: "{colors.gray.100}", _dark: "{colors.gray.700}" } },
+            subtle:     { value: { base: "{colors.gray.50}",  _dark: "{colors.gray.800}" } },
+            emphasized: { value: { base: "{colors.gray.700}", _dark: "{colors.gray.300}" } },
+            focusRing:  { value: "{colors.brand.500}" },
+        },
+
         /* ─── Mode-dependent scales (#362) ────────────────────
          *
          * These read like raw tokens (`{colors.brandTint}`,

@@ -5,20 +5,33 @@
 
 import { TreeView } from "../../src/collections/tree-view/index.js";
 import { describeEast as describe, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./tree-view.examples.js";
 
 describe("TreeView", (test) => {
     Assert.examples(test, {
-        treeViewFile: ex.treeViewFile,
-        treeViewIcons: ex.treeViewIcons,
-        treeViewOrg: ex.treeViewOrg,
-        treeViewSmall: ex.treeViewSmall,
-        treeViewSolid: ex.treeViewSolid,
-        treeViewExpanded: ex.treeViewExpanded,
-        treeViewInteractiveSelection: ex.treeViewInteractiveSelection,
-        treeViewInteractiveExpand: ex.treeViewInteractiveExpand,
-        treeViewOnFocusChange: ex.treeViewOnFocusChange,
-        treeViewColourOverrides: ex.treeViewColourOverrides,
+        treeViewBasic: ex.treeViewBasic,
+        treeViewVariants: ex.treeViewVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("treeViewVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tree-preset / size /
+        // variant / colour tables plus the default-expanded switch and the
+        // selection / expand / focus event-log aside — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the TreeView.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.treeViewVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -43,10 +56,10 @@ describe("TreeView", (test) => {
     });
 
     test("creates item with colored indicator", $ => {
-        const item = $.let(TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "blue.500" }));
+        const item = $.let(TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }));
 
         $(Assert.equal(item.unwrap().unwrap("Item").indicator.unwrap("some").name, "file-code"));
-        $(Assert.equal(item.unwrap().unwrap("Item").indicator.unwrap("some").style.unwrap("some").color.unwrap("some"), "blue.500"));
+        $(Assert.equal(item.unwrap().unwrap("Item").indicator.unwrap("some").style.unwrap("some").color.unwrap("some"), "link"));
     });
 
     // =========================================================================
@@ -77,9 +90,9 @@ describe("TreeView", (test) => {
     test("creates branch with colored indicator", $ => {
         const branch = $.let(TreeView.Branch("src", "src", [
             TreeView.Item("file1", "index.ts"),
-        ], { prefix: "fas", name: "folder", color: "yellow.500" }));
+        ], { prefix: "fas", name: "folder", color: "fg.warning" }));
 
-        $(Assert.equal(branch.unwrap().unwrap("Branch").indicator.unwrap("some").style.unwrap("some").color.unwrap("some"), "yellow.500"));
+        $(Assert.equal(branch.unwrap().unwrap("Branch").indicator.unwrap("some").style.unwrap("some").color.unwrap("some"), "fg.warning"));
     });
 
     test("creates disabled branch", $ => {
@@ -201,21 +214,21 @@ describe("TreeView", (test) => {
         const tree = $.let(TreeView.Root([
             TreeView.Item("file1", "index.ts"),
         ], {
-            itemColor: "gray.800",
-            itemHoverBackground: "gray.100",
-            selectedBackground: "blue.50",
-            selectedColor: "blue.900",
-            caretColor: "gray.500",
-            connectorColor: "gray.300",
+            itemColor: "fg.default",
+            itemHoverBackground: "bg.subtle",
+            selectedBackground: "bg.brand.subtle",
+            selectedColor: "link",
+            caretColor: "fg.muted",
+            connectorColor: "fg.muted",
         }));
 
         const style = tree.unwrap().unwrap("TreeView").style.unwrap("some");
-        $(Assert.equal(style.itemColor.unwrap("some"), "gray.800"));
-        $(Assert.equal(style.itemHoverBackground.unwrap("some"), "gray.100"));
-        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.50"));
-        $(Assert.equal(style.selectedColor.unwrap("some"), "blue.900"));
-        $(Assert.equal(style.caretColor.unwrap("some"), "gray.500"));
-        $(Assert.equal(style.connectorColor.unwrap("some"), "gray.300"));
+        $(Assert.equal(style.itemColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(style.itemHoverBackground.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.selectedColor.unwrap("some"), "link"));
+        $(Assert.equal(style.caretColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(style.connectorColor.unwrap("some"), "fg.muted"));
     });
 
     // =========================================================================
@@ -253,11 +266,11 @@ describe("TreeView", (test) => {
         const tree = $.let(TreeView.Root([
             TreeView.Branch("src", "src", [
                 TreeView.Branch("components", "components", [
-                    TreeView.Item("button", "Button.tsx", { prefix: "fas", name: "file-code", color: "blue.500" }),
-                    TreeView.Item("input", "Input.tsx", { prefix: "fas", name: "file-code", color: "blue.500" }),
-                ], { prefix: "fas", name: "folder", color: "yellow.500" }),
-                TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
-            ], { prefix: "fas", name: "folder", color: "yellow.500" }),
+                    TreeView.Item("button", "Button.tsx", { prefix: "fas", name: "file-code", color: "link" }),
+                    TreeView.Item("input", "Input.tsx", { prefix: "fas", name: "file-code", color: "link" }),
+                ], { prefix: "fas", name: "folder", color: "fg.warning" }),
+                TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
+            ], { prefix: "fas", name: "folder", color: "fg.warning" }),
             TreeView.Item("package", "package.json", { prefix: "far", name: "file" }),
             TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
         ], {

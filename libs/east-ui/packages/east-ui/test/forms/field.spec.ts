@@ -3,13 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Field } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./field.examples.js";
 
 describeEast("Field", (test) => {
     Assert.examples(test, {
         fieldBasic: ex.fieldBasic,
+        fieldVariants: ex.fieldVariants,
+    });
+
+    test("fieldVariants is the live configurator", $ => {
+        const panel = $.const(ex.fieldVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

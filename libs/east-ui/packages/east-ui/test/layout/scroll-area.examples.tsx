@@ -15,7 +15,7 @@ export const scrollAreaDriverList = example({
             <ScrollArea scrollbarStyle="overlay" orientation="vertical">
                 <VStack gap="1">
                     {Array.from({ length: 40 }, (_, i) => (
-                        <Box padding="2" borderColor="gray.100" borderWidth="thin"><Text>{`Driver ${i + 1}`}</Text></Box>
+                        <Box padding="2" borderColor="border.subtle" borderWidth="thin"><Text>{`Driver ${i + 1}`}</Text></Box>
                     ))}
                 </VStack>
             </ScrollArea>
@@ -29,9 +29,9 @@ export const scrollAreaTableInDrawer = example({
     description: "ScrollArea with both-axis scroll and reserved gutter (no layout shift)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box width="400px" height="200px" borderColor="gray.300" borderWidth="thin">
-                <ScrollArea scrollbarStyle="reserved" orientation="both" background="gray.50">
-                    <Box padding="3" width="1200px" background="white">
+            <Box width="400px" height="200px" borderColor="border.subtle" borderWidth="thin">
+                <ScrollArea scrollbarStyle="reserved" orientation="both" background="bg.subtle">
+                    <Box padding="3" width="1200px" background="bg.surface">
                         <Text>{"A wide block — ".repeat(20)}</Text>
                     </Box>
                 </ScrollArea>

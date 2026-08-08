@@ -3,17 +3,33 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Trace } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Trace, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./trace.examples.js";
 
 describeEast("Trace", (test) => {
     Assert.examples(test, {
         traceBasic: ex.traceBasic,
-        traceDensities: ex.traceDensities,
-        traceScales: ex.traceScales,
-        traceRagged: ex.traceRagged,
-        traceLabelWidth: ex.traceLabelWidth,
         traceWithChipRail: ex.traceWithChipRail,
+        traceVariants: ex.traceVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("traceVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the density / scale / future /
+        // now / label-width / dataset tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That puts
+        // the tables inside the Reactive body, which TestImpl does not execute,
+        // so they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-axis coverage
+        // lives in the Trace.Root tests below, which construct each value
+        // directly.
+        const panel = $.const(ex.traceVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -84,12 +100,12 @@ describeEast("Trace", (test) => {
 
     test("stores colour overrides", $ => {
         const trace = $.let(Trace.Root([{ name: "A", values: [1.0] }], {
-            brandColor: "purple.500",
-            nowLineColor: "gray.700",
+            brandColor: "accent.purple",
+            nowLineColor: "fg.default",
         }));
         const style = $.let(trace.unwrap().unwrap("Trace").style.unwrap("some"));
 
-        $(Assert.equal(style.brandColor.unwrap("some"), "purple.500"));
-        $(Assert.equal(style.nowLineColor.unwrap("some"), "gray.700"));
+        $(Assert.equal(style.brandColor.unwrap("some"), "accent.purple"));
+        $(Assert.equal(style.nowLineColor.unwrap("some"), "fg.default"));
     });
 }, { platformFns: TestImpl });

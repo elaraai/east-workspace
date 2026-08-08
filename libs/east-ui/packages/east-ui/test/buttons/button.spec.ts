@@ -5,20 +5,32 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Button, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./button.examples.js";
 
 describeEast("Button", (test) => {
     Assert.examples(test, {
         buttonBasic: ex.buttonBasic,
-        buttonSolidVariant: ex.buttonSolidVariant,
-        buttonDangerOutline: ex.buttonDangerOutline,
-        buttonReactiveCounter: ex.buttonReactiveCounter,
-        buttonWithIcons: ex.buttonWithIcons,
-        buttonLoading: ex.buttonLoading,
-        buttonRichLabel: ex.buttonRichLabel,
-        buttonGhost: ex.buttonGhost,
-        buttonPlain: ex.buttonPlain,
-        buttonBrandedColours: ex.buttonBrandedColours,
+        buttonVariants: ex.buttonVariants,
+        buttonCustomColours: ex.buttonCustomColours,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("buttonVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / palette / size /
+        // colour tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-variant coverage lives in the
+        // Button.Root tests below, which construct each variant directly.
+        const panel = $.const(ex.buttonVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -70,24 +82,24 @@ describeEast("Button", (test) => {
     // Color Palettes
     // =========================================================================
 
-    test("creates button with blue color palette", $ => {
-        const button = $.let(Button.Root("Blue", { colorPalette: "blue" }));
-        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+    test("creates button with brand color palette", $ => {
+        const button = $.let(Button.Root("Blue", { colorPalette: "brand" }));
+        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates button with red color palette", $ => {
-        const button = $.let(Button.Root("Red", { colorPalette: "red" }));
-        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
+    test("creates button with danger color palette", $ => {
+        const button = $.let(Button.Root("Red", { colorPalette: "danger" }));
+        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("danger"), true));
     });
 
-    test("creates button with green color palette", $ => {
-        const button = $.let(Button.Root("Green", { colorPalette: "green" }));
-        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+    test("creates button with success color palette", $ => {
+        const button = $.let(Button.Root("Green", { colorPalette: "success" }));
+        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     test("creates button with Style.ColorScheme helper", $ => {
-        const button = $.let(Button.Root("Teal", { colorPalette: Style.ColorScheme("teal") }));
-        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("teal"), true));
+        const button = $.let(Button.Root("Teal", { colorPalette: Style.ColorScheme("brand") }));
+        $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -176,17 +188,17 @@ describeEast("Button", (test) => {
     // =========================================================================
 
     test("creates button with color escape hatch", $ => {
-        const button = $.let(Button.Root("Branded", { color: "#1a2234", background: "#e7efff" }));
+        const button = $.let(Button.Root("Branded", { color: "fg.default", background: "bg.brand.subtle" }));
         const s = button.unwrap().unwrap("Button").style.unwrap("some");
-        $(Assert.equal(s.color.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.background.unwrap("some"), "#e7efff"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.brand.subtle"));
     });
 
     test("creates button with borderColor + hoverBackground", $ => {
-        const button = $.let(Button.Root("Hover me", { borderColor: "#3d5cff", hoverBackground: "#1f362d" }));
+        const button = $.let(Button.Root("Hover me", { borderColor: "border.brand", hoverBackground: "bg.emphasized" }));
         const s = button.unwrap().unwrap("Button").style.unwrap("some");
-        $(Assert.equal(s.borderColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.hoverBackground.unwrap("some"), "#1f362d"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(s.hoverBackground.unwrap("some"), "bg.emphasized"));
     });
 
     // =========================================================================
@@ -198,7 +210,7 @@ describeEast("Button", (test) => {
             loading: false,
             disabled: false,
             variant: "solid",
-            colorPalette: "blue",
+            colorPalette: "brand",
             size: "md",
         }));
         const b = button.unwrap().unwrap("Button");
@@ -206,7 +218,7 @@ describeEast("Button", (test) => {
         $(Assert.equal(b.disabled.unwrap("some"), false));
         const s = b.style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
     });
 

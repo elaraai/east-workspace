@@ -5,18 +5,33 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Accordion, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./accordion.examples.js";
 
 describeEast("Accordion", (test) => {
     Assert.examples(test, {
         accordionBasic: ex.accordionBasic,
-        accordionMultiple: ex.accordionMultiple,
-        accordionCollapsible: ex.accordionCollapsible,
-        accordionFaq: ex.accordionFaq,
-        accordionInteractive: ex.accordionInteractive,
-        accordionGridTrigger: ex.accordionGridTrigger,
-        accordionReactiveMulti: ex.accordionReactiveMulti,
+        accordionVariants: ex.accordionVariants,
     });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("accordionVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the content-preset table and the
+        // multiple / collapsible switches — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the Accordion.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.accordionVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
 
     // =========================================================================
     // Accordion.Item — title + optional meta
@@ -191,19 +206,19 @@ describeEast("Accordion", (test) => {
             Accordion.Item("item", "Section", [Text.Root("Content")]),
         ], {
             size: "lg",
-            background: "#ffffff",
-            borderColor: "#e5e7eb",
-            triggerBackground: "#f9fafb",
-            triggerHoverBackground: "#eef2ff",
-            contentBackground: "#ffffff",
+            background: "bg.surface",
+            borderColor: "border.subtle",
+            triggerBackground: "bg.canvas",
+            triggerHoverBackground: "bg.brand.subtle",
+            contentBackground: "bg.surface",
         }));
         const s = accordion.unwrap().unwrap("Accordion").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("lg"), true));
-        $(Assert.equal(s.background.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.triggerBackground.unwrap("some"), "#f9fafb"));
-        $(Assert.equal(s.triggerHoverBackground.unwrap("some"), "#eef2ff"));
-        $(Assert.equal(s.contentBackground.unwrap("some"), "#ffffff"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.subtle"));
+        $(Assert.equal(s.triggerBackground.unwrap("some"), "bg.canvas"));
+        $(Assert.equal(s.triggerHoverBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(s.contentBackground.unwrap("some"), "bg.surface"));
     });
 
     // =========================================================================

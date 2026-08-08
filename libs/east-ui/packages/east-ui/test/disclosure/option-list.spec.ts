@@ -91,17 +91,17 @@ describeEast("OptionList", (test) => {
 
     test("creates list with colour slots", $ => {
         const list = $.let(OptionList.Root([OptionList.Option("a", "A")], {
-            itemColor: "#111827",
-            itemHoverBackground: "#f8fafc",
-            selectedBackground: "#eef2ff",
-            borderColor: "#e5e7eb",
-            impactColor: "#dc2626",
+            itemColor: "fg.default",
+            itemHoverBackground: "bg.canvas",
+            selectedBackground: "bg.brand.subtle",
+            borderColor: "border.subtle",
+            impactColor: "fg.danger",
         }));
         const s = list.unwrap().unwrap("OptionList").style.unwrap("some");
-        $(Assert.equal(s.itemColor.unwrap("some"), "#111827"));
-        $(Assert.equal(s.itemHoverBackground.unwrap("some"), "#f8fafc"));
-        $(Assert.equal(s.selectedBackground.unwrap("some"), "#eef2ff"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.impactColor.unwrap("some"), "#dc2626"));
+        $(Assert.equal(s.itemColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.itemHoverBackground.unwrap("some"), "bg.canvas"));
+        $(Assert.equal(s.selectedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.subtle"));
+        $(Assert.equal(s.impactColor.unwrap("some"), "fg.danger"));
     });
 }, { platformFns: TestImpl });

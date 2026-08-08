@@ -41,12 +41,10 @@ overlays); flat backgrounds, no gradients/imagery; dashed border = ephemeral/
 stale/partial (never decorative); hover darkens a border or steps bg to
 `--paper-3` — never lift/scale; one `primary` button per surface.
 
-## Composition: 8 atoms, invent the rest — inside the East vocabulary
+## Composition: tokens + rendered truth
 
-Actions → `Button`, filter/scope tokens → `Chip`, state → `Status` (dot +
-uppercase mono word — NEVER a tinted badge), change → `DeltaPill`, named
-facts → `Tag`, shortcuts → `Kbd`, notices → `Banner`, people → `Avatar`.
-Larger patterns are deliberately not shipped as code — build them fresh
+No components ship as code. For any component's real appearance, read its
+rendered example grid in `components/rendered/<category>/`. Build mocks fresh
 following the guidelines (they carry exact dimensions): app frame /
 sidebar / app-bar densities / commit bar → `guidelines/app-layout.md`;
 tables, forms, tabs, menus, dialogs, chips → `guidelines/base-components.md`;
@@ -61,33 +59,10 @@ hex is a violation; toggle dark; check numerals are mono tabular).
 production tag for each pattern — keep that vocabulary and anatomy so every
 mock translates 1:1; don't invent interaction idioms outside it.
 
-## Idiomatic snippet
-
-```jsx
-<div style={{ background: 'var(--paper)', border: '1px solid var(--rule-strong)',
-              borderRadius: 10, padding: 18 }}>
-  <div style={{ display: 'flex', alignItems: 'baseline', gap: 18,
-                borderBottom: '1px solid var(--rule)', paddingBottom: 10 }}>
-    <span style={{ fontFamily: 'var(--font-brand)', fontSize: 20,
-                   fontWeight: 600, letterSpacing: '-0.01em' }}>Roster plan</span>
-    <Tag k="horizon" v="14d" />
-    <Status level="ok">Reconciled</Status>
-    <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)',
-                   fontFeatureSettings: '"tnum" 1', fontSize: 26, fontWeight: 600 }}>
-      92.4%</span>
-    <DeltaPill dir="up">+1.6 pts</DeltaPill>
-  </div>
-  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 12 }}>
-    <Button>Discard</Button>
-    <Button variant="commit">Commit changes</Button>
-  </div>
-</div>
-```
-
-(Component loading follows this README's own Usage section; the atoms are
-the bundle's exports.)
-
 Where the truth lives: `styles.css` → `tokens/*.css` (every token above),
 `guidelines/guidelines/component-rules.md` (the compliance checklist),
 `guidelines/guidelines/{app-layout,base-components,charts}.md` (anatomy +
-exact dimensions + production tag mapping), per-component `.prompt.md`.
+exact dimensions + production tag mapping) and `components/rendered/<category>/*.html` — RENDERED example grids
+(one per component, "Components · <Category>" picker groups; produced by
+the production renderer + theme — the ground truth for how every
+`@elaraai/east-ui` component actually looks).

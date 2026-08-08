@@ -30,9 +30,9 @@ import type { ContainerChildrenType } from "../children.js";
  *
  * const slideshow = East.function([], UIComponentType, _$ => (
  *     <Carousel loop={true} showControls={true} showIndicators={true}>
- *         <Box padding="8" background="green.100"><Text>First</Text></Box>
- *         <Box padding="8" background="orange.100"><Text>Second</Text></Box>
- *         <Box padding="8" background="pink.100"><Text>Third</Text></Box>
+ *         <Box padding="8" background="bg.success.subtle"><Text>First</Text></Box>
+ *         <Box padding="8" background="bg.warning.subtle"><Text>Second</Text></Box>
+ *         <Box padding="8" background="bg.subtle"><Text>Third</Text></Box>
  *     </Carousel>
  * ));
  * ```

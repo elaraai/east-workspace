@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Link, Reactive, VStack, HStack, Text } from "@elaraai/east-ui";
+import { Button, Configurator, Link, SegmentGroup, Switch, VStack, HStack, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const linkBasic = example({
     keywords: ["Link", "Root", "basic", "hyperlink"],
@@ -16,92 +20,93 @@ export const linkBasic = example({
     inputs: [],
 });
 
-export const linkExternal = example({
-    keywords: ["Link", "Root", "external", "new tab"],
-    description: "Opens in new tab",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Link href="https://github.com" external>Visit GitHub</Link>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Link — live configurator over every style axis
+// ============================================================================
 
-export const linkUnderline = example({
-    keywords: ["Link", "Root", "variant", "underline"],
-    description: "Link with underline decoration",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Link href="/about" variant="underline">Underlined Link</Link>;
-    }),
-    inputs: [],
-});
-
-export const linkPlain = example({
-    keywords: ["Link", "Root", "variant", "plain"],
-    description: "Link without decoration",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Link href="/contact" variant="plain">Plain Link</Link>;
-    }),
-    inputs: [],
-});
-
-export const linkColors = example({
-    keywords: ["Link", "Root", "colorPalette", "blue", "teal", "purple", "red"],
-    description: "Links with different colors",
+export const linkVariants = example({
+    keywords: ["Link", "Root", "external", "new tab", "variant", "underline", "plain", "colorPalette", "blue", "teal", "purple", "red", "inline", "context", "text", "combined", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Link configurator — variant and palette axes plus external / in-context switches driving one live link; the aside relabels a reactive link from a counter",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="4">
-                <Link href="/page" colorPalette="blue">Blue</Link>
-                <Link href="/page" colorPalette="teal">Teal</Link>
-                <Link href="/page" colorPalette="purple">Purple</Link>
-                <Link href="/page" colorPalette="red">Red</Link>
-            </HStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step. The spec-default look is the absence of
+                // `variant`, not a value of it, so the axis carries one extra
+                // key beyond the variant table.
+                const variants = $.const([
+                    variant("underline", null), variant("plain", null),
+                ], ArrayType(Link.Types.Variant));
+
+                // A palette is just its name, so the axis is a bare array of
+                // the value itself.
+                const palettes = $.const(["brand", "danger", "gray"], ArrayType(StringType));
+
+                const variantBind = $.let(State.bind([StringType], "link_variant", "underline"));
+                const paletteBind = $.let(State.bind([StringType], "link_palette", "brand"));
+                const extBind     = $.let(State.bind([BooleanType], "link_external", false));
+                const counter     = $.let(State.bind([IntegerType], "link_counter", 0n));
+
+                const vKey  = $.let(variantBind.read());
+                const pKey  = $.let(paletteBind.read());
+                const ext   = $.let(extBind.read());
+                const count = $.let(counter.read());
+
+                const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onPalette  = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
+                const onExternal = $.const(East.function([BooleanType], NullType, ($, next) => { $(extBind.write(next)); }));
+                const inc        = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
+
+                // ONE link — the variant feeds as an expression and the
+                // running-sentence placement composes on permanently.
+                const linkVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const palette = $.let(palettes.filter((_$, s) => s.equal(pKey)).get(0n));
+                const preview = $.const(
+                    <HStack gap="1">
+                        <Text>{"Read the "}</Text>
+                        <Link href="https://docs.example.com" external={ext} colorPalette={palette} variant={linkVariant}>documentation</Link>
+                        <Text>{" for more info."}</Text>
+                    </HStack>,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Variant", vKey,
+                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Palette", pKey,
+                                <SegmentGroup value={pKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the two switches report as
+                            // the Target / Placement spec rows below rather than
+                            // as one value.
+                            Configurator.Slot("Behaviour",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={ext} label="External" onChange={onExternal} />
+                                </HStack>),
+                        ]}
+                        preview={preview}
+                        aside={{
+                            label: "Bump · Reactive",
+                            body: (
+                                <VStack gap="3" align="stretch">
+                                    <Link href="https://example.com" external>{East.str`Visited ${East.print(count)} times — click here`}</Link>
+                                    <Button size="xs" onClick={inc}>Bump label</Button>
+                                </VStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Target", ext.ifElse(_$ => "new tab · noopener", _$ => "same tab")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
-    inputs: [],
-});
-
-export const linkInContext = example({
-    keywords: ["Link", "Root", "inline", "context", "text"],
-    description: "Link within text flow",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="1">
-                <Text>{"Read the "}</Text>
-                <Link href="/docs" colorPalette="blue">documentation</Link>
-                <Text>{" for more info."}</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const linkCombined = example({
-    keywords: ["Link", "Root", "combined", "external", "variant", "colorPalette"],
-    description: "External link with all options",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Link href="https://docs.example.com" external variant="underline" colorPalette="blue">View Documentation</Link>;
-    }),
-    inputs: [],
-});
-
-export const linkInteractive = example({
-    keywords: ["Link", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive link whose label updates from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "link_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Text>Click the button to relabel the link:</Text>
-                    <Link href="https://example.com" external>{East.str`Visited ${East.print(value)} times — click here`}</Link>
-                    <Button onClick={increment}>Bump label</Button>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

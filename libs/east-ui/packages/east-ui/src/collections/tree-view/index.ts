@@ -270,7 +270,7 @@ function buildIndicatorValue(indicator?: TreeNodeIndicator) {
  * const example = East.function([], UIComponentType, $ => {
  *     return TreeView.Root([
  *         TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
- *         TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
+ *         TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
  *     ]);
  * });
  * ```
@@ -309,7 +309,7 @@ function createTreeItem(
  *                 TreeView.Item("button", "Button.tsx"),
  *             ]),
  *             TreeView.Item("index", "index.ts"),
- *         ], { prefix: "fas", name: "folder", color: "yellow.500" }),
+ *         ], { prefix: "fas", name: "folder", color: "fg.warning" }),
  *     ]);
  * });
  * ```
@@ -511,7 +511,7 @@ export const TreeView: TreeViewNamespace = {
      * const example = East.function([], UIComponentType, $ => {
      *     return TreeView.Root([
      *         TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
-     *         TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
+     *         TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
      *     ]);
      * });
      * ```
@@ -539,7 +539,7 @@ export const TreeView: TreeViewNamespace = {
      *                 TreeView.Item("button", "Button.tsx"),
      *             ]),
      *             TreeView.Item("index", "index.ts"),
-     *         ], { prefix: "fas", name: "folder", color: "yellow.500" }),
+     *         ], { prefix: "fas", name: "folder", color: "fg.warning" }),
      *     ]);
      * });
      * ```

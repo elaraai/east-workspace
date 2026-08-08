@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Heading, Reactive, VStack } from "@elaraai/east-ui";
+import { Button, Configurator, Heading, HStack, SegmentGroup, Select, Style, Switch, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const headingBasic = example({
     keywords: ["Heading", "Root", "basic"],
@@ -16,128 +20,130 @@ export const headingBasic = example({
     inputs: [],
 });
 
-export const headingStandardSizes = example({
-    keywords: ["Heading", "Root", "textStyle", "heading-xs", "heading-sm", "heading-md", "heading-lg"],
-    description: "Heading textStyles xs through lg",
+// ============================================================================
+// Heading — live configurator over every style axis
+// ============================================================================
+
+export const headingVariants = example({
+    keywords: ["Heading", "Root", "textStyle", "heading-xs", "heading-sm", "heading-md", "heading-lg", "display-sm", "display-md", "display-lg", "display-xl", "as", "h1", "h2", "h3", "h4", "semantic", "color", "blue", "green", "purple", "textAlign", "left", "center", "right", "combined", "background", "hero", "coloured-band", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Heading configurator — text-style, level, colour and align axes plus a background-band switch driving one live heading; the aside counts clicks into a reactive heading",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <VStack gap="2" align="flex-start">
-                <Heading textStyle="heading-xs">Extra Small (heading-xs)</Heading>
-                <Heading textStyle="heading-sm">Small (heading-sm)</Heading>
-                <Heading textStyle="heading-md">Medium (heading-md)</Heading>
-                <Heading textStyle="heading-lg">Large (heading-lg)</Heading>
-            </VStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step. The text-style ramp spans the heading scale AND
+                // the display scale, so both families sit on one axis.
+                const scales = $.const([
+                    variant("heading-xs", null), variant("heading-sm", null),
+                    variant("heading-md", null), variant("heading-lg", null),
+                    variant("display-sm", null), variant("display-md", null),
+                    variant("display-lg", null), variant("display-xl", null),
+                ], ArrayType(Style.Types.TextStyle));
+
+                const levels = $.const([
+                    variant("h1", null), variant("h2", null), variant("h3", null),
+                    variant("h4", null), variant("h5", null), variant("h6", null),
+                ], ArrayType(Heading.Types.As));
+
+                const aligns = $.const([
+                    variant("left", null), variant("center", null), variant("right", null),
+                ], ArrayType(Style.Types.TextAlign));
+
+                // Only colour needs a struct — an ink token is too long to name
+                // its own segment, so the label rides beside it.
+                const inks = $.const([
+                    { label: "default", ink: "fg.default" },
+                    { label: "link",    ink: "link" },
+                    { label: "success", ink: "fg.success" },
+                    { label: "purple",  ink: "accent.purple" },
+                ], ArrayType(StructType({ label: StringType, ink: StringType })));
+
+                const scaleBind = $.let(State.bind([StringType], "heading_textstyle", "heading-lg"));
+                const levelBind = $.let(State.bind([StringType], "heading_level", "h2"));
+                const colorBind = $.let(State.bind([StringType], "heading_color", "default"));
+                const alignBind = $.let(State.bind([StringType], "heading_align", "left"));
+                const bandBind  = $.let(State.bind([BooleanType], "heading_band", false));
+                const counter   = $.let(State.bind([IntegerType], "heading_counter", 0n));
+
+                const sKey  = $.let(scaleBind.read());
+                const lKey  = $.let(levelBind.read());
+                const cKey  = $.let(colorBind.read());
+                const aKey  = $.let(alignBind.read());
+                const band  = $.let(bandBind.read());
+                const count = $.let(counter.read());
+
+                const onScale = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
+                const onLevel = $.const(East.function([StringType], NullType, ($, next) => { $(levelBind.write(next)); }));
+                const onColor = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
+                const onAlign = $.const(East.function([StringType], NullType, ($, next) => { $(alignBind.write(next)); }));
+                const onBand  = $.const(East.function([BooleanType], NullType, ($, next) => { $(bandBind.write(next)); }));
+                const inc     = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const scale = $.let(scales.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const level = $.let(levels.filter((_$, v) => v.getTag().equal(lKey)).get(0n));
+                const ink = $.let(inks.filter((_$, o) => o.label.equal(cKey)).get(0n));
+                const align = $.let(aligns.filter((_$, v) => v.getTag().equal(aKey)).get(0n));
+
+                // The band is a hero treatment — background and padding move
+                // together, so the switch swaps both at once.
+                const bg  = $.let(band.ifElse(_$ => "bg.brand.subtle", _$ => "transparent"));
+                const pad = $.let(band.ifElse(_$ => "4", _$ => "0"));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Text style", sKey,
+                                <Select value={sKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Level", lKey,
+                                <Select value={lKey} onChange={onLevel} size="sm"
+                                    items={levels.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Colour", cKey,
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={inks.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Align", aKey,
+                                <SegmentGroup value={aKey} onChange={onAlign} size="sm"
+                                    items={aligns.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Band spec row below rather than as one value.
+                            Configurator.Slot("Band",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={band} label="Hero band" onChange={onBand} />
+                                </HStack>),
+                        ]}
+                        preview={
+                            <Heading
+                                as={level}
+                                textStyle={scale}
+                                color={ink.ink}
+                                textAlign={align}
+                                background={bg}
+                                padding={{ top: some(pad), right: some(pad), bottom: some(pad), left: some(pad) }}
+                            >
+                                Welcome to East UI
+                            </Heading>
+                        }
+                        aside={{
+                            label: "Count · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Heading textStyle="heading-sm">{East.str`Click count: ${East.print(count)}`}</Heading>
+                                    <Button size="xs" onClick={inc}>Click me</Button>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Band", band.ifElse(_$ => "bg.brand.subtle · padded", _$ => "off")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
-    inputs: [],
-});
-
-export const headingExtendedSizes = example({
-    keywords: ["Heading", "Root", "textStyle", "display-sm", "display-md", "display-lg", "display-xl"],
-    description: "Display textStyles for large page titles",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Heading textStyle="display-sm">Display Small</Heading>
-                <Heading textStyle="display-md">Display Medium</Heading>
-                <Heading textStyle="display-lg">Display Large</Heading>
-                <Heading textStyle="display-xl">Display Extra Large</Heading>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const headingSemanticLevels = example({
-    keywords: ["Heading", "Root", "as", "h1", "h2", "h3", "h4", "semantic"],
-    description: "HTML heading elements h1-h6",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Heading as="h1" textStyle="display-xl">H1 - Main Title</Heading>
-                <Heading as="h2" textStyle="heading-lg">H2 - Section</Heading>
-                <Heading as="h3" textStyle="heading-md">H3 - Subsection</Heading>
-                <Heading as="h4" textStyle="heading-sm">H4 - Minor</Heading>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const headingColored = example({
-    keywords: ["Heading", "Root", "color", "blue", "green", "purple"],
-    description: "Headings with different colors",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Heading textStyle="heading-lg" color="blue.600">Blue Heading</Heading>
-                <Heading textStyle="heading-lg" color="green.600">Green Heading</Heading>
-                <Heading textStyle="heading-lg" color="purple.600">Purple Heading</Heading>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const headingAlignment = example({
-    keywords: ["Heading", "Root", "textAlign", "left", "center", "right"],
-    description: "Left, center, and right aligned",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="stretch">
-                <Heading textStyle="heading-md" textAlign="left">Left Aligned</Heading>
-                <Heading textStyle="heading-md" textAlign="center">Center Aligned</Heading>
-                <Heading textStyle="heading-md" textAlign="right">Right Aligned</Heading>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const headingCombined = example({
-    keywords: ["Heading", "Root", "combined", "textStyle", "as", "color", "textAlign"],
-    description: "Page title with all options",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Heading as="h1" textStyle="display-md" color="gray.800" textAlign="center">
-                Welcome to East UI
-            </Heading>
-        );
-    }),
-    inputs: [],
-});
-
-export const headingBackground = example({
-    keywords: ["Heading", "Root", "background", "hero", "coloured-band"],
-    description: "Hero heading with a coloured background band",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Heading as="h2" textStyle="display-sm" color="blue.900" background="blue.50" textAlign="center" padding="4">
-                Platform Overview
-            </Heading>
-        );
-    }),
-    inputs: [],
-});
-
-export const headingInteractive = example({
-    keywords: ["Heading", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive heading whose text updates from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "heading_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Heading textStyle="heading-lg">{East.str`Click count: ${East.print(value)}`}</Heading>
-                    <Button onClick={increment}>Click me</Button>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

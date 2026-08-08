@@ -27,7 +27,7 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     Stack.HStack(
                         [
                             Text.Root("Dashboard"),
-                            Badge.Root("Live", { colorPalette: "green", variant: "solid" }),
+                            Badge.Root("Live", { colorPalette: "success", variant: "solid" }),
                         ],
                         { gap: "2" }
                     ),
@@ -57,8 +57,8 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     // Tags row
                     Stack.HStack(
                         [
-                            Tag.Root("Analytics", { colorPalette: "blue" }),
-                            Tag.Root("Reports", { colorPalette: "purple" }),
+                            Tag.Root("Analytics", { colorPalette: "brand" }),
+                            Tag.Root("Reports", { colorPalette: "brand" }),
                             Tag.Root("Settings", { colorPalette: "gray" }),
                         ],
                         { gap: "2" }
@@ -68,7 +68,7 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     { gap: "4" }
                 )
             ],
-            { padding: Box.Padding({ top: "6", right: "6", bottom: "6", left: "6" }), background: "white" }
+            { padding: Box.Padding({ top: "6", right: "6", bottom: "6", left: "6" }), background: "bg.surface" }
         ), UIComponentType);
     });
 }, {   platformFns: TestImpl,});

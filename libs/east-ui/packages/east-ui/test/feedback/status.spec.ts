@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Status, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./status.examples.js";
 
 describeEast("Status", (test) => {
     Assert.examples(test, {
         statusBasic: ex.statusBasic,
-        statusPulsing: ex.statusPulsing,
-        statusRichLabel: ex.statusRichLabel,
-        statusCustomIcon: ex.statusCustomIcon,
+        statusVariants: ex.statusVariants,
+    });
+
+    test("statusVariants is the live configurator", $ => {
+        const panel = $.const(ex.statusVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -95,16 +100,16 @@ describeEast("Status", (test) => {
         const s = $.let(Status.Root({ label: "T",
             value: "success",
             size: "sm",
-            color: "#111827",
-            background: "#f0fdf4",
-            borderColor: "#bbf7d0",
-            dotColor: "#16a34a",
+            color: "fg.default",
+            background: "bg.success.subtle",
+            borderColor: "status.pos",
+            dotColor: "fg.success",
         }));
         const sv = s.unwrap().unwrap("Status").style.unwrap("some");
         $(Assert.equal(sv.size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(sv.color.unwrap("some"), "#111827"));
-        $(Assert.equal(sv.background.unwrap("some"), "#f0fdf4"));
-        $(Assert.equal(sv.borderColor.unwrap("some"), "#bbf7d0"));
-        $(Assert.equal(sv.dotColor.unwrap("some"), "#16a34a"));
+        $(Assert.equal(sv.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(sv.background.unwrap("some"), "bg.success.subtle"));
+        $(Assert.equal(sv.borderColor.unwrap("some"), "status.pos"));
+        $(Assert.equal(sv.dotColor.unwrap("some"), "fg.success"));
     });
 }, { platformFns: TestImpl });

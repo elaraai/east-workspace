@@ -986,6 +986,9 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     // fills the remainder (`fillParent`) — otherwise a percentage / `fill`
     // height would resolve against the auto-height wrapper and silently unbind,
     // leaving every row rendered instead of the visible window.
+    // `width: 100%`: the virtualized rows are absolutely positioned, so the
+    // wrapper has NO intrinsic width — in a shrink-to-fit context (flex/grid
+    // centering) it would collapse to the scrollbar gutter.
     const heightCss = parseCssSize(height);
     const maxHeightCss = parseCssSize(maxHeight);
     const frameFills = heightCss !== undefined || maxHeightCss !== undefined;
@@ -1009,6 +1012,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                 display: "flex",
                 flexDirection: "column",
                 minHeight: 0,
+                width: "100%",
                 height: heightCss,
                 maxHeight: maxHeightCss,
             })}

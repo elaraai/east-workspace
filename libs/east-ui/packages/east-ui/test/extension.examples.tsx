@@ -48,7 +48,7 @@ export const counterInsideStack = example({
         return (
             <VStack gap="3">
                 <Text>Today’s stats</Text>
-                <Counter label="Visits" value={42n} accent={some("#488e97")} />
+                <Counter label="Visits" value={42n} accent={some("brand.500")} />
                 <Counter label="Conversions" value={7n} accent={none} />
             </VStack>
         );

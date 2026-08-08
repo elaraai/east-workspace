@@ -84,7 +84,7 @@ export type BoxType = typeof BoxType;
  *         Text.Root("Hello"),
  *     ], {
  *         padding: "4",
- *         background: "gray.100",
+ *         background: "bg.subtle",
  *     });
  * });
  * ```
@@ -290,7 +290,7 @@ export const Box = {
      *         Text.Root("Hello"),
      *     ], {
      *         padding: "4",
-     *         background: "gray.100",
+     *         background: "bg.subtle",
      *     });
      * });
      * ```

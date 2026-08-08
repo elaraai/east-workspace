@@ -11,7 +11,7 @@
  *
  * Run: pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-collections.ts
  */
-import { chromium } from "playwright";
+import { launchChromium } from "../../../scripts/snapshot-capture.mts";
 import { createServer } from "vite";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,31 +19,18 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HARNESS_ROOT = path.resolve(__dirname, "../snapshot");
 
+// Consolidated example targets (#458): the one-prop-per-example names merged
+// into `*Variants` panels; each panel's Separator group labels are the stable
+// per-group selector anchors.
 const TABLE_EXAMPLES = [
-    "tableBasic", "tableCustomHeaders", "tableStriped", "tableInteractive",
-    "tableWithBadge", "tableFullStyled", "tableComplexColumns",
-    "tableColumnRenderWithRow", "tableWrappingTags", "tableInteractiveCallbacks",
-    "tableCustomHeight", "tableFrozenColumns", "tableRowStatus", "tableWithFooter",
-    "tableColumnGroups", "tableReactivePagination", "tableReactiveSelection",
-    "tableExpandedContent", "tableDensityCompact", "tableColourOverrides",
-    "tableExpandedRichDetail", "tableMultiRowFooter", "tableNestedColumnGroups",
-    "tablePaginationServerSide", "tableMultiSelection", "tableRangeSelection",
-    "tableDensityComfortable",
+    "tableBasic", "tableRichColumns", "tableVariants",
 ];
 
 const TARGETS: ReadonlyArray<{ file: string; example: string }> = [
     ...TABLE_EXAMPLES.map(example => ({ file: "collections/table", example })),
-    { file: "collections/gantt",   example: "ganttWithProgress" },
-    { file: "collections/gantt",   example: "ganttWithMilestones" },
-    { file: "collections/gantt",   example: "ganttColorful" },
-    { file: "collections/gantt",   example: "ganttAxisWindow" },
-    { file: "collections/gantt",   example: "ganttAxisQuarterTier" },
-    { file: "collections/gantt",   example: "ganttAxisWeekTier" },
+    { file: "collections/gantt",   example: "ganttVariants" },
     { file: "collections/planner", example: "plannerPoint" },
-    { file: "collections/planner", example: "plannerBuckets" },
-    { file: "collections/planner", example: "plannerEventStates" },
-    { file: "collections/planner", example: "plannerColumns" },
-    { file: "collections/planner", example: "plannerMarkers" },
+    { file: "collections/planner", example: "plannerVariants" },
 ];
 
 async function main() {
@@ -54,7 +41,7 @@ async function main() {
     const baseUrl = `http://127.0.0.1:${port}`;
     console.log(`probing collections at ${baseUrl}`);
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await launchChromium({ headless: true });
     const ctx = await browser.newContext({ viewport: { width: 1120, height: 560 } });
     const page = await ctx.newPage();
     page.on("pageerror", err => console.log("[pageerror]", err.message));

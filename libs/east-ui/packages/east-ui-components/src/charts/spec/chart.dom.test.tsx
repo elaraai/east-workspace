@@ -393,7 +393,7 @@ const barNode = (data: ReturnType<typeof series>[], opts: { stackId?: string } =
     });
 
 const ruleNode = (axis: "x" | "y", at: string) =>
-    variant("rule", { axis: variant(axis, null), at, stroke: "gray.500", dashArray: none });
+    variant("rule", { axis: variant(axis, null), at, stroke: "border.strong", dashArray: none });
 
 const gridNode = (tag: "gridRows" | "gridColumns") =>
     variant(tag, { numTicks: none, dashArray: none });

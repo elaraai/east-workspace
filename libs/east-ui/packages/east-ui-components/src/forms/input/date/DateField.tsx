@@ -37,7 +37,7 @@ function DateSegment({ segment, state }: DateSegmentProps) {
                 textAlign: 'end',
                 padding: '0 2px',
                 borderRadius: '3px',
-                backgroundColor: segment.isPlaceholder ? '#f0f0f0' : 'transparent',
+                backgroundColor: segment.isPlaceholder ? '#f1f5f5' : 'transparent',
                 outline: 'none',
                 color: segment.isPlaceholder ? '#666' : 'black'
             }}

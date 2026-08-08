@@ -28,7 +28,7 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  *             <Avatar name="John Doe" size="lg" />
  *             <VStack gap="1" align="flex-start">
  *                 <Text fontWeight="semibold">John Doe</Text>
- *                 <Text textStyle="body-sm" color="gray.500">Software Engineer</Text>
+ *                 <Text textStyle="body-sm" color="fg.muted">Software Engineer</Text>
  *             </VStack>
  *         </HStack>
  *     </HoverCard>

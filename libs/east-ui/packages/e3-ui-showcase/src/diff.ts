@@ -39,7 +39,7 @@ const {
     minOrderQtyInput,
     currencyCodeInput,
     // pricing rules — also reused by density-variant examples
-    // (`pricingRulesEditorCompact`, `pricingRulesEditorCondensed`)
+    // (`diffEditorVariants` — PRICING RULES COMPACT / CONDENSED rows)
     // collection-shape editors
     featureFlagsInput,
     regionalPricesInput,
@@ -51,7 +51,7 @@ const {
     regionalPricesPatchInput,
     rosterPatchInput,
     // overlay-mode patch input that DEFAULTS to a non-trivial stale patch
-    // (used by `regionalPricingOverlayDrift` to demonstrate the drifted-patch
+    // (used by `diffOverlayVariants`'s REGIONAL PRICING OVERLAY DRIFT row to demonstrate the drifted-patch
     // case in the Diff card).
     regionalPricesDriftPatchInput,
 } = examples;

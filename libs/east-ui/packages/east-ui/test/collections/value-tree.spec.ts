@@ -26,8 +26,9 @@ import {
     some,
     none,
     variant,
+    type ExprType,
 } from "@elaraai/east";
-import { ValueTree } from "@elaraai/east-ui";
+import { UIComponentType, ValueTree } from "@elaraai/east-ui";
 
 import * as ex from "./value-tree.examples.js";
 
@@ -40,16 +41,21 @@ const ListType = RecursiveType(self => VariantType({
 describeEast("ValueTree", (test) => {
     Assert.examples(test, {
         valueTreeBasic: ex.valueTreeBasic,
-        valueTreeDictOfStructs: ex.valueTreeDictOfStructs,
-        valueTreeEditable: ex.valueTreeEditable,
+        valueTreeInspect: ex.valueTreeInspect,
+        valueTreeVariants: ex.valueTreeVariants,
         valueTreeScoped: ex.valueTreeScoped,
-        valueTreeCollections: ex.valueTreeCollections,
-        valueTreeRawPaths: ex.valueTreeRawPaths,
-        valueTreeKitchenSink: ex.valueTreeKitchenSink,
-        valueTreeKitchenSinkEditable: ex.valueTreeKitchenSinkEditable,
-        valueTreeVirtualized: ex.valueTreeVirtualized,
-        valueTreeFillsBoundedParent: ex.valueTreeFillsBoundedParent,
-        valueTreeControls: ex.valueTreeControls,
+        valueTreePaths: ex.valueTreePaths,
+    });
+
+    test("valueTreeVariants is the live configurator", $ => {
+        // The mode arms (read / edit / scoped / collections / paths / sink /
+        // virtualized / fill) live inside the Reactive body, which TestImpl
+        // does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The materialization coverage lives in the ValueTree.Root
+        // tests below, which construct each node kind directly.
+        const panel = $.const(ex.valueTreeVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // ------------------------------------------------------------------
@@ -142,19 +148,19 @@ describeEast("ValueTree", (test) => {
     });
 
     test("struct dict keys mint canonical key text and · -joined labels", $ => {
-        const LegKey = StructType({ tank: StringType, vintage: IntegerType });
+        const MachineKey = StructType({ machine: StringType, shift: IntegerType });
         const value = $.const(new Map([
-            [{ tank: "DC4B", vintage: 2024n }, 1980n],
-            [{ tank: "DC2E", vintage: 2025n }, 1200n],
-        ]), DictType(LegKey, IntegerType));
+            [{ machine: "press", shift: 2n }, 1980n],
+            [{ machine: "mill", shift: 1n }, 1200n],
+        ]), DictType(MachineKey, IntegerType));
         const ui = $.let(ValueTree.Root(value));
         const dict = $.let(ui.unwrap().unwrap("ValueTree").root.unwrap().unwrap("dict"));
         // `key` is the canonical East print (identity, round-trippable);
         // `label` is the display join.
-        $(Assert.equal(dict.entries.get(0n).key, "(tank=\"DC2E\", vintage=2025)"));
-        $(Assert.equal(dict.entries.get(0n).label, "DC2E · 2025"));
-        $(Assert.equal(dict.entries.get(1n).key, "(tank=\"DC4B\", vintage=2024)"));
-        $(Assert.equal(dict.entries.get(1n).label, "DC4B · 2024"));
+        $(Assert.equal(dict.entries.get(0n).key, "(machine=\"mill\", shift=1)"));
+        $(Assert.equal(dict.entries.get(0n).label, "mill · 1"));
+        $(Assert.equal(dict.entries.get(1n).key, "(machine=\"press\", shift=2)"));
+        $(Assert.equal(dict.entries.get(1n).label, "press · 2"));
     });
 
     test("materializes empty collections with zero children", $ => {
@@ -375,11 +381,11 @@ describeEast("ValueTree", (test) => {
     });
 
     test("struct-keyed dict values edit through the printed key step", $ => {
-        const LegKey = StructType({ tank: StringType, vintage: IntegerType });
-        const T = DictType(LegKey, StructType({ litres: IntegerType }));
+        const MachineKey = StructType({ machine: StringType, shift: IntegerType });
+        const T = DictType(MachineKey, StructType({ units: IntegerType }));
         const data = $.let(new Map([
-            [{ tank: "DC4B", vintage: 2024n }, { litres: 1980n }],
-            [{ tank: "DC2E", vintage: 2025n }, { litres: 1200n }],
+            [{ machine: "press", shift: 2n }, { units: 1980n }],
+            [{ machine: "mill", shift: 1n }, { units: 1200n }],
         ]), T);
         const captured = $.let(new Map(), DictType(StringType, T));
         const onUpdate = $.const(East.function([T], NullType, ($h, next) => {
@@ -388,10 +394,10 @@ describeEast("ValueTree", (test) => {
         const ui = $.let(ValueTree.Root(data, { onUpdate }));
         const edit = $.let(ui.unwrap().unwrap("ValueTree").onEdit.unwrap("some"));
         $(edit.call(
-            [variant("key", "(tank=\"DC4B\", vintage=2024)"), variant("field", "litres")],
+            [variant("key", "(machine=\"press\", shift=2)"), variant("field", "units")],
             variant("integer", 2000n)));
-        $(Assert.equal(captured.get("root").get({ tank: "DC4B", vintage: 2024n }).litres, 2000n));
-        $(Assert.equal(captured.get("root").get({ tank: "DC2E", vintage: 2025n }).litres, 1200n));
+        $(Assert.equal(captured.get("root").get({ machine: "press", shift: 2n }).units, 2000n));
+        $(Assert.equal(captured.get("root").get({ machine: "mill", shift: 1n }).units, 1200n));
         $(Assert.equal(captured.get("root").size(), 2n));
     });
 

@@ -53,7 +53,7 @@ export const Stack: JsxTag<ContainerProps<typeof StackFactory.Root>> & { Types: 
  * import { VStack, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const stacked = East.function([], UIComponentType, _$ => (
- *     <VStack gap="3" align="stretch" padding="4" background="green.50">
+ *     <VStack gap="3" align="stretch" padding="4" background="bg.success.subtle">
  *         <Text>Full width item 1</Text>
  *         <Text>Full width item 2</Text>
  *     </VStack>

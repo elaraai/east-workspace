@@ -56,10 +56,10 @@ function HighlightedLine({
             <span
                 key={`m${idx}`}
                 style={{
-                    backgroundColor: isCurrent ? '#f59e0b' : '#fbbf24',
-                    color: '#000',
+                    backgroundColor: isCurrent ? 'var(--chakra-colors-status-warn)' : 'var(--chakra-colors-status-warn-subtle-strong)',
+                    color: 'var(--chakra-colors-fg-default)',
                     borderRadius: '2px',
-                    outline: isCurrent ? '2px solid #f59e0b' : undefined,
+                    outline: isCurrent ? '2px solid var(--chakra-colors-status-warn)' : undefined,
                 }}
             >
                 {text.slice(match.start, match.end)}
@@ -247,7 +247,7 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
             <Flex
                 px={3}
                 py={2}
-                bg="gray.800"
+                bg="bg.inverse"
                 borderTopRadius="md"
                 align="center"
                 justify="space-between"
@@ -256,10 +256,10 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
             >
                 <Tabs.RootProvider value={tabs} size="sm" variant="line">
                     <Tabs.List borderBottom="none">
-                        <Tabs.Trigger value="stdout" color="gray.300" _selected={{ color: 'white' }}>
+                        <Tabs.Trigger value="stdout" color="fg.subtle" _selected={{ color: 'fg.inverse' }}>
                             stdout
                         </Tabs.Trigger>
-                        <Tabs.Trigger value="stderr" color="gray.300" _selected={{ color: 'white' }}>
+                        <Tabs.Trigger value="stderr" color="fg.subtle" _selected={{ color: 'fg.inverse' }}>
                             stderr
                         </Tabs.Trigger>
                     </Tabs.List>
@@ -273,14 +273,14 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={handleSearchKeyDown}
-                        bg="gray.700"
+                        bg="bg.inverse"
                         border="none"
-                        color="white"
-                        _placeholder={{ color: 'gray.400' }}
+                        color="fg.inverse"
+                        _placeholder={{ color: 'fg.subtle' }}
                         width="min(150px, 40vw)"
                     />
                     {searchQuery && (
-                        <Text fontSize="xs" color="gray.400" minWidth="50px" textAlign="center">
+                        <Text fontSize="xs" color="fg.subtle" minWidth="50px" textAlign="center">
                             {matches.length > 0 ? `${currentMatchIndex + 1}/${matches.length}` : '0/0'}
                         </Text>
                     )}
@@ -288,8 +288,8 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         variant="ghost"
                         size="xs"
                         onClick={handlePrevMatch}
-                        color="gray.400"
-                        _hover={{ color: 'white' }}
+                        color="fg.subtle"
+                        _hover={{ color: 'fg.inverse' }}
                         aria-label="Previous match"
                         disabled={matches.length === 0}
                     >
@@ -299,8 +299,8 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         variant="ghost"
                         size="xs"
                         onClick={handleNextMatch}
-                        color="gray.400"
-                        _hover={{ color: 'white' }}
+                        color="fg.subtle"
+                        _hover={{ color: 'fg.inverse' }}
                         aria-label="Next match"
                         disabled={matches.length === 0}
                     >
@@ -310,8 +310,8 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         variant="ghost"
                         size="xs"
                         onClick={handleCopy}
-                        color="gray.400"
-                        _hover={{ color: 'white' }}
+                        color="fg.subtle"
+                        _hover={{ color: 'fg.inverse' }}
                         aria-label="Copy logs"
                     >
                         <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
@@ -330,7 +330,7 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                     borderTopWidth="0"
                     fontFamily="mono"
                     fontSize="sm"
-                    color="gray.100"
+                    color="fg.inverse"
                     onScroll={handleScroll}
                 >
                 <div
@@ -357,10 +357,10 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                                     transform: `translateY(${virtualItem.start}px)`,
                                 }}
                             >
-                                <Flex px={3} py={0.5} _hover={{ bg: 'gray.800' }}>
+                                <Flex px={3} py={0.5} _hover={{ bg: 'bg.inverse' }}>
                                     <Text
                                         as="span"
-                                        color="gray.500"
+                                        color="fg.muted"
                                         minWidth="50px"
                                         textAlign="right"
                                         mr={3}

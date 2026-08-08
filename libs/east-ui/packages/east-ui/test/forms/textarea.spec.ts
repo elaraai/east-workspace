@@ -3,16 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Textarea, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./textarea.examples.js";
 
 describeEast("Textarea", (test) => {
     Assert.examples(test, {
         textareaBasic: ex.textareaBasic,
-        textareaInteractive: ex.textareaInteractive,
-        textareaOnFocusBlur: ex.textareaOnFocusBlur,
-        textareaOnValidate: ex.textareaOnValidate,
+        textareaVariants: ex.textareaVariants,
+    });
+
+    test("textareaVariants is the live configurator", $ => {
+        const panel = $.const(ex.textareaVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -199,14 +204,14 @@ describeEast("Textarea", (test) => {
         const textarea = $.let(Textarea.Root("", {
             color: "fg",
             background: "bg.subtle",
-            borderColor: "blue.300",
-            focusBorderColor: "blue.500",
+            borderColor: "border.brand",
+            focusBorderColor: "border.brand",
         }));
         const style = $.let(textarea.unwrap().unwrap("Textarea").style.unwrap("some"));
         $(Assert.equal(style.color.unwrap("some"), "fg"));
         $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
-        $(Assert.equal(style.focusBorderColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.focusBorderColor.unwrap("some"), "border.brand"));
     });
 
     // =========================================================================

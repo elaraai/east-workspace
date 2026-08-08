@@ -45,6 +45,7 @@ import { AlignedGutterType, PlotGutterType } from "./shared/plot-gutter.js";
 import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
+import { ConfiguratorStyleType, ConfiguratorSpecType } from "./layout/configurator/types.js";
 import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
 import { ExpandableStyleType } from "./layout/expandable/types.js";
 import { DockStyleType } from "./layout/dock/types.js";
@@ -442,6 +443,37 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         })),
         defaultSize: ArrayType(FloatType),
         style: OptionType(SplitterStyleType),
+    }),
+
+    /**
+     * Configurator — a labelled control table beside a live preview and a
+     * derived spec readout. The canonical shape for "change a prop, watch the
+     * component react" surfaces: property inspectors, settings panels, and the
+     * `<name>Configurator` example slot.
+     *
+     * `controls` is the single source of truth — each row renders its control
+     * AND contributes its `value` to the spec column, so the two can never
+     * disagree. `spec` carries extra derived rows for state that has no control
+     * row of its own (a value computed from two switches, say). See
+     * `layout/configurator/`.
+     */
+    Configurator: StructType({
+        controls: ArrayType(StructType({
+            label: StringType,
+            /** Current value, shown in the spec column. `none` omits the row. */
+            value: OptionType(StringType),
+            control: node,
+            /** Secondary annotation rendered beside the control. */
+            hint: OptionType(StringType),
+        })),
+        preview: node,
+        /** Marks the preview as live-updating (renders the LIVE pip). */
+        live: BooleanType,
+        /** Optional secondary panel under the preview (label + body). */
+        aside: OptionType(StructType({ label: StringType, body: node })),
+        /** Extra spec rows appended after the ones derived from `controls`. */
+        spec: ArrayType(ConfiguratorSpecType),
+        style: OptionType(ConfiguratorStyleType),
     }),
 
     /**

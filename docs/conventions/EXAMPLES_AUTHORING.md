@@ -235,3 +235,118 @@ These rules layer on top of the above for east-ui examples:
 6. Add `assert.examples(test, { key: ex.key, ... })` calls before each
    related test section.
 7. Run `make build && make test` to verify.
+
+---
+
+## 8. Consolidation: the five example slots (east-ui / e3-ui)
+
+Examples serve three masters — the plugin search index, visual
+demonstration (showcase / rendered captures / goldens), and the
+examples↔tests contract — and none of them require one-prop-per-example
+granularity. UI example files stay small by construction: a component's
+examples file may contain ONLY the following slots, each at most once
+unless a slot is justified per-feature. (Files with fewer than 5
+examples are under the slot budget already and are exempt.)
+
+### The five example slots per component (keep-rules)
+
+1. **`<name>Basic`** — smallest meaningful usage; the search-index
+   front door.
+2. **`<name>Variants`** — ONE variant-space example, in one of two
+   forms:
+   - **A live `<Configurator>` surface** — the preferred form for
+     style-axis components. TWO HARD RULES: (1) a configurator drives
+     exactly ONE live target instance — every axis feeds that instance
+     as an expression (an empty height/maxHeight string reads as
+     unbounded, selection modes are variants inside their structs, data
+     presets travel as explicitly-typed structs, children/labels are
+     values, and paired callbacks dual-attach); anything presence-typed
+     or build-time that cannot feed the one instance becomes its OWN
+     example (a `*CustomColours` static, a split configurator, or the
+     richest composition) — never a second target behind an axis. (2)
+     every example `fn` is fully self-contained — all data, types and
+     helpers live inside the fn body (the extracted snippet must be
+     complete, copy-pasteable code; no module-scope fixtures). Axes are
+     plain arrays of the values themselves (`getTag()` supplies the key
+     and label), one `State.bind` per axis; switch pairs report through
+     `Slot` + `Spec` rows and reactive counters live in the `aside`.
+     Data-preset structs carrying variant-typed fields MUST pin their
+     types explicitly (element-wise inference fails to unify at decode).
+     The control widget matches the axis: `SegmentGroup` for 2–3
+     short non-binary options, `Select` for 4+ or wordier enumerations,
+     `Input.Integer` / `Input.Float` / `Slider` for numeric props, and
+     `Switch` for booleans. Exemplar: `collections/table.examples.tsx`
+     (`tableVariants`).
+   - **A static enumeration panel** (`VStack` of
+     `<Separator label>`-bounded groups) ONLY where seeing every row at
+     once is the point — the aligned-stack catalogue
+     (`alignedStackAll`), the slice-effect pair (`schematicSlice`) and
+     the slice rails. Everything else — status grammars, event/lifecycle
+     grammars, data-shape enumerations, canvas-content variants, sizing
+     contracts — is a configurator axis (a preset/data axis swaps whole
+     fixtures or component subtrees; `fill`/`scroll` are presets): see
+     `plannerVariants`, `ganttVariants`, `bannerStatusVariants`,
+     `mapOverlayVariants`, `schematicVariants`, `columnBarVariants`.
+     Control lanes carry controls ONLY — no hint strings, no caption
+     `Text` beside switches; scope notes live in short label
+     parentheticals (`"Movable (move)"`).
+3. **`<name>Configurator`** — a SEPARATE interactive combo-configurator
+   only when a behavioral space needs its own surface beside the
+   Variants slot (exemplar: `schematicInteractions`). A probe-referenced name that becomes a configurator
+   keeps its name so the probe stays valid; probes that need a specific
+   combination on screen retarget in the same PR.
+4. **`<name><Behavior>`** — one example per behavioral contract needing
+   isolation: DnD flows, review chrome, slice binding, deep-linking,
+   overlay stacking. Anything referenced by name from
+   `east-ui-components/scripts/probe-*.ts`, `snapshot.ts`, or
+   `east-ui-showcase/tests/responsive/*` stays isolated (or the
+   referencing script is updated in the same PR — never silently
+   broken).
+5. **`<name>Stress`** — perf/scale demonstrations (virtualized rows,
+   500-unit schematic). Keep.
+
+### Panel construction
+
+A panel (Variants slot, or any merged multi-row example) is a
+`VStack gap='4'` of labelled groups: each merged example contributes a
+`<Separator label="GROUP LABEL" align="start" />` boundary followed by
+its render tree, verbatim. Separator coerces the string label to the
+caption style AND draws a hairline, so a section boundary never reads
+like the content's own field labels (a hand-rolled caption `Text` is
+typographically identical to field labels — don't use one). All data
+fixtures are hoisted to module scope as `SCREAMING_SNAKE` consts (no TS
+helper calls inside East bodies — east#990020). Every merged example's
+rendering remains individually visible in the capture.
+
+### Keyword-union rule
+
+When examples merge, the surviving example's `keywords` = the **union**
+of all merged examples' keywords (dedup, order: component, feature
+terms, synonyms), and its `description` must enumerate the covered
+features in prose ("variants solid/outline/ghost/plain; sizes sm–lg;
+loading, disabled, icons"). Search findability lives in
+keywords/description, not example count — no capability term may be
+dropped.
+
+### Visual-guard rule
+
+Any combination that must stay visually regression-guarded may not hide
+behind a switch — it belongs in a static Variants panel row (always
+rendered, always captured) or keeps its own example.
+
+### Uniform cascade per consolidation PR
+
+1. Rewrite the sibling `*.spec.ts` (it imports every example by name —
+   the examples↔tests contract).
+2. Update any probe/golden references (probe/golden-coupled export
+   names are frozen or explicitly retargeted — never silently broken).
+3. `make test && make lint` in `libs/east-ui` (East diagnostics live —
+   no TS helper calls inside East bodies, east#990020).
+4. Re-bank responsive goldens if the component is in the catalog
+   (`make test-responsive-bank`, review diff).
+5. Regenerate the plugin search index (`plugin-artifacts` workflow) —
+   **coordinate before touching** per root CLAUDE.md (skills/index are
+   plugin-facing).
+6. Regenerate rendered design captures (`make east-ui-examples-html-all`
+   + `node scripts/design-example-cards.mjs`) — consolidations improve
+   the per-component card.

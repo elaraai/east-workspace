@@ -3,17 +3,32 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ChipRail, Tag } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { ChipRail, Tag, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./chip-rail.examples.js";
 
 describeEast("ChipRail", (test) => {
     Assert.examples(test, {
         chipRailBasic: ex.chipRailBasic,
-        chipRailDots: ex.chipRailDots,
-        chipRailMixed: ex.chipRailMixed,
-        chipRailLabeled: ex.chipRailLabeled,
-        chipRailDensities: ex.chipRailDensities,
         chipRailOverflow: ex.chipRailOverflow,
+        chipRailVariants: ex.chipRailVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("chipRailVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the chip-set / density / separator
+        // tables — is declared inside the example body, because the documentation
+        // capture only extracts `fn`. That puts the tables inside the Reactive
+        // body, which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-axis coverage lives in the ChipRail.Root tests below,
+        // which construct each density / separator / labels case directly.
+        const panel = $.const(ex.chipRailVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -125,14 +140,14 @@ describeEast("ChipRail", (test) => {
 
     test("creates a chip rail with all style hatches", $ => {
         const rail = $.let(ChipRail.Root([Tag.Root("A")], {
-            background: "gray.50",
-            separatorColor: "gray.200",
-            overflowTriggerColor: "gray.600",
+            background: "bg.subtle",
+            separatorColor: "fg.muted",
+            overflowTriggerColor: "fg.muted",
         }));
 
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.hasTag("some"), true));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").background.unwrap("some"), "gray.50"));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").separatorColor.unwrap("some"), "gray.200"));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").overflowTriggerColor.unwrap("some"), "gray.600"));
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").separatorColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.unwrap("some").overflowTriggerColor.unwrap("some"), "fg.muted"));
     });
 }, { platformFns: TestImpl });

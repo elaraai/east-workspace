@@ -4,21 +4,42 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Stack, Text, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./stack.examples.js";
 
 describeEast("Stack", (test) => {
     Assert.examples(test, {
-        stackBasicVStack: ex.stackBasicVStack,
-        stackBasicHStack: ex.stackBasicHStack,
-        stackJustifiedHStack: ex.stackJustifiedHStack,
-        stackCentered: ex.stackCentered,
-        stackWrapping: ex.stackWrapping,
-        stackStretched: ex.stackStretched,
-        stackNested: ex.stackNested,
-        stackNavbar: ex.stackNavbar,
-        stackDensityCascade: ex.stackDensityCascade,
+        stackBasic: ex.stackBasic,
+        stackVariants: ex.stackVariants,
         stackFillScroll: ex.stackFillScroll,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("stackBasic panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.stackBasic.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BASIC V STACK"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "BASIC H STACK"));
+    });
+
+    test("stackVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the direction / justify / align /
+        // density / content tables — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-prop coverage
+        // lives in the Stack.Root tests below, which construct each style
+        // directly.
+        const panel = $.const(ex.stackVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -117,11 +138,11 @@ describeEast("Stack", (test) => {
 
     test("creates stack with background", $ => {
         const stack = $.let(Stack.Root([], {
-            background: "gray.100",
+            background: "bg.subtle",
         }));
 
         $(Assert.equal(stack.unwrap().unwrap("Stack").style.unwrap("some").background.hasTag("some"), true));
-        $(Assert.equal(stack.unwrap().unwrap("Stack").style.unwrap("some").background.unwrap("some"), "gray.100"));
+        $(Assert.equal(stack.unwrap().unwrap("Stack").style.unwrap("some").background.unwrap("some"), "bg.subtle"));
     });
 
     // =========================================================================
@@ -145,7 +166,7 @@ describeEast("Stack", (test) => {
             align: 'center',
             justify: 'space-between',
             padding: "2",
-            background: "gray.50",
+            background: "bg.subtle",
         }));
 
         const style = $.let(stack.unwrap().unwrap("Stack").style.unwrap("some"));
@@ -154,7 +175,7 @@ describeEast("Stack", (test) => {
         $(Assert.equal(style.align.unwrap("some").hasTag("center"), true));
         $(Assert.equal(style.justify.unwrap("some").hasTag("space-between"), true));
         $(Assert.equal(style.padding.unwrap("some").top.unwrap("some"), "2"));
-        $(Assert.equal(style.background.unwrap("some"), "gray.50"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
         // Other styles should be none
         $(Assert.equal(style.wrap.hasTag("none"), true));
         $(Assert.equal(style.margin.hasTag("none"), true));
@@ -311,7 +332,7 @@ describeEast("Stack", (test) => {
             align: Style.AlignItems("center"),
             justify: Style.JustifyContent("space-between"),
             padding: Stack.Padding({ top: "4", right: "4", bottom: "4", left: "4" }),
-            background: "white",
+            background: "bg.surface",
         }));
 
         $(Assert.equal(navBar.unwrap().unwrap("Stack").children.size(), 3n));

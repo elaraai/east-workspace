@@ -21,7 +21,7 @@ import {
     East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,
     NullType, IntegerType, some, none, variant, example,
 } from '@elaraai/east';
-import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';
+import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';
 import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
@@ -305,132 +305,110 @@ export const decisionQueueJudgement = example({
     inputs: [],
 });
 
-export const decisionQueueFacets = example({
-    keywords: ['DecisionQueue', 'facets', 'evidence', 'judgement', 'include', 'reduced'],
-    description: 'A reduced facet set — only Evidence and Judgement tabs show (Options hidden via the facets include-list)',
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Reactive>{$ => {
-                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                const urgent = $.let(decisions.read().firstMap(($, d) =>
-                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
-                return (
-                    <DecisionQueue
-                        handle={handle}
-                        heading="Decisions waiting"
-                        defaultExpanded={urgent}
-                        facets={["evidence", "judgement"]}
-                    />
-                );
-            }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-export const decisionQueueValueAxis = example({
-    keywords: ['DecisionQueue', 'valueAxis', 'signed', 'label', 'horizon', 'uplift', 'non-benefit'],
-    description: 'A non-benefit headline — the press-ETA case carries a valueAxis ("Day", signed:false) so its value reads as a plain magnitude, not a green signed "Uplift"',
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Reactive>{$ => {
-                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                const eta = $.let(decisions.read().firstMap(($, d) =>
-                    East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));
-                return (
-                    <DecisionQueue
-                        handle={handle}
-                        heading="Decisions waiting"
-                        defaultExpanded={eta}
-                    />
-                );
-            }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
 // ============================================================================
-// 3. Options facet open — the ranked stack with zero-anchored bars.
+// 3. Facet variants panel — the reduced facet include-list, the non-benefit
+//    valueAxis headline, and the Options facet open (the ranked stack with
+//    zero-anchored bars).
 // ============================================================================
 
-export const decisionQueueOptions = example({
-    keywords: ['DecisionQueue', 'Decide', 'options', 'alternatives', 'ranked', 'bars'],
-    description: 'The Options facet — the recommendation and its alternatives ranked by uplift, downside and uplift bars sharing a zero anchor',
+export const decisionQueueFacetVariants = example({
+    keywords: ['DecisionQueue', 'facets', 'evidence', 'judgement', 'include', 'reduced', 'valueAxis', 'signed', 'label', 'horizon', 'uplift', 'non-benefit', 'Decide', 'options', 'alternatives', 'ranked', 'bars'],
+    description: 'Facet variant panel — FACETS: a reduced facet set, only Evidence and Judgement tabs show (Options hidden via the facets include-list); VALUE AXIS: a non-benefit headline — the press-ETA case carries a valueAxis ("Day", signed:false) so its value reads as a plain magnitude, not a green signed "Uplift"; OPTIONS: the Options facet — the recommendation and its alternatives ranked by uplift, downside and uplift bars sharing a zero anchor',
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Reactive>{$ => {
-                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                const urgent = $.let(decisions.read().firstMap(($, d) =>
-                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
-                return (
-                    <DecisionQueue
-                        handle={handle}
-                        heading="Decisions waiting"
-                        defaultExpanded={urgent}
-                        defaultFacet="options"
-                    />
-                );
-            }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// 4. Narrow rail — the queue constrained to a ~360px container: rows wrap
-//    to two lines, the facet toggles become a full-width segment, Apply /
-//    Reject drop to their own line, and the Options facet stacks.
-// ============================================================================
-
-export const decisionQueueNarrow = example({
-    keywords: ['DecisionQueue', 'Decide', 'narrow', 'rail', 'responsive', 'wrap'],
-    description: 'The narrow variant — the same queue in a ~360px rail: two-line rows, full-width facet segment, stacked Options facet',
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Reactive>{$ => {
-                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                const urgent = $.let(decisions.read().firstMap(($, d) =>
-                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
-                return (
-                    <Box width="360px">
+            <VStack gap="4" align="stretch">
+                <Separator label="FACETS" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const urgent = $.let(decisions.read().firstMap(($, d) =>
+                        d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                    return (
+                        <DecisionQueue
+                            handle={handle}
+                            heading="Decisions waiting"
+                            defaultExpanded={urgent}
+                            facets={["evidence", "judgement"]}
+                        />
+                    );
+                }}</Reactive>
+                <Separator label="VALUE AXIS" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const eta = $.let(decisions.read().firstMap(($, d) =>
+                        East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));
+                    return (
+                        <DecisionQueue
+                            handle={handle}
+                            heading="Decisions waiting"
+                            defaultExpanded={eta}
+                        />
+                    );
+                }}</Reactive>
+                <Separator label="OPTIONS" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const urgent = $.let(decisions.read().firstMap(($, d) =>
+                        d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                    return (
                         <DecisionQueue
                             handle={handle}
                             heading="Decisions waiting"
                             defaultExpanded={urgent}
                             defaultFacet="options"
                         />
-                    </Box>
-                );
-            }}</Reactive>
+                    );
+                }}</Reactive>
+            </VStack>
         );
     }),
     inputs: [],
 });
 
 // ============================================================================
-// 5. Capped height — `maxHeight` pins the header and scrolls the rows.
+// 4. Sizing panel — the queue constrained to a ~360px rail (rows wrap to two
+//    lines, the facet toggles become a full-width segment, Apply / Reject
+//    drop to their own line, and the Options facet stacks) and capped with
+//    `maxHeight` (the header pins while the rows scroll).
 // ============================================================================
 
-export const decisionQueueScroll = example({
-    keywords: ['DecisionQueue', 'Decide', 'maxHeight', 'scroll', 'overflow'],
-    description: 'Queue capped with maxHeight — the header stays pinned while the rows scroll',
+export const decisionQueueSizing = example({
+    keywords: ['DecisionQueue', 'Decide', 'narrow', 'rail', 'responsive', 'wrap', 'maxHeight', 'scroll', 'overflow'],
+    description: 'Sizing panel — NARROW: the same queue in a ~360px rail with two-line rows, full-width facet segment, stacked Options facet; SCROLL: the queue capped with maxHeight — the header stays pinned while the rows scroll',
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Reactive>{$ => {
-                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
-                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                return <DecisionQueue handle={handle} heading="Decisions waiting" maxHeight="220px" />;
-            }}</Reactive>
+            <VStack gap="4" align="stretch">
+                <Separator label="NARROW" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    const urgent = $.let(decisions.read().firstMap(($, d) =>
+                        d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                    return (
+                        <Box width="360px">
+                            <DecisionQueue
+                                handle={handle}
+                                heading="Decisions waiting"
+                                defaultExpanded={urgent}
+                                defaultFacet="options"
+                            />
+                        </Box>
+                    );
+                }}</Reactive>
+                <Separator label="SCROLL" align="start" />
+                <Reactive>{$ => {
+                    const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                    const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                    const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                    return <DecisionQueue handle={handle} heading="Decisions waiting" maxHeight="220px" />;
+                }}</Reactive>
+            </VStack>
         );
     }),
     inputs: [],
@@ -438,7 +416,7 @@ export const decisionQueueScroll = example({
 
 
 // ============================================================================
-// 7. The author-owned slice — an ordinary `Slice.bind` over the decision
+// 5. The author-owned slice — an ordinary `Slice.bind` over the decision
 //    envelope (rows = `handle.queue()`, the Table pattern), seeded with an
 //    initial kind filter; pass the handle as the queue's `slice` option to
 //    mount the rail. The same seed with NO rail mounted is an invisible
@@ -477,7 +455,7 @@ export const decisionQueueSlice = example({
 
 
 // ============================================================================
-// 8. Grouped queue — `groupBy` mounts the Group-by toolbar (built-in Urgency /
+// 6. Grouped queue — `groupBy` mounts the Group-by toolbar (built-in Urgency /
 //    Kind / None plus the custom `groups` accessors); sections collapse with a
 //    Collapse-all control, and the urgency grouping's Routine section ships
 //    collapsed hosting the bulk Accept all.

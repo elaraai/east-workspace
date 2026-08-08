@@ -4,26 +4,34 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Card, Text, Button } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./card.examples.js";
 
 describeEast("Card", (test) => {
     Assert.examples(test, {
         cardBasic: ex.cardBasic,
-        cardHeader: ex.cardHeader,
-        cardHeaderTitle: ex.cardHeaderTitle,
-        cardFooter: ex.cardFooter,
-        cardDimensions: ex.cardDimensions,
-        cardFlush: ex.cardFlush,
-        cardFlexible: ex.cardFlexible,
-        cardMultiple: ex.cardMultiple,
-        cardWithCompoundHeader: ex.cardWithCompoundHeader,
-        cardLoading: ex.cardLoading,
-        cardEmpty: ex.cardEmpty,
-        cardError: ex.cardError,
-        cardPermissionDenied: ex.cardPermissionDenied,
-        cardWithSections: ex.cardWithSections,
-        cardFillBody: ex.cardFillBody,
+        cardVariants: ex.cardVariants,
+        cardHeaderForms: ex.cardHeaderForms,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("cardVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the header / body / sizing /
+        // runtime-state tables and the prebuilt slot combinations — is declared
+        // inside the example body, because the documentation capture only
+        // extracts `fn`. That puts the tables inside the Reactive body, which
+        // TestImpl does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Card.Root tests below,
+        // which construct each form directly.
+        const panel = $.const(ex.cardVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

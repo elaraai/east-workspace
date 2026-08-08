@@ -5,20 +5,33 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Tabs, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./tabs.examples.js";
 
 describeEast("Tabs", (test) => {
     Assert.examples(test, {
         tabsBasic: ex.tabsBasic,
-        tabsLine: ex.tabsLine,
-        tabsFitted: ex.tabsFitted,
-        tabsSizes: ex.tabsSizes,
-        tabsWithDisabled: ex.tabsWithDisabled,
-        tabsInteractive: ex.tabsInteractive,
-        tabsWithCountBadges: ex.tabsWithCountBadges,
-        tabsTwoLine: ex.tabsTwoLine,
-        tabsReactive: ex.tabsReactive,
+        tabsVariants: ex.tabsVariants,
     });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("tabsVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / size / trigger
+        // tables plus the fitted / disabled switches — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the Tabs.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.tabsVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
 
     // =========================================================================
     // Tabs.Item — string trigger coerced to Text.Root
@@ -105,13 +118,13 @@ describeEast("Tabs", (test) => {
             size: "lg",
             orientation: "vertical",
             fitted: true,
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("lg"), true));
         $(Assert.equal(s.orientation.unwrap("some").hasTag("vertical"), true));
         $(Assert.equal(s.fitted.unwrap("some"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates tabs with activationMode manual + justify", $ => {
@@ -144,18 +157,18 @@ describeEast("Tabs", (test) => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            listBackground: "#f9fafb",
-            indicatorColor: "#3d5cff",
-            activeTriggerColor: "#1a2234",
-            inactiveTriggerColor: "#6b7280",
-            contentBackground: "#ffffff",
+            listBackground: "bg.canvas",
+            indicatorColor: "link",
+            activeTriggerColor: "fg.default",
+            inactiveTriggerColor: "fg.muted",
+            contentBackground: "bg.surface",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
-        $(Assert.equal(s.listBackground.unwrap("some"), "#f9fafb"));
-        $(Assert.equal(s.indicatorColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.activeTriggerColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.inactiveTriggerColor.unwrap("some"), "#6b7280"));
-        $(Assert.equal(s.contentBackground.unwrap("some"), "#ffffff"));
+        $(Assert.equal(s.listBackground.unwrap("some"), "bg.canvas"));
+        $(Assert.equal(s.indicatorColor.unwrap("some"), "link"));
+        $(Assert.equal(s.activeTriggerColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.inactiveTriggerColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(s.contentBackground.unwrap("some"), "bg.surface"));
     });
 
     // =========================================================================
@@ -184,7 +197,7 @@ describeEast("Tabs", (test) => {
             defaultValue: "overview",
             variant: "line",
             size: "md",
-            colorPalette: "blue",
+            colorPalette: "brand",
             fitted: true,
         }));
         const t = tabs.unwrap().unwrap("Tabs");
@@ -192,7 +205,7 @@ describeEast("Tabs", (test) => {
         const s = t.style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("line"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("brand"), true));
         $(Assert.equal(s.fitted.unwrap("some"), true));
     });
 }, { platformFns: TestImpl });

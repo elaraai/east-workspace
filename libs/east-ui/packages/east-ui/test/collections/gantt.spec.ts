@@ -3,34 +3,29 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { BooleanType, East, NullType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, none, some, variant, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { DragEventType, Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {
     Assert.examples(test, {
-        ganttFill: ex.ganttFill,
         ganttBasic: ex.ganttBasic,
-        ganttRowHeight: ex.ganttRowHeight,
-        ganttCustomHeaders: ex.ganttCustomHeaders,
-        ganttWithMilestones: ex.ganttWithMilestones,
-        ganttWithProgress: ex.ganttWithProgress,
-        ganttAxisWindow: ex.ganttAxisWindow,
-        ganttAxisQuarterTier: ex.ganttAxisQuarterTier,
-        ganttAxisWeekTier: ex.ganttAxisWeekTier,
-        ganttStateAndStatus: ex.ganttStateAndStatus,
-        ganttLifecycleArms: ex.ganttLifecycleArms,
+        ganttVariants: ex.ganttVariants,
+        ganttReactiveDrag: ex.ganttReactiveDrag,
         ganttReview: ex.ganttReview,
         ganttLibraryDnd: ex.ganttLibraryDnd,
-        ganttStyled: ex.ganttStyled,
-        ganttComplexColumns: ex.ganttComplexColumns,
-        ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
-        ganttReactiveDrag: ex.ganttReactiveDrag,
-        ganttFrozenColumns: ex.ganttFrozenColumns,
-        ganttRowStatus: ex.ganttRowStatus,
-        ganttTaskPopover: ex.ganttTaskPopover,
-        ganttRichLabel: ex.ganttRichLabel,
+    });
+
+    test("ganttVariants is the live configurator", $ => {
+        // The preset / variant / density / row-height tables live inside the
+        // Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. Style / axis shape coverage lives in
+        // the Gantt.Root tests below, which construct each configuration
+        // directly.
+        const panel = $.const(ex.ganttVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -603,7 +598,7 @@ describeEast("Gantt", (test) => {
                     value: "Rich",
                     align: "center",
                     verticalAlign: "end",
-                    color: "yellow.300",
+                    color: "fg.warning",
                     fontWeight: "bold",
                     fontStyle: "italic",
                     fontSize: "lg",
@@ -615,7 +610,7 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(label.value, "Rich"));
         $(Assert.equal(label.align.unwrap("some").hasTag("center"), true));
         $(Assert.equal(label.verticalAlign.unwrap("some").hasTag("end"), true));
-        $(Assert.equal(label.color.unwrap("some"), "yellow.300"));
+        $(Assert.equal(label.color.unwrap("some"), "fg.warning"));
         $(Assert.equal(label.fontWeight.unwrap("some").hasTag("bold"), true));
         $(Assert.equal(label.fontStyle.unwrap("some").hasTag("italic"), true));
         $(Assert.equal(label.fontSize.unwrap("some").hasTag("lg"), true));

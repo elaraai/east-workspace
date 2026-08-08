@@ -5,16 +5,31 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { NavList } from "@elaraai/east-ui/internal";
-import { East, NullType, StringType } from "@elaraai/east";
+import { East, NullType, StringType, type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./nav-list.examples.js";
 
 describeEast("NavList", (test) => {
     Assert.examples(test, {
         navListBasic: ex.navListBasic,
-        navListGrouped: ex.navListGrouped,
-        navListWithIcons: ex.navListWithIcons,
-        navListShellSurface: ex.navListShellSurface,
-        navListReactive: ex.navListReactive,
+        navListVariants: ex.navListVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("navListVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the structure-preset table
+        // (with and without icons) plus the icons / shell-surface switches —
+        // is declared inside the example body, because the documentation
+        // capture only extracts `fn`. That puts the tables inside the
+        // Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-option coverage lives in the
+        // NavList.Root tests below, which construct each option directly.
+        const panel = $.const(ex.navListVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("sections array round-trips", $ => {

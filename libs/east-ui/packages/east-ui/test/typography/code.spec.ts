@@ -4,18 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Code, Style } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./code.examples.js";
 
 describeEast("Code", (test) => {
     Assert.examples(test, {
         codeBasic: ex.codeBasic,
-        codeSubtle: ex.codeSubtle,
-        codeSurface: ex.codeSurface,
-        codeOutline: ex.codeOutline,
-        codeSizes: ex.codeSizes,
-        codeColors: ex.codeColors,
-        codeCombined: ex.codeCombined,
+        codeVariants: ex.codeVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("codeVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / size / palette
+        // tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-variant coverage lives in the
+        // Code.Root tests below, which construct each variant directly.
+        const panel = $.const(ex.codeVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -63,10 +77,10 @@ describeEast("Code", (test) => {
     // =========================================================================
 
     test("creates code with colorPalette", $ => {
-        const code = $.let(Code.Root("const x = 1", { colorPalette: "blue" }));
+        const code = $.let(Code.Root("const x = 1", { colorPalette: "brand" }));
         const style = code.unwrap().unwrap("Code").style.unwrap("some");
         $(Assert.equal(style.colorPalette.hasTag("some"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
     // =========================================================================
@@ -111,14 +125,14 @@ describeEast("Code", (test) => {
     test("creates code with explicit color + background + borderColor", $ => {
         const code = $.let(Code.Root("rot_name", {
             variant: "outline",
-            color: "#7a3b2e",
-            background: "#fde3c6",
-            borderColor: "#c89078",
+            color: "fg.danger",
+            background: "bg.warning.subtle",
+            borderColor: "status.warn",
         }));
         const style = code.unwrap().unwrap("Code").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
-        $(Assert.equal(style.background.unwrap("some"), "#fde3c6"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "#c89078"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.danger"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.warning.subtle"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "status.warn"));
     });
 
     // =========================================================================
@@ -128,14 +142,14 @@ describeEast("Code", (test) => {
     test("creates code with variant + palette + size", $ => {
         const code = $.let(Code.Root("function hello() {}", {
             variant: "subtle",
-            colorPalette: "purple",
+            colorPalette: "brand",
             size: "sm",
         }));
         const style = code.unwrap().unwrap("Code").style.unwrap("some");
 
         $(Assert.equal(code.unwrap().unwrap("Code").value, "function hello() {}"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "purple"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
         $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
     });
 

@@ -3,16 +3,22 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { SegmentedMeter } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./segmented-meter.examples.js";
 
 describeEast("SegmentedMeter", (test) => {
     Assert.examples(test, {
         segmentedMeterBasic: ex.segmentedMeterBasic,
-        segmentedMeterOutsideLabels: ex.segmentedMeterOutsideLabels,
-        segmentedMeterDensities: ex.segmentedMeterDensities,
+        segmentedMeterVariants: ex.segmentedMeterVariants,
         segmentedMeterResidual: ex.segmentedMeterResidual,
+    });
+
+    test("segmentedMeterVariants is the live configurator", $ => {
+        const panel = $.const(ex.segmentedMeterVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a three-segment meter", $ => {
@@ -39,19 +45,19 @@ describeEast("SegmentedMeter", (test) => {
 
     test("segment with explicit colour override", $ => {
         const m = $.let(SegmentedMeter.Root([
-            { value: 100, color: "#3d5cff" },
+            { value: 100, color: "link" },
         ]));
-        $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").segments.get(0n).color.unwrap("some"), "#3d5cff"));
+        $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").segments.get(0n).color.unwrap("some"), "link"));
     });
 
     test("meter with max + style thickness + labels inside", $ => {
         const m = $.let(SegmentedMeter.Root([
             { value: 30 },
             { value: 10 },
-        ], { max: 100.0, thickness: "md", labels: "inside", trackColor: "gray.100" }));
+        ], { max: 100.0, thickness: "md", labels: "inside", trackColor: "bg.subtle" }));
         $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").max.unwrap("some"), 100.0));
         $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").style.unwrap("some").thickness.unwrap("some").hasTag("md"), true));
         $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").style.unwrap("some").labels.unwrap("some").hasTag("inside"), true));
-        $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").style.unwrap("some").trackColor.unwrap("some"), "gray.100"));
+        $(Assert.equal(m.unwrap().unwrap("SegmentedMeter").style.unwrap("some").trackColor.unwrap("some"), "bg.subtle"));
     });
 }, { platformFns: TestImpl });

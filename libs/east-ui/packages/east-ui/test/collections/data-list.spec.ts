@@ -4,20 +4,31 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, OptionType, StringType, some } from "@elaraai/east";
+import { East, OptionType, StringType, some, type ExprType } from "@elaraai/east";
 import { DataList, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./data-list.examples.js";
 
 describeEast("DataList", (test) => {
     Assert.examples(test, {
         dataListBasic: ex.dataListBasic,
-        dataListHorizontal: ex.dataListHorizontal,
-        dataListBold: ex.dataListBold,
-        dataListSmall: ex.dataListSmall,
-        dataListLarge: ex.dataListLarge,
-        dataListProfile: ex.dataListProfile,
-        dataListRichValues: ex.dataListRichValues,
-        dataListColourOverrides: ex.dataListColourOverrides,
+        dataListVariants: ex.dataListVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // =========================================================================
+
+    test("dataListVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation / variant /
+        // size / content / colour tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the DataList.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.dataListVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -225,17 +236,17 @@ describeEast("DataList", (test) => {
         const list = $.let(DataList.Root([
             { label: "Name", value: Text.Root("Alice") },
         ], {
-            background: "gray.50",
-            borderColor: "gray.200",
-            labelColor: "gray.600",
-            valueColor: "gray.900",
+            background: "bg.subtle",
+            borderColor: "border.subtle",
+            labelColor: "fg.muted",
+            valueColor: "fg.default",
         }), UIComponentType);
 
         const style = list.unwrap().unwrap("DataList").style.unwrap("some");
-        $(Assert.equal(style.background.unwrap("some"), "gray.50"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "gray.200"));
-        $(Assert.equal(style.labelColor.unwrap("some"), "gray.600"));
-        $(Assert.equal(style.valueColor.unwrap("some"), "gray.900"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.subtle"));
+        $(Assert.equal(style.labelColor.unwrap("some"), "fg.muted"));
+        $(Assert.equal(style.valueColor.unwrap("some"), "fg.default"));
     });
 
     // =========================================================================

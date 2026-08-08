@@ -37,20 +37,29 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             "--segment-radius": "0px",
             display: "inline-flex",
             alignItems: "stretch",
-            width: "max-content",
-            /* Compact containers (#349): overflowing segments scroll (no
-             * wrap — the Zag indicator assumes a single row). */
+            /* Compact containers (#349): overflowing segments WRAP onto
+             * further rows. Safe here because the sliding indicator is
+             * hidden (active state paints via the item's `_checked`), so
+             * the Zag single-row assumption never applies. Width stays
+             * auto (shrink-to-fit) with `minWidth: 0` so a flex parent can
+             * actually clamp the box — a fixed `max-content` width plus
+             * the min-width:auto floor defeats both the percentage clamp
+             * and line-shrink, and the wrap never engages. ALL dividers
+             * (between segments AND between wrapped rows) are the
+             * border-coloured root surface showing through a uniform 1px
+             * gap — one mechanism, one visual weight; items carry no
+             * borders of their own. */
+            minWidth: 0,
             maxWidth: "100%",
-            overflowX: "auto",
-            scrollbarWidth: "none",
-            "&::-webkit-scrollbar": { display: "none" },
+            flexWrap: "wrap",
+            gap: "1px",
             /* Keep intrinsic width even inside a parent flex with
              * `align-items: stretch` (e.g. VStack). */
             alignSelf: "flex-start",
             borderRadius: "{radii.sm}",
             borderWidth: "1px",
             borderColor: "border.strong",
-            background: "bg.surface",
+            background: "border.strong",
             padding: "0",
             overflow: "hidden",
             position: "relative",
@@ -69,23 +78,23 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
+            /* Wrapped rows fill flush (no ragged root-colour exposure);
+             * an unwrapped group shrinks to fit, so grow never shows. */
+            flexGrow: 1,
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
             /* Touch (#346). */
             _coarse: { minHeight: "44px" },
             borderRadius: "0",
-            borderRightWidth: "1px",
-            borderRightColor: "border.strong",
             cursor: "pointer",
             transitionProperty: "background, color",
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",
             color: "fg.muted",
             background: "transparent",
-            /* Defeat Chakra default `_before` divider line — we use a real
-             * border-right above. */
+            /* Defeat Chakra default `_before` divider line — the 1px root
+             * gap is the divider. */
             _before: { display: "none" },
-            "&:last-of-type": { borderRightWidth: "0" },
             _hover: { color: "fg" },
             _focusVisible: { outline: "none", boxShadow: "none" },
             _disabled: { opacity: 0.4, cursor: "not-allowed" },
@@ -126,22 +135,21 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
                     },
                 },
             },
-            /** Spec `.lib-seg-btn` active. Spec fills with the pale brand-tint,
-             *  but against the white surface that delta is near-invisible — step
-             *  up a few brand stops so the selected segment is legible, same hue
-             *  family. Active text is `--brand-dd` (brand.700). */
+            /** Spec `.lib-seg-btn` fills the active segment with the pale
+             *  brand tint, but that reads washed-out next to real buttons —
+             *  the active segment instead takes the `.btn.primary` treatment
+             *  (`brand.600` fill, inverse text), so a selected segment and a
+             *  solid button carry the same weight in both themes. */
             "brand-tint": {
                 item: {
                     background: "bg.surface",
                     _checked: {
-                        background: "{colors.brand.100}",
-                        color: "{colors.brand.700}",
-                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
+                        background: "{colors.brand.600}",
+                        color: "fg.inverse",
                     },
                     "&[data-state=checked]": {
-                        background: "{colors.brand.100}",
-                        color: "{colors.brand.700}",
-                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
+                        background: "{colors.brand.600}",
+                        color: "fg.inverse",
                     },
                 },
             },

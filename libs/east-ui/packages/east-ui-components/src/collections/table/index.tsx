@@ -924,7 +924,7 @@ const TableCore = function TableCore({
         const isLastLeftPinnedColumn = isPinned === 'left' && column.getIsLastColumn('left');
 
         return {
-            borderRight: isLastLeftPinnedColumn ? '2px solid var(--chakra-colors-border, #e2e8f0)' : undefined,
+            borderRight: isLastLeftPinnedColumn ? '2px solid var(--chakra-colors-border, #e2e8e8)' : undefined,
             left: isPinned === 'left' ? `${column.getStart('left')}px` : undefined,
             right: isPinned === 'right' ? `${column.getAfter('right')}px` : undefined,
             position: isPinned ? 'sticky' : 'relative',
@@ -932,7 +932,7 @@ const TableCore = function TableCore({
             // `left` (no horizontal scroll, so the sticky offset never engages).
             width: column.getSize() * frozenScale,
             zIndex: isPinned ? 1 : 0,
-            backgroundColor: isPinned ? 'var(--chakra-colors-bg-canvas, #fafafa)' : undefined,
+            backgroundColor: isPinned ? 'var(--chakra-colors-bg-canvas, #f8fafa)' : undefined,
         };
     };
 
@@ -1238,7 +1238,7 @@ const TableCore = function TableCore({
                                                 // 40% (top/bottom 30%). Hidden at rest so the static header
                                                 // matches the bare `.dt`; revealed on header-cell hover via
                                                 // the ColumnHeader `_hover`, like the pin/sort controls.
-                                                _before={{ content: '""', position: 'absolute', right: '2px', top: '30%', bottom: '30%', width: '1px', bg: 'gray.300', opacity: 0, transition: 'opacity 0.2s' }}
+                                                _before={{ content: '""', position: 'absolute', right: '2px', top: '30%', bottom: '30%', width: '1px', bg: 'bg.emphasized', opacity: 0, transition: 'opacity 0.2s' }}
                                             />
                                         )}
                                     </ChakraTable.ColumnHeader>

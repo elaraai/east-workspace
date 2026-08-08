@@ -1048,7 +1048,7 @@ const GanttCore = function GanttCore({
                                             <ChakraTable.ColumnHeader
                                                 key={header.id}
                                                 css={tableSlotStyles.columnHeader}
-                                                color="gray.500"
+                                                color="fg.muted"
                                                 _hover={{ bg: "bg.muted", "& .col-controls": { opacity: 1 } }}
                                                 transition="background 0.2s"
                                                 style={getHeaderCellStyle(header, hasFrozen, columnSizing, header.id === lastUnpinnedColumnId)}

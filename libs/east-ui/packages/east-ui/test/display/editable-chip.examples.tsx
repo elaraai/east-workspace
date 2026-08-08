@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { EditableChip, Text, HStack, Stack, Reactive } from "@elaraai/east-ui";
+import { Configurator, EditableChip, SegmentGroup, Select, Style, Switch, Text, HStack, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const editableChipBasic = example({
     keywords: ["EditableChip", "Root", "label"],
@@ -16,76 +20,123 @@ export const editableChipBasic = example({
     inputs: [],
 });
 
-export const editableChipWithCallback = example({
-    keywords: ["EditableChip", "Root", "onClick", "callback"],
-    description: "Editable chip with an onClick callback",
-    fn: East.function([], UIComponentType, ($) => {
-        const onClick = $.const(East.function([], NullType, _ => {}));
-        return <EditableChip onClick={onClick}><Text>Scenario: Q4 forecast</Text></EditableChip>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// EditableChip — live configurator over every style axis
+// ============================================================================
 
-export const editableChipDisabled = example({
-    keywords: ["EditableChip", "Root", "disabled"],
-    description: "Disabled editable chip",
-    fn: East.function([], UIComponentType, ($) => {
-        return <EditableChip disabled={true}><Text>Locked assumption</Text></EditableChip>;
-    }),
-    inputs: [],
-});
-
-export const editableChipStyled = example({
-    keywords: ["EditableChip", "Root", "style", "colour"],
-    description: "Editable chip with explicit colour slots",
-    fn: East.function([], UIComponentType, ($) => {
+export const editableChipVariants = example({
+    keywords: ["EditableChip", "Root", "disabled", "style", "colour", "color", "background", "borderColor", "triggerIconColor", "borderRadius", "density", "condensed", "compact", "comfortable", "sizes", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "onClick", "callback"],
+    description: "EditableChip configurator — density, radius and colour-slot axes plus a disabled switch driving one live chip; the aside chip's onClick cycles a scenario",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <EditableChip background="blue.50" color="blue.700" borderColor="blue.200" triggerIconColor="blue.500">
-                <Text>Demand mix · balanced</Text>
-            </EditableChip>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const densities = $.const([
+                    variant("condensed", null), variant("compact", null), variant("comfortable", null),
+                ], ArrayType(Style.Types.Density));
+
+                // A token axis collapses the same way: a radius is a corner-scale
+                // token, so the array is bare tokens. (No `size` axis — the
+                // density cascade is declared after `size` in the slot recipe and
+                // overrides its padding / font scale outright, so a size control
+                // would sit here doing nothing.)
+                const radii = $.const(["sm", "md", "lg", "full"], ArrayType(StringType));
+
+                // Only colour needs a struct — the chip paints four slots at once
+                // (surface, text, border, trigger icon), with no single value to
+                // name it by.
+                const colors = $.const([
+                    { label: "neutral", bg: "bg.subtle",         fg: "fg.default", border: "border.subtle", icon: "fg.subtle" },
+                    { label: "brand",   bg: "bg.brand.subtle",   fg: "link",       border: "border.brand",  icon: "link" },
+                    { label: "warn",    bg: "bg.warning.subtle", fg: "fg.warning", border: "border.strong", icon: "fg.warning" },
+                    { label: "dark",    bg: "bg.inverse",        fg: "fg.inverse", border: "border.strong", icon: "fg.inverse" },
+                ], ArrayType(StructType({ label: StringType, bg: StringType, fg: StringType, border: StringType, icon: StringType })));
+
+                const densityBind  = $.let(State.bind([StringType], "chip_density", "compact"));
+                const radiusBind   = $.let(State.bind([StringType], "chip_radius", "md"));
+                const colorBind    = $.let(State.bind([StringType], "chip_color", "brand"));
+                const disabledBind = $.let(State.bind([BooleanType], "chip_disabled", false));
+                // The aside chip is the reactive row — its onClick cycles a
+                // scenario through State (the old reactive panel's key).
+                const scenarioBind = $.let(State.bind([IntegerType], "scenarioIndex", 0n));
+
+                const dKey = $.let(densityBind.read());
+                const rKey = $.let(radiusBind.read());
+                const cKey = $.let(colorBind.read());
+                const disabled = $.let(disabledBind.read());
+                const scenarioIndex = $.let(scenarioBind.read());
+
+                const scenarios = $.let(["Baseline", "Optimistic", "Stress"]);
+                const currentLabel = $.let(scenarios.get(scenarioIndex.remainder(3n)));
+
+                const onDensity  = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+                const onRadius   = $.const(East.function([StringType], NullType, ($, next) => { $(radiusBind.write(next)); }));
+                const onColor    = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
+                const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+                const cycle      = $.const(East.function([], NullType, $ => {
+                    const current = $.let(scenarioBind.read());
+                    $(scenarioBind.write(current.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+                const radius = $.let(radii.filter((_$, s) => s.equal(rKey)).get(0n));
+                const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Density", dKey,
+                                <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Radius", rKey,
+                                <Select value={rKey} onChange={onRadius} size="sm"
+                                    items={radii.map((_$, s) => Select.Item(s, s))} />),
+                            Configurator.Control("Colour", cKey,
+                                <Select value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("State", disabled.ifElse(_$ => "disabled", _$ => "enabled"),
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={disabled} label="Disabled" onChange={onDisabled} />
+                                </HStack>),
+                        ]}
+                        preview={
+                            <EditableChip
+                                disabled={disabled}
+                                density={density}
+                                borderRadius={radius}
+                                background={color.bg}
+                                color={color.fg}
+                                borderColor={color.border}
+                                triggerIconColor={color.icon}
+                            >
+                                <Text>{disabled.ifElse(_$ => "Locked assumption", _$ => "Demand mix · balanced")}</Text>
+                            </EditableChip>
+                        }
+                        aside={{
+                            label: "Row alignment · Reactive",
+                            body: (
+                                <HStack gap="2" align="center">
+                                    <EditableChip density={density} onClick={cycle}><Text>{currentLabel}</Text></EditableChip>
+                                    <EditableChip density={density}><Text>Horizon · 12 weeks</Text></EditableChip>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            // The colour struct is one control but four slots — break
+                            // it back out so the readout names what actually painted.
+                            Configurator.Spec("Background", color.bg),
+                            Configurator.Spec("Foreground", color.fg),
+                            Configurator.Spec("Border colour", color.border),
+                            Configurator.Spec("Trigger icon", color.icon),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
-export const editableChipDensities = example({
-    keywords: ["EditableChip", "density", "condensed", "compact", "comfortable", "sizes"],
-    description: "The three densities stacked — chip height + font scale condensed → compact → comfortable (matching ChipRail)",
-    fn: East.function([], UIComponentType, ($) => {
-        const condensed = $.const(<EditableChip density="condensed"><Text>Service level · 85%</Text></EditableChip>);
-        const compact = $.const(<EditableChip density="compact"><Text>Service level · 85%</Text></EditableChip>);
-        const comfortable = $.const(<EditableChip density="comfortable"><Text>Service level · 85%</Text></EditableChip>);
-        return (
-            <Stack direction="column" gap="6">
-                {condensed}
-                {compact}
-                {comfortable}
-            </Stack>
-        );
-    }),
-    inputs: [],
-});
-
-export const editableChipReactive = example({
-    keywords: ["EditableChip", "Reactive", "State", "onClick", "interactive"],
-    description: "Reactive editable chip that cycles through three scenarios on click",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const scenarioIndex = $.let(State.bind([IntegerType], "scenarioIndex", 0n));
-            const index = $.let(scenarioIndex.read());
-            const scenarios = $.let(["Baseline", "Optimistic", "Stress"]);
-            const currentLabel = $.let(scenarios.get(index.remainder(3n)));
-            const cycle = $.const(East.function([], NullType, $ => {
-                const current = $.let(scenarioIndex.read());
-                $(scenarioIndex.write(current.add(1n)));
-            }));
-            return (
-                <HStack gap="2" align="center">
-                    <Text>{"Scenario: "}</Text>
-                    <EditableChip onClick={cycle}><Text>{currentLabel}</Text></EditableChip>
-                </HStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});

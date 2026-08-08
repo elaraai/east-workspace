@@ -4,20 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Grid, Style, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./grid.examples.js";
 
 describeEast("Grid", (test) => {
     Assert.examples(test, {
-        gridBasic3Col: ex.gridBasic3Col,
-        gridColSpan: ex.gridColSpan,
-        gridGaps: ex.gridGaps,
-        gridFixedWidths: ex.gridFixedWidths,
-        gridCentered: ex.gridCentered,
-        gridResponsive: ex.gridResponsive,
-        gridDense: ex.gridDense,
-        gridFullWidth: ex.gridFullWidth,
-        gridNamedAreas: ex.gridNamedAreas,
+        gridBasic: ex.gridBasic,
+        gridVariants: ex.gridVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("gridVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the template-preset and gap-pair
+        // tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-prop coverage lives in the
+        // Grid.Root tests below, which construct each style directly.
+        const panel = $.const(ex.gridVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // Helper to create a simple text component (already returns UIComponentType)

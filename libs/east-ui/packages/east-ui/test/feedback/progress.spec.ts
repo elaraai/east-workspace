@@ -5,18 +5,32 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Progress } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./progress.examples.js";
 
 describeEast("Progress", (test) => {
     Assert.examples(test, {
         progressBasic: ex.progressBasic,
-        progressLabeled: ex.progressLabeled,
-        progressTones: ex.progressTones,
-        progressSizes: ex.progressSizes,
-        progressStriped: ex.progressStriped,
-        progressRange: ex.progressRange,
-        progressIndeterminate: ex.progressIndeterminate,
-        progressWithETA: ex.progressWithETA,
+        progressVariants: ex.progressVariants,
+        progressEta: ex.progressEta,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("progressVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tone / size / value-preset
+        // tables plus the striped / animated / label switches — is declared
+        // inside the example body, because the documentation capture only
+        // extracts `fn`. That puts the tables inside the Reactive body, which
+        // TestImpl does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Progress.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.progressVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -99,13 +113,13 @@ describeEast("Progress", (test) => {
 
     test("creates progress with colour slots", $ => {
         const p = $.let(Progress.Root(50.0, {
-            trackColor: "#e5e7eb",
-            fillColor: "#3d5cff",
-            labelColor: "#111827",
+            trackColor: "bg.emphasized",
+            fillColor: "link",
+            labelColor: "fg.default",
         }));
         const s = p.unwrap().unwrap("Progress").style.unwrap("some");
-        $(Assert.equal(s.trackColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.fillColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.labelColor.unwrap("some"), "#111827"));
+        $(Assert.equal(s.trackColor.unwrap("some"), "bg.emphasized"));
+        $(Assert.equal(s.fillColor.unwrap("some"), "link"));
+        $(Assert.equal(s.labelColor.unwrap("some"), "fg.default"));
     });
 }, { platformFns: TestImpl });

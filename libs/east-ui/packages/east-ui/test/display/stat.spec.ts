@@ -4,16 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Stat, Format } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Stat, Format, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./stat.examples.js";
 
 describeEast("Stat", (test) => {
     Assert.examples(test, {
         statBasic: ex.statBasic,
-        statHelpText: ex.statHelpText,
-        statIndicators: ex.statIndicators,
-        statFormatted: ex.statFormatted,
-        statDensities: ex.statDensities,
+        statVariants: ex.statVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("statVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the format / indicator / density
+        // / size tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables inside
+        // the Reactive body, which TestImpl does not execute, so they cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. The per-axis coverage lives in the
+        // Stat.Root tests below, which construct each format / indicator
+        // directly.
+        const panel = $.const(ex.statVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

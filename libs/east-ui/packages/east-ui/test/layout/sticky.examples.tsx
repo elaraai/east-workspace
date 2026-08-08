@@ -12,9 +12,9 @@ export const stickyHeader = example({
     description: "Sticky header that stays pinned to the top of its scroll container while body scrolls",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box overflowY="auto" height="240px" borderColor="gray.300" borderWidth="thin">
-                <Sticky offset="0" boundary="parent" background="white" borderColor="gray.200">
-                    <Box padding="3" background="white" borderColor="gray.200" borderWidth="thin">
+            <Box overflowY="auto" height="240px" borderColor="border.subtle" borderWidth="thin">
+                <Sticky offset="0" boundary="parent" background="bg.surface" borderColor="border.subtle">
+                    <Box padding="3" background="bg.surface" borderColor="border.subtle" borderWidth="thin">
                         <Text>Section header — stays pinned</Text>
                     </Box>
                 </Sticky>
@@ -39,10 +39,10 @@ export const stickySubnav = example({
     description: "Left-column subnav that sticks at top: 0 while the main content scrolls",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Box overflowY="auto" height="300px" borderColor="gray.300" borderWidth="thin">
+            <Box overflowY="auto" height="300px" borderColor="border.subtle" borderWidth="thin">
                 <HStack gap="4" align="flex-start">
                     <Sticky offset="0" boundary="parent">
-                        <VStack gap="2" padding="3" background="gray.50" borderColor="gray.200" borderWidth="thin" borderRadius="md">
+                        <VStack gap="2" padding="3" background="bg.subtle" borderColor="border.subtle" borderWidth="thin" borderRadius="md">
                             <Text>Overview</Text>
                             <Text>Details</Text>
                             <Text>Audit</Text>

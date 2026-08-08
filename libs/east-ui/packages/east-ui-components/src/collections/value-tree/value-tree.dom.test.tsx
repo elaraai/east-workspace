@@ -286,17 +286,17 @@ describe("EastChakraValueTree", () => {
 
     test("dict entries display their label but echo their key in paths", async () => {
         const onEdit = vi.fn();
-        const entry = { key: '(tank="DC4B", vintage=2024)', label: "DC4B · 2024", node: str("1980") };
+        const entry = { key: '(machine="press", shift=2)', label: "press · 2", node: str("1980") };
         const codes = variant("dict", { entries: [entry], editable: false }) as unknown as ValueTreeNodeValue;
         renderTree(rootValue(codes, { onEdit }));
         // The row shows the display label, never the canonical key text.
-        expect(screen.getByText("DC4B · 2024")).toBeTruthy();
-        expect(screen.queryByText('(tank="DC4B", vintage=2024)')).toBeNull();
+        expect(screen.getByText("press · 2")).toBeTruthy();
+        expect(screen.queryByText('(machine="press", shift=2)')).toBeNull();
         // The value's leaf editor reports the canonical KEY step.
         const input = document.querySelector("input")!;
         fireEvent.change(input, { target: { value: "2000" } });
         await waitFor(() => expect(onEdit).toHaveBeenCalled());
-        expect(onEdit.mock.calls[0]?.[0]).toEqual([variant("key", '(tank="DC4B", vintage=2024)')]);
+        expect(onEdit.mock.calls[0]?.[0]).toEqual([variant("key", '(machine="press", shift=2)')]);
     });
 
     test("option rows read Not set with a Set/Clear affordance", async () => {
@@ -542,46 +542,46 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
     });
 
     test("struct-keyed dict entries label as field summaries, never [object Object]", () => {
-        const LegKey = StructType({ tank: StringType, side: StringType, vintage: IntegerType });
-        const Legs = DictType(LegKey, StructType({ litres: IntegerType }));
+        const MachineKey = StructType({ machine: StringType, line: StringType, shift: IntegerType });
+        const Machines = DictType(MachineKey, StructType({ units: IntegerType }));
         const value = new Map([
-            [{ tank: "DC4B", side: "from", vintage: 2024n }, { litres: 1980n }],
-            [{ tank: "DC2E", side: "to", vintage: 2024n }, { litres: 1980n }],
+            [{ machine: "press", line: "L4", shift: 2n }, { units: 1980n }],
+            [{ machine: "mill", line: "L2", shift: 2n }, { units: 1980n }],
         ]);
-        const root = ValueTree.materialize(Legs, value) as unknown as {
+        const root = ValueTree.materialize(Machines, value) as unknown as {
             type: string; value: { editable: boolean; entries: Array<{ key: string; label: string }> };
         };
         expect(root.type).toBe("dict");
         expect(root.value.editable).toBe(false);
         const labels = root.value.entries.map(e => e.label);
-        expect(labels).toContain("DC4B · from · 2024");
-        expect(labels).toContain("DC2E · to · 2024");
+        expect(labels).toContain("press · L4 · 2");
+        expect(labels).toContain("mill · L2 · 2");
         // Entry keys carry the canonical East print — identity, not display.
         const keys = root.value.entries.map(e => e.key);
-        expect(keys).toContain('(tank="DC4B", side="from", vintage=2024)');
+        expect(keys).toContain('(machine="press", line="L4", shift=2)');
         for (const k of [...keys, ...labels]) expect(k.includes("[object Object]")).toBe(false);
     });
 
     test("struct-keyed dict edits resolve the real entry through the materialized key", () => {
-        const LegKey = StructType({ tank: StringType, vintage: IntegerType });
-        const Legs = DictType(LegKey, StructType({ litres: IntegerType }));
+        const MachineKey = StructType({ machine: StringType, shift: IntegerType });
+        const Machines = DictType(MachineKey, StructType({ units: IntegerType }));
         const value = new Map([
-            [{ tank: "DC4B", vintage: 2024n }, { litres: 1980n }],
-            [{ tank: "DC2E", vintage: 2025n }, { litres: 1200n }],
+            [{ machine: "press", shift: 2n }, { units: 1980n }],
+            [{ machine: "mill", shift: 1n }, { units: 1200n }],
         ]);
-        const root = ValueTree.materialize(Legs, value) as unknown as {
+        const root = ValueTree.materialize(Machines, value) as unknown as {
             value: { entries: Array<{ key: string; label: string }> };
         };
         // Close the renderer loop: edit through the entry's own key text.
-        const key = root.value.entries.find(e => e.label === "DC4B · 2024")!.key;
-        const next = ValueTree.applyEdit(Legs, value,
-            [variant("key", key), variant("field", "litres")],
-            { kind: "edit", leaf: variant("integer", 2000n) }) as Map<unknown, { litres: bigint }>;
+        const key = root.value.entries.find(e => e.label === "press · 2")!.key;
+        const next = ValueTree.applyEdit(Machines, value,
+            [variant("key", key), variant("field", "units")],
+            { kind: "edit", leaf: variant("integer", 2000n) }) as Map<unknown, { units: bigint }>;
         // The REAL entry updated — no phantom string-keyed entry appears.
         expect(next.size).toBe(2);
-        const entries = [...next.entries()] as Array<[{ tank: string; vintage: bigint }, { litres: bigint }]>;
-        expect(entries.find(([k]) => k.tank === "DC4B")![1].litres).toBe(2000n);
-        expect(entries.find(([k]) => k.tank === "DC2E")![1].litres).toBe(1200n);
+        const entries = [...next.entries()] as Array<[{ machine: string; shift: bigint }, { units: bigint }]>;
+        expect(entries.find(([k]) => k.machine === "press")![1].units).toBe(2000n);
+        expect(entries.find(([k]) => k.machine === "mill")![1].units).toBe(1200n);
         for (const [k] of entries) expect(typeof k).toBe("object");
     });
 
@@ -631,14 +631,14 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
         // materialize as a real struct node regardless of its position, and
         // any budget-driven truncation must label itself honestly.
         const Rec = StructType({
-            blend: OptionType(StringType),
+            grade: OptionType(StringType),
             site: StringType,
-            table: StringType,
-            barrels: IntegerType,
+            station: StringType,
+            slots: IntegerType,
             active: OptionType(StringType),
         });
         const Table = DictType(StringType, Rec);
-        const record = { blend: none as unknown, site: "BY", table: "BG", barrels: 0n, active: none as unknown };
+        const record = { grade: none as unknown, site: "S1", station: "N2", slots: 0n, active: none as unknown };
         const value = new Map(Array.from({ length: 5000 }, (_, i) => [`B${4000 + i}B`, record] as const));
         const root = ValueTree.materialize(Table, value) as {
             type: string; value: { entries: Array<{ key: string; node: { type: string; value: unknown } }> };

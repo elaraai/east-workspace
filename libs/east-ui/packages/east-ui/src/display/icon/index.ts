@@ -206,7 +206,7 @@ export const Icon = {
      * import { Icon, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Icon.Root({ prefix: "fas", name: "heart", label: "Favourite", color: "red.500", size: "xl" });
+     *     return Icon.Root({ prefix: "fas", name: "heart", label: "Favourite", color: "fg.danger", size: "xl" });
      * });
      * ```
      */

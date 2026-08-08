@@ -6,46 +6,57 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, StringType, StructType, ArrayType, FloatType, BooleanType } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./chart.examples.js";
 
 describeEast("Chart", (test) => {
     Assert.examples(test, {
-        chartTimeTickValues: ex.chartTimeTickValues,
         lineBasic: ex.lineBasic,
-        tooltipOverStickyTable: ex.tooltipOverStickyTable,
-        columnStackedDiverging: ex.columnStackedDiverging,
-        lineMultiColumns: ex.lineMultiColumns,
-        lineBreakdown: ex.lineBreakdown,
-        lineCurveNatural: ex.lineCurveNatural,
-        lineStepNoDots: ex.lineStepNoDots,
-        lineStepAfterSetpoint: ex.lineStepAfterSetpoint,
-        lineDashedTargetOverlay: ex.lineDashedTargetOverlay,
-        lineTemporal: ex.lineTemporal,
-        lineNumericX: ex.lineNumericX,
-        lineIntegerDayTicks: ex.lineIntegerDayTicks,
-        lineRuntimeDomain: ex.lineRuntimeDomain,
-        lineRuntimeTimeDomain: ex.lineRuntimeTimeDomain,
-        axisTextStyled: ex.axisTextStyled,
-        lineSampleFan: ex.lineSampleFan,
-        columnBasic: ex.columnBasic,
-        columnPerCategory: ex.columnPerCategory,
+        lineVariants: ex.lineVariants,
         columnGrouped: ex.columnGrouped,
         columnStacked: ex.columnStacked,
-        columnPercentStacked: ex.columnPercentStacked,
-        columnCustomColors: ex.columnCustomColors,
-        barRanked: ex.barRanked,
-        barGrouped: ex.barGrouped,
+        columnPercent: ex.columnPercent,
         barStacked: ex.barStacked,
-        barPercentStacked: ex.barPercentStacked,
         areaStacked: ex.areaStacked,
-        areaConfidenceBand: ex.areaConfidenceBand,
+        bandConfidence: ex.bandConfidence,
         scatterQuadrants: ex.scatterQuadrants,
         scatterBubble: ex.scatterBubble,
         composedColumnLine: ex.composedColumnLine,
-        composedDualAxisForecast: ex.composedDualAxisForecast,
-        referenceAnnotations: ex.referenceAnnotations,
-        axisFormatting: ex.axisFormatting,
-        interactiveValue: ex.interactiveValue,
+        composedDualAxis: ex.composedDualAxis,
+        composedAnnotations: ex.composedAnnotations,
+        tooltipOverStickyTable: ex.tooltipOverStickyTable,
+    });
+
+    // =========================================================================
+    // Configurators — the variant panels are live Configurator surfaces (#455).
+    // Everything each configurator needs — the axis arrays, the switch bindings
+    // and the per-cell chart subtrees — is declared inside the example body,
+    // because the documentation capture only extracts `fn`. That puts the
+    // tables inside the Reactive body, which TestImpl does not execute, so they
+    // cannot be asserted from here; `Assert.examples` above still compiles and
+    // evaluates the outer function. Per-encoding coverage lives in the
+    // structure tests below, which construct each mark directly.
+    // =========================================================================
+
+    test("lineVariants drives its preview from inline option tables", $ => {
+        const panel = $.const(ex.lineVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+    test("columnGrouped evaluates to a sized chart Box", $ => {
+        const panel = $.const(ex.columnGrouped.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Box"), true));
+    });
+
+    test("areaStacked evaluates to a sized chart Box", $ => {
+        const panel = $.const(ex.areaStacked.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Box"), true));
+    });
+
+    test("composedColumnLine evaluates to a sized chart Box", $ => {
+        const panel = $.const(ex.composedColumnLine.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("Box"), true));
     });
 
     // =========================================================================

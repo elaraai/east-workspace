@@ -3,36 +3,31 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { BooleanType, East, NullType, FloatType, ArrayType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, FloatType, ArrayType, none, some, variant, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { DragEventType, Planner } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {
     Assert.examples(test, {
-        plannerFill: ex.plannerFill,
         plannerPoint: ex.plannerPoint,
-        plannerScroll: ex.plannerScroll,
-        plannerEventStates: ex.plannerEventStates,
-        plannerBuckets: ex.plannerBuckets,
-        plannerMixedBuckets: ex.plannerMixedBuckets,
-        plannerOrdinalAxis: ex.plannerOrdinalAxis,
-        plannerDataDrivenRange: ex.plannerDataDrivenRange,
-        plannerColumns: ex.plannerColumns,
-        plannerMarkers: ex.plannerMarkers,
-        plannerPopover: ex.plannerPopover,
+        plannerVariants: ex.plannerVariants,
         plannerSpan: ex.plannerSpan,
-        plannerDayResolution: ex.plannerDayResolution,
-        plannerDensity: ex.plannerDensity,
+        plannerFill: ex.plannerFill,
         plannerReview: ex.plannerReview,
         plannerLibraryDnd: ex.plannerLibraryDnd,
-        plannerStretch: ex.plannerStretch,
-        plannerEventTone: ex.plannerEventTone,
-        plannerEventColor: ex.plannerEventColor,
-        plannerHovercard: ex.plannerHovercard,
-        plannerRowHover: ex.plannerRowHover,
-        plannerPerCellBuckets: ex.plannerPerCellBuckets,
-        plannerFillHeight: ex.plannerFillHeight,
+    });
+
+    test("plannerVariants is the live configurator", $ => {
+        // The preset / columns / density tables live inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. Axis / slot / event shape coverage lives in the
+        // Planner.Point tests below, which construct each configuration
+        // directly.
+        const panel = $.const(ex.plannerVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

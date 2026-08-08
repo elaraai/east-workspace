@@ -371,7 +371,7 @@ async function captureInSession(
         // added <style>) the --html (#320). Runs after settle so measurements
         // are final.
         if (opts.debugLayout) {
-            await page.addStyleTag({ content: '[data-e3-overflow]{outline:2px solid #e5484d !important;outline-offset:-2px;}' });
+            await page.addStyleTag({ content: '[data-e3-overflow]{outline:2px solid #b85a4a !important;outline-offset:-2px;}' });
             await page.evaluate(() => {
                 for (const el of Array.from(document.querySelectorAll('*'))) {
                     const h = el as HTMLElement;

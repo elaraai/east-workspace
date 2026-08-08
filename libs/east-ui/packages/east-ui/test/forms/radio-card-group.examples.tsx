@@ -3,9 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example } from "@elaraai/east";
+import { East, ArrayType, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { RadioCardGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, RadioCardGroup, SegmentGroup, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Module-scope fixtures — the configurator's card set, with and without the
+// disabled card (items are host-level arrays at the factory boundary).
+// ============================================================================
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const radioCardGroupBasic = example({
     keywords: ["RadioCardGroup", "Root", "card", "radio", "select"],
@@ -25,88 +34,91 @@ export const radioCardGroupBasic = example({
     inputs: [],
 });
 
-export const radioCardGroupHorizontal = example({
-    keywords: ["RadioCardGroup", "horizontal", "orientation"],
-    description: "Horizontal radio cards laid out as a row",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioCardGroup
-                value="monthly"
-                items={[
-                    { value: "monthly", label: "Monthly", description: "$49 / mo" },
-                    { value: "yearly", label: "Yearly", description: "$490 / yr (save 16%)" },
-                ]}
-                orientation="horizontal"
-            />
-        );
-    }),
-    inputs: [],
-});
+// ============================================================================
+// RadioCardGroup — live configurator over every card-group axis
+// ============================================================================
 
-export const radioCardGroupReactive = example({
-    keywords: ["RadioCardGroup", "Reactive", "State", "onChange", "interactive"],
-    description: "Reactive radio cards bound to State — picking a card writes to State and re-renders the selected-value indicator below",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const planBind = $.let(State.bind([StringType], "plan_choice", "team"));
-            const plan = $.let(planBind.read(), StringType);
-            const onChange = $.const(East.function([StringType], NullType, ($, next) => {
-                $(planBind.write(next));
-            }));
-            return (
-                <VStack gap="3" align="flex-start">
-                    <RadioCardGroup
-                        value={plan}
-                        items={[
-                            { value: "starter", label: "Starter", description: "Up to 5 users" },
-                            { value: "team", label: "Team", description: "Up to 50 users" },
-                            { value: "business", label: "Business", description: "Unlimited" },
+export const radioCardGroupVariants = example({
+    keywords: ["RadioCardGroup", "horizontal", "orientation", "disabled", "item", "selectedBorderColor", "selectedCardBackground", "override", "SegmentGroup", "Configurator", "getTag", "configurator", "Reactive", "State", "onChange", "interactive"],
+    description: "RadioCardGroup configurator — an orientation axis on one live State-bound group with a disabled card composed in",
+    fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_CARD_GROUP_DISABLED_ITEM_DATA = [
+            { value: "active", label: "Active", description: "Available now" },
+            { value: "queued", label: "Queued", description: "Pending review" },
+            { value: "archived", label: "Archived", description: "Read-only", disabled: true },
+        ];
+        return (
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const orientations = $.const([
+                    variant("vertical", null), variant("horizontal", null),
+                ], ArrayType(RadioCardGroup.Types.Orientation));
+
+                // Only colour needs a struct — the selected-card background /
+                // border / description slots move together, with no single
+                // value to name them by. The `recipe` row carries empty slots
+                // because the preview drops the overrides entirely for it
+                // (below).
+
+                const orientationBind = $.let(State.bind([StringType], "radio_card_group_orientation", "vertical"));
+                const choiceBind      = $.let(State.bind([StringType], "radio_card_group_value", "active"));
+
+                const oKey        = $.let(orientationBind.read());
+                const choice      = $.let(choiceBind.read(), StringType);
+
+                const onOrientation = $.const(East.function([StringType], NullType, ($, next) => { $(orientationBind.write(next)); }));
+                const onChange      = $.const(East.function([StringType], NullType, ($, next) => { $(choiceBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const orientation = $.let(orientations.filter((_$, v) => v.getTag().equal(oKey)).get(0n));
+
+                // items is a host-level array (build-time) — the disabled card
+                // composes into the ONE set permanently; the colour escape
+                // hatches live in their own example.
+                const cards = $.const(
+                    <RadioCardGroup value={choice} items={RADIO_CARD_GROUP_DISABLED_ITEM_DATA} orientation={orientation} onChange={onChange} />,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Orientation", oKey,
+                                <SegmentGroup value={oKey} onChange={onOrientation} size="sm"
+                                    items={orientations.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Disabled spec row below rather than as one value.
                         ]}
-                        onChange={onChange}
+                        preview={cards}
+                        aside={{
+                            label: "Selection · Reactive",
+                            body: <Text textStyle="body-sm" color="fg.muted">{East.str`Selected: ${choice}`}</Text>,
+                        }}
+                        spec={[
+                            Configurator.Spec("Disabled", "archived card"),
+                        ]}
                     />
-                    <Text textStyle="body-sm" color="fg.muted">{East.str`Selected plan: ${plan}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const radioCardGroupDisabledItem = example({
-    keywords: ["RadioCardGroup", "disabled", "item"],
-    description: "Card group with one disabled card",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <RadioCardGroup
-                value="active"
-                items={[
-                    { value: "active", label: "Active", description: "Available now" },
-                    { value: "queued", label: "Queued", description: "Pending review" },
-                    { value: "archived", label: "Archived", description: "Read-only", disabled: true },
-                ]}
-            />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
-export const radioCardGroupColourOverrides = example({
-    keywords: ["RadioCardGroup", "selectedBorderColor", "selectedCardBackground", "override"],
-    description: "Card group with explicit colour escape hatches for selected card border / background and description text",
+/** Raw colour escape hatches on a static card group. */
+export const radioCardGroupCustomColours = example({
+    keywords: ["RadioCardGroup", "fillColor", "borderColor", "color", "override", "custom"],
+    description: "Colour overrides — brand border and fill on a static card group",
     fn: East.function([], UIComponentType, (_$) => {
+        const RADIO_CARD_GROUP_ITEMS_DATA = [
+            { value: "active", label: "Active", description: "Available now" },
+            { value: "queued", label: "Queued", description: "Pending review" },
+            { value: "archived", label: "Archived", description: "Read-only" },
+        ];
         return (
-            <RadioCardGroup
-                value="med"
-                items={[
-                    { value: "low", label: "Low priority", description: "Resolved within 7 days" },
-                    { value: "med", label: "Medium priority", description: "Resolved within 2 days" },
-                    { value: "high", label: "High priority", description: "Resolved same day" },
-                ]}
-                selectedCardBackground="blue.50"
-                selectedBorderColor="blue.500"
-                descriptionColor="gray.600"
-            />
-        );
+        <RadioCardGroup value="active" items={RADIO_CARD_GROUP_ITEMS_DATA} selectedCardBackground="bg.brand.subtle" selectedBorderColor="border.brand" color="fg.default" />
+    );
     }),
     inputs: [],
 });

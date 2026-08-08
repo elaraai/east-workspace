@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Icon, List, Reactive, VStack, HStack, Text } from "@elaraai/east-ui";
+import { Button, Configurator, Icon, List, SegmentGroup, Select, Switch, VStack, HStack, Text, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const listUnordered = example({
     keywords: ["List", "Root", "unordered", "bulleted"],
@@ -16,163 +20,182 @@ export const listUnordered = example({
     inputs: [],
 });
 
-export const listOrdered = example({
-    keywords: ["List", "Root", "ordered", "numbered"],
-    description: "Numbered list",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={["Step one", "Step two", "Step three"]} variant="ordered" />;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// List — live configurator over every list axis
+// ============================================================================
 
-export const listWithGap = example({
-    keywords: ["List", "Root", "gap", "spacing"],
-    description: "Increased spacing between items",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={["Item A", "Item B", "Item C"]} variant="unordered" gap="4" />;
-    }),
-    inputs: [],
-});
-
-export const listColored = example({
-    keywords: ["List", "Root", "colorPalette", "blue", "markers"],
-    description: "Blue list markers",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={["Blue item one", "Blue item two", "Blue item three"]} variant="unordered" colorPalette="blue" />;
-    }),
-    inputs: [],
-});
-
-export const listGreen = example({
-    keywords: ["List", "Root", "ordered", "colorPalette", "green"],
-    description: "Green numbered list",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={["Complete task A", "Complete task B", "Complete task C"]} variant="ordered" colorPalette="green" />;
-    }),
-    inputs: [],
-});
-
-export const listFeatures = example({
-    keywords: ["List", "Root", "features", "product"],
-    description: "Product features example",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={["Fast performance", "Type-safe development", "Easy to use API", "Comprehensive documentation"]} variant="unordered" gap="2" colorPalette="teal" />;
-    }),
-    inputs: [],
-});
-
-export const listSteps = example({
-    keywords: ["List", "Root", "ordered", "steps", "installation"],
-    description: "Installation steps",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={["Install dependencies", "Configure environment", "Run the application", "Verify installation"]} variant="ordered" gap="3" />;
-    }),
-    inputs: [],
-});
-
-export const listEmpty = example({
-    keywords: ["List", "Root", "empty"],
-    description: "List with no items",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <List items={[]} />;
-    }),
-    inputs: [],
-});
-
-export const listCheckmarks = example({
-    keywords: ["List", "Root", "marker", "check", "compliance", "workforce"],
-    description: "Compliance checklist with green check markers — mirrors the shift-optimiser `.wf-constraints` block",
+export const listVariants = example({
+    keywords: ["List", "Root", "ordered", "numbered", "gap", "spacing", "colorPalette", "blue", "markers", "green", "empty", "Reactive", "State", "interactive", "counter", "features", "product", "steps", "installation", "marker", "check", "compliance", "workforce", "dash", "danger", "problem", "issues", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator"],
+    description: "List configurator — content, variant, gap and palette axes plus an empty switch driving one live list; the aside bumps item labels from a reactive counter",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <List
-                items={[
-                    "Max 5 consecutive shifts — 412 staff, clear",
-                    "SLA: 92% on-time (27 misses)",
-                    "Rostered vs demand: within tolerance",
-                    "Training currency: all staff in-date",
-                ]}
-                marker="check"
-                markerColor="fg.success"
-                gap="2"
-            />
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const variants = $.const([
+                    variant("unordered", null), variant("ordered", null),
+                ], ArrayType(List.Types.Variant));
+
+                // Token axes collapse the same way: a gap is a spacing-scale
+                // token and a palette is its name, so both are bare arrays of
+                // the value itself.
+                const gaps = $.const(["2", "3", "4"], ArrayType(StringType));
+                const palettes = $.const(["gray", "brand", "success"], ArrayType(StringType));
+
+                // Only content needs a struct — a semantic treatment is its
+                // items PLUS the marker + tint that go with them (check for the
+                // compliance checklist, dash for the problem notes), so there is
+                // no single value to name it by.
+                const sets = $.const([
+                    {
+                        label: "features",
+                        items: [
+                            <Text>Fast performance</Text>,
+                            <Text>Type-safe development</Text>,
+                            <Text>Easy to use API</Text>,
+                            <Text>Comprehensive documentation</Text>,
+                        ],
+                    },
+                    {
+                        label: "steps",
+                        items: [
+                            <Text>Install dependencies</Text>,
+                            <Text>Configure environment</Text>,
+                            <Text>Run the application</Text>,
+                            <Text>Verify installation</Text>,
+                        ],
+                    },
+                    {
+                        label: "rich",
+                        items: [
+                            <HStack gap="2" align="center">
+                                <Icon prefix="fas" name="circle-check" color="fg.success" />
+                                <Text>Passed: schema validation</Text>
+                            </HStack>,
+                            <HStack gap="2" align="center">
+                                <Icon prefix="fas" name="circle-xmark" color="fg.danger" />
+                                <Text>Failed: missing required field `id`</Text>
+                            </HStack>,
+                            <HStack gap="2" align="center">
+                                <Icon prefix="fas" name="circle-info" color="fg.info" />
+                                <Text>Skipped: optional integrity check</Text>
+                            </HStack>,
+                        ],
+                    },
+                ], ArrayType(StructType({ label: StringType, items: ArrayType(UIComponentType) })));
+
+                const contentBind = $.let(State.bind([StringType], "list_content", "features"));
+                const variantBind = $.let(State.bind([StringType], "list_variant", "unordered"));
+                const gapBind     = $.let(State.bind([StringType], "list_gap", "2"));
+                const paletteBind = $.let(State.bind([StringType], "list_palette", "brand"));
+                const emptyBind   = $.let(State.bind([BooleanType], "list_empty", false));
+                const counter     = $.let(State.bind([IntegerType], "list_counter", 0n));
+
+                const cKey  = $.let(contentBind.read());
+                const vKey  = $.let(variantBind.read());
+                const gKey  = $.let(gapBind.read());
+                const pKey  = $.let(paletteBind.read());
+                const empty = $.let(emptyBind.read());
+                const count = $.let(counter.read());
+
+                const onContent = $.const(East.function([StringType], NullType, ($, next) => { $(contentBind.write(next)); }));
+                const onVariant = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onGap     = $.const(East.function([StringType], NullType, ($, next) => { $(gapBind.write(next)); }));
+                const onPalette = $.const(East.function([StringType], NullType, ($, next) => { $(paletteBind.write(next)); }));
+                const onEmpty   = $.const(East.function([BooleanType], NullType, ($, next) => { $(emptyBind.write(next)); }));
+                const inc       = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const content = $.let(sets.filter((_$, o) => o.label.equal(cKey)).get(0n));
+                const listVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const gap = $.let(gaps.filter((_$, s) => s.equal(gKey)).get(0n));
+                const palette = $.let(palettes.filter((_$, s) => s.equal(pKey)).get(0n));
+
+                const noItems = $.const([], ArrayType(UIComponentType));
+                const items = $.let(empty.ifElse(_$ => noItems, _$ => content.items));
+
+                // ONE list — content items are values; the marker treatments
+                // (check / dash) live in their own example.
+                const list = $.const(
+                    <List items={items} variant={listVariant} gap={gap} colorPalette={palette} />,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Content", cKey,
+                                <Select value={cKey} onChange={onContent} size="sm"
+                                    items={sets.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Variant", vKey,
+                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Gap", gKey,
+                                <SegmentGroup value={gKey} onChange={onGap} size="sm"
+                                    items={gaps.map((_$, s) => SegmentGroup.Item(s, <Text>{s}</Text>))} />),
+                            Configurator.Control("Palette", pKey,
+                                <SegmentGroup value={pKey} onChange={onPalette} size="sm"
+                                    items={palettes.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Items spec row below rather than as one value.
+                            Configurator.Slot("Empty",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={empty} label="No items" onChange={onEmpty} />
+                                </HStack>),
+                        ]}
+                        preview={list}
+                        aside={{
+                            label: "Bump · Reactive",
+                            body: (
+                                <VStack gap="3" align="stretch">
+                                    <List
+                                        items={[
+                                            <Text>{East.str`First — bump ${East.print(count)}`}</Text>,
+                                            <Text>{East.str`Second — bump ${East.print(count)}`}</Text>,
+                                            <Text>{East.str`Third — bump ${East.print(count)}`}</Text>,
+                                        ]}
+                                        variant="ordered"
+                                    />
+                                    <Button size="xs" onClick={inc}>Bump</Button>
+                                </VStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Items", East.print(items.size())),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
-export const listDashed = example({
-    keywords: ["List", "Root", "marker", "dash", "danger", "problem", "issues"],
-    description: "Problem notes with red dash markers — mirrors the `.problem-notes` block",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
+/** Marker treatments — the check compliance list and the dash problem notes. */
+export const listMarkers = example({
+    keywords: ["List", "marker", "check", "dash", "markerColor", "compliance", "issues"],
+    description: "Marker treatments — a check compliance list beside dash problem notes",
+    fn: East.function([], UIComponentType, (_$) => (
+        <VStack gap="5" align="stretch">
+            <List
+                items={[
+                    <Text>Max 5 consecutive shifts — 412 staff, clear</Text>,
+                    <Text>SLA: 92% on-time (27 misses)</Text>,
+                    <Text>Rostered vs demand: within tolerance</Text>,
+                ]}
+                marker="check" markerColor="fg.success"
+            />
             <List
                 items={[
                     <Text fontStyle="italic">Stage 1 delayed ~6h by setpoint drift since 02:00</Text>,
                     <Text fontStyle="italic">Vendor feed unavailable — forecast using last-known</Text>,
-                    <Text fontStyle="italic">3 drivers flagged for manual review</Text>,
                 ]}
-                marker="dash"
-                markerColor="fg.danger"
-                gap="2"
+                marker="dash" markerColor="fg.danger"
             />
-        );
-    }),
-    inputs: [],
-});
-
-export const listRichItems = example({
-    keywords: ["List", "Root", "rich", "UIComp", "icon", "HStack"],
-    description: "Rich items — each is a custom HStack with icon + text",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <List
-                items={[
-                    <HStack gap="2" align="center">
-                        <Icon prefix="fas" name="circle-check" color="fg.success" />
-                        <Text>Passed: schema validation</Text>
-                    </HStack>,
-                    <HStack gap="2" align="center">
-                        <Icon prefix="fas" name="circle-xmark" color="fg.danger" />
-                        <Text>Failed: missing required field `id`</Text>
-                    </HStack>,
-                    <HStack gap="2" align="center">
-                        <Icon prefix="fas" name="circle-info" color="fg.info" />
-                        <Text>Skipped: optional integrity check</Text>
-                    </HStack>,
-                ]}
-                marker="none"
-                gap="2"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const listInteractive = example({
-    keywords: ["List", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive list whose item labels update from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "list_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <List
-                        items={[
-                            <Text>{East.str`First — bump ${East.print(value)}`}</Text>,
-                            <Text>{East.str`Second — bump ${East.print(value)}`}</Text>,
-                            <Text>{East.str`Third — bump ${East.print(value)}`}</Text>,
-                        ]}
-                        variant="ordered"
-                    />
-                    <Button onClick={increment}>Bump</Button>
-                </VStack>
-            );
-        }}</Reactive>
+        </VStack>
     )),
     inputs: [],
 });

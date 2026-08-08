@@ -4,19 +4,35 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { variant, some } from "@elaraai/east";
+import { variant, some, type ExprType } from "@elaraai/east";
 import { Map } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./map.examples.js";
 
 describeEast("Map", (test) => {
     Assert.examples(test, {
         mapBasic: ex.mapBasic,
-        mapAreas: ex.mapAreas,
-        mapHexLod: ex.mapHexLod,
-        mapPulse: ex.mapPulse,
-        mapOverlayHud: ex.mapOverlayHud,
-        mapInteractive: ex.mapInteractive,
+        mapVariants: ex.mapVariants,
         mapRegions: ex.mapRegions,
+        mapHud: ex.mapHud,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("mapVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the overlay-preset table
+        // routing between the five canvases plus the area-click aside — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the
+        // outer function. The per-option coverage lives in the Map.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.mapVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("resolves markers with defaults and an empty canvas", $ => {

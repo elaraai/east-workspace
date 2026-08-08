@@ -37,7 +37,7 @@ export const checkboxSlotRecipe = defineSlotRecipe({
             borderWidth: "1.5px",
             borderColor: "border.strong",
             background: "transparent",
-            color: "white",
+            color: "fg.inverse",
             transitionProperty: "background, border-color",
             transitionDuration: "{durations.fast}",
             // Chakra's Checkmark icon sets stroke-width:3 (in a 24-unit viewBox,
@@ -85,7 +85,7 @@ export const checkboxSlotRecipe = defineSlotRecipe({
                     "&:is([data-state=checked], [data-state=indeterminate])": {
                         background: "{colors.brand.600}",
                         borderColor: "{colors.brand.600}",
-                        color: "white",
+                        color: "fg.inverse",
                     },
                     "&:is([data-state=indeterminate])": {
                         background: "{colors.gray.500}",

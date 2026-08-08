@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Button, IconButton, Menu } from "@elaraai/east-ui";
+import { Button, Configurator, IconButton, Menu, Reactive} from "@elaraai/east-ui";
 
 export const menuBasic = example({
     keywords: ["Menu", "Root", "Item", "GroupLabel", "Separator", "dropdown", "kebab", "icon", "command", "destructive"],
@@ -28,41 +28,39 @@ export const menuBasic = example({
     inputs: [],
 });
 
-export const menuDisabled = example({
-    keywords: ["Menu", "Root", "Item", "disabled", "kebab"],
-    description: "Kebab trigger with some disabled items",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Menu
-                trigger={<IconButton prefix="fas" name="ellipsis" label="Options" variant="ghost" size="sm" />}
-                items={[
-                    Menu.Item("new", "New File"),
-                    Menu.Item("save", "Save", { disabled: true }),
-                    Menu.Separator(),
-                    Menu.Item("close", "Close"),
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
+export const menuVariants = example({
+    keywords: ["Menu", "Root", "Item", "disabled", "placement", "kebab", "account", "Reactive", "State", "Configurator", "configurator"],
+    description: "Menu — grouped items with a separator and a disabled entry on one bottom-end panel; opens log to the aside",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
 
-export const menuPlacement = example({
-    keywords: ["Menu", "Root", "Item", "placement", "style"],
-    description: "Menu with explicit placement on the style sub-struct",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Menu
-                trigger={<Button>Account</Button>}
-                placement="bottom-end"
-                items={[
-                    Menu.Item("profile", "View Profile"),
-                    Menu.Item("settings", "Settings"),
-                    Menu.Separator(),
-                    Menu.Item("logout", "Log Out"),
-                ]}
-            />
-        );
-    }),
+            // ONE menu — the richest composition: icon-button trigger,
+            // separator groups and a disabled item all together.
+            const preview = $.const(
+                <Menu
+                    trigger={<Button>Account</Button>}
+                    placement="bottom-end"
+                    items={[
+                        Menu.Item("profile", "View Profile"),
+                        Menu.Item("settings", "Settings"),
+                        Menu.Item("save", "Save", { disabled: true }),
+                        Menu.Separator(),
+                        Menu.Item("logout", "Log Out"),
+                    ]}
+                />,
+            );
+
+            return (
+                <Configurator
+                    controls={[
+                    ]}
+                    preview={preview}
+                    spec={[
+                        Configurator.Spec("Placement", "bottom-end"),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });

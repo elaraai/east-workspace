@@ -3,12 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { MetricChip, Stack, Text } from "@elaraai/east-ui";
+import { East, ArrayType, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, MetricChip, SegmentGroup, Select, Style, Text, Reactive } from "@elaraai/east-ui";
 
-export const metricChipPositive = example({
-    keywords: ["MetricChip", "Root", "tone", "positive", "delta"],
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
+
+export const metricChipBasic = example({
+    keywords: ["MetricChip", "Root", "tone", "positive", "delta", "basic"],
     description: "Positive metric chip with subtle emphasis",
     fn: East.function([], UIComponentType, ($) => {
         return <MetricChip tone="positive" emphasis="subtle"><Text>+12.5%</Text></MetricChip>;
@@ -16,51 +20,154 @@ export const metricChipPositive = example({
     inputs: [],
 });
 
-export const metricChipNegativeSolid = example({
-    keywords: ["MetricChip", "Root", "tone", "negative", "solid"],
-    description: "Negative metric chip rendered with solid emphasis",
-    fn: East.function([], UIComponentType, ($) => {
-        return <MetricChip tone="negative" emphasis="solid"><Text>-8.2%</Text></MetricChip>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// MetricChip — live configurator over every chip axis
+// ============================================================================
 
-export const metricChipNeutralOutline = example({
-    keywords: ["MetricChip", "Root", "tone", "neutral", "outline"],
-    description: "Neutral metric chip with outline emphasis and unit",
-    fn: East.function([], UIComponentType, ($) => {
-        return <MetricChip tone="neutral" emphasis="outline" unit="ms"><Text>42</Text></MetricChip>;
-    }),
-    inputs: [],
-});
-
-export const metricChipDensities = example({
-    keywords: ["MetricChip", "density", "condensed", "compact", "comfortable", "sizes"],
-    description: "The three densities stacked — chip height + font scale condensed → compact → comfortable (matching ChipRail)",
-    fn: East.function([], UIComponentType, ($) => {
-        const condensed = $.const(<MetricChip tone="positive" density="condensed"><Text>+12.5%</Text></MetricChip>);
-        const compact = $.const(<MetricChip tone="positive" density="compact"><Text>+12.5%</Text></MetricChip>);
-        const comfortable = $.const(<MetricChip tone="positive" density="comfortable"><Text>+12.5%</Text></MetricChip>);
+export const metricChipVariants = example({
+    keywords: ["MetricChip", "Root", "tone", "positive", "negative", "neutral", "info", "emphasis", "subtle", "solid", "outline", "density", "condensed", "compact", "comfortable", "size", "sizes", "xs", "sm", "md", "lg", "unit", "background", "color", "borderColor", "escape", "custom", "delta", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator", "interactive"],
+    description: "MetricChip configurator — tone, emphasis, density, size, unit and colour-slot axes driving one live chip; the aside nudges a reading that re-classifies its own tone",
+    fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Stack direction="column" gap="6">
-                {condensed}
-                {compact}
-                {comfortable}
-            </Stack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const tones = $.const([
+                    variant("positive", null), variant("negative", null),
+                    variant("neutral", null), variant("info", null),
+                ], ArrayType(MetricChip.Types.Tone));
+
+                const emphases = $.const([
+                    variant("subtle", null), variant("solid", null), variant("outline", null),
+                ], ArrayType(MetricChip.Types.Emphasis));
+
+                const densities = $.const([
+                    variant("condensed", null), variant("compact", null), variant("comfortable", null),
+                ], ArrayType(Style.Types.Density));
+
+                const sizes = $.const([
+                    variant("xs", null), variant("sm", null), variant("md", null), variant("lg", null),
+                ], ArrayType(Style.Types.Size));
+
+                // A token axis collapses the same way: a unit is just the suffix
+                // string, with "none" standing in for no suffix at all.
+                const units = $.const(["none", "%", "ms", "pts"], ArrayType(StringType));
+
+                // Only the colour slots need a struct — background / text / border
+                // move together as one escape-hatch triple, with no single value to
+                // name them by. The `recipe` row carries empty slots because the
+                // preview drops the overrides entirely for it (below).
+
+                const toneBind     = $.let(State.bind([StringType], "metric_chip_tone", "positive"));
+                const emphasisBind = $.let(State.bind([StringType], "metric_chip_emphasis", "subtle"));
+                const densityBind  = $.let(State.bind([StringType], "metric_chip_density", "compact"));
+                const sizeBind     = $.let(State.bind([StringType], "metric_chip_size", "sm"));
+                const unitBind     = $.let(State.bind([StringType], "metric_chip_unit", "%"));
+                const readingBind  = $.let(State.bind([IntegerType], "metric_chip_reading", 12n));
+
+                const tKey = $.let(toneBind.read());
+                const eKey = $.let(emphasisBind.read());
+                const dKey = $.let(densityBind.read());
+                const sKey = $.let(sizeBind.read());
+                const uKey = $.let(unitBind.read());
+                const reading = $.let(readingBind.read());
+
+                const onTone     = $.const(East.function([StringType], NullType, ($, next) => { $(toneBind.write(next)); }));
+                const onEmphasis = $.const(East.function([StringType], NullType, ($, next) => { $(emphasisBind.write(next)); }));
+                const onDensity  = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+                const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onUnit     = $.const(East.function([StringType], NullType, ($, next) => { $(unitBind.write(next)); }));
+                const up         = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(readingBind.read());
+                    $(readingBind.write(cur.add(5n)));
+                }));
+                const down       = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(readingBind.read());
+                    $(readingBind.write(cur.subtract(5n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const tone = $.let(tones.filter((_$, v) => v.getTag().equal(tKey)).get(0n));
+                const emphasis = $.let(emphases.filter((_$, v) => v.getTag().equal(eKey)).get(0n));
+                const density = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+                const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const unitToken = $.let(units.filter((_$, s) => s.equal(uKey)).get(0n));
+
+                // "none" is the no-suffix row, so it maps back to an empty unit.
+                const unit = $.let(unitToken.equal("none").ifElse(_$ => "", _$ => unitToken));
+                // A delta chip reads with its sign, so positives print an explicit +.
+                const readingText = $.let(reading.greater(0n).ifElse(
+                    _$ => East.str`+${East.print(reading)}`,
+                    _$ => East.print(reading),
+                ));
+                // The aside chip classifies itself: the sign of the reading picks the
+                // tone out of the same array the Tone control renders.
+                const signKey = $.let(reading.greater(0n).ifElse(
+                    _$ => "positive",
+                    _$ => reading.less(0n).ifElse(_$ => "negative", _$ => "neutral"),
+                ));
+                const signTone = $.let(tones.filter((_$, v) => v.getTag().equal(signKey)).get(0n));
+
+                // ONE chip — tone recipe colouring; the colour escape hatches
+                // live in their own example.
+                const chip = $.const(
+                    <MetricChip tone={tone} emphasis={emphasis} density={density} size={size} unit={unit}>
+                        <Text>{readingText}</Text>
+                    </MetricChip>,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Tone", tKey,
+                                <Select value={tKey} onChange={onTone} size="sm"
+                                    items={tones.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Emphasis", eKey,
+                                <SegmentGroup value={eKey} onChange={onEmphasis} size="sm"
+                                    items={emphases.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Density", dKey,
+                                <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Size", sKey,
+                                <Select value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Unit", uKey,
+                                <Select value={uKey} onChange={onUnit} size="sm"
+                                    items={units.map((_$, s) => Select.Item(s, s))} />),
+                        ]}
+                        preview={chip}
+                        aside={{
+                            label: "Reading · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Button size="xs" onClick={down}>-5</Button>
+                                    <MetricChip tone={signTone} emphasis={emphasis} density={density} unit={unit}>
+                                        <Text>{readingText}</Text>
+                                    </MetricChip>
+                                    <Button size="xs" onClick={up}>+5</Button>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Value", readingText),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
 });
 
-export const metricChipInfo = example({
-    keywords: ["MetricChip", "Root", "tone", "info"],
-    description: "Informational metric chip with custom colour slots",
-    fn: East.function([], UIComponentType, ($) => {
-        return (
-            <MetricChip tone="info" background="blue.100" color="blue.800" borderColor="blue.300">
-                <Text>Forecast</Text>
-            </MetricChip>
-        );
-    }),
+/** Raw colour escape hatches over the tone recipe on a static chip. */
+export const metricChipCustomColours = example({
+    keywords: ["MetricChip", "background", "color", "borderColor", "override", "custom"],
+    description: "Colour overrides — raw background, ink and border on a static chip",
+    fn: East.function([], UIComponentType, (_$) => (
+        <MetricChip tone="positive" emphasis="subtle" background="bg.brand.subtle" color="fg.default" borderColor="border.brand">
+            <Text>+12.5%</Text>
+        </MetricChip>
+    )),
     inputs: [],
 });

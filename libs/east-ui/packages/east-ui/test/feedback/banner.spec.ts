@@ -5,14 +5,29 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Banner, Text, Button } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./banner.examples.js";
 
 describeEast("Banner", (test) => {
     Assert.examples(test, {
-        bannerStaleData: ex.bannerStaleData,
-        bannerFrozenScenario: ex.bannerFrozenScenario,
-        bannerRunWarnings: ex.bannerRunWarnings,
-        bannerDismissible: ex.bannerDismissible,
+        bannerStatusVariants: ex.bannerStatusVariants,
+    });
+
+    // =========================================================================
+    // Panels — the status grammar is a live configurator (#463 → epic #455).
+    // =========================================================================
+
+    test("bannerStatusVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the status/icon/copy/action table
+        // — is declared inside the example body, because the documentation
+        // capture only extracts `fn`. That puts the table inside the Reactive
+        // body, which TestImpl does not execute, so it cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-status coverage lives in the Banner.Root tests
+        // below, which construct each status directly.
+        const panel = $.const(ex.bannerStatusVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates banner with string title + status (coerced)", $ => {
@@ -77,19 +92,19 @@ describeEast("Banner", (test) => {
         const b = $.let(Banner.Root({ status: "info", title: "T",
             variant: "subtle",
             size: "md",
-            color: "#111827",
-            background: "#eff6ff",
-            borderColor: "#bfdbfe",
-            iconColor: "#2563eb",
-            accentColor: "#2563eb",
+            color: "fg.default",
+            background: "bg.brand.subtle",
+            borderColor: "border.brand",
+            iconColor: "link",
+            accentColor: "link",
         }));
         const s = b.unwrap().unwrap("Banner").style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(s.color.unwrap("some"), "#111827"));
-        $(Assert.equal(s.background.unwrap("some"), "#eff6ff"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#bfdbfe"));
-        $(Assert.equal(s.iconColor.unwrap("some"), "#2563eb"));
-        $(Assert.equal(s.accentColor.unwrap("some"), "#2563eb"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(s.iconColor.unwrap("some"), "link"));
+        $(Assert.equal(s.accentColor.unwrap("some"), "link"));
     });
 }, { platformFns: TestImpl });

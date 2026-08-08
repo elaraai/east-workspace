@@ -13,7 +13,7 @@ import { UIComponentType, State, VStack, Text, Badge } from "@elaraai/east-ui";
 export const surface = East.function([], UIComponentType, (_$) => (
     <VStack gap="3" align="stretch">
         <Text fontWeight="bold">Sweep fixture</Text>
-        <Badge colorPalette="green">ok</Badge>
+        <Badge colorPalette="success">ok</Badge>
     </VStack>
 ));
 
@@ -21,7 +21,7 @@ export const surface = East.function([], UIComponentType, (_$) => (
 export const chipExample = example({
     keywords: ["fixture"],
     description: "sweep fixture example",
-    fn: East.function([], UIComponentType, (_$) => <Badge colorPalette="blue">chip</Badge>),
+    fn: East.function([], UIComponentType, (_$) => <Badge colorPalette="brand">chip</Badge>),
     inputs: [],
 });
 

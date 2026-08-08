@@ -3,21 +3,36 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType } from "@elaraai/east";
+import { East, NullType, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Matrix } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./matrix.examples.js";
 
 describeEast("Matrix", (test) => {
     Assert.examples(test, {
         matrixHeatGrid: ex.matrixHeatGrid,
-        matrixSegments: ex.matrixSegments,
-        matrixVertical: ex.matrixVertical,
-        matrixMarkers: ex.matrixMarkers,
-        matrixPopover: ex.matrixPopover,
-        matrixReactiveAdjust: ex.matrixReactiveAdjust,
-        matrixBounded: ex.matrixBounded,
-        matrixFill: ex.matrixFill,
+        matrixVariants: ex.matrixVariants,
+        matrixAdjust: ex.matrixAdjust,
+        matrixPivot: ex.matrixPivot,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("matrixVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the cell-preset and orientation
+        // tables — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the Matrix.Root tests below, which construct each option
+        // directly.
+        const panel = $.const(ex.matrixVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

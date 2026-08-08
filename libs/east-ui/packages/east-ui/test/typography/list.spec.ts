@@ -4,22 +4,35 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { List, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./list.examples.js";
 
 describeEast("List", (test) => {
     Assert.examples(test, {
         listUnordered: ex.listUnordered,
-        listOrdered: ex.listOrdered,
-        listWithGap: ex.listWithGap,
-        listColored: ex.listColored,
-        listGreen: ex.listGreen,
-        listFeatures: ex.listFeatures,
-        listSteps: ex.listSteps,
-        listEmpty: ex.listEmpty,
-        listCheckmarks: ex.listCheckmarks,
-        listDashed: ex.listDashed,
-        listRichItems: ex.listRichItems,
+        listVariants: ex.listVariants,
+        listMarkers: ex.listMarkers,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("listVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the content / variant / gap /
+        // palette tables, including the semantic check / dash treatments that
+        // used to live in `listSemantic` — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-prop coverage
+        // lives in the List.Root tests below, which construct each style
+        // directly.
+        const panel = $.const(ex.listVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -119,15 +132,15 @@ describeEast("List", (test) => {
     // =========================================================================
 
     test("creates list with colorPalette", $ => {
-        const list = $.let(List.Root(["A", "B"], { colorPalette: "blue" }));
+        const list = $.let(List.Root(["A", "B"], { colorPalette: "brand" }));
         const style = list.unwrap().unwrap("List").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
-    test("creates list with green colorPalette", $ => {
-        const list = $.let(List.Root(["A", "B"], { colorPalette: "green" }));
+    test("creates list with success colorPalette", $ => {
+        const list = $.let(List.Root(["A", "B"], { colorPalette: "success" }));
         const style = list.unwrap().unwrap("List").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "green"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "success"));
     });
 
     test("creates list with explicit markerColor + color", $ => {
@@ -165,13 +178,13 @@ describeEast("List", (test) => {
         ], {
             variant: "unordered",
             gap: "3",
-            colorPalette: "green",
+            colorPalette: "success",
         }));
         const style = list.unwrap().unwrap("List").style.unwrap("some");
 
         $(Assert.equal(style.variant.unwrap("some").hasTag("unordered"), true));
         $(Assert.equal(style.gap.unwrap("some"), "3"));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "green"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "success"));
     });
 
     test("creates empty list", $ => {

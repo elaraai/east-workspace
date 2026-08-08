@@ -57,7 +57,7 @@ Lib-specific extras (run `make help` in each):
 | `libs/e3` | `make fuzz` (Virtual Idiot fuzz; also `fuzz-quick`, `fuzz-stress`) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan) |
 | `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage` |
-| `libs/east-ui` | `make design` (serve `design/` on :5174), `make design-html-all` (snapshot `design/` to `dist-design/`), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all` |
+| `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all` |
 
 ---
 

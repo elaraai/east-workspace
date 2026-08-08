@@ -5,17 +5,32 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CommandPalette } from "@elaraai/east-ui/internal";
-import { East, BooleanType, NullType } from "@elaraai/east";
+import { East, BooleanType, NullType, type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./command-palette.examples.js";
 
 describeEast("CommandPalette", (test) => {
     Assert.examples(test, {
         commandPaletteBasic: ex.commandPaletteBasic,
-        commandPaletteGrouped: ex.commandPaletteGrouped,
-        commandPaletteWithKeywords: ex.commandPaletteWithKeywords,
-        commandPaletteCustomTrigger: ex.commandPaletteCustomTrigger,
-        commandPaletteColours: ex.commandPaletteColours,
         commandPaletteWithHotkey: ex.commandPaletteWithHotkey,
+        commandPaletteVariants: ex.commandPaletteVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("commandPaletteVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the command-set, trigger-chord
+        // and colour tables — is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the CommandPalette.Root tests below, which construct each
+        // option directly.
+        const panel = $.const(ex.commandPaletteVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     const noop = East.function([], NullType, (_$) => { /* noop */ });
@@ -69,19 +84,19 @@ describeEast("CommandPalette", (test) => {
             {
                 size: "md",
                 background: "bg",
-                borderColor: "blue.300",
+                borderColor: "border.brand",
                 inputBackground: "bg.subtle",
-                selectedBackground: "blue.100",
-                groupLabelColor: "blue.700",
+                selectedBackground: "bg.brand.subtle",
+                groupLabelColor: "link",
             },
         ));
         const style = $.let(r.unwrap().unwrap("CommandPalette").style.unwrap("some"));
         $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(style.background.unwrap("some"), "bg"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
         $(Assert.equal(style.inputBackground.unwrap("some"), "bg.subtle"));
-        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.100"));
-        $(Assert.equal(style.groupLabelColor.unwrap("some"), "blue.700"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.groupLabelColor.unwrap("some"), "link"));
     });
 
     test("style absent when no visual fields set", $ => {

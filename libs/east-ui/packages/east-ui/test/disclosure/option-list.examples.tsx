@@ -15,8 +15,8 @@ export const optionListAlternatives = example({
             <OptionList
                 options={[
                     OptionList.Option("alt-1", "Keep current plan", { description: "+£0 overtime, 2 unmet shifts", trailing: <Badge colorPalette="gray">baseline</Badge> }),
-                    OptionList.Option("alt-2", "Shift batch to 06:00", { description: "+0.8h idle, −£312 overtime", trailing: <Badge colorPalette="green">−£312</Badge> }),
-                    OptionList.Option("alt-3", "Add agency worker", { description: "+£480 variable cost, 0 unmet", trailing: <Badge colorPalette="red">+£480</Badge> }),
+                    OptionList.Option("alt-2", "Shift batch to 06:00", { description: "+0.8h idle, −£312 overtime", trailing: <Badge colorPalette="success">−£312</Badge> }),
+                    OptionList.Option("alt-3", "Add agency worker", { description: "+£480 variable cost, 0 unmet", trailing: <Badge colorPalette="danger">+£480</Badge> }),
                 ]}
                 selectedId="alt-1"
             />
@@ -37,9 +37,9 @@ export const optionListWhatIf = example({
                     OptionList.Option("w-3", "Outage on Line B", { description: "Not modelled yet", disabled: true }),
                 ]}
                 selectedId="w-1"
-                selectedBackground="#eef2ff"
-                itemHoverBackground="#f8fafc"
-                borderColor="#e5e7eb"
+                selectedBackground="bg.brand.subtle"
+                itemHoverBackground="bg.canvas"
+                borderColor="border.subtle"
             />
         );
     }),

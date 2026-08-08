@@ -77,6 +77,10 @@ export function Size(size: "xs" | "sm" | "md" | "lg"): ExprType<SizeType> {
  *   consumer's Chakra theme resolves `colorPalette="success"` etc. to the
  *   dichromacy-safe palette of the design system (see contract).
  *
+ * @property brand - Semantic: the design system's primary (deep teal). The
+ *                   default for non-semantic emphasis — prefer it over a hue
+ *                   token, which resolves to a stock Chakra palette that is
+ *                   not part of the East palette.
  * @property gray - Gray color scheme
  * @property red - Red color scheme
  * @property orange - Orange color scheme
@@ -94,6 +98,7 @@ export function Size(size: "xs" | "sm" | "md" | "lg"): ExprType<SizeType> {
  * @property neutral - Semantic: "idle / inactive / unknown"
  */
 export const ColorSchemeType = VariantType({
+    brand: NullType,
     gray: NullType,
     red: NullType,
     orange: NullType,
@@ -120,6 +125,7 @@ export type ColorSchemeType = typeof ColorSchemeType;
  * String literal type for color scheme values.
  */
 export type ColorSchemeLiteral =
+    | "brand"
     | "gray" | "red" | "orange" | "yellow" | "green"
     | "teal" | "blue" | "cyan" | "purple" | "pink"
     | "success" | "warning" | "danger" | "info" | "neutral";

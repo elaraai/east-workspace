@@ -37,6 +37,10 @@ export const schematicSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             display: "flex",
             alignItems: "stretch",
+            /* The canvas layers are absolutely positioned, so the root has no
+             * intrinsic width — in a shrink-to-fit context (flex/grid
+             * centering) it would collapse to just the navigator. */
+            width: "100%",
             /* The canvas aspect drives the height; the navigator scrolls
              * inside it rather than stretching the row. */
             maxHeight: "75vh",

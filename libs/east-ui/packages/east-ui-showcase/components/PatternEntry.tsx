@@ -202,7 +202,7 @@ function CodeBody({ entry }: { entry: CodeEntry }) {
                             variant="outline"
                             onClick={() => setExpanded(true)}
                             bg="whiteAlpha.200"
-                            color="gray.100"
+                            color="fg.inverse"
                             borderColor="whiteAlpha.400"
                             _hover={{ bg: "whiteAlpha.300" }}
                         >

@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Card, Text, HStack, VStack } from "@elaraai/east-ui";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, VariantType, example, variant } from "@elaraai/east";
+import { State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Select, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const cardBasic = example({
     keywords: ["Card", "Root", "basic"],
@@ -20,225 +24,195 @@ export const cardBasic = example({
     inputs: [],
 });
 
-export const cardHeader = example({
-    keywords: ["Card", "Root", "header", "eyebrow"],
-    description: "Card with an eyebrow header",
+// ============================================================================
+// Card — live configurator over header, body, sizing and slot axes
+// ============================================================================
+
+export const cardVariants = example({
+    keywords: ["Card", "Root", "header", "eyebrow", "Header", "title", "description", "footer", "Button", "actions", "meta", "Section", "multi-section", "flush", "bodyPadding", "full-bleed", "padding", "Badge", "rich content", "height", "overflow", "dimensions", "flex", "Stack", "HStack", "fill", "body", "constrain", "scroll", "sizing", "fillBody", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "state", "loading", "Skeleton", "empty", "EmptyState", "error", "permission-denied", "access denied"],
+    description: "Card configurator — header, body, sizing and runtime-state axes plus footer / sections switches driving one live card; the aside shares one row between two flex cards",
     fn: East.function([], UIComponentType, (_$) => {
         return (
+            <Reactive>{$ => {
+                // Header / footer slots are composed at build time, so the
+                // header axis is a plain key array and the preview picks the
+                // matching prebuilt card below (the chip-rail presence
+                // precedent); the slot content itself never changes.
+
+                // Body is a preset axis — flush and bodyPadding only read
+                // against each other (flush overrides the padding).
+                const bodies = $.const([
+                    { label: "default", flush: false, pad: "18px 20px" },
+                    { label: "flush",   flush: true,  pad: "18px 20px" },
+                    { label: "tight",   flush: false, pad: "6px 8px" },
+                ], ArrayType(StructType({ label: StringType, flush: BooleanType, pad: StringType })));
+
+                // Sizing is a preset axis: fixed-height scroll, flex growth, and
+                // the #320 fill-body contract — a height-bounded Card constrains
+                // its body so a `fill scrollY` child scrolls inside the card
+                // instead of overflowing it.
+                const sizings = $.const([
+                    { label: "fixed",     height: "200px", width: "100%",  flex: "none", overflow: variant("auto", null) },
+                    { label: "flexible",  height: "auto",  width: "100%",  flex: "1",    overflow: variant("visible", null) },
+                    { label: "fill-body", height: "240px", width: "280px", flex: "none", overflow: variant("visible", null) },
+                ], ArrayType(StructType({ label: StringType, height: StringType, width: StringType, flex: StringType, overflow: Style.Types.Overflow })));
+
+                // Runtime state is the shared states contract — `ready` plus
+                // the fallback quartet. The selected variant lowers onto every
+                // prebuilt leaf, so the fallback bodies render inside whichever
+                // header / footer / sizing combination is configured.
+                const states = $.const([
+                    variant("ready", null), variant("loading", null), variant("empty", null),
+                    variant("error", null), variant("permission-denied", null),
+                ], ArrayType(VariantType({
+                    ready: NullType, loading: NullType, empty: NullType,
+                    error: NullType, "permission-denied": NullType,
+                })));
+
+                // The three bodies the switches and the #320 preset pick between.
+                const scrollBody = $.const([
+                    <Box fill scrollY>
+                        <VStack align="stretch" gap="2">
+                            {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
+                        </VStack>
+                    </Box>,
+                ], ArrayType(UIComponentType));
+
+                const sectionedBody = $.const([
+                    <Text>Top-level summary line.</Text>,
+                    Card.Section([<Text>Scope A details</Text>], { title: "Scope" }),
+                    Card.Section([
+                        <HStack gap="2">
+                            <Button>Apply</Button>
+                            <Button variant="subtle">Revert</Button>
+                        </HStack>,
+                    ], { title: "Actions" }),
+                ], ArrayType(UIComponentType));
+
+                const richBody = $.const([
+                    <HStack gap="2">
+                        <Badge colorPalette="success" variant="solid">New</Badge>
+                        <Badge colorPalette="brand" variant="solid">Featured</Badge>
+                    </HStack>,
+                    <Text>This card demonstrates how multiple components can be nested inside a card body.</Text>,
+                ], ArrayType(UIComponentType));
+                const bodyBind     = $.let(State.bind([StringType], "card_body", "default"));
+                const sizingBind   = $.let(State.bind([StringType], "card_sizing", "flexible"));
+                const stateBind    = $.let(State.bind([StringType], "card_state", "ready"));
+                const sectionsBind = $.let(State.bind([BooleanType], "card_sections", false));
+                const bKey       = $.let(bodyBind.read());
+                const sKey       = $.let(sizingBind.read());
+                const stKey      = $.let(stateBind.read());
+                const sectionsOn = $.let(sectionsBind.read());
+                const onBody     = $.const(East.function([StringType], NullType, ($, next) => { $(bodyBind.write(next)); }));
+                const onSizing   = $.const(East.function([StringType], NullType, ($, next) => { $(sizingBind.write(next)); }));
+                const onState    = $.const(East.function([StringType], NullType, ($, next) => { $(stateBind.write(next)); }));
+                const onSections = $.const(East.function([BooleanType], NullType, ($, next) => { $(sectionsBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const body = $.let(bodies.filter((_$, o) => o.label.equal(bKey)).get(0n));
+                const sizing = $.let(sizings.filter((_$, o) => o.label.equal(sKey)).get(0n));
+                const cardState = $.let(states.filter((_$, v) => v.getTag().equal(stKey)).get(0n));
+
+                const kids = $.let(sKey.equal("fill-body").ifElse(
+                    _$ => scrollBody,
+                    _$ => sectionsOn.ifElse(_$ => sectionedBody, _$ => richBody),
+                ));
+
+                // ONE card — the full header + actions footer compose on
+                // permanently (presence-typed chrome); the body / sizing /
+                // state axes and the section children all feed as values.
+                const preview = $.const(
+                    <Card
+                        header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}
+                        footer={{ actions: [
+                            <Button variant="outline" size="sm">Cancel</Button>,
+                            <Button variant="solid" colorPalette="brand" size="sm">Save</Button>,
+                        ] }}
+                        flush={body.flush} bodyPadding={body.pad}
+                        height={sizing.height} width={sizing.width} flex={sizing.flex} overflow={sizing.overflow} state={cardState}
+                    >
+                        {kids}
+                    </Card>,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Body", bKey,
+                                <SegmentGroup value={bKey} onChange={onBody} size="sm"
+                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("Sizing", sKey,
+                                <SegmentGroup value={sKey} onChange={onSizing} size="sm"
+                                    items={sizings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("State", stKey,
+                                <Select value={stKey} onChange={onState} size="sm"
+                                    items={states.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            // A Slot, not a Control: the two switches report as
+                            // the Footer / Sections spec rows below rather than
+                            // as one value.
+                            Configurator.Slot("Slots",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={sectionsOn} label="Sections" onChange={onSections} />
+                                </HStack>),
+                        ]}
+                        preview={preview}
+                        aside={{
+                            label: "Flex · shared row",
+                            body: (
+                                <HStack gap="4" width="100%">
+                                    <Card header={{ eyebrow: "Flex card 1" }} flex="1">
+                                        <Text>flex: 1 fills available space.</Text>
+                                    </Card>
+                                    <Card header={{ eyebrow: "Flex card 2" }} flex="1">
+                                        <Text>Both cards share the row equally.</Text>
+                                    </Card>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Footer", "actions"),
+                            Configurator.Spec("Sections", sKey.equal("fill-body").ifElse(
+                                _$ => "fill scrollY body",
+                                _$ => sectionsOn.ifElse(_$ => "2 hairline", _$ => "inline body"))),
+                            Configurator.Spec("Body render", stKey.equal("ready").ifElse(
+                                _$ => "children",
+                                _$ => East.str`${stKey} fallback`)),
+                        ]}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * The four header forms side by side — none, eyebrow-only, full
+ * (eyebrow + title + description) and the compound meta header with a
+ * content + actions footer.
+ */
+export const cardHeaderForms = example({
+    keywords: ["Card", "header", "eyebrow", "title", "description", "meta", "footer", "content", "actions", "forms"],
+    description: "Header forms — none, eyebrow, full and compound-meta cards side by side",
+    fn: East.function([], UIComponentType, (_$) => (
+        <VStack gap="4" align="stretch">
+            <Card>
+                <Text>No header — body only.</Text>
+            </Card>
             <Card header={{ eyebrow: "Run summary" }}>
-                <Text>Card content goes here. The header is the mono eyebrow strip.</Text>
+                <Text>Eyebrow-only header.</Text>
             </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardHeaderTitle = example({
-    keywords: ["Card", "Header", "eyebrow", "title", "description"],
-    description: "Header with eyebrow + brand title + description",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
             <Card header={{ eyebrow: "Featured", title: "Featured Article", description: "A brief summary of what this card contains" }}>
-                <Text>The main content area of the card.</Text>
+                <Text>Full header.</Text>
             </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardFooter = example({
-    keywords: ["Card", "Root", "footer", "Button", "actions"],
-    description: "Card with action buttons in the footer",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card
-                header={{ title: "Actions Card" }}
-                footer={{ actions: [
-                    <Button variant="outline" size="sm">Cancel</Button>,
-                    <Button variant="solid" colorPalette="blue" size="sm">Save</Button>,
-                ] }}
-            >
-                <Text>This card has action buttons placed in the footer area.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardDimensions = example({
-    keywords: ["Card", "Root", "height", "overflow", "dimensions"],
-    description: "Fixed height and scroll overflow",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card header={{ eyebrow: "Sized card" }} height="200px" overflow="auto">
-                <Text>This card has a fixed height of 200px and will scroll if content overflows.</Text>
-                <Text>The dimension properties allow precise control over card sizing.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardFlush = example({
-    keywords: ["Card", "flush", "bodyPadding", "full-bleed", "padding"],
-    description: "A flush card (zero body padding) for full-bleed content, beside a card with a custom bodyPadding",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Card header={{ eyebrow: "Full bleed" }} width="240px" flush>
-                    <Badge>fills the body edge-to-edge</Badge>
-                </Card>
-                <Card header={{ eyebrow: "Tight" }} width="240px" bodyPadding="6px 8px">
-                    <Text>Custom 6×8 body padding.</Text>
-                </Card>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardFlexible = example({
-    keywords: ["Card", "Root", "flex", "Stack", "HStack"],
-    description: "Card that grows with flex",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4" width="100%">
-                <Card header={{ eyebrow: "Flex card 1" }} flex="1">
-                    <Text>This card uses flex: 1 to fill available space.</Text>
-                </Card>
-                <Card header={{ eyebrow: "Flex card 2" }} flex="1">
-                    <Text>Both cards share the space equally.</Text>
-                </Card>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardMultiple = example({
-    keywords: ["Card", "Root", "Badge", "rich content"],
-    description: "Card with multiple child components",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card
-                header={{ eyebrow: "Action required", title: "Please review and respond" }}
-                footer={{ actions: [
-                    <Button variant="solid" colorPalette="green" size="sm">Accept</Button>,
-                    <Button variant="outline" colorPalette="red" size="sm">Decline</Button>,
-                ] }}
-            >
-                <HStack gap="2">
-                    <Badge colorPalette="green" variant="solid">New</Badge>
-                    <Badge colorPalette="purple" variant="solid">Featured</Badge>
-                </HStack>
-                <Text>This card demonstrates how multiple components can be nested inside a card body.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardWithCompoundHeader = example({
-    keywords: ["Card", "Header", "eyebrow", "title", "meta"],
-    description: "Header with eyebrow + title + trailing meta, action in the footer",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
             <Card
                 header={{ eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" }}
                 footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant="subtle">Export</Button>] }}
             >
-                <Text>Scenario vs baseline — per-plan week comparison.</Text>
+                <Text>Compound meta header with a content + actions footer.</Text>
             </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardLoading = example({
-    keywords: ["Card", "state", "loading", "Skeleton"],
-    description: "Card in loading state — skeleton body",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card header={{ title: "Run summary" }} state="loading">
-                <Text>Original content — replaced by skeleton while loading.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardEmpty = example({
-    keywords: ["Card", "state", "empty", "EmptyState"],
-    description: "Card in empty state — EmptyState fallback body",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card header={{ eyebrow: "Scenarios" }} state="empty">
-                <Text>Original content — replaced by EmptyState when empty.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardError = example({
-    keywords: ["Card", "state", "error"],
-    description: "Card in error state — compute-error fallback body",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card header={{ eyebrow: "Run summary" }} state="error">
-                <Text>Original content — replaced by error alert.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardPermissionDenied = example({
-    keywords: ["Card", "state", "permission-denied", "access denied"],
-    description: "Card in permission-denied state — access-denied fallback body",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card header={{ eyebrow: "Admin panel" }} state="permission-denied">
-                <Text>Sensitive content.</Text>
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardWithSections = example({
-    keywords: ["Card", "Section", "multi-section"],
-    description: "Card with two hairline-separated sections",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card header={{ title: "Commit approval" }}>
-                <Text>Top-level summary line.</Text>
-                {Card.Section([<Text>Scope A details</Text>], { title: "Scope" })}
-                {Card.Section([
-                    <HStack gap="2">
-                        <Button>Apply</Button>
-                        <Button variant="subtle">Revert</Button>
-                    </HStack>,
-                ], { title: "Actions" })}
-            </Card>
-        );
-    }),
-    inputs: [],
-});
-
-export const cardFillBody = example({
-    keywords: ["Card", "height", "fill", "body", "constrain", "scroll", "sizing", "fillBody"],
-    description: "A height-bounded Card constrains its body (#320) — with a definite `height` the body becomes `flex:1; min-height:0`, so a `fill scrollY` child resolves against the card and scrolls inside it instead of overflowing the card",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Card height="240px" width="280px">
-                <Box fill scrollY>
-                    <VStack align="stretch" gap="2">
-                        {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
-                    </VStack>
-                </Box>
-            </Card>
-        );
-    }),
+        </VStack>
+    )),
     inputs: [],
 });

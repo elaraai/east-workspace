@@ -3,12 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
+import { East, ArrayType, BooleanType, NullType, OptionType, StringType, StructType, example, none, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Reactive, Text, TreeView, VStack } from "@elaraai/east-ui";
+import { Badge, Configurator, HStack, Reactive, SegmentGroup, Select, Switch, Text, TreeView } from "@elaraai/east-ui";
 
-export const treeViewFile = example({
-    keywords: ["TreeView", "Root", "Branch", "Item", "file", "tree"],
+// ============================================================================
+// Module-scope fixtures — one per merged example (consolidation epic #455).
+// ============================================================================
+
+export const treeViewBasic = example({
+    keywords: ["TreeView", "Root", "Branch", "Item", "file", "tree", "basic"],
     description: "Basic hierarchical file structure",
     fn: East.function([], UIComponentType, (_$) => {
         return (
@@ -34,239 +38,184 @@ export const treeViewFile = example({
     inputs: [],
 });
 
-export const treeViewIcons = example({
-    keywords: ["TreeView", "Root", "Branch", "Item", "icon", "prefix", "color"],
-    description: "Tree nodes with indicator icons",
+export const treeViewVariants = example({
+    keywords: ["TreeView", "Root", "Branch", "Item", "icon", "prefix", "color", "organization", "hierarchy", "user", "icons", "size", "sm", "compact", "variant", "solid", "defaultExpandedValue", "settings", "colour", "override", "itemColor", "selectedBackground", "caretColor", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelectionChange", "selectionMode", "multiple", "onExpandedChange", "expand", "onFocusChange", "interactive"],
+    description: "TreeView configurator — tree-preset, size, variant and colour axes plus a default-expanded switch driving one live tree; the aside logs selection, expand and focus events",
     fn: East.function([], UIComponentType, (_$) => {
+        const TREE_VIEW_ICONS_DATA = [
+            TreeView.Branch("src", "src", [
+                TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
+                TreeView.Item("utils", "utils.ts", { prefix: "fas", name: "file-code", color: "link" }),
+            ], { prefix: "fas", name: "folder", color: "fg.warning" }),
+            TreeView.Branch("docs", "docs", [
+                TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
+            ], { prefix: "fas", name: "folder", color: "fg.warning" }),
+            TreeView.Item("package", "package.json", { prefix: "far", name: "file" }),
+        ];
+        const TREE_VIEW_ORG_DATA = [
+            TreeView.Branch("ceo", "CEO", [
+                TreeView.Branch("cto", "CTO", [
+                    TreeView.Branch("eng-lead", "Engineering Lead", [
+                        TreeView.Item("dev1", "Senior Developer", { prefix: "fas", name: "user", color: "link" }),
+                        TreeView.Item("dev2", "Junior Developer", { prefix: "fas", name: "user", color: "link" }),
+                    ], { prefix: "fas", name: "users", color: "accent.purple" }),
+                    TreeView.Item("qa-lead", "QA Lead", { prefix: "fas", name: "user-check", color: "fg.success" }),
+                ], { prefix: "fas", name: "user-tie", color: "brand.600" }),
+                TreeView.Branch("cfo", "CFO", [
+                    TreeView.Item("finance", "Finance Manager", { prefix: "fas", name: "user", color: "fg.success" }),
+                ], { prefix: "fas", name: "user-tie", color: "brand.600" }),
+                TreeView.Branch("cmo", "CMO", [
+                    TreeView.Item("marketing", "Marketing Lead", { prefix: "fas", name: "user", color: "accent.pink" }),
+                ], { prefix: "fas", name: "user-tie", color: "brand.600" }),
+            ], { prefix: "fas", name: "crown", color: "fg.warning" }),
+        ];
+        const TREE_VIEW_SMALL_DATA = [
+            TreeView.Branch("docs", "Documentation", [
+                TreeView.Item("docs-api", "API Reference", { prefix: "fas", name: "code" }),
+                TreeView.Item("docs-guide", "User Guide", { prefix: "fas", name: "book-open" }),
+                TreeView.Item("docs-faq", "FAQ", { prefix: "fas", name: "circle-question" }),
+            ], { prefix: "fas", name: "book", color: "link" }),
+            TreeView.Branch("support", "Support", [
+                TreeView.Item("support-tickets", "Tickets", { prefix: "fas", name: "ticket" }),
+                TreeView.Item("support-chat", "Live Chat", { prefix: "fas", name: "comments" }),
+            ], { prefix: "fas", name: "headset", color: "fg.success" }),
+        ];
+        const TREE_VIEW_SOLID_DATA = [
+            TreeView.Branch("category1", "Electronics", [
+                TreeView.Item("cat1-phones", "Phones", { prefix: "fas", name: "mobile-screen" }),
+                TreeView.Item("cat1-laptops", "Laptops", { prefix: "fas", name: "laptop" }),
+                TreeView.Item("cat1-tablets", "Tablets", { prefix: "fas", name: "tablet-screen-button" }),
+            ], { prefix: "fas", name: "microchip", color: "link" }),
+            TreeView.Branch("category2", "Clothing", [
+                TreeView.Item("cat2-mens", "Men's", { prefix: "fas", name: "person" }),
+                TreeView.Item("cat2-womens", "Women's", { prefix: "fas", name: "person-dress" }),
+            ], { prefix: "fas", name: "shirt", color: "accent.purple" }),
+        ];
         return (
-            <TreeView nodes={[
-                TreeView.Branch("src", "src", [
-                    TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
-                    TreeView.Item("utils", "utils.ts", { prefix: "fas", name: "file-code", color: "blue.500" }),
-                ], { prefix: "fas", name: "folder", color: "yellow.500" }),
-                TreeView.Branch("docs", "docs", [
-                    TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
-                ], { prefix: "fas", name: "folder", color: "yellow.500" }),
-                TreeView.Item("package", "package.json", { prefix: "far", name: "file" }),
-            ]} />
-        );
-    }),
-    inputs: [],
-});
+            <Reactive>{$ => {
+                // A tree preset is its nodes PLUS the branch values the
+                // expanded switch pre-opens, so the axis is a struct.
+                const trees = $.const([
+                    { label: "files",    nodes: TREE_VIEW_ICONS_DATA, expanded: ["src", "docs"] },
+                    { label: "org",      nodes: TREE_VIEW_ORG_DATA,   expanded: ["ceo", "cto", "eng-lead"] },
+                    { label: "docs",     nodes: TREE_VIEW_SMALL_DATA, expanded: ["docs", "support"] },
+                    { label: "shopping", nodes: TREE_VIEW_SOLID_DATA, expanded: ["category1", "category2"] },
+                ], ArrayType(StructType({ label: StringType, nodes: ArrayType(TreeView.Types.Node), expanded: ArrayType(StringType) })));
 
-export const treeViewOrg = example({
-    keywords: ["TreeView", "organization", "hierarchy", "user", "icons"],
-    description: "Company hierarchy with user icons",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <TreeView nodes={[
-                TreeView.Branch("ceo", "CEO", [
-                    TreeView.Branch("cto", "CTO", [
-                        TreeView.Branch("eng-lead", "Engineering Lead", [
-                            TreeView.Item("dev1", "Senior Developer", { prefix: "fas", name: "user", color: "blue.500" }),
-                            TreeView.Item("dev2", "Junior Developer", { prefix: "fas", name: "user", color: "blue.400" }),
-                        ], { prefix: "fas", name: "users", color: "purple.500" }),
-                        TreeView.Item("qa-lead", "QA Lead", { prefix: "fas", name: "user-check", color: "green.500" }),
-                    ], { prefix: "fas", name: "user-tie", color: "teal.500" }),
-                    TreeView.Branch("cfo", "CFO", [
-                        TreeView.Item("finance", "Finance Manager", { prefix: "fas", name: "user", color: "green.500" }),
-                    ], { prefix: "fas", name: "user-tie", color: "teal.500" }),
-                    TreeView.Branch("cmo", "CMO", [
-                        TreeView.Item("marketing", "Marketing Lead", { prefix: "fas", name: "user", color: "pink.500" }),
-                    ], { prefix: "fas", name: "user-tie", color: "teal.500" }),
-                ], { prefix: "fas", name: "crown", color: "yellow.500" }),
-            ]} />
-        );
-    }),
-    inputs: [],
-});
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const sizes = $.const([
+                    variant("xs", null), variant("sm", null), variant("md", null),
+                ], ArrayType(TreeView.Types.Size));
 
-export const treeViewSmall = example({
-    keywords: ["TreeView", "size", "sm", "compact"],
-    description: "Compact tree with documentation icons",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <TreeView size="sm" nodes={[
-                TreeView.Branch("docs", "Documentation", [
-                    TreeView.Item("docs-api", "API Reference", { prefix: "fas", name: "code" }),
-                    TreeView.Item("docs-guide", "User Guide", { prefix: "fas", name: "book-open" }),
-                    TreeView.Item("docs-faq", "FAQ", { prefix: "fas", name: "circle-question" }),
-                ], { prefix: "fas", name: "book", color: "blue.500" }),
-                TreeView.Branch("support", "Support", [
-                    TreeView.Item("support-tickets", "Tickets", { prefix: "fas", name: "ticket" }),
-                    TreeView.Item("support-chat", "Live Chat", { prefix: "fas", name: "comments" }),
-                ], { prefix: "fas", name: "headset", color: "green.500" }),
-            ]} />
-        );
-    }),
-    inputs: [],
-});
+                const variants = $.const([
+                    variant("subtle", null), variant("solid", null),
+                ], ArrayType(TreeView.Types.Variant));
 
-export const treeViewSolid = example({
-    keywords: ["TreeView", "variant", "solid"],
-    description: "Shopping categories with icons",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <TreeView variant="solid" nodes={[
-                TreeView.Branch("category1", "Electronics", [
-                    TreeView.Item("cat1-phones", "Phones", { prefix: "fas", name: "mobile-screen" }),
-                    TreeView.Item("cat1-laptops", "Laptops", { prefix: "fas", name: "laptop" }),
-                    TreeView.Item("cat1-tablets", "Tablets", { prefix: "fas", name: "tablet-screen-button" }),
-                ], { prefix: "fas", name: "microchip", color: "blue.500" }),
-                TreeView.Branch("category2", "Clothing", [
-                    TreeView.Item("cat2-mens", "Men's", { prefix: "fas", name: "person" }),
-                    TreeView.Item("cat2-womens", "Women's", { prefix: "fas", name: "person-dress" }),
-                ], { prefix: "fas", name: "shirt", color: "purple.500" }),
-            ]} />
-        );
-    }),
-    inputs: [],
-});
+                // Colour slots come as a set — the recipe row mirrors the slot
+                // recipe's defaults, branded shows the escape hatches.
+                const colors = $.const([
+                    { label: "recipe",  item: "fg.default", hover: "bg.subtle",       selectedBg: "bg.brand.subtle", selected: "link", caret: "fg.muted", connector: "border.subtle" },
+                    { label: "branded", item: "fg.default", hover: "bg.brand.subtle", selectedBg: "bg.brand.subtle", selected: "link", caret: "link",     connector: "fg.muted" },
+                ], ArrayType(StructType({ label: StringType, item: StringType, hover: StringType, selectedBg: StringType, selected: StringType, caret: StringType, connector: StringType })));
 
-export const treeViewExpanded = example({
-    keywords: ["TreeView", "defaultExpandedValue", "settings"],
-    description: "Settings tree with pre-expanded nodes",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <TreeView defaultExpandedValue={["settings", "settings-general"]} nodes={[
-                TreeView.Branch("settings", "Settings", [
-                    TreeView.Branch("settings-general", "General", [
-                        TreeView.Item("settings-general-profile", "Profile", { prefix: "fas", name: "id-card" }),
-                        TreeView.Item("settings-general-prefs", "Preferences", { prefix: "fas", name: "sliders" }),
-                    ], { prefix: "fas", name: "gear" }),
-                    TreeView.Branch("settings-security", "Security", [
-                        TreeView.Item("settings-security-password", "Password", { prefix: "fas", name: "key" }),
-                        TreeView.Item("settings-security-2fa", "Two-Factor Auth", { prefix: "fas", name: "shield-halved" }),
-                    ], { prefix: "fas", name: "lock", color: "red.500" }),
-                ], { prefix: "fas", name: "cog", color: "gray.600" }),
-            ]} />
-        );
-    }),
-    inputs: [],
-});
+                const treeBind     = $.let(State.bind([StringType], "treeview_tree", "files"));
+                const sizeBind     = $.let(State.bind([StringType], "treeview_size", "md"));
+                const variantBind  = $.let(State.bind([StringType], "treeview_variant", "subtle"));
+                const colorBind    = $.let(State.bind([StringType], "treeview_color", "recipe"));
+                const expandedBind = $.let(State.bind([BooleanType], "treeview_expanded", true));
+                // The event log (folded from the old events panel — its State
+                // keys are preserved): the live tree reports selection, expand
+                // and focus into the aside.
+                const eventSelectionBind = $.let(State.bind([ArrayType(StringType)], "tree_selected", []));
+                const eventExpandBind    = $.let(State.bind([ArrayType(StringType)], "tree_expanded", []));
+                const eventFocusBind     = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
 
-export const treeViewInteractiveSelection = example({
-    keywords: ["TreeView", "Reactive", "State", "onSelectionChange", "selectionMode", "multiple"],
-    description: "Click items to see onSelectionChange callback",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const selectedBind = $.let(State.bind([ArrayType(StringType)], "tree_selected", []));
-            const selected = $.let(selectedBind.read());
-            const onSelectionChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newSelection) => {
-                $(selectedBind.write(newSelection));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <TreeView
-                        selectionMode="multiple"
-                        defaultExpandedValue={["fruits", "vegetables"]}
-                        onSelectionChange={onSelectionChange}
-                        nodes={[
-                            TreeView.Branch("fruits", "Fruits", [
-                                TreeView.Item("apple", "Apple"),
-                                TreeView.Item("banana", "Banana"),
-                                TreeView.Item("cherry", "Cherry"),
-                            ]),
-                            TreeView.Branch("vegetables", "Vegetables", [
-                                TreeView.Item("carrot", "Carrot"),
-                                TreeView.Item("broccoli", "Broccoli"),
-                            ]),
+                const tKey = $.let(treeBind.read());
+                const sKey = $.let(sizeBind.read());
+                const vKey = $.let(variantBind.read());
+                const cKey = $.let(colorBind.read());
+                const expandedOn = $.let(expandedBind.read());
+                const selectedLog = $.let(eventSelectionBind.read());
+                const expandedLog = $.let(eventExpandBind.read());
+                const focusedLog  = $.let(eventFocusBind.read());
+
+                const onTree     = $.const(East.function([StringType], NullType, ($, next) => { $(treeBind.write(next)); }));
+                const onSize     = $.const(East.function([StringType], NullType, ($, next) => { $(sizeBind.write(next)); }));
+                const onVariant  = $.const(East.function([StringType], NullType, ($, next) => { $(variantBind.write(next)); }));
+                const onColor    = $.const(East.function([StringType], NullType, ($, next) => { $(colorBind.write(next)); }));
+                const onExpanded = $.const(East.function([BooleanType], NullType, ($, next) => { $(expandedBind.write(next)); }));
+                const onSelectionChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(eventSelectionBind.write(next)); }));
+                const onExpandedChange  = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(eventExpandBind.write(next)); }));
+                const onFocusChange     = $.const(East.function([OptionType(StringType)], NullType, ($, next) => { $(eventFocusBind.write(next)); }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const tree = $.let(trees.filter((_$, o) => o.label.equal(tKey)).get(0n));
+                const size = $.let(sizes.filter((_$, v) => v.getTag().equal(sKey)).get(0n));
+                const treeVariant = $.let(variants.filter((_$, v) => v.getTag().equal(vKey)).get(0n));
+                const color = $.let(colors.filter((_$, o) => o.label.equal(cKey)).get(0n));
+
+                const collapsed = $.const([], ArrayType(StringType));
+                const expanded = $.let(expandedOn.ifElse(_$ => tree.expanded, _$ => collapsed));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Tree", tKey,
+                                <Select value={tKey} onChange={onTree} size="sm"
+                                    items={trees.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Size", sKey,
+                                <SegmentGroup value={sKey} onChange={onSize} size="sm"
+                                    items={sizes.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Variant", vKey,
+                                <SegmentGroup value={vKey} onChange={onVariant} size="sm"
+                                    items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                            Configurator.Control("Colour", cKey,
+                                <SegmentGroup value={cKey} onChange={onColor} size="sm"
+                                    items={colors.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Expanded spec row below rather than as one value.
+                            Configurator.Slot("State",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={expandedOn} label="Default expanded" onChange={onExpanded} />
+                                </HStack>),
+                        ]}
+                        preview={
+                            <TreeView
+                                variant={treeVariant}
+                                size={size}
+                                itemColor={color.item}
+                                itemHoverBackground={color.hover}
+                                selectedBackground={color.selectedBg}
+                                selectedColor={color.selected}
+                                caretColor={color.caret}
+                                connectorColor={color.connector}
+                                defaultExpandedValue={expanded}
+                                selectionMode="multiple"
+                                onSelectionChange={onSelectionChange}
+                                onExpandedChange={onExpandedChange}
+                                onFocusChange={onFocusChange}
+                                nodes={tree.nodes}
+                            />
+                        }
+                        aside={{
+                            label: "Events · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Badge colorPalette="brand" variant="solid">{East.str`Selected: ${selectedLog.size()}`}</Badge>
+                                    <Badge colorPalette="success" variant="solid">{East.str`Expanded: ${expandedLog.size()}`}</Badge>
+                                    <Text>{East.str`Focused: ${focusedLog.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Roots", East.print(tree.nodes.size())),
+                            Configurator.Spec("Expanded", expandedOn.ifElse(_$ => East.print(tree.expanded.size()), _$ => "collapsed")),
                         ]}
                     />
-                    <Badge colorPalette="blue" variant="solid">{East.str`Selected: ${selected.size()}`}</Badge>
-                    <Text>{East.str`Items selected: ${selected.size()}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const treeViewInteractiveExpand = example({
-    keywords: ["TreeView", "Reactive", "State", "onExpandedChange", "expand"],
-    description: "Expand/collapse to see onExpandedChange callback",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const expandedBind = $.let(State.bind([ArrayType(StringType)], "tree_expanded", []));
-            const expanded = $.let(expandedBind.read());
-            const onExpandedChange = $.const(East.function([ArrayType(StringType)], NullType, ($, newExpanded) => {
-                $(expandedBind.write(newExpanded));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <TreeView onExpandedChange={onExpandedChange} nodes={[
-                        TreeView.Branch("level1", "Level 1", [
-                            TreeView.Branch("level1a", "Level 1.A", [
-                                TreeView.Item("item1", "Item 1"),
-                                TreeView.Item("item2", "Item 2"),
-                            ]),
-                            TreeView.Branch("level1b", "Level 1.B", [
-                                TreeView.Item("item3", "Item 3"),
-                            ]),
-                        ]),
-                        TreeView.Branch("level2", "Level 2", [
-                            TreeView.Item("item4", "Item 4"),
-                        ]),
-                    ]} />
-                    <Badge colorPalette="green" variant="solid">{East.str`Expanded: ${expanded.size()}`}</Badge>
-                    <Text>{East.str`Nodes expanded: ${expanded.size()}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const treeViewOnFocusChange = example({
-    keywords: ["TreeView", "Reactive", "State", "onFocusChange", "interactive"],
-    description: "TreeView whose onFocusChange records the currently focused id",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const focusBind = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
-            const focused = $.let(focusBind.read());
-            const onFocusChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
-                $(focusBind.write(val));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <TreeView onFocusChange={onFocusChange} nodes={[
-                        TreeView.Branch("group", "Group", [
-                            TreeView.Item("a", "Item A"),
-                            TreeView.Item("b", "Item B"),
-                            TreeView.Item("c", "Item C"),
-                        ]),
-                    ]} />
-                    <Text>{East.str`Focused: ${focused.match({ none: _$ => "(none)", some: ($, v) => v })}`}</Text>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const treeViewColourOverrides = example({
-    keywords: ["TreeView", "colour", "override", "itemColor", "selectedBackground", "caretColor"],
-    description: "Colour escape hatches — item / hover / selection / caret / connector colour overrides for brand alignment",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <TreeView
-                variant="subtle"
-                size="sm"
-                itemColor="gray.800"
-                itemHoverBackground="blue.50"
-                selectedBackground="blue.100"
-                selectedColor="blue.900"
-                caretColor="blue.500"
-                connectorColor="gray.300"
-                defaultExpandedValue={["src"]}
-                nodes={[
-                    TreeView.Branch("src", "src", [
-                        TreeView.Item("index", "index.ts"),
-                        TreeView.Item("utils", "utils.ts"),
-                    ]),
-                    TreeView.Item("package", "package.json"),
-                ]}
-            />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],

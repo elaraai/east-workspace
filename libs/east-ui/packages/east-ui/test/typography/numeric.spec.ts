@@ -4,17 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Numeric, Format } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./numeric.examples.js";
 
 describeEast("Numeric", (test) => {
     Assert.examples(test, {
         numericKpi: ex.numericKpi,
-        numericPercent: ex.numericPercent,
-        numericCompact: ex.numericCompact,
-        numericUnit: ex.numericUnit,
-        numericScientific: ex.numericScientific,
-        numericDateTime: ex.numericDateTime,
+        numericVariants: ex.numericVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("numericVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the format-magnitude / sentiment
+        // tables and the signed switch — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-format coverage
+        // lives in the Numeric.Root tests below, which construct each format
+        // directly.
+        const panel = $.const(ex.numericVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -118,9 +134,9 @@ describeEast("Numeric", (test) => {
     });
 
     test("creates numeric with explicit color override", $ => {
-        const n = $.let(Numeric.Root(42, { color: "#7a3b2e", sentiment: "neutral" }));
+        const n = $.let(Numeric.Root(42, { color: "fg.danger", sentiment: "neutral" }));
         const style = n.unwrap().unwrap("Numeric").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.danger"));
     });
 
     test("creates numeric with signColor for the leading +/−", $ => {

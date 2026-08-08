@@ -4,20 +4,35 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East } from "@elaraai/east";
+import { East, type ExprType } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./calendar.examples.js";
 
 describeEast("Calendar", (test) => {
     Assert.examples(test, {
-        calendarScroll: ex.calendarScroll,
-        calendarFill: ex.calendarFill,
         calendarDemand: ex.calendarDemand,
-        calendarMinimal: ex.calendarMinimal,
-        calendarValuesOff: ex.calendarValuesOff,
-        calendarTotals: ex.calendarTotals,
-        calendarDensity: ex.calendarDensity,
-        calendarInteractive: ex.calendarInteractive,
+        calendarVariants: ex.calendarVariants,
+        calendarFill: ex.calendarFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("calendarVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the density / scale tables plus
+        // the values / totals / minimal switches and the onSelect aside — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the Calendar.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.calendarVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("resolves cells with default formatting, values on, and no chrome", $ => {

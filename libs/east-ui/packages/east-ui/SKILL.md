@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <AlignedStack>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Shared value formatting — one Chart.format.* spec reused by chart axes, Slice fields, <Stat>, <Numeric> and Deck metrics, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <AlignedStack>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Shared value formatting — one Chart.format.* spec reused by chart axes, Slice fields, <Stat>, <Numeric> and Deck metrics, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
 ---
 
 # East UI
@@ -117,6 +117,18 @@ Task → Which tag?
 │   │   │   └─ onResize / onResizeStart / onResizeEnd (optional) — drag lifecycle callbacks (sizes payload)
 │   │   └─ Factories:
 │   │       └─ Splitter.Panel({ id, minSize?, maxSize?, collapsible?, defaultCollapsed? }) — one panel: id (required), min/max size as percentages, collapsibility
+│   ├─ <Configurator> — labelled control table + live preview + derived spec readout
+│   │   ├─ Props:
+│   │   │   ├─ controls (required) — array of Configurator.Control(…) / .Slot(…) rows, in display order
+│   │   │   ├─ preview (required) — the component being configured
+│   │   │   ├─ live (optional) — render the LIVE pip in the preview header (default true)
+│   │   │   ├─ aside (optional) — { label, body } secondary panel under the preview
+│   │   │   ├─ spec (optional) — extra Configurator.Spec(…) rows for state with no control row of its own
+│   │   │   └─ labelWidth / sidebarWidth / previewMinHeight (optional) — sizing overrides
+│   │   └─ Factories:
+│   │       ├─ Configurator.Control(label, value, control, hint?) — a row that ALSO reports `value` in the spec column
+│   │       ├─ Configurator.Slot(label, control, hint?) — a row that reports nothing (use `spec` instead)
+│   │       └─ Configurator.Spec(label, value) — one extra spec row
 │   ├─ <Separator> — 1px rule
 │   │   └─ Props:
 │   │       ├─ orientation (optional) — horizontal | vertical
@@ -1090,6 +1102,50 @@ Task → Which tag?
 ```
 
 ## Key Patterns
+
+### Configurator — one array per axis, no parallel tables
+
+For "change a prop, watch it react" surfaces, put each axis in a **plain array
+of the values themselves** and let the same array feed both the control and the
+preview. For a variant-typed prop that array is just the variants — `getTag()`
+supplies the segment key *and* its label, so there is no key/label table to keep
+in step:
+
+```tsx
+<Reactive>{$ => {
+    const variants = $.const([
+        variant("outline", null), variant("brand", null), variant("danger", null),
+    ], ArrayType(Style.Types.StyleVariant));
+
+    const bind = $.let(State.bind([StringType], "badge_variant", "outline"));
+    const key = $.let(bind.read());
+    const onPick = $.const(East.function([StringType], NullType, ($, n) => { $(bind.write(n)); }));
+
+    // The selection is a lookup into the array the control renders.
+    const selected = $.let(variants.filter((_$, v) => v.getTag().equal(key)).get(0n));
+
+    return (
+        <Configurator
+            controls={[
+                Configurator.Control("Variant", key,
+                    <SegmentGroup value={key} onChange={onPick} size="sm"
+                        items={variants.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+            ]}
+            preview={<Badge variant={selected}>{selected.getTag().upperCase()}</Badge>}
+            spec={[Configurator.Spec("Radius", "sm")]}
+        />
+    );
+}}</Reactive>
+```
+
+Numeric and token axes collapse the same way — an opacity is a percentage
+(`[100n, 75n, 50n]`), a padding is a spacing token (`["0", "1", "3"]`). Only an
+axis with no single value to name it by (a background/foreground *pair*, say)
+needs a struct.
+
+**A variant-typed prop needs a variant value, not a string** — `density={"compact"}`
+is a type error once the value comes from state, which is exactly why the array
+holds `variant(...)` rather than keys.
 
 ### Reactive interactivity — builder children
 

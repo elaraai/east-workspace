@@ -34,10 +34,10 @@ type GridBuilders = {
  * const gallery = East.function([], UIComponentType, _$ => (
  *     <Grid
  *         items={[
- *             Grid.Item(<Box padding="3" background="gray.200"><Text>Full Width Header</Text></Box>, { colSpan: "3" }),
- *             Grid.Item(<Box padding="2" background="gray.100"><Text>Col 1</Text></Box>),
- *             Grid.Item(<Box padding="2" background="gray.100"><Text>Col 2</Text></Box>),
- *             Grid.Item(<Box padding="2" background="gray.100"><Text>Col 3</Text></Box>),
+ *             Grid.Item(<Box padding="3" background="bg.emphasized"><Text>Full Width Header</Text></Box>, { colSpan: "3" }),
+ *             Grid.Item(<Box padding="2" background="bg.subtle"><Text>Col 1</Text></Box>),
+ *             Grid.Item(<Box padding="2" background="bg.subtle"><Text>Col 2</Text></Box>),
+ *             Grid.Item(<Box padding="2" background="bg.subtle"><Text>Col 3</Text></Box>),
  *         ]}
  *         templateColumns="repeat(3, 1fr)"
  *         gap="3"

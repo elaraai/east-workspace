@@ -4,20 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { CodeBlock } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./code-block.examples.js";
 
 describeEast("CodeBlock", (test) => {
     Assert.examples(test, {
         codeBlockBasic: ex.codeBlockBasic,
-        codeBlockWithLanguage: ex.codeBlockWithLanguage,
-        codeBlockLineNumbers: ex.codeBlockLineNumbers,
-        codeBlockHighlighted: ex.codeBlockHighlighted,
-        codeBlockMaxHeight: ex.codeBlockMaxHeight,
-        codeBlockPython: ex.codeBlockPython,
-        codeBlockJson: ex.codeBlockJson,
-        codeBlockBash: ex.codeBlockBash,
-        codeBlockDiff: ex.codeBlockDiff,
+        codeBlockVariants: ex.codeBlockVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("codeBlockVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the language-snippet / max-height
+        // tables and the line-number / highlight switches — is declared inside
+        // the example body, because the documentation capture only extracts
+        // `fn`. That puts the tables inside the Reactive body, which TestImpl
+        // does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the CodeBlock.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.codeBlockVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -133,18 +146,18 @@ describeEast("CodeBlock", (test) => {
 
     test("creates code block with explicit colour slots", $ => {
         const block = $.let(CodeBlock.Root("code", {
-            background: "#0b0f17",
-            borderColor: "#1a2234",
-            headerBackground: "#151b27",
-            lineNumberColor: "#6a758c",
-            highlightBackground: "#ffd70022",
+            background: "bg.inverse",
+            borderColor: "border.strong",
+            headerBackground: "bg.inverse",
+            lineNumberColor: "fg.subtle",
+            highlightBackground: "bg.warning.subtle",
         }));
         const style = block.unwrap().unwrap("CodeBlock").style.unwrap("some");
-        $(Assert.equal(style.background.unwrap("some"), "#0b0f17"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(style.headerBackground.unwrap("some"), "#151b27"));
-        $(Assert.equal(style.lineNumberColor.unwrap("some"), "#6a758c"));
-        $(Assert.equal(style.highlightBackground.unwrap("some"), "#ffd70022"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.strong"));
+        $(Assert.equal(style.headerBackground.unwrap("some"), "bg.inverse"));
+        $(Assert.equal(style.lineNumberColor.unwrap("some"), "fg.subtle"));
+        $(Assert.equal(style.highlightBackground.unwrap("some"), "bg.warning.subtle"));
     });
 
     // =========================================================================

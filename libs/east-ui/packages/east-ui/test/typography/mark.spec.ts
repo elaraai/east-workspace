@@ -4,19 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Mark } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./mark.examples.js";
 
 describeEast("Mark", (test) => {
     Assert.examples(test, {
         markBasic: ex.markBasic,
-        markSubtle: ex.markSubtle,
-        markSolid: ex.markSolid,
-        markText: ex.markText,
-        markPlain: ex.markPlain,
-        markColors: ex.markColors,
-        markSolidColors: ex.markSolidColors,
-        markInContext: ex.markInContext,
+        markVariants: ex.markVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#459).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("markVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the variant / palette tables and
+        // the in-context switch — is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still compiles
+        // and evaluates the outer function. The per-variant coverage lives in
+        // the Mark.Root tests below, which construct each variant directly.
+        const panel = $.const(ex.markVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -69,23 +82,23 @@ describeEast("Mark", (test) => {
     // Color Palette (inside style)
     // =========================================================================
 
-    test("creates mark with yellow colorPalette", $ => {
-        const mark = $.let(Mark.Root("Highlighted", { colorPalette: "yellow" }));
+    test("creates mark with warning colorPalette", $ => {
+        const mark = $.let(Mark.Root("Highlighted", { colorPalette: "warning" }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
         $(Assert.equal(style.colorPalette.hasTag("some"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "yellow"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "warning"));
     });
 
-    test("creates mark with green colorPalette", $ => {
-        const mark = $.let(Mark.Root("Success", { colorPalette: "green" }));
+    test("creates mark with success colorPalette", $ => {
+        const mark = $.let(Mark.Root("Success", { colorPalette: "success" }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "green"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "success"));
     });
 
-    test("creates mark with red colorPalette", $ => {
-        const mark = $.let(Mark.Root("Error", { colorPalette: "red" }));
+    test("creates mark with danger colorPalette", $ => {
+        const mark = $.let(Mark.Root("Error", { colorPalette: "danger" }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
-        $(Assert.equal(style.colorPalette.unwrap("some"), "red"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "danger"));
     });
 
     // =========================================================================
@@ -94,12 +107,12 @@ describeEast("Mark", (test) => {
 
     test("creates mark with explicit color + background", $ => {
         const mark = $.let(Mark.Root("Branded", {
-            color: "#7a3b2e",
-            background: "#fde3c6",
+            color: "fg.danger",
+            background: "bg.warning.subtle",
         }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
-        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
-        $(Assert.equal(style.background.unwrap("some"), "#fde3c6"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.danger"));
+        $(Assert.equal(style.background.unwrap("some"), "bg.warning.subtle"));
     });
 
     // =========================================================================
@@ -109,31 +122,31 @@ describeEast("Mark", (test) => {
     test("creates mark with variant + palette", $ => {
         const mark = $.let(Mark.Root("Featured", {
             variant: "solid",
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
 
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Featured"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "brand"));
     });
 
     test("creates warning mark", $ => {
         const mark = $.let(Mark.Root("Warning", {
             variant: "subtle",
-            colorPalette: "orange",
+            colorPalette: "warning",
         }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
 
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Warning"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(style.colorPalette.unwrap("some"), "orange"));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "warning"));
     });
 
     test("creates info mark", $ => {
         const mark = $.let(Mark.Root("Note", {
             variant: "text",
-            colorPalette: "cyan",
+            colorPalette: "info",
         }));
         const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
 

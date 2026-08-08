@@ -29,7 +29,7 @@ import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
  *             <Text>Revenue</Text>
  *             <Text fontWeight="bold">$45,231</Text>
  *         </VStack>
- *         <Sparkline data={[100.0, 120.0, 115.0, 130.0, 125.0, 140.0, 155.0]} type="area" color="teal.400" width="100px" height="40px" />
+ *         <Sparkline data={[100.0, 120.0, 115.0, 130.0, 125.0, 140.0, 155.0]} type="area" color="brand.600" width="100px" height="40px" />
  *     </HStack>
  * ));
  * ```

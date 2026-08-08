@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Chart, Popover, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Button, Chart, Configurator, Popover, Reactive, Text } from "@elaraai/east-ui";
 
 export const popoverBasic = example({
     keywords: ["Popover", "Root", "title", "description", "click"],
@@ -20,41 +20,42 @@ export const popoverBasic = example({
     inputs: [],
 });
 
-export const popoverChart = example({
-    keywords: ["Popover", "Root", "Chart", "Area", "hasArrow", "placement"],
-    description: "Rich content with area chart and explicit placement",
-    fn: East.function([], UIComponentType, ($) => {
-        const rows = $.const([
-            { day: "Mon", value: 120n }, { day: "Tue", value: 150n }, { day: "Wed", value: 180n },
-            { day: "Thu", value: 140n }, { day: "Fri", value: 200n },
-        ], ArrayType(StructType({ day: StringType, value: IntegerType })));
-        return (
-            <Popover trigger={<Button variant="solid">View Stats</Button>} hasArrow={true} title="Weekly Sales" placement="bottom-start">
-                <Chart layers={Chart.Area(rows, { x: r => r.day, y: r => r.value }, { color: "brand.500", fillOpacity: 0.3 })} height={160} />
-            </Popover>
-        );
-    }),
-    inputs: [],
-});
-
-export const popoverInteractive = example({
-    keywords: ["Popover", "Reactive", "State", "interactive", "onOpenChange"],
-    description: "Popover whose onOpenChange counts open/close transitions",
+export const popoverVariants = example({
+    keywords: ["Popover", "Root", "Chart", "Area", "hasArrow", "placement", "Reactive", "State", "onOpenChange", "interactive", "Configurator", "configurator"],
+    description: "Popover configurator — a content preset axis (text / chart) on one live popover; the aside counts open/close transitions",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const bind = $.let(State.bind([IntegerType], "popover_toggles", 0n));
-            const value = $.let(bind.read());
+            const rows = $.const([
+                { day: "Mon", value: 120n }, { day: "Tue", value: 150n }, { day: "Wed", value: 180n },
+                { day: "Thu", value: 140n }, { day: "Fri", value: 200n },
+            ], ArrayType(StructType({ day: StringType, value: IntegerType })));
+            const togglesBind = $.let(State.bind([IntegerType], "popover_toggles", 0n));
+            const toggles = $.let(togglesBind.read());
             const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
-                const cur = $.let(bind.read());
-                $(bind.write(cur.add(1n)));
+                const cur = $.let(togglesBind.read());
+                $(togglesBind.write(cur.add(1n)));
             }));
+
+            // ONE popover — the richest composition (title, description,
+            // arrow, chart body).
+            const preview = $.const(
+                <Popover trigger={<Button variant="solid">View Stats</Button>} hasArrow={true} title="Weekly Sales" description="Each open/close fires onOpenChange" placement="bottom-start" onOpenChange={onOpenChange}>
+                    <Chart layers={Chart.Area(rows, { x: r => r.day, y: r => r.value }, { color: "brand.500", fillOpacity: 0.3 })} height={160} />
+                </Popover>,
+            );
+
             return (
-                <VStack gap="3" align="flex-start">
-                    <Popover trigger={<Button>Open popover</Button>} title="Reactive popover" description="Each open/close fires onOpenChange" onOpenChange={onOpenChange}>
-                        <Text>Popover content</Text>
-                    </Popover>
-                    {<Text.MonoLabel>{East.str`TOGGLED · ${East.print(value)}`}</Text.MonoLabel>}
-                </VStack>
+                <Configurator
+                    controls={[
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "onOpenChange · Reactive",
+                        body: <Text.MonoLabel>{East.str`TOGGLED · ${East.print(toggles)}`}</Text.MonoLabel>,
+                    }}
+                    spec={[
+                    ]}
+                />
             );
         }}</Reactive>
     )),

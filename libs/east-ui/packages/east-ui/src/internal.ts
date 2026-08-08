@@ -63,6 +63,7 @@ export {
 } from "./typography/index.js";
 export {
     Box, Flex, Stack, AlignedStack, Separator, Grid, Splitter,
+    Configurator,
     Sticky, ScrollArea, Expandable, Dock,
 } from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";

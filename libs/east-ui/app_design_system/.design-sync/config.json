@@ -1,5 +1,4 @@
 {
-  "projectId": "1ee95b77-a768-4f4b-81f7-cd2a08091134",
   "pkg": "@elaraai/east-app-design-system",
   "globalName": "East",
   "shape": "package",
@@ -8,8 +7,7 @@
   "tokensPkg": "@elaraai/east-app-design-system",
   "tokensGlob": "tokens/*.css",
   "guidelinesGlob": [
-    "guidelines/*.md",
-    "guidelines/proposals/*.md"
+    "guidelines/*.md"
   ],
   "readmeHeader": ".design-sync/conventions.md",
   "overrides": {

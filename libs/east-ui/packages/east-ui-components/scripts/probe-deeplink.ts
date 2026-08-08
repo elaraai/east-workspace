@@ -19,7 +19,7 @@
 
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { launchChromium } from "../../../scripts/snapshot-capture.mts";
 import { createServer } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     const addr = server.httpServer?.address();
     const port = addr && typeof addr === 'object' ? addr.port : 5173;
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await launchChromium({ headless: true });
     try {
         const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
         page.on('pageerror', err => console.log(`[pageerror] ${err.message}`));

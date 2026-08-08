@@ -4,22 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Input, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Input, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import { tokenizeDateTimeFormat } from "@elaraai/east/internal";
 import * as ex from "./input.examples.js";
 
 describeEast("Input", (test) => {
     Assert.examples(test, {
-        inputString: ex.inputString,
-        inputInteger: ex.inputInteger,
-        inputFloat: ex.inputFloat,
-        inputDateTime: ex.inputDateTime,
-        inputSizes: ex.inputSizes,
-        inputVariants: ex.inputVariants,
-        inputStringInteractive: ex.inputStringInteractive,
-        inputIntegerInteractive: ex.inputIntegerInteractive,
-        inputFloatInteractive: ex.inputFloatInteractive,
-        inputDateTimeInteractive: ex.inputDateTimeInteractive,
+        inputStyles: ex.inputStyles,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("inputStyles drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the type / size / variant tables
+        // and the per-type State-bound live inputs — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The per-option
+        // coverage lives in the Input.* tests below, which construct each input
+        // directly.
+        const panel = $.const(ex.inputStyles.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

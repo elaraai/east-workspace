@@ -4,18 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TimeRangeInput } from "@elaraai/east-ui/internal";
-import { East, IntegerType, NullType } from "@elaraai/east";
+import { TimeRangeInput, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, IntegerType, NullType, type ExprType } from "@elaraai/east";
 import * as ex from "./time-range-input.examples.js";
 
 describeEast("TimeRangeInput", (test) => {
     Assert.examples(test, {
         timeRangeInputBasic: ex.timeRangeInputBasic,
-        timeRangeInputReactive: ex.timeRangeInputReactive,
-        timeRangeInputPresets: ex.timeRangeInputPresets,
-        timeRangeInputColours: ex.timeRangeInputColours,
-        timeRangeInputSizes: ex.timeRangeInputSizes,
-        timeRangeInputDisabled: ex.timeRangeInputDisabled,
+        timeRangeInputVariants: ex.timeRangeInputVariants,
+        timeRangeInputCustomColours: ex.timeRangeInputCustomColours,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("timeRangeInputVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the size / colour tables and the
+        // State-bound live window — is declared inside the example body,
+        // because the documentation capture only extracts `fn`. That puts the
+        // tables inside the Reactive body, which TestImpl does not execute, so
+        // they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-option coverage
+        // lives in the TimeRangeInput.Root tests below, which construct each
+        // option directly.
+        const panel = $.const(ex.timeRangeInputVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates range with start + end minutes", $ => {
@@ -81,16 +96,16 @@ describeEast("TimeRangeInput", (test) => {
             size: "sm",
             color: "fg",
             background: "bg.subtle",
-            borderColor: "blue.300",
-            focusBorderColor: "blue.500",
+            borderColor: "border.brand",
+            focusBorderColor: "border.brand",
         }));
         const style = $.let(r.unwrap().unwrap("TimeRangeInput").style.unwrap("some"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
         $(Assert.equal(style.color.unwrap("some"), "fg"));
         $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
-        $(Assert.equal(style.focusBorderColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.focusBorderColor.unwrap("some"), "border.brand"));
     });
 
     test("style absent when no visual fields set", $ => {

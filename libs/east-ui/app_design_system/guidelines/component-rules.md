@@ -64,11 +64,10 @@ freely — the migrated set is deliberately tiny (8 atoms in
       named facts → `Tag`, shortcuts → `Kbd`, notices → `Banner`, people →
       `Avatar`.
 - [ ] Bigger patterns (briefing, diff view, matrix, rails, tables) are NOT
-      componentized here on purpose. Before designing one, read its wireframe
-      in `guidelines/reference/` (index, observe, decide, configure, causal…)
-      and copy its anatomy; the CSS in `guidelines/reference/spec.css` is the
-      dimensional source of truth (copy values verbatim — 11.5px means
-      11.5px, not 12).
+      componentized here on purpose. Before designing one, look at its
+      RENDERED example grid in `components/rendered/<category>/` (one
+      standalone HTML per component, real renderer + theme) — the ground
+      truth for anatomy and current appearance.
 - [ ] Empty states: centered, mono glyph in `--rule-strong`, a bold 15px
       title, and a checklist of what to do — never an illustration.
 - [ ] Icons: Font Awesome 6 (CDN) or mono-font glyphs (▲ ▾ × ☐ △). Never

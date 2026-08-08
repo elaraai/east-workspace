@@ -4,21 +4,34 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, IntegerType, NullType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, StringType, StructType, none, some, variant, type ExprType } from "@elaraai/east";
 import { Board, CellRefType, DragEventType } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./board.examples.js";
 
 describeEast("Board", (test) => {
     Assert.examples(test, {
-        boardScroll: ex.boardScroll,
-        boardFill: ex.boardFill,
         boardEdit: ex.boardEdit,
-        boardPublished: ex.boardPublished,
-        boardCoverage: ex.boardCoverage,
-        boardOverflow: ex.boardOverflow,
-        boardInteractive: ex.boardInteractive,
-        boardReviewFoot: ex.boardReviewFoot,
         boardLibraryDnd: ex.boardLibraryDnd,
+        boardVariants: ex.boardVariants,
+        boardReview: ex.boardReview,
+        boardFill: ex.boardFill,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("boardModes drives its preview from inline option tables", $ => {
+        // The mode-preset axis is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts it inside
+        // the Reactive body, which TestImpl does not execute, so it cannot be
+        // asserted from here; `Assert.examples` above still compiles and
+        // evaluates the outer function. Per-mode prop coverage lives in the
+        // Board.Root tests below.
+        const panel = $.const(ex.boardVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a board with target declaration and bare defaults", $ => {

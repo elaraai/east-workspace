@@ -25,24 +25,24 @@ import type { OntologyNodeKind, OntologyLinkKind } from './types.js';
  * Per-kind 2px top-stripe colour, applied to the node card. Card body
  * stays neutral `paper / ink` regardless of kind.
  *
- * Values are literal hex anchored to the shared brand / gray / status
- * palette (`#3a7780` = `brand.600`, `#2f7a5b` = `status.pos`, etc.). Mixed
+ * Values are theme tokens, or `color-mix()` over theme tokens for the
+ * blended kinds — so they follow colour-mode changes. Mixed
  * tones for `computation` / `resource` / `policy` / `document` use
  * `color-mix` math against those same anchors (precomputed because Chakra
  * tokens don't natively express `color-mix`).
  */
 export const NODE_KIND_ACCENT: Record<OntologyNodeKind, string> = {
-    process:     '#3a7780', // brand.600
-    computation: '#42757d', // color-mix(brand.600 60%, gray.500)
-    decision:    '#2b4b55', // brand.700
-    objective:   '#253333', // gray.800
-    kpi:         '#2f7a5b', // status.pos
-    agent:       '#6d5a7a', // color-mix(brand.700 45%, status.warn 15%, gray.500) — plum, people/role tone
-    data:        '#b8862d', // status.warn
-    resource:    '#56727a', // color-mix(brand.600 30%, gray.500)
-    policy:      '#8d7a5f', // color-mix(status.warn 50%, gray.600)
-    document:    '#bcd1d3', // color-mix(brand.600 30%, gray.100)
-    group:       '#4a5f5f', // gray.600
+    process:     'brand.600',
+    computation: 'color-mix(in srgb, var(--chakra-colors-brand-600) 60%, var(--chakra-colors-gray-500))',
+    decision:    'brand.700',
+    objective:   'gray.800',
+    kpi:         'status.pos',
+    agent:       'color-mix(in srgb, var(--chakra-colors-brand-700) 45%, color-mix(in srgb, var(--chakra-colors-status-warn) 15%, var(--chakra-colors-gray-500)))', // plum — people/role tone
+    data:        'status.warn',
+    resource:    'color-mix(in srgb, var(--chakra-colors-brand-600) 30%, var(--chakra-colors-gray-500))',
+    policy:      'color-mix(in srgb, var(--chakra-colors-status-warn) 50%, var(--chakra-colors-gray-600))',
+    document:    'color-mix(in srgb, var(--chakra-colors-brand-600) 30%, var(--chakra-colors-gray-100))',
+    group:       'gray.600',
 };
 
 /**

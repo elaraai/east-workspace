@@ -3,15 +3,20 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Toggle } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./toggle.examples.js";
 
 describeEast("Toggle", (test) => {
     Assert.examples(test, {
         toggleGridlines: ex.toggleGridlines,
-        toggleLockColumns: ex.toggleLockColumns,
-        toggleAutoRefreshReactive: ex.toggleAutoRefreshReactive,
+    });
+
+    test("toggleVariants is the live configurator", $ => {
+        const panel = $.const(ex.toggleVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -81,18 +86,18 @@ describeEast("Toggle", (test) => {
 
     test("creates toggle with pressed-state colour escape hatches", $ => {
         const t = $.let(Toggle.Root("A", { pressed: true,
-            pressedBackground: "#eef2ff",
-            pressedColor: "#1a2234",
-            background: "#ffffff",
-            color: "#6b7280",
-            borderColor: "#e5e7eb",
+            pressedBackground: "bg.brand.subtle",
+            pressedColor: "fg.default",
+            background: "bg.surface",
+            color: "fg.muted",
+            borderColor: "border.subtle",
         }));
         const s = t.unwrap().unwrap("Toggle").style.unwrap("some");
-        $(Assert.equal(s.pressedBackground.unwrap("some"), "#eef2ff"));
-        $(Assert.equal(s.pressedColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.background.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.color.unwrap("some"), "#6b7280"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#e5e7eb"));
+        $(Assert.equal(s.pressedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(s.pressedColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(s.color.unwrap("some"), "fg.muted"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.subtle"));
     });
 
     // =========================================================================
@@ -105,7 +110,7 @@ describeEast("Toggle", (test) => {
             disabled: false,
             variant: "subtle",
             size: "sm",
-            pressedBackground: "#eef2ff",
+            pressedBackground: "bg.brand.subtle",
         }));
         const b = t.unwrap().unwrap("Toggle");
         $(Assert.equal(b.pressed, true));
@@ -114,6 +119,6 @@ describeEast("Toggle", (test) => {
         const s = b.style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(s.pressedBackground.unwrap("some"), "#eef2ff"));
+        $(Assert.equal(s.pressedBackground.unwrap("some"), "bg.brand.subtle"));
     });
 }, { platformFns: TestImpl });

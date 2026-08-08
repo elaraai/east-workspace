@@ -5,16 +5,32 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { RadioGroup, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, NullType, StringType } from "@elaraai/east";
+import { East, NullType, StringType, type ExprType } from "@elaraai/east";
 import * as ex from "./radio-group.examples.js";
 
 describeEast("RadioGroup", (test) => {
     Assert.examples(test, {
         radioGroupBasic: ex.radioGroupBasic,
-        radioGroupHorizontal: ex.radioGroupHorizontal,
-        radioGroupDisabledItem: ex.radioGroupDisabledItem,
-        radioGroupReactive: ex.radioGroupReactive,
-        radioGroupColourOverrides: ex.radioGroupColourOverrides,
+        radioGroupVariants: ex.radioGroupVariants,
+        radioGroupCustomColours: ex.radioGroupCustomColours,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("radioGroupVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation / colour tables
+        // and the State-bound live group — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the RadioGroup.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.radioGroupVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates radio group with selected value", $ => {
@@ -44,14 +60,14 @@ describeEast("RadioGroup", (test) => {
 
     test("colour overrides round-trip", $ => {
         const r = $.let(RadioGroup.Root({ value: "x", items: [{ value: "x" }], 
-            color: "gray.700",
-            fillColor: "blue.600",
-            borderColor: "blue.300",
+            color: "fg.default",
+            fillColor: "link",
+            borderColor: "border.brand",
         }));
         const style = $.let(r.unwrap().unwrap("RadioGroup").style.unwrap("some"));
-        $(Assert.equal(style.color.unwrap("some"), "gray.700"));
-        $(Assert.equal(style.fillColor.unwrap("some"), "blue.600"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
+        $(Assert.equal(style.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(style.fillColor.unwrap("some"), "link"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
     });
 
     test("onChange callback round-trips on main", $ => {

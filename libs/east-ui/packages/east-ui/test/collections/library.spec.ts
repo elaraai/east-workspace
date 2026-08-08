@@ -4,20 +4,34 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, some, none, ArrayType, IntegerType, StringType, StructType } from "@elaraai/east";
+import { East, some, none, ArrayType, IntegerType, StringType, StructType, type ExprType } from "@elaraai/east";
 import { Library } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./library.examples.js";
 
 describeEast("Library", (test) => {
     Assert.examples(test, {
-        libraryScroll: ex.libraryScroll,
-        libraryFill: ex.libraryFill,
         libraryPeople: ex.libraryPeople,
-        libraryAssets: ex.libraryAssets,
-        libraryFlat: ex.libraryFlat,
         libraryLarge: ex.libraryLarge,
-        libraryLargeFlat: ex.libraryLargeFlat,
-        libraryLargeSlice: ex.libraryLargeSlice,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("libraryLarge drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the dataset / mode axes and the
+        // branch palettes (400 generated crew, the folded-in asset and
+        // flat-room sets) — is declared inside the example body, because the
+        // documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The 400-card generation
+        // coverage lives in the generator test below, which constructs the
+        // same fixture shape directly.
+        const panel = $.const(ex.libraryLarge.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("400 generated cards resolve with hoisted per-group summaries", $ => {

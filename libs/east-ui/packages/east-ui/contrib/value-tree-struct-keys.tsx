@@ -4,17 +4,17 @@
 import { East, DictType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
 import { ValueTree, UIComponentType } from "@elaraai/east-ui";
 
-const LegKey = StructType({ tank: StringType, side: StringType, vintage: IntegerType });
-const LegsType = DictType(LegKey, StructType({ litres: IntegerType, note: StringType }));
+const MachineKey = StructType({ machine: StringType, line: StringType, shift: IntegerType });
+const MachinesType = DictType(MachineKey, StructType({ units: IntegerType, note: StringType }));
 
 export const structKeyedTree = East.function([], UIComponentType, (_$) => (
     <ValueTree
         value={East.value(new Map([
-            [{ tank: "DC4B", side: "from", vintage: 2024n }, { litres: 1980n, note: "racked" }],
-            [{ tank: "DC2E", side: "to", vintage: 2024n }, { litres: 1980n, note: "topped" }],
-            [{ tank: "BG7", side: "from", vintage: 2025n }, { litres: 640n, note: "" }],
-        ]), LegsType)}
-        onUpdate={East.function([LegsType], NullType, (_$h, _next) => null)}
+            [{ machine: "press", line: "L4", shift: 2n }, { units: 1980n, note: "serviced" }],
+            [{ machine: "mill", line: "L2", shift: 2n }, { units: 1980n, note: "aligned" }],
+            [{ machine: "oven", line: "L7", shift: 1n }, { units: 640n, note: "" }],
+        ]), MachinesType)}
+        onUpdate={East.function([MachinesType], NullType, (_$h, _next) => null)}
         style={{ openDepth: 2n, toolbar: true }}
     />
 ));

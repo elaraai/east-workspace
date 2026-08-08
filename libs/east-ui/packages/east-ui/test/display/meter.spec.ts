@@ -4,16 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Meter, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Meter, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./meter.examples.js";
 
 describeEast("Meter", (test) => {
     Assert.examples(test, {
         meterBasic: ex.meterBasic,
-        meterSuccess: ex.meterSuccess,
-        meterWarning: ex.meterWarning,
-        meterDensities: ex.meterDensities,
-        meterCustomMax: ex.meterCustomMax,
+        meterVariants: ex.meterVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("meterVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tone / density / thickness /
+        // reading / scale / colour / caption tables — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples` above
+        // still compiles and evaluates the outer function. The per-axis coverage
+        // lives in the Meter.Root tests below, which construct each option
+        // directly.
+        const panel = $.const(ex.meterVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates a basic meter", $ => {
@@ -42,9 +58,9 @@ describeEast("Meter", (test) => {
     });
 
     test("creates a meter with explicit colour slots", $ => {
-        const m = $.let(Meter.Root(50.0, { fillColor: "purple.500", trackColor: "purple.100", labelColor: "purple.700" }));
-        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").fillColor.unwrap("some"), "purple.500"));
-        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").trackColor.unwrap("some"), "purple.100"));
-        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").labelColor.unwrap("some"), "purple.700"));
+        const m = $.let(Meter.Root(50.0, { fillColor: "accent.purple", trackColor: "bg.subtle", labelColor: "accent.purple" }));
+        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").fillColor.unwrap("some"), "accent.purple"));
+        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").trackColor.unwrap("some"), "bg.subtle"));
+        $(Assert.equal(m.unwrap().unwrap("Meter").style.unwrap("some").labelColor.unwrap("some"), "accent.purple"));
     });
 }, { platformFns: TestImpl });

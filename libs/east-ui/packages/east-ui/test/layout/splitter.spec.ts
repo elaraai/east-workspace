@@ -4,20 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Splitter, Style, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./splitter.examples.js";
 
 describeEast("Splitter", (test) => {
     Assert.examples(test, {
-        splitterHorizontal: ex.splitterHorizontal,
-        splitterVertical: ex.splitterVertical,
-        splitterThreePanel: ex.splitterThreePanel,
-        splitterConstrained: ex.splitterConstrained,
-        splitterAsymmetric: ex.splitterAsymmetric,
-        splitterEditor: ex.splitterEditor,
-        splitterInteractive: ex.splitterInteractive,
-        splitterOnResizeStartEnd: ex.splitterOnResizeStartEnd,
+        splitterBasic: ex.splitterBasic,
+        splitterVariants: ex.splitterVariants,
         splitterCollapseBelow: ex.splitterCollapseBelow,
+    });
+
+    // =========================================================================
+    // Panels — the variant space is a live configurator (#460 → epic #455).
+    // =========================================================================
+
+    test("splitterVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation axis, the
+        // panel-size preset table and the collapse-mode expressions — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Splitter.Root tests
+        // below, which construct each form directly.
+        const panel = $.const(ex.splitterVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // Helper to create a simple text component (already returns UIComponentType)

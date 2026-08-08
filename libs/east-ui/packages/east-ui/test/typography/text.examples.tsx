@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, StringType, StructType, example, some, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Text, VStack, HStack } from "@elaraai/east-ui";
+import { Button, Configurator, HStack, SegmentGroup, Select, Slider, Style, Switch, Text, VStack, Reactive } from "@elaraai/east-ui";
+
+// ============================================================================
+// Basic — the search-index front door
+// ============================================================================
 
 export const textBasic = example({
     keywords: ["Text", "Root", "basic"],
@@ -16,330 +20,247 @@ export const textBasic = example({
     inputs: [],
 });
 
-export const textColored = example({
-    keywords: ["Text", "Root", "color", "blue"],
-    description: "Text with blue color",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text color="blue.500">Blue colored text</Text>;
-    }),
-    inputs: [],
-});
+// ============================================================================
+// Text — live configurator over every style axis
+// ============================================================================
 
-export const textBold = example({
-    keywords: ["Text", "Root", "fontWeight", "bold"],
-    description: "Text with bold font weight",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text fontWeight="bold">Bold text</Text>;
-    }),
-    inputs: [],
-});
-
-export const textItalic = example({
-    keywords: ["Text", "Root", "fontStyle", "italic"],
-    description: "Text with italic font style",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text fontStyle="italic">Italic text</Text>;
-    }),
-    inputs: [],
-});
-
-export const textFontWeights = example({
-    keywords: ["Text", "Root", "fontWeight", "weights", "light", "normal", "medium", "semibold", "bold"],
-    description: "All available font weights",
+export const textVariants = example({
+    keywords: ["Text", "Root", "color", "blue", "fontWeight", "bold", "fontStyle", "italic", "weights", "light", "normal", "medium", "semibold", "textTransform", "uppercase", "lowercase", "capitalize", "background", "highlight", "border", "borderWidth", "borderStyle", "borderColor", "palette", "red", "orange", "green", "teal", "purple", "combined", "textDecoration", "underline", "line-through", "overline", "letterSpacing", "lineHeight", "spacing", "opacity", "transparency", "padding", "margin", "overflow", "width", "height", "textOverflow", "ellipsis", "Reactive", "State", "interactive", "counter", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "textStyle", "scale", "typography", "mono-kpi", "KPI", "fontVariantNumeric", "tabular-nums", "align"],
+    description: "Text configurator — ink, weight, emphasis, treatment, spacing, opacity, box, style-scale and numeric axes plus a clip switch; the scale and numeric axes render their own specimens beneath the live run",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HStack gap="4">
-                <Text fontWeight="light">Light</Text>
-                <Text fontWeight="normal">Normal</Text>
-                <Text fontWeight="medium">Medium</Text>
-                <Text fontWeight="semibold">Semibold</Text>
-                <Text fontWeight="bold">Bold</Text>
-            </HStack>
+            <Reactive>{$ => {
+                // Enumerated axes are just their variants — `getTag()` gives the
+                // segment key AND its label, so there is no parallel table to
+                // keep in step.
+                const weights = $.const([
+                    variant("light", null), variant("normal", null), variant("medium", null),
+                    variant("semibold", null), variant("bold", null),
+                ], ArrayType(Style.Types.FontWeight));
+
+                // The remaining axes are presets — each bundles the props that
+                // only read well together (an ink token, a face, a background /
+                // border pair, a tracking / leading pair, a padding / margin
+                // pair), so a struct carries the label and the values it swaps.
+                const inks = $.const([
+                    { label: "default", ink: "fg.default" },
+                    { label: "link",    ink: "link" },
+                    { label: "success", ink: "fg.success" },
+                    { label: "warning", ink: "fg.warning" },
+                    { label: "danger",  ink: "fg.danger" },
+                    { label: "brand",   ink: "brand.600" },
+                    { label: "purple",  ink: "accent.purple" },
+                ], ArrayType(StructType({ label: StringType, ink: StringType })));
+
+                const faces = $.const([
+                    { label: "none",       fontStyle: variant("normal", null), decoration: variant("none", null),         transform: variant("none", null) },
+                    { label: "italic",     fontStyle: variant("italic", null), decoration: variant("none", null),         transform: variant("none", null) },
+                    { label: "underline",  fontStyle: variant("normal", null), decoration: variant("underline", null),    transform: variant("none", null) },
+                    { label: "strike",     fontStyle: variant("normal", null), decoration: variant("line-through", null), transform: variant("none", null) },
+                    { label: "overline",   fontStyle: variant("normal", null), decoration: variant("overline", null),     transform: variant("none", null) },
+                    { label: "uppercase",  fontStyle: variant("normal", null), decoration: variant("none", null),         transform: variant("uppercase", null) },
+                    { label: "lowercase",  fontStyle: variant("normal", null), decoration: variant("none", null),         transform: variant("lowercase", null) },
+                    { label: "capitalize", fontStyle: variant("normal", null), decoration: variant("none", null),         transform: variant("capitalize", null) },
+                ], ArrayType(StructType({ label: StringType, fontStyle: Style.Types.FontStyle, decoration: Style.Types.TextDecoration, transform: Style.Types.TextTransform })));
+
+                const treatments = $.const([
+                    { label: "plain",     bg: "transparent",       borderWidth: variant("none", null), borderStyle: variant("none", null),  borderColor: "transparent" },
+                    { label: "highlight", bg: "bg.warning.subtle", borderWidth: variant("none", null), borderStyle: variant("none", null),  borderColor: "transparent" },
+                    { label: "bordered",  bg: "transparent",       borderWidth: variant("thin", null), borderStyle: variant("solid", null), borderColor: "border.strong" },
+                    { label: "brand",     bg: "bg.brand.subtle",   borderWidth: variant("thin", null), borderStyle: variant("solid", null), borderColor: "border.brand" },
+                    { label: "success",   bg: "bg.success.subtle", borderWidth: variant("thin", null), borderStyle: variant("solid", null), borderColor: "status.pos" },
+                ], ArrayType(StructType({ label: StringType, bg: StringType, borderWidth: Style.Types.BorderWidth, borderStyle: Style.Types.BorderStyle, borderColor: StringType })));
+
+                const spacings = $.const([
+                    { label: "normal", tracking: "normal",  leading: "normal" },
+                    { label: "tight",  tracking: "tighter", leading: "short" },
+                    { label: "airy",   tracking: "wider",   leading: "tall" },
+                ], ArrayType(StructType({ label: StringType, tracking: StringType, leading: StringType })));
+
+                const boxes = $.const([
+                    { label: "none",   pad: "0", marg: "0" },
+                    { label: "padded", pad: "4", marg: "0" },
+                    { label: "spaced", pad: "2", marg: "4" },
+                ], ArrayType(StructType({ label: StringType, pad: StringType, marg: StringType })));
+
+                // The full textStyle token ramp — the selected token renders its
+                // own specimen beneath the live run, so every step of the scale
+                // stays reachable.
+                const scales = $.const([
+                    variant("display-lg", null), variant("display-md", null), variant("display-sm", null),
+                    variant("heading-lg", null), variant("heading-md", null), variant("heading-sm", null),
+                    variant("heading-xs", null), variant("body-lg", null), variant("body-md", null),
+                    variant("body-sm", null), variant("label-md", null), variant("label-sm", null),
+                    variant("caption", null), variant("overline", null), variant("code-sm", null),
+                    variant("code-md", null), variant("mono-kpi", null),
+                ], ArrayType(Style.Types.TextStyle));
+
+                // The tabular-nums contract — each numeric style renders its own
+                // specimen (a mono KPI figure, or a right-aligned column whose
+                // digits stay in register).
+                const numerics = $.const(["mono-kpi", "tabular-nums"], ArrayType(StringType));
+
+                const inkBind       = $.let(State.bind([StringType], "text_ink", "default"));
+                const weightBind    = $.let(State.bind([StringType], "text_weight", "normal"));
+                const faceBind      = $.let(State.bind([StringType], "text_emphasis", "none"));
+                const treatmentBind = $.let(State.bind([StringType], "text_treatment", "plain"));
+                const spacingBind   = $.let(State.bind([StringType], "text_spacing", "normal"));
+                const opacityBind   = $.let(State.bind([FloatType], "text_opacity", 1.0));
+                const boxBind       = $.let(State.bind([StringType], "text_box", "none"));
+                const scaleBind     = $.let(State.bind([StringType], "text_scale", "body-md"));
+                const numericBind   = $.let(State.bind([StringType], "text_numeric", "mono-kpi"));
+                const clipBind      = $.let(State.bind([BooleanType], "text_clip", false));
+                const counter       = $.let(State.bind([IntegerType], "text_counter", 0n));
+
+                const iKey  = $.let(inkBind.read());
+                const wKey  = $.let(weightBind.read());
+                const fKey  = $.let(faceBind.read());
+                const tKey  = $.let(treatmentBind.read());
+                const sKey  = $.let(spacingBind.read());
+                const op    = $.let(opacityBind.read());
+                const bKey  = $.let(boxBind.read());
+                const scKey = $.let(scaleBind.read());
+                const nKey  = $.let(numericBind.read());
+                const clip  = $.let(clipBind.read());
+                const count = $.let(counter.read());
+
+                const onInk       = $.const(East.function([StringType], NullType, ($, next) => { $(inkBind.write(next)); }));
+                const onWeight    = $.const(East.function([StringType], NullType, ($, next) => { $(weightBind.write(next)); }));
+                const onEmphasis  = $.const(East.function([StringType], NullType, ($, next) => { $(faceBind.write(next)); }));
+                const onTreatment = $.const(East.function([StringType], NullType, ($, next) => { $(treatmentBind.write(next)); }));
+                const onSpacing   = $.const(East.function([StringType], NullType, ($, next) => { $(spacingBind.write(next)); }));
+                const onOpacity   = $.const(East.function([FloatType], NullType, ($, next) => { $(opacityBind.write(next)); }));
+                const onBox       = $.const(East.function([StringType], NullType, ($, next) => { $(boxBind.write(next)); }));
+                const onScale     = $.const(East.function([StringType], NullType, ($, next) => { $(scaleBind.write(next)); }));
+                const onNumeric   = $.const(East.function([StringType], NullType, ($, next) => { $(numericBind.write(next)); }));
+                const onClip      = $.const(East.function([BooleanType], NullType, ($, next) => { $(clipBind.write(next)); }));
+                const inc         = $.const(East.function([], NullType, $ => {
+                    const cur = $.let(counter.read());
+                    $(counter.write(cur.add(1n)));
+                }));
+
+                // Each selection is a lookup into the same array the control renders.
+                const ink = $.let(inks.filter((_$, o) => o.label.equal(iKey)).get(0n));
+                const weight = $.let(weights.filter((_$, v) => v.getTag().equal(wKey)).get(0n));
+                const face = $.let(faces.filter((_$, o) => o.label.equal(fKey)).get(0n));
+                const treatment = $.let(treatments.filter((_$, o) => o.label.equal(tKey)).get(0n));
+                const spacing = $.let(spacings.filter((_$, o) => o.label.equal(sKey)).get(0n));
+                const box = $.let(boxes.filter((_$, o) => o.label.equal(bKey)).get(0n));
+                const scale = $.let(scales.filter((_$, v) => v.getTag().equal(scKey)).get(0n));
+
+                // Each numeric style renders its own specimen — the mono KPI
+                // figure, or the right-aligned column whose digits stay in
+                // register under tabular-nums.
+                const kpiSpecimen = $.let(<Text textStyle="mono-kpi">$1,842,500</Text>, UIComponentType);
+                const tabularSpecimen = $.let((
+                    <VStack gap="1" align="stretch">
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q1</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q2</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q3</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
+                        </HStack>
+                        <HStack gap="4" align="baseline">
+                            <Text textStyle="body-sm" color="fg.muted">Q4</Text>
+                            <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
+                        </HStack>
+                    </VStack>
+                ), UIComponentType);
+                const numericSpecimen = $.let(nKey.equal("mono-kpi").ifElse(_$ => kpiSpecimen, _$ => tabularSpecimen));
+
+                return (
+                    <Configurator
+                        controls={[
+                            Configurator.Control("Ink", iKey,
+                                <Select value={iKey} onChange={onInk} size="sm"
+                                    items={inks.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Weight", wKey,
+                                <Select value={wKey} onChange={onWeight} size="sm"
+                                    items={weights.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Emphasis", fKey,
+                                <Select value={fKey} onChange={onEmphasis} size="sm"
+                                    items={faces.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Treatment", tKey,
+                                <Select value={tKey} onChange={onTreatment} size="sm"
+                                    items={treatments.map((_$, o) => Select.Item(o.label, o.label))} />),
+                            Configurator.Control("Spacing", sKey,
+                                <SegmentGroup value={sKey} onChange={onSpacing} size="sm"
+                                    items={spacings.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("Opacity", East.str`${East.print(op.multiply(100.0).toInteger())}%`,
+                                <Slider value={op} min={0.0} max={1.0} step={0.05} size="sm" onChange={onOpacity} />),
+                            Configurator.Control("Box", bKey,
+                                <SegmentGroup value={bKey} onChange={onBox} size="sm"
+                                    items={boxes.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),
+                            Configurator.Control("Scale", scKey,
+                                <Select value={scKey} onChange={onScale} size="sm"
+                                    items={scales.map((_$, v) => Select.Item(v.getTag(), v.getTag()))} />),
+                            Configurator.Control("Numeric", nKey,
+                                <SegmentGroup value={nKey} onChange={onNumeric} size="sm"
+                                    items={numerics.map((_$, s) => SegmentGroup.Item(s, <Text>{s.upperCase()}</Text>))} />),
+                            // A Slot, not a Control: the switch reports as the
+                            // Width / Overflow spec rows below rather than as one value.
+                            Configurator.Slot("Clip",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={clip} label="Constrain" onChange={onClip} />
+                                </HStack>),
+                        ]}
+                        preview={
+                            <VStack gap="4" align="flex-start">
+                                <Text
+                                    color={ink.ink}
+                                    fontWeight={weight}
+                                    fontStyle={face.fontStyle}
+                                    textDecoration={face.decoration}
+                                    textTransform={face.transform}
+                                    background={treatment.bg}
+                                    borderWidth={treatment.borderWidth}
+                                    borderStyle={treatment.borderStyle}
+                                    borderColor={treatment.borderColor}
+                                    letterSpacing={spacing.tracking}
+                                    lineHeight={spacing.leading}
+                                    opacity={op}
+                                    padding={{ top: some(box.pad), right: some(box.pad), bottom: some(box.pad), left: some(box.pad) }}
+                                    margin={{ top: some(box.marg), right: some(box.marg), bottom: some(box.marg), left: some(box.marg) }}
+                                    maxWidth="260px"
+                                    width={clip.ifElse(_$ => "200px", _$ => "auto")}
+                                    height={clip.ifElse(_$ => "40px", _$ => "auto")}
+                                    overflow={clip.ifElse(_$ => variant("hidden", null), _$ => variant("visible", null))}
+                                    textOverflow={clip.ifElse(_$ => variant("ellipsis", null), _$ => variant("clip", null))}
+                                    whiteSpace={clip.ifElse(_$ => variant("nowrap", null), _$ => variant("normal", null))}
+                                >
+                                    The quick brown fox jumps over the lazy dog
+                                </Text>
+                                {/* Scale specimen — the selected textStyle token at its own size. */}
+                                <HStack gap="3" align="baseline">
+                                    <Text textStyle={scale}>{scKey}</Text>
+                                    <Text textStyle="caption" color="fg.muted">{scKey}</Text>
+                                </HStack>
+                                {numericSpecimen}
+                            </VStack>
+                        }
+                        aside={{
+                            label: "Count · Reactive",
+                            body: (
+                                <HStack gap="3" align="center">
+                                    <Text>{East.str`Clicked ${East.print(count)} times`}</Text>
+                                    <Button size="xs" onClick={inc}>Click me</Button>
+                                </HStack>
+                            ),
+                        }}
+                        spec={[
+                            Configurator.Spec("Size", clip.ifElse(_$ => "200px × 40px", _$ => "auto")),
+                            Configurator.Spec("Overflow", clip.ifElse(_$ => "hidden · ellipsis", _$ => "visible")),
+                        ]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
-    inputs: [],
-});
-
-export const textTransforms = example({
-    keywords: ["Text", "Root", "textTransform", "uppercase", "lowercase", "capitalize"],
-    description: "Text transformation options",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Text textTransform="uppercase">uppercase</Text>
-                <Text textTransform="lowercase">LOWERCASE</Text>
-                <Text textTransform="capitalize">capitalize</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textBackground = example({
-    keywords: ["Text", "Root", "background", "highlight"],
-    description: "Text with background highlight",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text background="yellow.200" color="gray.800">Highlighted text</Text>;
-    }),
-    inputs: [],
-});
-
-export const textBordered = example({
-    keywords: ["Text", "Root", "border", "borderWidth", "borderStyle", "borderColor"],
-    description: "Text with border styling",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Text borderWidth="thin" borderStyle="solid" borderColor="gray.400">
-                Bordered text
-            </Text>
-        );
-    }),
-    inputs: [],
-});
-
-export const textColors = example({
-    keywords: ["Text", "Root", "color", "palette", "red", "orange", "green", "teal", "blue", "purple"],
-    description: "Various text colors",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="3">
-                <Text color="red.500">Red</Text>
-                <Text color="orange.500">Orange</Text>
-                <Text color="green.500">Green</Text>
-                <Text color="teal.500">Teal</Text>
-                <Text color="blue.500">Blue</Text>
-                <Text color="purple.500">Purple</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textCombined = example({
-    keywords: ["Text", "Root", "combined", "color", "fontWeight", "fontStyle", "background"],
-    description: "Multiple styles on one text",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Text color="blue.600" fontWeight="bold" fontStyle="italic" background="blue.50">
-                Styled Text
-            </Text>
-        );
-    }),
-    inputs: [],
-});
-
-export const textDecoration = example({
-    keywords: ["Text", "Root", "textDecoration", "underline", "line-through", "overline"],
-    description: "Underline, line-through, and overline",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Text textDecoration="underline">Underline</Text>
-                <Text textDecoration="line-through">Line-through</Text>
-                <Text textDecoration="overline">Overline</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textSpacing = example({
-    keywords: ["Text", "Root", "letterSpacing", "lineHeight", "spacing"],
-    description: "Fine-tune text spacing",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Text letterSpacing="tighter">Tight letter spacing</Text>
-                <Text letterSpacing="wider">Wide letter spacing</Text>
-                <Text lineHeight="tall" maxWidth="250px">Tall line height - wraps to show multi-line effect when the text is long enough</Text>
-                <Text lineHeight="short" maxWidth="250px">Short line height - compact multi-line text when the content wraps</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textOpacity = example({
-    keywords: ["Text", "Root", "opacity", "transparency"],
-    description: "Text with varying opacity",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <HStack gap="4">
-                <Text color="blue.600" fontWeight="bold">100%</Text>
-                <Text color="blue.600" fontWeight="bold" opacity={0.75}>75%</Text>
-                <Text color="blue.600" fontWeight="bold" opacity={0.5}>50%</Text>
-                <Text color="blue.600" fontWeight="bold" opacity={0.25}>25%</Text>
-            </HStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textPaddingMargin = example({
-    keywords: ["Text", "Root", "padding", "margin", "spacing"],
-    description: "Text with padding and margin",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Text padding="4" background="blue.50" borderWidth="thin" borderStyle="solid" borderColor="blue.200">Padding: 4</Text>
-                <Text padding="2" margin="4" background="green.50" borderWidth="thin" borderStyle="solid" borderColor="green.200">Padding: 2, Margin: 4</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textOverflow = example({
-    keywords: ["Text", "Root", "overflow", "width", "height", "textOverflow", "ellipsis"],
-    description: "Text with constrained size and overflow",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="flex-start">
-                <Text width="200px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" background="orange.50" padding="2">
-                    This text is constrained to 200px width and will clip overflow content.
-                </Text>
-                <Text width="150px" height="40px" background="purple.50" padding="2" overflow="hidden">Fixed width and height box</Text>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textStyleScale = example({
-    keywords: ["Text", "Root", "textStyle", "scale", "typography"],
-    description: "Every textStyle token rendered as a row of its own",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="2" align="stretch">
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="display-lg">Display LG</Text>
-                    <Text textStyle="caption" color="fg.muted">display-lg</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="display-md">Display MD</Text>
-                    <Text textStyle="caption" color="fg.muted">display-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="display-sm">Display SM</Text>
-                    <Text textStyle="caption" color="fg.muted">display-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-lg">Heading LG</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-lg</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-md">Heading MD</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-sm">Heading SM</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="heading-xs">Heading XS</Text>
-                    <Text textStyle="caption" color="fg.muted">heading-xs</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="body-lg">Body LG</Text>
-                    <Text textStyle="caption" color="fg.muted">body-lg</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="body-md">Body MD</Text>
-                    <Text textStyle="caption" color="fg.muted">body-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="body-sm">Body SM</Text>
-                    <Text textStyle="caption" color="fg.muted">body-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="label-md">Label MD</Text>
-                    <Text textStyle="caption" color="fg.muted">label-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="label-sm">Label SM</Text>
-                    <Text textStyle="caption" color="fg.muted">label-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="caption">Caption</Text>
-                    <Text textStyle="caption" color="fg.muted">caption</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="overline">Overline</Text>
-                    <Text textStyle="caption" color="fg.muted">overline</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="code-sm">Code SM</Text>
-                    <Text textStyle="caption" color="fg.muted">code-sm</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="code-md">Code MD</Text>
-                    <Text textStyle="caption" color="fg.muted">code-md</Text>
-                </HStack>
-                <HStack gap="3" align="baseline">
-                    <Text textStyle="mono-kpi">$1,234,567.89</Text>
-                    <Text textStyle="caption" color="fg.muted">mono-kpi</Text>
-                </HStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textMonoKpi = example({
-    keywords: ["Text", "Root", "textStyle", "mono-kpi", "KPI"],
-    description: "Mono-KPI textStyle — big mono number with tabular-nums",
-    fn: East.function([], UIComponentType, (_$) => {
-        return <Text textStyle="mono-kpi">$1,842,500</Text>;
-    }),
-    inputs: [],
-});
-
-export const textTabularNums = example({
-    keywords: ["Text", "Root", "fontVariantNumeric", "tabular-nums", "align"],
-    description: "Column of right-aligned numbers with tabular-nums keeps digits aligned",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <VStack gap="1" align="stretch">
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q1</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  1,234.56"}</Text>
-                </HStack>
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q2</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{" 98,765.43"}</Text>
-                </HStack>
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q3</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"456,789.01"}</Text>
-                </HStack>
-                <HStack gap="4" align="baseline">
-                    <Text textStyle="body-sm" color="fg.muted">Q4</Text>
-                    <Text fontFamily="mono" fontVariantNumeric="tabular-nums" textAlign="right" width="6rem">{"  7,890.12"}</Text>
-                </HStack>
-            </VStack>
-        );
-    }),
-    inputs: [],
-});
-
-export const textInteractive = example({
-    keywords: ["Text", "Reactive", "State", "interactive", "counter"],
-    description: "Reactive text whose content updates from a counter",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const counter = $.let(State.bind([IntegerType], "text_counter", 0n));
-            const value = $.let(counter.read());
-            const increment = $.const(East.function([], NullType, $ => {
-                const cur = $.let(counter.read());
-                $(counter.write(cur.add(1n)));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Text>{East.str`Clicked ${East.print(value)} times`}</Text>
-                    <Button onClick={increment}>Click me</Button>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

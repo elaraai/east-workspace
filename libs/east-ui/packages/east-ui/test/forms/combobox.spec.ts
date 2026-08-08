@@ -4,21 +4,42 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Combobox, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Combobox, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./combobox.examples.js";
 
 describeEast("Combobox", (test) => {
     Assert.examples(test, {
         comboboxBasic: ex.comboboxBasic,
-        comboboxWithValue: ex.comboboxWithValue,
-        comboboxSizes: ex.comboboxSizes,
-        comboboxDisabled: ex.comboboxDisabled,
-        comboboxCustomValue: ex.comboboxCustomValue,
-        comboboxMultiple: ex.comboboxMultiple,
-        comboboxInteractive: ex.comboboxInteractive,
-        comboboxInteractiveMulti: ex.comboboxInteractiveMulti,
-        comboboxOnInputValueChange: ex.comboboxOnInputValueChange,
-        comboboxOnOpenChange: ex.comboboxOnOpenChange,
+        comboboxVariants: ex.comboboxVariants,
+        comboboxEvents: ex.comboboxEvents,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("comboboxVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the size table and the country
+        // data that feeds both the dropdown items and the value presets — is
+        // declared inside the example body, because the documentation capture
+        // only extracts `fn`. That puts the tables inside the Reactive body,
+        // which TestImpl does not execute, so they cannot be asserted from
+        // here; `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Combobox.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.comboboxVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+
+    test("comboboxEvents panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.comboboxEvents.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ON INPUT VALUE CHANGE"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ON OPEN CHANGE"));
     });
 
     // =========================================================================

@@ -5,18 +5,31 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Carousel, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./carousel.examples.js";
 
 describeEast("Carousel", (test) => {
     Assert.examples(test, {
         carouselBasic: ex.carouselBasic,
-        carouselLoop: ex.carouselLoop,
-        carouselMultiSlide: ex.carouselMultiSlide,
-        carouselNoControls: ex.carouselNoControls,
-        carouselDraggable: ex.carouselDraggable,
-        carouselMinimal: ex.carouselMinimal,
-        carouselColourSlots: ex.carouselColourSlots,
-        carouselInteractive: ex.carouselInteractive,
+        carouselVariants: ex.carouselVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#463).
+    // =========================================================================
+
+    test("carouselVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the slide-set, chrome and colour
+        // tables plus the loop / draggable switches — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The
+        // per-option coverage lives in the Carousel.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.carouselVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -146,16 +159,16 @@ describeEast("Carousel", (test) => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
         ], {
-            indicatorColor: "#cbd5e1",
-            activeIndicatorColor: "#3d5cff",
-            controlColor: "#ffffff",
-            controlBackground: "#1a2234",
+            indicatorColor: "fg.subtle",
+            activeIndicatorColor: "link",
+            controlColor: "fg.inverse",
+            controlBackground: "bg.inverse",
         }));
         const s = carousel.unwrap().unwrap("Carousel").style.unwrap("some");
-        $(Assert.equal(s.indicatorColor.unwrap("some"), "#cbd5e1"));
-        $(Assert.equal(s.activeIndicatorColor.unwrap("some"), "#3d5cff"));
-        $(Assert.equal(s.controlColor.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.controlBackground.unwrap("some"), "#1a2234"));
+        $(Assert.equal(s.indicatorColor.unwrap("some"), "fg.subtle"));
+        $(Assert.equal(s.activeIndicatorColor.unwrap("some"), "link"));
+        $(Assert.equal(s.controlColor.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(s.controlBackground.unwrap("some"), "bg.inverse"));
     });
 
     // =========================================================================

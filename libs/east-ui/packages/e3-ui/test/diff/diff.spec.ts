@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, FloatType } from "@elaraai/east";
+import { East, FloatType, type ExprType } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data } from "@elaraai/e3-ui";
 import { Diff } from "@elaraai/e3-ui/internal";
@@ -16,22 +16,46 @@ const policyInput = e3.input("policy_spec", FloatType, 0.0);
 describeEast("Diff", (test) => {
     Assert.examples(test, {
         workforcePolicyEditor: ex.workforcePolicyEditor,
-        serviceConfigForm: ex.serviceConfigForm,
+        diffEditorVariants: ex.diffEditorVariants,
         rosterTableEditor: ex.rosterTableEditor,
-        pricingRulesEditor: ex.pricingRulesEditor,
-        featureFlagsEditor: ex.featureFlagsEditor,
-        regionalPricingEditor: ex.regionalPricingEditor,
-        deploymentStatusEditor: ex.deploymentStatusEditor,
         diffDefaults: ex.diffDefaults,
         mergeConflictDemo: ex.mergeConflictDemo,
-        pricingRulesEditorCompact: ex.pricingRulesEditorCompact,
-        pricingRulesEditorCondensed: ex.pricingRulesEditorCondensed,
-        policyOverlayEditor: ex.policyOverlayEditor,
-        rosterTableEditorOverlay: ex.rosterTableEditorOverlay,
-        regionalPricingOverlayDrift: ex.regionalPricingOverlayDrift,
-        rosterOverlayDrift: ex.rosterOverlayDrift,
-        policyStagedPatchEditor: ex.policyStagedPatchEditor,
-        rosterStagedPatchEditor: ex.rosterStagedPatchEditor,
+        diffOverlayVariants: ex.diffOverlayVariants,
+        diffStagedPatchVariants: ex.diffStagedPatchVariants,
+    });
+
+    // Panels — every merged example stays mounted as a captioned row (#464).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+
+    test("diffEditorVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.diffEditorVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 14n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SERVICE CONFIG FORM"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRICING RULES"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "FEATURE FLAGS"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REGIONAL PRICING"));
+        $(Assert.equal(rows.get(8n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "DEPLOYMENT STATUS"));
+        $(Assert.equal(rows.get(10n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRICING RULES COMPACT"));
+        $(Assert.equal(rows.get(12n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "PRICING RULES CONDENSED"));
+    });
+
+    test("diffOverlayVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.diffOverlayVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 8n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "POLICY OVERLAY"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "REGIONAL PRICING OVERLAY DRIFT"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROSTER OVERLAY DRIFT"));
+        $(Assert.equal(rows.get(6n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROSTER TABLE OVERLAY"));
+    });
+
+    test("diffStagedPatchVariants panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.diffStagedPatchVariants.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "POLICY STAGED PATCH"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ROSTER STAGED PATCH"));
     });
 
     test("Diff.Component is declared as an optional EastUI component", $ => {

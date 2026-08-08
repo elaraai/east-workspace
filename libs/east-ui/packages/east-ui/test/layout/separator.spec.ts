@@ -4,21 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { type ExprType } from "@elaraai/east";
 import { Separator } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./separator.examples.js";
 
 describeEast("Separator", (test) => {
     Assert.examples(test, {
-        separatorHorizontal: ex.separatorHorizontal,
+        separatorBasic: ex.separatorBasic,
+        separatorVariants: ex.separatorVariants,
         separatorVertical: ex.separatorVertical,
-        separatorSubtle: ex.separatorSubtle,
-        separatorStrong: ex.separatorStrong,
-        separatorDashed: ex.separatorDashed,
-        separatorBrand: ex.separatorBrand,
-        separatorLabeled: ex.separatorLabeled,
-        separatorFormDivider: ex.separatorFormDivider,
-        separatorWithEyebrow: ex.separatorWithEyebrow,
-        separatorAlignedStart: ex.separatorAlignedStart,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#460).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("separatorVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the orientation / variant /
+        // label / align tables — is declared inside the example body, because
+        // the documentation capture only extracts `fn`. That puts the tables
+        // inside the Reactive body, which TestImpl does not execute, so they
+        // cannot be asserted from here; `Assert.examples` above still compiles
+        // and evaluates the outer function. The per-prop coverage lives in the
+        // Separator.Root tests below, which construct each style directly.
+        const panel = $.const(ex.separatorVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

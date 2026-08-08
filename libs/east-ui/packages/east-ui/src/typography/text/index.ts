@@ -373,7 +373,7 @@ function createMonoKpi(
  * const example = East.function([], UIComponentType, $ => {
  *     return Text.Root("Hello World", {
  *         textStyle: "body-md",
- *         color: "blue.500",
+ *         color: "link",
  *         fontWeight: "bold",
  *     });
  * });

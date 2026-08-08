@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example, some, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Breadcrumb, VStack, Text, Reactive } from "@elaraai/east-ui";
+import { Breadcrumb, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const breadcrumbBasic = example({
     keywords: ["Breadcrumb", "Root", "navigation", "separator"],
@@ -22,68 +22,30 @@ export const breadcrumbBasic = example({
     inputs: [],
 });
 
-export const breadcrumbRunAnchor = example({
-    keywords: ["Breadcrumb", "Root", "runAnchor", "run", "stamp"],
-    description: "Breadcrumb pinned to a run via a trailing run anchor",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Breadcrumb
-                items={[
-                    { label: "SE region", current: none, onClick: none },
-                    { label: "wk of Sep 16", current: none, onClick: none },
-                    { label: "Roster builder", current: some(true), onClick: none },
-                ]}
-                runAnchor="run #42"
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const breadcrumbLeadingSeparator = example({
-    keywords: ["Breadcrumb", "Root", "leadingSeparator", "path", "leading", "separator", "e3-cloud"],
-    description: "Path-style breadcrumb — a leading '/' before the first item, so the trail reads as a path (`/ workspace / roster / …`)",
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Breadcrumb
-                items={[
-                    { label: "workspace", current: none, onClick: none },
-                    { label: "roster", current: none, onClick: none },
-                    { label: "wk of Sep 16", current: some(true), onClick: none },
-                ]}
-                leadingSeparator={true}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-export const breadcrumbInteractive = example({
-    keywords: ["Breadcrumb", "Root", "Reactive", "State", "onClick", "interactive"],
-    description: "Click items to navigate - uses Reactive.Root to display current page",
+export const breadcrumbVariants = example({
+    keywords: ["Breadcrumb", "Root", "runAnchor", "run", "stamp", "leadingSeparator", "path", "Reactive", "State", "onClick", "interactive", "Configurator", "configurator"],
+    description: "Breadcrumb configurator — a chrome preset axis (plain / run-anchor / path) on one live clickable trail; the aside reads the current page",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pageBind = $.let(State.bind([StringType], "breadcrumb_page", "Home"));
             const page = $.let(pageBind.read());
-            const goHome = $.const(East.function([], NullType, $ => {
-                $(pageBind.write("Home"));
-            }));
-            const goProducts = $.const(East.function([], NullType, $ => {
-                $(pageBind.write("Products"));
-            }));
-            const goWidgets = $.const(East.function([], NullType, $ => {
-                $(pageBind.write("Widgets"));
-            }));
+            const goHome = $.const(East.function([], NullType, $ => { $(pageBind.write("Home")); }));
+            const goProducts = $.const(East.function([], NullType, $ => { $(pageBind.write("Products")); }));
 
+            // ONE trail — the run anchor and leading separator compose on;
+            // clicks write the page readout beneath.
             return (
-                <VStack gap="4" align="flex-start">
-                    <Breadcrumb items={[
-                        { label: "Home", current: none, onClick: some(goHome) },
-                        { label: "Products", current: none, onClick: some(goProducts) },
-                        { label: "Widgets", current: none, onClick: some(goWidgets) },
-                        { label: "Details", current: some(true), onClick: none },
-                    ]} />
-                    <Text fontWeight="bold">{East.str`Current page: ${page}`}</Text>
+                <VStack gap="3" align="stretch">
+                    <Breadcrumb
+                        items={[
+                            { label: "SE region", current: none, onClick: some(goHome) },
+                            { label: "wk of Sep 16", current: none, onClick: some(goProducts) },
+                            { label: "Roster builder", current: some(true), onClick: none },
+                        ]}
+                        runAnchor="run #42"
+                        leadingSeparator={true}
+                    />
+                    <Text.MonoLabel>{East.str`PAGE · ${page}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>

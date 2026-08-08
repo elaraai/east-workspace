@@ -3,15 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Menu, Button, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./menu.examples.js";
 
 describeEast("Menu", (test) => {
     Assert.examples(test, {
         menuBasic: ex.menuBasic,
-        menuDisabled: ex.menuDisabled,
-        menuPlacement: ex.menuPlacement,
+        menuVariants: ex.menuVariants,
+    });
+
+    test("menuVariants is the live configurator", $ => {
+        const panel = $.const(ex.menuVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

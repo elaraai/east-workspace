@@ -3,55 +3,81 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, StringType, StructType, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { Box, Dock, HStack, Planner, Stack, Text, VStack } from "@elaraai/east-ui";
+import { East, ArrayType, BooleanType, NullType, StringType, StructType, example} from "@elaraai/east";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { Box, Configurator, Dock, HStack, Planner, Reactive, Stack, Switch, Text, VStack } from "@elaraai/east-ui";
 
 /**
- * A horizontal `<Dock>` expanded — its header carries the `icon`, `label`, and
- * `badge`, a collapse chevron on the right, and the children below. Reach for
- * it when a source panel (a booking library, a filter rail) should be able to
- * tuck away beside the board it feeds.
+ * The `<Dock>` chrome as one live configurator — an orientation axis (a
+ * horizontal dock collapses its WIDTH to an icon rail beside the board; a
+ * vertical dock collapses its HEIGHT to a bottom tray) plus collapsed / badge
+ * switches. `collapsed` is the controlled form: the switch and the dock's own
+ * chevron both write the same bind through `onCollapsedChange`, so either
+ * control drives the other.
  */
-export const dockExpanded = example({
-    keywords: ["Dock", "layout", "collapse", "rail", "expanded", "icon", "badge", "sidebar"],
-    description: "A horizontal Dock expanded — icon + label + badge header over its content, with a collapse chevron",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Box height="220px" width="320px">
-            <Dock icon="book" label="Bookings" badge="3" expandedSize="100%">
-                <Stack gap="2" padding="3">
-                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
-                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
-                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
-                </Stack>
-            </Dock>
-        </Box>
-    )),
-    inputs: [],
-});
+export const dockVariants = example({
+    keywords: ["Dock", "layout", "collapse", "rail", "expanded", "icon", "badge", "sidebar", "collapsed", "defaultCollapsed", "tooltip", "vertical", "orientation", "tray", "height", "side", "end", "controlled", "onCollapsedChange", "Reactive", "State", "Switch", "Configurator", "getTag", "configurator"],
+    description: "Dock configurator — an orientation axis plus collapsed / badge switches driving one live dock beside a reclaiming board; the chevron and the switch share one controlled bind",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Reactive>{$ => {
+                // The orientation axis is just its variants — `getTag()` gives
+                // the segment key AND its label.
 
-/**
- * The same Dock collapsed (`defaultCollapsed`) — it shrinks to the `railSize`
- * icon rail: the `icon`, an expand chevron, and the `badge`, with `label` as
- * the rail's tooltip. The kept-mounted body is hidden, preserving its state.
- */
-export const dockCollapsedRail = example({
-    keywords: ["Dock", "layout", "collapsed", "rail", "icon", "badge", "defaultCollapsed", "tooltip"],
-    description: "A horizontal Dock collapsed to its icon rail — icon + expand chevron + badge, label as tooltip",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Box height="220px" width="320px">
-            <HStack gap="3" width="100%" height="100%">
-                <Dock icon="book" label="Bookings" badge="3" railSize="44px" defaultCollapsed>
-                    <Stack gap="2" padding="3">
-                        <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
-                    </Stack>
-                </Dock>
-                <Box flex="1" minWidth="0" padding="3" background="bg.subtle" borderRadius="md">
-                    <Text>Board reclaims the freed width</Text>
-                </Box>
-            </HStack>
-        </Box>
-    )),
+                const collapsedBind   = $.let(State.bind([BooleanType], "dock_collapsed", false));
+
+
+                const collapsedOn = $.let(collapsedBind.read());
+
+
+                const onCollapsedSw = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsedBind.write(next)); }));
+
+                // The dock's own chevron writes the same bind — the controlled
+                // `collapsed` contract, with the switch as the second surface.
+                const onCollapsed   = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsedBind.write(next)); }));
+
+                // ONE dock — the badge slot composes on permanently and the
+                // controlled `collapsed` expression threads through; the
+                // sibling board reclaims the freed width.
+                const preview = $.const(
+                    <Box height="220px" width="320px">
+                        <HStack gap="3" width="100%" height="100%">
+                            <Dock icon="book" label="Bookings" badge="3" railSize="44px" expandedSize="200px"
+                                  collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
+                                <Stack gap="2" padding="3">
+                                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
+                                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
+                                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
+                                </Stack>
+                            </Dock>
+                            <Box flex="1" minWidth="0" padding="3" background="bg.subtle" borderRadius="md">
+                                <Text>Board reclaims the freed width</Text>
+                            </Box>
+                        </HStack>
+                    </Box>,
+                );
+
+                return (
+                    <Configurator
+                        controls={[
+                            // A Slot, not a Control: the two switches report as
+                            // the Rail / Badge spec rows below rather than as one
+                            // value.
+                            Configurator.Slot("Chrome",
+                                <HStack gap="5" align="center" wrap="wrap">
+                                    <Switch checked={collapsedOn} label="Collapsed" onChange={onCollapsedSw} />
+                                </HStack>),
+                        ]}
+                        preview={preview}
+                        spec={[
+                            Configurator.Spec("Rail", collapsedOn.ifElse(_$ => "44px icon rail", _$ => "expanded")),
+                            Configurator.Spec("Badge", "3"),
+                        ]}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
     inputs: [],
 });
 
@@ -100,29 +126,6 @@ export const dockBesidePlanner = example({
 });
 
 /**
- * A vertical `<Dock>` — it collapses its HEIGHT to a horizontal tray rail
- * instead of its width. Same header / rail chrome, pinned to the `end` (bottom)
- * edge so the chevron points down when collapsed.
- */
-export const dockVertical = example({
-    keywords: ["Dock", "layout", "vertical", "orientation", "tray", "collapse", "height", "side", "end"],
-    description: "A vertical Dock — collapses its height to a horizontal tray rail, pinned to the bottom edge",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Box height="240px" width="360px">
-            <VStack gap="3" width="100%" height="100%">
-                <Box flex="1" minHeight="0" width="100%" padding="3" background="bg.subtle" borderRadius="md">
-                    <Text>Main board grows into the freed height</Text>
-                </Box>
-                <Dock icon="chart-line" label="Metrics" orientation="vertical" side="end" expandedSize="120px">
-                    <Box padding="3"><Text>KPI tray content</Text></Box>
-                </Dock>
-            </VStack>
-        </Box>
-    )),
-    inputs: [],
-});
-
-/**
  * Nested `<Dock>`s — a Dock inside another Dock, each with independent
  * collapsed state (keyed by its own structural storage key). The inner dock
  * starts collapsed to its rail.
@@ -148,6 +151,33 @@ export const dockNested = example({
                 </Stack>
             </Dock>
         </Box>
+    )),
+    inputs: [],
+});
+
+/** Vertical dock — a bottom KPI tray; the main board grows into the freed height. */
+export const dockVertical = example({
+    keywords: ["Dock", "orientation", "vertical", "side", "end", "tray", "badge", "collapsed", "Reactive", "State"],
+    description: "Vertical dock — a bottom tray with badge; collapsing frees height for the board above",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const collapsedBind = $.let(State.bind([BooleanType], "dock_vertical_collapsed", false));
+            const collapsedOn = $.let(collapsedBind.read());
+            const onCollapsed = $.const(East.function([BooleanType], NullType, ($, next) => { $(collapsedBind.write(next)); }));
+            return (
+                <Box height="240px" width="360px">
+                    <VStack gap="3" width="100%" height="100%">
+                        <Box flex="1" minHeight="0" width="100%" padding="3" background="bg.subtle" borderRadius="md">
+                            <Text>Main board grows into the freed height</Text>
+                        </Box>
+                        <Dock icon="chart-line" label="Metrics" badge="3" orientation="vertical" side="end" expandedSize="120px"
+                              collapsed={collapsedOn} onCollapsedChange={onCollapsed}>
+                            <Box padding="3"><Text>KPI tray content</Text></Box>
+                        </Dock>
+                    </VStack>
+                </Box>
+            );
+        }}</Reactive>
     )),
     inputs: [],
 });

@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, FloatType, NullType, example } from "@elaraai/east";
+import { BooleanType, East, FloatType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Slider, Text, VStack, Reactive } from "@elaraai/east-ui";
+import { Configurator, Input, HStack, Reactive, Slider, Switch, Text, VStack } from "@elaraai/east-ui";
 
 export const sliderBasic = example({
     keywords: ["Slider", "Root", "min", "max", "step"],
@@ -22,42 +22,48 @@ export const sliderBasic = example({
     inputs: [],
 });
 
-export const sliderInteractive = example({
-    keywords: ["Slider", "Root", "Reactive", "State", "onChange", "interactive"],
-    description: "Drag to see live value updates — paired with mono tabular readout",
+export const sliderVariants = example({
+    keywords: ["Slider", "Root", "step", "disabled", "Reactive", "State", "onChange", "onChangeEnd", "commit", "interactive", "Input", "Float", "Switch", "Configurator", "configurator"],
+    description: "Slider configurator — a step axis plus disabled and commit-on-release switches on one live State-bound slider with a mono readout",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const sliderBind = $.let(State.bind([FloatType], "form_slider", 50.0));
-            const value = $.let(sliderBind.read());
-            const onChange = $.const(East.function([FloatType], NullType, ($, newValue) => {
-                $(sliderBind.write(newValue));
-            }));
-            return (
-                <VStack gap="3" align="stretch">
-                    <Slider value={value} min={0} max={100} onChange={onChange} />
-                    {<Text.MonoKpi>{East.str`${East.print(value)} %`}</Text.MonoKpi>}
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
+            const stepBind = $.let(State.bind([FloatType], "slider_step", 1.0));
+            const disabledBind = $.let(State.bind([BooleanType], "slider_disabled", false));
+            const valueBind = $.let(State.bind([FloatType], "form_slider", 50.0));
 
-export const sliderOnChangeEnd = example({
-    keywords: ["Slider", "Reactive", "State", "onChangeEnd", "commit", "interactive"],
-    description: "Slider that only commits on release via onChangeEnd",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const bind = $.let(State.bind([FloatType], "form_slider_commit", 50.0));
-            const value = $.let(bind.read());
-            const onChangeEnd = $.const(East.function([FloatType], NullType, ($, next) => {
-                $(bind.write(next));
-            }));
+            const stepN = $.let(stepBind.read());
+            const disabledOn = $.let(disabledBind.read());
+            const value = $.let(valueBind.read());
+
+            const onStep = $.const(East.function([FloatType], NullType, ($, next) => { $(stepBind.write(next)); }));
+            const onDisabled = $.const(East.function([BooleanType], NullType, ($, next) => { $(disabledBind.write(next)); }));
+            const onChange = $.const(East.function([FloatType], NullType, ($, next) => { $(valueBind.write(next)); }));
+
+            // BOTH callbacks stay attached on the ONE slider — onChange fires
+            // live, onChangeEnd on release; the readout tracks either.
+            const preview = $.const(
+                <Slider value={value} min={0} max={100} step={stepN} disabled={disabledOn} onChange={onChange} onChangeEnd={onChange} />,
+            );
+
             return (
-                <VStack gap="3" align="stretch">
-                    <Slider value={value} min={0} max={100} onChangeEnd={onChangeEnd} />
-                    {<Text.MonoLabel>{East.str`COMMITTED · ${East.print(value)}`}</Text.MonoLabel>}
-                </VStack>
+                <Configurator
+                    controls={[
+                        Configurator.Control("Step", East.print(stepN.toInteger()),
+                            <Input.Float value={stepN} min={1.0} max={25.0} step={1.0} size="sm" onChange={onStep} />),
+                        Configurator.Slot("Behaviour",
+                            <HStack gap="5" align="center" wrap="wrap">
+                                <Switch checked={disabledOn} label="Disabled" onChange={onDisabled} />
+                            </HStack>),
+                    ]}
+                    preview={preview}
+                    aside={{
+                        label: "Value · Reactive",
+                        body: <Text.MonoKpi>{East.str`${East.print(value)} %`}</Text.MonoKpi>,
+                    }}
+                    spec={[
+                        Configurator.Spec("Callbacks", "onChange · onChangeEnd"),
+                    ]}
+                />
             );
         }}</Reactive>
     )),

@@ -1,7 +1,8 @@
 # Base components — the stdlib recipes
 
-Distilled from the pattern spec (`guidelines/reference/index.html` §1.6,
-values verbatim). Each recipe names its production tag in `@elaraai/east-ui`
+Distilled from the pattern spec (the retired reference pages' `index.html`
+§1.6 — git history; the per-pattern extracts live in `guidelines/patterns/`),
+values verbatim. Each recipe names its production tag in `@elaraai/east-ui`
 — design to these so a mock translates 1:1 into East JSX.
 
 ## Buttons (`<Button>`) — four roles, never invent a fifth

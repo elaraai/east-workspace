@@ -251,20 +251,10 @@ function OntologyEditorBody({
     const proOptions = useMemo(() => ({ hideAttribution: true }), []);
     const miniMapNodeColor = useCallback((node: FlowNode) => {
         const data = node.data as OntologyFlowNodeData;
-        const accent: Record<string, string> = {
-            process:     '#3a7780',
-            computation: '#42757d',
-            decision:    '#2b4b55',
-            objective:   '#253333',
-            kpi:         '#2f7a5b',
-            agent:       '#6d5a7a',
-            data:        '#b8862d',
-            resource:    '#56727a',
-            policy:      '#8d7a5f',
-            document:    '#bcd1d3',
-            group:       '#4a5f5f',
-        };
-        return accent[data.type] ?? '#6b8080';
+        // Single source of truth: the same per-kind accents the node cards use.
+        // This was a hand-copied duplicate of NODE_KIND_ACCENT and had already
+        // drifted out of the theme (frozen hex, no dark-mode response).
+        return NODE_KIND_ACCENT[data.type as keyof typeof NODE_KIND_ACCENT] ?? 'fg.muted';
     }, []);
 
     const getNode = useCallback(

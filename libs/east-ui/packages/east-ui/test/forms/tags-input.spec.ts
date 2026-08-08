@@ -4,16 +4,30 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TagsInput, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { TagsInput, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./tags-input.examples.js";
 
 describeEast("TagsInput", (test) => {
     Assert.examples(test, {
         tagsInputBasic: ex.tagsInputBasic,
         tagsInputSuggestions: ex.tagsInputSuggestions,
-        tagsInputInteractive: ex.tagsInputInteractive,
-        tagsInputOnInputChange: ex.tagsInputOnInputChange,
-        tagsInputOnHighlightChange: ex.tagsInputOnHighlightChange,
+    });
+
+    // =========================================================================
+    // Behavioral — suggestions + the event contract live on one bound input
+    // (#462 → epic #455).
+    // =========================================================================
+
+    test("tagsInputSuggestions binds its event contract inside one Reactive root", $ => {
+        // The suggestions input and its onChange / onInputChange /
+        // onHighlightChange logs live inside the Reactive body, which TestImpl
+        // does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the TagsInput.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.tagsInputSuggestions.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -265,37 +279,37 @@ describeEast("TagsInput", (test) => {
     // Color Palette
     // =========================================================================
 
-    test("creates tags input with blue color palette", $ => {
+    test("creates tags input with brand color palette", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.hasTag("some"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates tags input with red color palette", $ => {
+    test("creates tags input with danger color palette", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: "red",
+            colorPalette: "danger",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("danger"), true));
     });
 
-    test("creates tags input with green color palette", $ => {
+    test("creates tags input with success color palette", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: "green",
+            colorPalette: "success",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     test("supports Style.ColorScheme helper", $ => {
         const tagsInput = $.let(TagsInput.Root([], {
-            colorPalette: Style.ColorScheme("purple"),
+            colorPalette: Style.ColorScheme("brand"),
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -318,7 +332,7 @@ describeEast("TagsInput", (test) => {
             allowOverflow: false,
             size: "md",
             variant: "outline",
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").value.size(), 2n));
@@ -336,7 +350,7 @@ describeEast("TagsInput", (test) => {
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").allowOverflow.unwrap("some"), false));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates basic skills input", $ => {

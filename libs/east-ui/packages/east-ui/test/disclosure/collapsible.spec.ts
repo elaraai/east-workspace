@@ -3,16 +3,22 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Collapsible, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./collapsible.examples.js";
 
 describeEast("Collapsible", (test) => {
     Assert.examples(test, {
         collapsibleWhy: ex.collapsibleWhy,
-        collapsibleDefaultOpen: ex.collapsibleDefaultOpen,
-        collapsibleReactive: ex.collapsibleReactive,
-        collapsibleBranded: ex.collapsibleBranded,
+        collapsibleVariants: ex.collapsibleVariants,
+        collapsibleCustomColours: ex.collapsibleCustomColours,
+    });
+
+    test("collapsibleVariants is the live configurator", $ => {
+        const panel = $.const(ex.collapsibleVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates collapsible with string trigger (coerced to Text.Root)", $ => {
@@ -48,15 +54,15 @@ describeEast("Collapsible", (test) => {
 
     test("creates collapsible with full colour escape hatches", $ => {
         const c = $.let(Collapsible.Root(Text.Root("C"), { trigger: "T",
-            background: "#ffffff",
-            borderColor: "#e5e7eb",
-            triggerColor: "#1a2234",
-            contentColor: "#374151",
+            background: "bg.surface",
+            borderColor: "border.subtle",
+            triggerColor: "fg.default",
+            contentColor: "fg.default",
         }));
         const s = c.unwrap().unwrap("Collapsible").style.unwrap("some");
-        $(Assert.equal(s.background.unwrap("some"), "#ffffff"));
-        $(Assert.equal(s.borderColor.unwrap("some"), "#e5e7eb"));
-        $(Assert.equal(s.triggerColor.unwrap("some"), "#1a2234"));
-        $(Assert.equal(s.contentColor.unwrap("some"), "#374151"));
+        $(Assert.equal(s.background.unwrap("some"), "bg.surface"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "border.subtle"));
+        $(Assert.equal(s.triggerColor.unwrap("some"), "fg.default"));
+        $(Assert.equal(s.contentColor.unwrap("some"), "fg.default"));
     });
 }, { platformFns: TestImpl });

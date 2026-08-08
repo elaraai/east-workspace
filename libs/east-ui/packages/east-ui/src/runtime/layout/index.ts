@@ -16,3 +16,4 @@ export { Dock } from "./dock.js";
 export { Separator } from "./separator.js";
 export { Grid } from "./grid.js";
 export { Splitter } from "./splitter.js";
+export { Configurator } from "./configurator.js";

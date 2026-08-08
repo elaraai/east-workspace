@@ -5,20 +5,43 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Story, Text } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./story.examples.js";
 
 describeEast("Story", (test) => {
     Assert.examples(test, {
         storyBasic: ex.storyBasic,
-        storyStepBasic: ex.storyStepBasic,
-        storyProgressStandalone: ex.storyProgressStandalone,
-        storyRailRight: ex.storyRailRight,
         storyStacked: ex.storyStacked,
-        storyStepLengths: ex.storyStepLengths,
-        storyCardKeyframe: ex.storyCardKeyframe,
-        storyActiveStepStatic: ex.storyActiveStepStatic,
-        storyConditionalStep: ex.storyConditionalStep,
-        storyReactive: ex.storyReactive,
+        storyChromeVariants: ex.storyChromeVariants,
+        storyAuthoring: ex.storyAuthoring,
+        storyBound: ex.storyBound,
+    });
+
+    // =========================================================================
+    // Panels — the chrome variant space is a live configurator (#463 → #455).
+    // =========================================================================
+
+    test("storyChromeVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the rail axis, the prebuilt
+        // title-chrome leaves, and the bound-position aside — is declared
+        // inside the example body, because the documentation capture only
+        // extracts `fn`. That puts the tables inside the Reactive body, which
+        // TestImpl does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Story.Root tests
+        // below, which construct each form directly.
+        const panel = $.const(ex.storyChromeVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+    test("storyAuthoring panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.storyAuthoring.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 6n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CARD KEYFRAME"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "ACTIVE STEP STATIC"));
+        $(Assert.equal(rows.get(4n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "CONDITIONAL STEP"));
     });
 
     // =========================================================================

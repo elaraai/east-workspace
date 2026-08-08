@@ -254,7 +254,7 @@ export const deckSlotRecipe = defineSlotRecipe({
             fontWeight: "700",
             letterSpacing: "0.1em",
             textTransform: "uppercase",
-            color: "white",
+            color: "fg.inverse",
             background: "var(--dc, {colors.fg.subtle})",
             paddingY: "3px",
             paddingLeft: "6px",
@@ -271,7 +271,7 @@ export const deckSlotRecipe = defineSlotRecipe({
             width: "6px",
             height: "6px",
             borderRadius: "50%",
-            background: "whiteAlpha.900",
+            background: "bg.surface",
         },
         /* Metric strip — label-over-value pairs, mono tabular. */
         metricsRow: {

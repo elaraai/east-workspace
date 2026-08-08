@@ -332,6 +332,14 @@ describeEast("Style", (test) => {
         $(Assert.equal(Style.ColorScheme("purple").hasTag("purple"), true));
     });
 
+    test("ColorScheme — brand semantic token", $ => {
+        // `brand` is the design system's primary. It is a semantic token, so it
+        // must NOT collapse onto the `teal` hue even though both render teal.
+        const c = $.let(Style.ColorScheme("brand"));
+        $(Assert.equal(c.hasTag("brand"), true));
+        $(Assert.equal(c.hasTag("teal"), false));
+    });
+
     test("ColorScheme — success semantic token", $ => {
         const c = $.let(Style.ColorScheme("success"));
         $(Assert.equal(c.hasTag("success"), true));

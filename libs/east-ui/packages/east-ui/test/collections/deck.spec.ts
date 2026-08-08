@@ -3,20 +3,38 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType, StringType } from "@elaraai/east";
+import { East, NullType, StringType, type ExprType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Deck, Text } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./deck.examples.js";
 
 describeEast("Deck", (test) => {
     Assert.examples(test, {
         deckBasic: ex.deckBasic,
-        deckGroupBy: ex.deckGroupBy,
-        deckListLayout: ex.deckListLayout,
-        deckCustomFace: ex.deckCustomFace,
         deckSlice: ex.deckSlice,
         deckDetail: ex.deckDetail,
-        deckClickable: ex.deckClickable,
+        deckGrouped: ex.deckGrouped,
+        deckList: ex.deckList,
+        deckCustomFace: ex.deckCustomFace,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("deckGrouped drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the layout table, the grouped
+        // and custom-face switches, and the tap-target aside — is declared
+        // inside the example body, because the documentation capture only
+        // extracts `fn`. That puts the tables inside the Reactive body, which
+        // TestImpl does not execute, so they cannot be asserted from here;
+        // `Assert.examples` above still compiles and evaluates the outer
+        // function. The per-option coverage lives in the Deck.Root tests
+        // below, which construct each option directly.
+        const panel = $.const(ex.deckGrouped.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     const ROWS = [
@@ -65,7 +83,7 @@ describeEast("Deck", (test) => {
     test("the status registry resolves token and custom colours", $ => {
         const statuses = Deck.statuses({
             running: { label: "Running", color: "success", pulse: true, hint: "producing" },
-            standby: { label: "Standby", color: "#3568c9" },
+            standby: { label: "Standby", color: "link" },
         });
         const deck = $.let(Deck.Root(ROWS, {
             card: r => ({ key: r.id, title: r.name, status: "running" }),
@@ -79,7 +97,7 @@ describeEast("Deck", (test) => {
         $(Assert.equal(running.pulse, true));
         $(Assert.equal(running.hint.unwrap("some"), "producing"));
         const standby = $.let(payload.statuses.get("standby"));
-        $(Assert.equal(standby.color.unwrap("custom"), "#3568c9"));
+        $(Assert.equal(standby.color.unwrap("custom"), "link"));
         $(Assert.equal(standby.pulse, false));
     });
 

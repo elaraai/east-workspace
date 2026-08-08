@@ -5,33 +5,50 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, BooleanType, IntegerType, NullType, OptionType, ArrayType, none, some, variant } from "@elaraai/east";
+import { East, IntegerType, NullType, OptionType, ArrayType, some, variant, type ExprType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 
 describeEast("Table", (test) => {
     Assert.examples(test, {
-        tableFill: ex.tableFill,
-        tablePnlGrouped: ex.tablePnlGrouped,
         tableBasic: ex.tableBasic,
-        tableCustomHeaders: ex.tableCustomHeaders,
-        tableStriped: ex.tableStriped,
-        tableWithBadge: ex.tableWithBadge,
-        tableComplexColumns: ex.tableComplexColumns,
-        tableWrappingTags: ex.tableWrappingTags,
-        tableInteractiveCallbacks: ex.tableInteractiveCallbacks,
-        tableFrozenColumns: ex.tableFrozenColumns,
-        tableRowStatus: ex.tableRowStatus,
+        tableRichColumns: ex.tableRichColumns,
+        tableFrozen: ex.tableFrozen,
+        tableGroupedColumns: ex.tableGroupedColumns,
+        tablePnl: ex.tablePnl,
+        tableVariants: ex.tableVariants,
+        tablePaginated: ex.tablePaginated,
+        tableExpandable: ex.tableExpandable,
         tableReview: ex.tableReview,
-        tableReviewPaginated: ex.tableReviewPaginated,
-        tableReactivePagination: ex.tableReactivePagination,
-        tableDensityCompact: ex.tableDensityCompact,
-        tableRowHeight: ex.tableRowHeight,
-        tableExpandedRichDetail: ex.tableExpandedRichDetail,
-        tableMultiRowFooter: ex.tableMultiRowFooter,
-        tableNestedColumnGroups: ex.tableNestedColumnGroups,
-        tableMultiSelection: ex.tableMultiSelection,
-        tableRangeSelection: ex.tableRangeSelection,
     });
+
+    // =========================================================================
+    // Pass 5 — one live instance per configurator. The static column-system
+    // examples evaluate to Table values directly; the configurators are
+    // Reactive roots (TestImpl does not execute the inner body — shape
+    // coverage lives in the Table.Root tests below).
+    // =========================================================================
+
+    test("static column-system examples evaluate to Table values", $ => {
+        const rich = $.const(ex.tableRichColumns.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(rich.unwrap().hasTag("Table"), true));
+        const grouped = $.const(ex.tableGroupedColumns.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(grouped.unwrap().hasTag("Table"), true));
+        const pnl = $.const(ex.tablePnl.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(pnl.unwrap().hasTag("Table"), true));
+        const expandable = $.const(ex.tableExpandable.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(expandable.unwrap().hasTag("Table"), true));
+    });
+
+    test("configurators host ONE live table under a Reactive root", $ => {
+        const variants = $.const(ex.tableVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(variants.unwrap().hasTag("ReactiveComponent"), true));
+        const paginated = $.const(ex.tablePaginated.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(paginated.unwrap().hasTag("ReactiveComponent"), true));
+        const review = $.const(ex.tableReview.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(review.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+
 
     // =========================================================================
     // Simple Array Syntax
@@ -200,7 +217,7 @@ describeEast("Table", (test) => {
                 striped: true,
                 interactive: true,
                 stickyHeader: true,
-                colorPalette: "blue",
+                colorPalette: "brand",
             }
         ));
 
@@ -290,7 +307,7 @@ describeEast("Table", (test) => {
             {
                 name: { header: "Name" },
                 email: { header: "Email" },
-                role: { header: "Role", render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => Badge.Root(ctx.cellValue.match({ String: (_$, v) => v }, _$ => ""), { colorPalette: "blue" })) },
+                role: { header: "Role", render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => Badge.Root(ctx.cellValue.match({ String: (_$, v) => v }, _$ => ""), { colorPalette: "brand" })) },
             },
             { variant: "line", striped: true }
         ));
@@ -584,25 +601,25 @@ describeEast("Table", (test) => {
             [{ a: "x" }],
             { a: { header: "A" } },
             {
-                headerBackground: "blue.600",
-                headerColor: "white",
-                borderColor: "blue.200",
-                zebraBackground: "blue.50",
-                hoverBackground: "blue.100",
-                selectedBackground: "blue.200",
-                selectedBorderColor: "blue.400",
-                footerBackground: "gray.100",
+                headerBackground: "bg.brand.subtle",
+                headerColor: "fg.inverse",
+                borderColor: "border.brand",
+                zebraBackground: "bg.brand.subtle",
+                hoverBackground: "bg.brand.subtle",
+                selectedBackground: "bg.brand.subtle",
+                selectedBorderColor: "border.brand",
+                footerBackground: "bg.subtle",
             },
         ));
         const style = $.let(t.unwrap().unwrap("Table").style.unwrap("some"));
-        $(Assert.equal(style.headerBackground.unwrap("some"), "blue.600"));
-        $(Assert.equal(style.headerColor.unwrap("some"), "white"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.200"));
-        $(Assert.equal(style.zebraBackground.unwrap("some"), "blue.50"));
-        $(Assert.equal(style.hoverBackground.unwrap("some"), "blue.100"));
-        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.200"));
-        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "blue.400"));
-        $(Assert.equal(style.footerBackground.unwrap("some"), "gray.100"));
+        $(Assert.equal(style.headerBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.headerColor.unwrap("some"), "fg.inverse"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.zebraBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.hoverBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "bg.brand.subtle"));
+        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.footerBackground.unwrap("some"), "bg.subtle"));
     });
 
     test("review chrome + accessors encode via the shared contract over the UNSLICED index (#264)", $ => {

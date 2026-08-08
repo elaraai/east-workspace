@@ -215,7 +215,7 @@ export const SegmentedMeter: SegmentedMeterNamespace = {
      *
      * const example = East.function([], UIComponentType, $ => {
      *     return SegmentedMeter.Root(
-     *         [{ value: 70, color: "#3d5cff" }, { value: 30, color: "#e5e7eb" }],
+     *         [{ value: 70, color: "link" }, { value: 30, color: "fg.muted" }],
      *         { caption: Text.Root("Capacity utilisation"), thickness: "md" },
      *     );
      * });

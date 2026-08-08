@@ -4,15 +4,32 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Avatar, Style } from "@elaraai/east-ui/internal";
+import { type ExprType } from "@elaraai/east";
+import { Avatar, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./avatar.examples.js";
 
 describeEast("Avatar", (test) => {
     Assert.examples(test, {
         avatarBasic: ex.avatarBasic,
-        avatarSizes: ex.avatarSizes,
-        avatarColors: ex.avatarColors,
-        avatarDensities: ex.avatarDensities,
+        avatarVariants: ex.avatarVariants,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("avatarVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the size / colour / variant /
+        // density / opacity / radius tables — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That puts
+        // the tables inside the Reactive body, which TestImpl does not execute,
+        // so they cannot be asserted from here; `Assert.examples` above still
+        // compiles and evaluates the outer function. The per-axis coverage
+        // lives in the Avatar.Root tests below, which construct each value
+        // directly.
+        const panel = $.const(ex.avatarVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================
@@ -141,29 +158,29 @@ describeEast("Avatar", (test) => {
     // Color Palette
     // =========================================================================
 
-    test("creates avatar with blue color palette", $ => {
+    test("creates avatar with brand color palette", $ => {
         const avatar = $.let(Avatar.Root({
-            colorPalette: "blue",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.hasTag("some"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
-    test("creates avatar with purple color palette", $ => {
+    test("creates avatar with brand color palette", $ => {
         const avatar = $.let(Avatar.Root({
-            colorPalette: "purple",
+            colorPalette: "brand",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates avatar with Style.ColorScheme helper", $ => {
         const avatar = $.let(Avatar.Root({
-            colorPalette: Style.ColorScheme("green"),
+            colorPalette: Style.ColorScheme("success"),
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("success"), true));
     });
 
     // =========================================================================
@@ -176,14 +193,14 @@ describeEast("Avatar", (test) => {
             name: "Alice Smith",
             size: "lg",
             variant: "solid",
-            colorPalette: "purple",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").src.unwrap("some"), "https://example.com/profile.jpg"));
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").name.unwrap("some"), "Alice Smith"));
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates user profile avatar", $ => {
@@ -200,7 +217,7 @@ describeEast("Avatar", (test) => {
     test("creates initials avatar", $ => {
         const avatar = $.let(Avatar.Root({
             name: "Bob Johnson",
-            colorPalette: "blue",
+            colorPalette: "brand",
             variant: "solid",
         }));
 
@@ -212,11 +229,11 @@ describeEast("Avatar", (test) => {
         const avatar = $.let(Avatar.Root({
             name: "Team Member",
             size: "sm",
-            colorPalette: "teal",
+            colorPalette: "brand",
         }));
 
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("teal"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("brand"), true));
     });
 
     test("creates large profile header avatar", $ => {

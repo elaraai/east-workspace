@@ -4,19 +4,33 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { DateRangeInput } from "@elaraai/east-ui/internal";
-import { East, DateTimeType, NullType } from "@elaraai/east";
+import { DateRangeInput, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, DateTimeType, NullType, type ExprType } from "@elaraai/east";
 import * as ex from "./date-range-input.examples.js";
 
 describeEast("DateRangeInput", (test) => {
     Assert.examples(test, {
         dateRangeInputBasic: ex.dateRangeInputBasic,
-        dateRangeInputDateTime: ex.dateRangeInputDateTime,
-        dateRangeInputReactive: ex.dateRangeInputReactive,
-        dateRangeInputPresets: ex.dateRangeInputPresets,
-        dateRangeInputColours: ex.dateRangeInputColours,
-        dateRangeInputSizes: ex.dateRangeInputSizes,
-        dateRangeInputDisabled: ex.dateRangeInputDisabled,
+        dateRangeInputVariants: ex.dateRangeInputVariants,
+        dateRangeInputCustomColours: ex.dateRangeInputCustomColours,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#462).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("dateRangeInputVariants drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the precision / size / colour
+        // tables and the State-bound live range — is declared inside the
+        // example body, because the documentation capture only extracts `fn`.
+        // That puts the tables inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. The per-option
+        // coverage lives in the DateRangeInput.Root tests below, which
+        // construct each option directly.
+        const panel = $.const(ex.dateRangeInputVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     test("creates range with start + end DateTime", $ => {
@@ -82,16 +96,16 @@ describeEast("DateRangeInput", (test) => {
             size: "sm",
             color: "fg",
             background: "bg.subtle",
-            borderColor: "blue.300",
-            focusBorderColor: "blue.500",
+            borderColor: "border.brand",
+            focusBorderColor: "border.brand",
         }));
         const style = $.let(r.unwrap().unwrap("DateRangeInput").style.unwrap("some"));
         $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
         $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
         $(Assert.equal(style.color.unwrap("some"), "fg"));
         $(Assert.equal(style.background.unwrap("some"), "bg.subtle"));
-        $(Assert.equal(style.borderColor.unwrap("some"), "blue.300"));
-        $(Assert.equal(style.focusBorderColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "border.brand"));
+        $(Assert.equal(style.focusBorderColor.unwrap("some"), "border.brand"));
     });
 
     test("style absent when no visual fields set", $ => {

@@ -4,29 +4,59 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, BooleanType, NullType, StringType, variant, some } from "@elaraai/east";
+import { East, BooleanType, NullType, StringType, variant, some, type ExprType } from "@elaraai/east";
 import { Schematic, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./schematic.examples.js";
 
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicPlant: ex.schematicPlant,
-        schematicSliceEffect: ex.schematicSliceEffect,
-        schematicLayers: ex.schematicLayers,
-        schematicMinimal: ex.schematicMinimal,
-        schematicInteractive: ex.schematicInteractive,
-        schematicRangeSelect: ex.schematicRangeSelect,
-        schematicSelectFilter: ex.schematicSelectFilter,
-        schematicViewport: ex.schematicViewport,
-        schematicZoneSelect: ex.schematicZoneSelect,
+        schematicStress: ex.schematicStress,
         schematicLinkEdit: ex.schematicLinkEdit,
         schematicNets: ex.schematicNets,
-        schematicItemMove: ex.schematicItemMove,
-        schematicHover: ex.schematicHover,
-        schematicStress: ex.schematicStress,
-        schematicFacility: ex.schematicFacility,
+        schematicVariants: ex.schematicVariants,
+        schematicLayers: ex.schematicLayers,
         schematicGeometry: ex.schematicGeometry,
-        schematicColorOverride: ex.schematicColorOverride,
+        schematicColorOverrides: ex.schematicColorOverrides,
+        schematicSlice: ex.schematicSlice,
+        schematicInteractions: ex.schematicInteractions,
+    });
+
+    // =========================================================================
+    // Panels — every merged example stays mounted as a captioned row (#461).
+    // The mono-uppercase Text captions are the stable per-mini anchors.
+    // =========================================================================
+
+    test("schematicInteractions drives its preview from inline option tables", $ => {
+        // Everything the configurator needs — the tool axis, the per-tool prop
+        // mapping and the event-log binds — is declared inside the example
+        // body, because the documentation capture only extracts `fn`. That
+        // puts the tables inside the Reactive body, which TestImpl does not
+        // execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. Interaction
+        // prop coverage lives in the Schematic.Root tests below, which
+        // construct each config directly.
+        const panel = $.const(ex.schematicInteractions.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+    test("schematicVariants drives its preview from inline option tables", $ => {
+        // The canvas-preset axis and the readOnly switch are declared inside
+        // the example body, because the documentation capture only extracts
+        // `fn`. That puts them inside the Reactive body, which TestImpl does
+        // not execute, so they cannot be asserted from here; `Assert.examples`
+        // above still compiles and evaluates the outer function. Per-canvas
+        // prop coverage lives in the Schematic.Root tests below.
+        const panel = $.const(ex.schematicVariants.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
+    });
+
+    test("schematicSlice panel mounts one captioned row per merged example", $ => {
+        const panel = $.const(ex.schematicSlice.fn() as ExprType<UIComponentType>);
+        const rows = $.const(panel.unwrap().unwrap("Stack").children);
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SLICE EFFECT"));
+        $(Assert.equal(rows.get(2n).unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "SELECT FILTER"));
     });
 
     test("resolves items with defaults", $ => {
@@ -170,12 +200,12 @@ describeEast("Schematic", (test) => {
                 item: e => ({
                     key: e.id, x: e.x, y: e.y, label: e.id,
                     footprint: Schematic.circle(e.r),
-                    tone: "brand", color: "#2D7FF9", bg: "#2D7FF9", fillOpacity: 0.2, weight: 2.0,
+                    tone: "brand", color: "link", bg: "bg.brand.subtle", fillOpacity: 0.2, weight: 2.0,
                 }),
                 zones: [{ id: "z", name: "Z", x: 0.0, y: 0.0, w: 8.0, h: 6.0 }],
                 zone: z => ({
                     key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
-                    tone: "danger", color: "#DC2626", bg: "#DC2626", fillOpacity: 0.15, weight: 1.5,
+                    tone: "danger", color: "fg.danger", bg: "bg.danger.subtle", fillOpacity: 0.15, weight: 1.5,
                 }),
             },
         ));
@@ -183,15 +213,15 @@ describeEast("Schematic", (test) => {
 
         const item = $.let(root.items.get(0n));
         $(Assert.equal(item.tone.unwrap("some").hasTag("brand"), true));
-        $(Assert.equal(item.color.unwrap("some"), "#2D7FF9"));
-        $(Assert.equal(item.bg.unwrap("some"), "#2D7FF9"));
+        $(Assert.equal(item.color.unwrap("some"), "link"));
+        $(Assert.equal(item.bg.unwrap("some"), "bg.brand.subtle"));
         $(Assert.equal(item.fillOpacity.unwrap("some"), 0.2));
         $(Assert.equal(item.weight.unwrap("some"), 2.0));
 
         const zone = $.let(root.zones.get(0n));
         $(Assert.equal(zone.tone.unwrap("some").hasTag("danger"), true));
-        $(Assert.equal(zone.color.unwrap("some"), "#DC2626"));
-        $(Assert.equal(zone.bg.unwrap("some"), "#DC2626"));
+        $(Assert.equal(zone.color.unwrap("some"), "fg.danger"));
+        $(Assert.equal(zone.bg.unwrap("some"), "bg.danger.subtle"));
         $(Assert.equal(zone.weight.unwrap("some"), 1.5));
     });
 

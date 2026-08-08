@@ -99,7 +99,7 @@ export const badgeRecipe = defineRecipe({
             callout: {
                 background: "{colors.brand.600}",
                 borderColor: "transparent",
-                color: "white",
+                color: "fg.inverse",
                 borderRadius: "{radii.full}",
                 fontWeight: "semibold",
                 fontSize: "11px",

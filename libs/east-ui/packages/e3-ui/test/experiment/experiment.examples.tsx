@@ -34,7 +34,7 @@ import {
     East, ArrayType, StructType, BooleanType, FloatType, IntegerType, StringType, DateTimeType,
     some, none, variant, example,
 } from '@elaraai/east';
-import { Reactive, UIComponentType } from '@elaraai/east-ui';
+import { Reactive, Separator, UIComponentType, VStack } from '@elaraai/east-ui';
 import { Data, Experiment, Func } from '@elaraai/e3-ui';
 import e3 from '@elaraai/e3';
 
@@ -559,31 +559,56 @@ export const experimentMenu = example({
     inputs: [],
 });
 
-/** Curated decision surface — a precomputed answer, read-only, no live estimator. */
+/** Curated decision surface — a precomputed answer (browsable and locked), no live estimator. */
 export const experimentPrecomputed = example({
-    keywords: ['Experiment', 'causal', 'precomputed', 'result', 'configs', 'curated', 'decision surface', 'menu', 'no-run'],
-    description: 'A curated, precomputed causal-experiment menu: two vetted questions, each carrying its own precomputed `result` (a confident "causal" +5.2, and a more cautious "modest" +3.1 once you also control for line) AND a precomputed `design`. No estimator, no design function, no Run — selecting a question from the title menu paints both its answer and its "Validate" trial recipe straight from the bound values.',
+    keywords: ['Experiment', 'causal', 'precomputed', 'result', 'configs', 'curated', 'decision surface', 'menu', 'no-run', 'readonly', 'locked', 'view-only'],
+    description: 'Precomputed panel — PRECOMPUTED: a curated causal-experiment menu of two vetted questions, each carrying its own precomputed `result` (a confident "causal" +5.2, and a more cautious "modest" +3.1 once you also control for line) AND a precomputed `design`; no estimator, no design function, no Run — selecting a question from the title menu paints both its answer and its "Validate" trial recipe straight from the bound values. READONLY PRECOMPUTED: the locked variant — `readonly` is on, so the same questions can still be browsed (the question selector stays live: selecting is navigation, not editing) but the config pickers, Run and Commit are all hidden, and a "View only" badge marks the surface; a pure view-only decision surface.',
     fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const data = $.let(Data.bind(batchesInput));
-            const configs = $.let(Data.bind(experimentPrecomputedConfigsInput));
-            return (
-                <Experiment
-                    data={data}
-                    configs={configs}
-                    columns={{
-                        slow_cure: { label: 'Slow cure' },
-                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
-                        incoming_grade: { label: 'Incoming grade' },
-                        mix_viscosity: { label: 'Mix viscosity' },
-                        supplier: { label: 'Supplier' },
-                        line: { label: 'Line' },
-                        product: { label: 'Product' },
-                    }}
-                    subject="batch"
-                />
-            );
-        }}</Reactive>
+        <VStack gap="4" align="stretch">
+            <Separator label="PRECOMPUTED" align="start" />
+            <Reactive>{$ => {
+                const data = $.let(Data.bind(batchesInput));
+                const configs = $.let(Data.bind(experimentPrecomputedConfigsInput));
+                return (
+                    <Experiment
+                        data={data}
+                        configs={configs}
+                        columns={{
+                            slow_cure: { label: 'Slow cure' },
+                            bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                            incoming_grade: { label: 'Incoming grade' },
+                            mix_viscosity: { label: 'Mix viscosity' },
+                            supplier: { label: 'Supplier' },
+                            line: { label: 'Line' },
+                            product: { label: 'Product' },
+                        }}
+                        subject="batch"
+                    />
+                );
+            }}</Reactive>
+            <Separator label="READONLY PRECOMPUTED" align="start" />
+            <Reactive>{$ => {
+                const data = $.let(Data.bind(batchesInput));
+                const configs = $.let(Data.bind(experimentPrecomputedConfigsInput));
+                return (
+                    <Experiment
+                        data={data}
+                        configs={configs}
+                        readonly
+                        columns={{
+                            slow_cure: { label: 'Slow cure' },
+                            bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                            incoming_grade: { label: 'Incoming grade' },
+                            mix_viscosity: { label: 'Mix viscosity' },
+                            supplier: { label: 'Supplier' },
+                            line: { label: 'Line' },
+                            product: { label: 'Product' },
+                        }}
+                        subject="batch"
+                    />
+                );
+            }}</Reactive>
+        </VStack>
     )),
     inputs: [],
 });
@@ -668,85 +693,52 @@ export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estim
     },
 ]);
 
-/** The positivity REFUSAL — no like-for-like comparison exists; the Answer tab
- *  renders the back-to-back propensity histogram instead of a number, and the
- *  hidden "How much?" tab demonstrates the dose-tab gating. */
-export const experimentRefusalOverlap = example({
-    keywords: ['Experiment', 'causal', 'refusal', 'positivity', 'overlap', 'histogram', 'no comparison', 'verdict'],
-    description: 'The Experiment positivity refusal — the treated and untreated batches barely overlap on the confounders, so the engine refuses to estimate (adjusted = none, verdict non_identifiable_positivity) and the Answer tab explains why over the propensity-overlap histogram. No dose feature → the "How much?" tab is hidden.',
+/** The two REFUSALS side-by-side. Positivity: no like-for-like comparison
+ *  exists; the Answer tab renders the back-to-back propensity histogram
+ *  instead of a number, and the hidden "How much?" tab demonstrates the
+ *  dose-tab gating. Not-estimable: a 44-unit treated arm; the engine refuses
+ *  with its reason string and the evidence counts. */
+export const experimentRefusals = example({
+    keywords: ['Experiment', 'causal', 'refusal', 'positivity', 'overlap', 'histogram', 'no comparison', 'verdict', 'not_estimable', 'variation', 'tiny arm'],
+    description: 'Refusal panel — REFUSAL OVERLAP: the treated and untreated batches barely overlap on the confounders, so the engine refuses to estimate (adjusted = none, verdict non_identifiable_positivity) and the Answer tab explains why over the propensity-overlap histogram; no dose feature → the "How much?" tab is hidden. REFUSAL NOT ESTIMABLE: almost every batch is on one side of the treatment (a 44-unit arm), so the engine refuses to guess (adjusted = none, verdict not_estimable) and the Answer tab shows the engine\'s reason plus the arm counts.',
     fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const data = $.let(Data.bind(batchesInput));
-            const configs = $.let(Data.bind(experimentPositivityConfigsInput));
-            return (
-                <Experiment
-                    data={data}
-                    configs={configs}
-                    columns={{
-                        slow_cure: { label: 'Slow cure' },
-                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
-                        incoming_grade: { label: 'Incoming grade' },
-                        mix_viscosity: { label: 'Mix viscosity' },
-                    }}
-                    subject="batch"
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/** The not-estimable REFUSAL — a 44-unit treated arm; the engine refuses with
- *  its reason string and the evidence counts. */
-export const experimentRefusalNotEstimable = example({
-    keywords: ['Experiment', 'causal', 'refusal', 'not_estimable', 'variation', 'tiny arm', 'verdict'],
-    description: 'The Experiment not-estimable refusal — almost every batch is on one side of the treatment (a 44-unit arm), so the engine refuses to guess (adjusted = none, verdict not_estimable) and the Answer tab shows the engine\'s reason plus the arm counts.',
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const data = $.let(Data.bind(batchesInput));
-            const configs = $.let(Data.bind(experimentNotEstimableConfigsInput));
-            return (
-                <Experiment
-                    data={data}
-                    configs={configs}
-                    columns={{
-                        slow_cure: { label: 'Slow cure' },
-                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
-                        incoming_grade: { label: 'Incoming grade' },
-                    }}
-                    subject="batch"
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-export const experimentReadonlyPrecomputed = example({
-    keywords: ['Experiment', 'causal', 'precomputed', 'readonly', 'locked', 'curated', 'decision surface', 'view-only'],
-    description: 'The locked variant of the precomputed menu — `readonly` is on, so the same two vetted, precomputed questions (each with its answer and "Validate" trial recipe) can still be browsed (the question selector stays live: selecting is navigation, not editing) but the config pickers, Run and Commit are all hidden, and a "View only" badge marks the surface. A pure view-only decision surface.',
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const data = $.let(Data.bind(batchesInput));
-            const configs = $.let(Data.bind(experimentPrecomputedConfigsInput));
-            return (
-                <Experiment
-                    data={data}
-                    configs={configs}
-                    readonly
-                    columns={{
-                        slow_cure: { label: 'Slow cure' },
-                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
-                        incoming_grade: { label: 'Incoming grade' },
-                        mix_viscosity: { label: 'Mix viscosity' },
-                        supplier: { label: 'Supplier' },
-                        line: { label: 'Line' },
-                        product: { label: 'Product' },
-                    }}
-                    subject="batch"
-                />
-            );
-        }}</Reactive>
+        <VStack gap="4" align="stretch">
+            <Separator label="REFUSAL OVERLAP" align="start" />
+            <Reactive>{$ => {
+                const data = $.let(Data.bind(batchesInput));
+                const configs = $.let(Data.bind(experimentPositivityConfigsInput));
+                return (
+                    <Experiment
+                        data={data}
+                        configs={configs}
+                        columns={{
+                            slow_cure: { label: 'Slow cure' },
+                            bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                            incoming_grade: { label: 'Incoming grade' },
+                            mix_viscosity: { label: 'Mix viscosity' },
+                        }}
+                        subject="batch"
+                    />
+                );
+            }}</Reactive>
+            <Separator label="REFUSAL NOT ESTIMABLE" align="start" />
+            <Reactive>{$ => {
+                const data = $.let(Data.bind(batchesInput));
+                const configs = $.let(Data.bind(experimentNotEstimableConfigsInput));
+                return (
+                    <Experiment
+                        data={data}
+                        configs={configs}
+                        columns={{
+                            slow_cure: { label: 'Slow cure' },
+                            bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                            incoming_grade: { label: 'Incoming grade' },
+                        }}
+                        subject="batch"
+                    />
+                );
+            }}</Reactive>
+        </VStack>
     )),
     inputs: [],
 });
