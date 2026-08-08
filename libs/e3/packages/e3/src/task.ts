@@ -786,9 +786,11 @@ export interface StreamTaskSpec<
   readonly stream?: Stream;
   /** Ordinary inputs, decoded whole. */
   readonly inputs?: [...Inputs];
-  /** The output collection type. Dict/Set outputs must be emitted in
-   *  strictly ascending (key) order — the streaming writer enforces the
-   *  canonical-segment contract at runtime; Array outputs emit freely. */
+  /** The output collection type. Emission order is unconstrained: ascending
+   *  Set/Dict emission streams straight to the output, and out-of-order
+   *  emission is sorted by the runner's sink (bounded-memory spill/merge)
+   *  before the file is finalized — the stored dataset is always the
+   *  canonical collection. Duplicate Set/Dict keys are a runtime error. */
   readonly output: Output;
   /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. Every
    *  stock runtime streams the output through `emit` and feeds the `stream`
@@ -820,10 +822,14 @@ type StreamTaskArgs<
  *
  * `emit` is a runner-implemented function value: `emit(key, value)` for Dict
  * outputs, `emit(element)` for Array/Set outputs. The streaming writer
- * re-batches emissions byte-adaptively; Dict/Set outputs must be emitted in
- * strictly ascending (key) order (the canonical-segment contract, enforced
- * at runtime), Array outputs emit freely. The body's return value is unused
- * — the output dataset is what `emit` wrote.
+ * re-batches emissions byte-adaptively, and emission order is unconstrained:
+ * emissions arriving in ascending (key) order stream straight to the output
+ * file, and out-of-order emissions are sorted by the sink (bounded-memory
+ * spill/merge, reported on stderr when it engages) before the file is
+ * finalized — either way the stored dataset is the canonical collection, so
+ * a re-keying producer can emit as it reads. Duplicate Set/Dict keys are a
+ * runtime error. The body's return value is unused — the output dataset is
+ * what `emit` wrote.
  *
  * With no `stream`, the task is a producer: its body loops over
  * platform-function sources (paginated APIs, database cursors) and emits.

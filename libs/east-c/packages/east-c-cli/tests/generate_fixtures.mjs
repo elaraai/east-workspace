@@ -51,6 +51,20 @@ const targets = [
 const emitInt = FunctionType([IntegerType], NullType);
 const emitPair = FunctionType([IntegerType, StringType], NullType);
 
+/** The 0..count keys in a deterministic Fisher-Yates shuffle (fixed LCG
+ *  seed), so the disorder the sink must absorb is stable across fixture
+ *  regenerations. */
+function shuffledKeys(count) {
+  const keys = Array.from({ length: count }, (_, i) => BigInt(i));
+  let seed = 12345;
+  const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+  for (let i = keys.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+  }
+  return keys;
+}
+
 const fixtures = {
   // Producer: no file inputs, 2500 emissions of i*2 through the trailing
   // emit capability.
@@ -83,12 +97,34 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Dict producer violating the strictly-ascending key contract on the
-  // second emit.
+  // Dict producer emitting out of key order on the second emit — since
+  // issue #518 the sink absorbs this (sort-in-the-sink) and the output is
+  // the canonical two-pair dict.
   'emit_dict_disorder.beast2': encodeEastIR(
     East.function([emitPair], NullType, ($, emit) => {
       $(emit(2n, 'b'));
       $(emit(1n, 'a'));
+    }).toIR(),
+  ),
+
+  // Dict producer emitting the same 1000 pairs as emit_dict in a
+  // deterministically shuffled order — the sink must spill/merge to the
+  // byte-identical canonical blob (issue #518; run tiny
+  // EAST_EMIT_RUN_ELEMENTS to force multiple spill runs).
+  'emit_dict_shuffled.beast2': encodeEastIR(
+    East.function([emitPair], NullType, ($, emit) => {
+      $.for($.const(shuffledKeys(1000), ArrayType(IntegerType)), ($, i) => {
+        $(emit(i, East.str`row-${i}`));
+      });
+    }).toIR(),
+  ),
+
+  // Duplicate key emitted adjacently — a hard error under any emission
+  // order (the `strictly` half of the old contract, which survives #518).
+  'emit_dict_duplicate.beast2': encodeEastIR(
+    East.function([emitPair], NullType, ($, emit) => {
+      $(emit(1n, 'a'));
+      $(emit(1n, 'b'));
     }).toIR(),
   ),
 

@@ -275,12 +275,14 @@ const balances = e3.streamTask('balances', {
 ```
 
 `emit(key, value)` writes one Dict entry, `emit(element)` one Array/Set
-element. Dict/Set outputs must be emitted in strictly ascending (key)
-order — the writer enforces it at runtime; Array outputs emit freely. Omit
-`stream` for a producer task whose body loops over platform-function
-sources (paginated APIs, database cursors) and emits — ingest usually
-targets an Array output, with keying and grouping done downstream in a
-`partitionTask`.
+element — in any order. Ascending Set/Dict emission streams straight to
+the output file, and out-of-order emission is sorted by the runner's sink
+(bounded-memory spill/merge, reported on stderr when it engages) before
+the output is finalized, so the stored dataset is always the canonical
+collection and a re-keying producer can emit rows as it reads them.
+Duplicate Dict keys / Set elements are a runtime error. Omit `stream` for
+a producer task whose body loops over platform-function sources (paginated
+APIs, database cursors) and emits.
 
 ### `e3.customTask(name, inputs, outputType, command)`
 

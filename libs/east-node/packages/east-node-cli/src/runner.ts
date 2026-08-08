@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { closeSync, openSync, writeFileSync, writeSync, statSync } from 'fs';
+import { closeSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from 'fs';
 import { extname } from 'path';
 import {
     EastIR,
@@ -15,6 +15,7 @@ import {
     encodeBeast2PagedFor,
     encodeEastFor,
     encodeJSONFor,
+    iterBeast2SegmentsFor,
     printFor,
     variant,
 } from '@elaraai/east';
@@ -124,7 +125,7 @@ export async function runProgram(
     }
 
     const emitSink = opts.emit !== undefined
-        ? createEmitSink(opts.emit, inputTypes[inputTypes.length - 1] as EastTypeValue, outputPath!)
+        ? createEmitSink(opts.emit, inputTypes[inputTypes.length - 1] as EastTypeValue, outputPath!, verbose)
         : null;
 
     // Verbose header
@@ -204,13 +205,39 @@ interface EmitSink {
     finish: () => void;
 }
 
+/** Out-of-order Set/Dict emission buffers and spills sorted runs of at most
+ *  this many elements (`EAST_EMIT_RUN_ELEMENTS` overrides; minimum 1) — the
+ *  in-memory bound of the sink's spill/merge path (issue #518). */
+const EMIT_RUN_ELEMENTS_DEFAULT = 100_000;
+
+/** Resolves the spill-run element cap: environment override, else the
+ *  default. Invalid or sub-1 values fall back, matching east-py / east-c. */
+function emitRunElements(): number {
+    const raw = process.env.EAST_EMIT_RUN_ELEMENTS;
+    if (raw !== undefined && raw !== '') {
+        const env = Number(raw);
+        if (Number.isInteger(env) && env >= 1) return env;
+    }
+    return EMIT_RUN_ELEMENTS_DEFAULT;
+}
+
 /**
- * Builds the emit capability: a host function value that validates the
- * canonical emission order (strictly ascending Set elements / Dict keys),
- * re-batches elements byte-adaptively, and appends segments to the output
- * file through a streaming writer — O(batch) memory end to end.
+ * Builds the emit capability: a host function value that re-batches elements
+ * byte-adaptively and appends segments to the output file through a
+ * streaming writer.
+ *
+ * Emission order is unconstrained (issue #518). While Set/Dict emissions
+ * stay strictly ascending in East (key) order, segments stream straight to
+ * the output file — O(batch) memory, byte-identical to an always-ascending
+ * producer. On the first out-of-order key the file written so far is
+ * finalized (a complete canonical beast2 file of the prefix) and demoted to
+ * spill run #0; emissions then buffer to a bounded element cap
+ * (`EAST_EMIT_RUN_ELEMENTS`) and spill as sorted runs beside the output, and
+ * `finish` k-way merges runs + tail into the canonical output. Duplicate
+ * Set/Dict keys are a hard error in every path: immediately when adjacent in
+ * the stream, at spill/merge time otherwise.
  */
-function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeValue, outputPath: string): EmitSink {
+function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeValue, outputPath: string, verbose: boolean): EmitSink {
     if (emitParamType.type !== 'Function') {
         throw new Error(`--emit requires the function's trailing parameter to be the emit capability (a function type), got ${emitParamType.type}`);
     }
@@ -227,27 +254,54 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
         kind === 'set' ? variant('Set', emitInputs[0]!) as EastTypeValue :
         variant('Array', emitInputs[0]!) as EastTypeValue;
 
-    const fd = openSync(outputPath, 'w');
-    let bytesWritten = 0;
-    let headerBytes = -1;
-    const writer = new Beast2Writer(outTypeValue, (bytes) => {
-        // writeSync may return a short count; loop until the chunk is fully
-        // on disk — a silently truncated write would corrupt the blob while
-        // the process still exits 0.
-        let written = 0;
-        while (written < bytes.length) {
-            written += writeSync(fd, bytes, written, bytes.length - written);
-        }
-        if (headerBytes < 0) headerBytes = bytes.length;
-        bytesWritten += bytes.length;
-    });
+    /** Opens a streaming file writer: header at open, terminator + index at
+     *  `finishClose` — every finished file is a complete canonical blob. */
+    function openFileWriter(path: string): {
+        writer: Beast2Writer;
+        bodyBytes: () => number;
+        finishClose: () => void;
+        closeAbandoned: () => void;
+    } {
+        const fd = openSync(path, 'w');
+        let bytesWritten = 0;
+        let headerBytes = -1;
+        const writer = new Beast2Writer(outTypeValue, (bytes) => {
+            // writeSync may return a short count; loop until the chunk is
+            // fully on disk — a silently truncated write would corrupt the
+            // blob while the process still exits 0.
+            let written = 0;
+            while (written < bytes.length) {
+                written += writeSync(fd, bytes, written, bytes.length - written);
+            }
+            if (headerBytes < 0) headerBytes = bytes.length;
+            bytesWritten += bytes.length;
+        });
+        return {
+            writer,
+            bodyBytes: () => Math.max(1, bytesWritten - Math.max(0, headerBytes)),
+            finishClose: () => { writer.finish(); closeSync(fd); },
+            closeAbandoned: () => { closeSync(fd); },
+        };
+    }
 
-    // Canonical-order enforcement per element, ahead of the writer's own
-    // batch-level check, so a violation names the offending emit call and a
-    // duplicate key cannot collapse silently inside a batch container.
+    // Canonical-order tracking per element, ahead of the writer's own
+    // batch-level check, so an adjacent duplicate names the offending emit
+    // call and can never collapse silently inside a batch container.
     const orderCmp = kind === 'array' ? null : compareFor(emitInputs[0] as any) as (a: unknown, b: unknown) => number;
+    const printKey = kind === 'array' ? null : printFor(emitInputs[0] as any) as (v: unknown) => string;
+    const duplicateMessage = (key: unknown): string => {
+        const noun = kind === 'dict' ? 'Dict' : 'Set';
+        const part = kind === 'dict' ? 'key' : 'element';
+        return `beast2 v5: duplicate ${noun} ${part} emitted: ${printKey!(key)} — ${noun} ${part}s must be unique`;
+    };
+    const itemKey = (item: unknown): unknown => kind === 'dict' ? (item as [unknown, unknown])[0]! : item;
+    const toValue = (items: unknown[]): unknown =>
+        kind === 'dict' ? new Map(items as [unknown, unknown][]) : kind === 'set' ? new Set(items) : items;
+
+    let out = openFileWriter(outputPath);
     let hasLast = false;
     let lastKey: unknown;
+    let emitted = 0;
 
     // Byte-adaptive re-batching toward the paged-encode segment target,
     // refined from the writer's actual output as segments flush.
@@ -256,31 +310,153 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
     let nextBatch = BEAST2_PAGED_BATCH_DEFAULT;
     const flush = (): void => {
         if (batch.length === 0) return;
-        const value = kind === 'dict'
-            ? new Map(batch as [unknown, unknown][])
-            : kind === 'set' ? new Set(batch) : batch;
-        writer.write(value as never);
+        out.writer.write(toValue(batch) as never);
         written += batch.length;
         batch = [];
-        const body = Math.max(1, bytesWritten - Math.max(0, headerBytes));
-        const avg = Math.max(1, body / written);
+        const avg = Math.max(1, out.bodyBytes() / written);
         nextBatch = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(BEAST2_PAGED_TARGET_BYTES_DEFAULT / avg)));
     };
 
-    const emit = (...args: unknown[]): null => {
-        const key = args[0];
-        if (orderCmp !== null) {
-            if (hasLast && orderCmp(lastKey, key) >= 0) {
-                throw new Error(
-                    `beast2 v5: ${kind === 'dict' ? 'Dict' : 'Set'} stream batches must be strictly ascending in East ` +
-                    `${kind === 'dict' ? 'key' : 'element'} order — segment content is the canonical value; ` +
-                    `emit in ascending ${kind === 'dict' ? 'key' : 'element'} order, or emit arrival order as an Array`
-                );
+    // Out-of-order (spill/merge) state; `buffer === null` means the
+    // ascending fast path is still live.
+    let buffer: unknown[] | null = null;
+    const runs: string[] = [];
+    const runCap = emitRunElements();
+    let spilledBytes = 0;
+
+    /** East-order sort of buffered items with the adjacent-duplicate check —
+     *  equality is East equality (`compareFor`) throughout. */
+    const sortRun = (items: unknown[]): unknown[] => {
+        const sorted = items.slice().sort((a, b) => orderCmp!(itemKey(a), itemKey(b)));
+        for (let i = 1; i < sorted.length; i++) {
+            if (orderCmp!(itemKey(sorted[i - 1]), itemKey(sorted[i])) === 0) {
+                throw new Error(duplicateMessage(itemKey(sorted[i])));
             }
+        }
+        return sorted;
+    };
+
+    const spill = (): void => {
+        if (buffer!.length === 0) return;
+        const sorted = sortRun(buffer!);
+        const path = `${outputPath}.run${runs.length}`;
+        const run = openFileWriter(path);
+        for (let i = 0; i < sorted.length; i += BEAST2_PAGED_BATCH_DEFAULT) {
+            run.writer.write(toValue(sorted.slice(i, i + BEAST2_PAGED_BATCH_DEFAULT)) as never);
+        }
+        run.finishClose();
+        runs.push(path);
+        spilledBytes += statSync(path).size;
+        buffer = [];
+    };
+
+    const demote = (): void => {
+        // The prefix written so far is ascending, so finishing the writer
+        // yields a complete canonical beast2 file — demote it to run #0 and
+        // switch to buffered (sort-in-the-sink) emission.
+        flush();
+        out.finishClose();
+        const run0 = `${outputPath}.run0`;
+        renameSync(outputPath, run0);
+        if (written > 0) {
+            runs.push(run0);
+            spilledBytes += statSync(run0).size;
+        } else {
+            unlinkSync(run0);
+        }
+        buffer = [];
+        console.error(
+            `east emit: ${kind === 'dict' ? 'Dict keys' : 'Set elements'} left ascending order at ` +
+            `element ${emitted}; establishing canonical order in the sink (spill/merge)`
+        );
+    };
+
+    const mergeRuns = (): void => {
+        // K-way merge the spilled runs and the in-memory tail into the
+        // canonical output — O(run cap + one decoded segment per run)
+        // memory, with the cross-run duplicate check on the merged stream.
+        const tail = buffer!.length > 0 ? sortRun(buffer!) : [];
+        buffer = [];
+        const iters: Iterator<unknown>[] = runs.map((path) => {
+            const bytes = new Uint8Array(readFileSync(path));
+            return (function* () {
+                for (const segment of iterBeast2SegmentsFor(outTypeValue as any)(bytes)) {
+                    if (kind === 'dict') yield* (segment as Map<unknown, unknown>).entries();
+                    else yield* (segment as Iterable<unknown>);
+                }
+            })();
+        });
+        iters.push(tail[Symbol.iterator]());
+        const heads: (IteratorResult<unknown>)[] = iters.map((it) => it.next());
+
+        out = openFileWriter(outputPath);
+        let finished = false;
+        try {
+            let prevKey: unknown;
+            let hasPrev = false;
+            let mergedBatch: unknown[] = [];
+            let merged = 0;
+            let next = BEAST2_PAGED_BATCH_DEFAULT;
+            for (;;) {
+                let min = -1;
+                for (let i = 0; i < heads.length; i++) {
+                    if (!heads[i]!.done && (min < 0 || orderCmp!(itemKey(heads[i]!.value), itemKey(heads[min]!.value)) < 0)) {
+                        min = i;
+                    }
+                }
+                if (min < 0) break;
+                const item = heads[min]!.value;
+                heads[min] = iters[min]!.next();
+                const key = itemKey(item);
+                if (hasPrev && orderCmp!(prevKey, key) === 0) throw new Error(duplicateMessage(key));
+                prevKey = key;
+                hasPrev = true;
+                mergedBatch.push(item);
+                if (mergedBatch.length >= next) {
+                    out.writer.write(toValue(mergedBatch) as never);
+                    merged += mergedBatch.length;
+                    mergedBatch = [];
+                    const avg = Math.max(1, out.bodyBytes() / merged);
+                    next = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(BEAST2_PAGED_TARGET_BYTES_DEFAULT / avg)));
+                }
+            }
+            if (mergedBatch.length > 0) out.writer.write(toValue(mergedBatch) as never);
+            out.finishClose();
+            finished = true;
+        } finally {
+            // An error (a cross-run duplicate) leaves the partial output
+            // unfinalized — no terminator or index — exactly like an error
+            // on the straight-through path.
+            if (!finished) out.closeAbandoned();
+        }
+        for (const path of runs) unlinkSync(path);
+        if (verbose) {
+            console.error(`  emit: merged ${runs.length} spilled run(s) + in-memory tail (${formatSize(spilledBytes)} temp)`);
+        }
+    };
+
+    const emit = (...args: unknown[]): null => {
+        if (buffer !== null) {
+            buffer.push(kind === 'dict' ? [args[0], args[1]] : args[0]);
+            emitted++;
+            if (buffer.length >= runCap) spill();
+            return null;
+        }
+        const key = args[0];
+        if (orderCmp !== null && hasLast) {
+            const order = orderCmp(lastKey, key);
+            if (order === 0) throw new Error(duplicateMessage(key));
+            if (order > 0) {
+                demote();
+                return emit(...args);
+            }
+        }
+        if (orderCmp !== null) {
             lastKey = key;
             hasLast = true;
         }
         batch.push(kind === 'dict' ? [args[0], args[1]] : args[0]);
+        emitted++;
         if (batch.length >= nextBatch) flush();
         return null;
     };
@@ -288,9 +464,12 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
     return {
         emit,
         finish: () => {
-            flush();
-            writer.finish();
-            closeSync(fd);
+            if (buffer === null) {
+                flush();
+                out.finishClose();
+                return;
+            }
+            mergeRuns();
         },
     };
 }
