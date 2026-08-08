@@ -805,6 +805,47 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
   }
 
   /**
+   * Computes the running fold (prefix scan) over elements in East order, returning every intermediate accumulator.
+   *
+   * Element `i` of the result is the accumulator after folding the `i`-th element (elements are
+   * visited in ascending East total order), so the result has one element per set member and its
+   * last element equals `reduce(fn, init)` for a non-empty set. The seed itself is not emitted,
+   * and an empty set scans to an empty array.
+   *
+   * @param fn - Function accepting (accumulator, element) and returning the new accumulator value
+   * @param init - Initial value for the scan (determines the result element type); not emitted
+   * @returns An ArrayExpr of the successive accumulator values, one per element in East order
+   *
+   * @example
+   * ```ts
+   * // Running total of elements in East order
+   * const runningTotal = East.function([SetType(IntegerType)], ArrayType(IntegerType), ($, set) => {
+   *   $.return(set.scan(($, acc, element) => acc.add(element), 0n));
+   * });
+   * const compiled = East.compile(runningTotal.toIR(), []);
+   * compiled(new Set([3n, 1n, 2n]));  // [1n, 3n, 6n] (elements visited as 1, 2, 3)
+   * compiled(new Set());              // []
+   * ```
+   *
+   * @see {@link reduce} for the final accumulator only.
+   */
+  scan<T2>(fn: SubtypeExprOrValue<FunctionType<[TypeOf<NoInfer<T2>>, K], TypeOf<NoInfer<T2>>>>, init: T2): ArrayExpr<TypeOf<T2>> {
+    const initAst = valueOrExprToAst(init);
+    const accType = initAst.type;
+
+    const fnExpr = Expr.from(fn as any, FunctionType([accType, this.key_type], accType));
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: ArrayType(accType as EastType),
+      loc_id: get_location_id(),
+      builtin: "SetScan",
+      type_parameters: [this.key_type as EastType, accType as EastType],
+      arguments: [this[AstSymbol], Expr.ast(fnExpr as any), initAst],
+    }) as unknown as ArrayExpr<TypeOf<T2>>;
+  }
+
+  /**
    * Creates an array from the set by mapping each element through a function.
    *
    * If no function is provided, the set elements are copied as-is.

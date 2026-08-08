@@ -469,6 +469,38 @@ static EastValue *array_fold_impl(EastValue **args, size_t n)
 }
 
 /* ================================================================== */
+/* ArrayScan (arr, initial, fn) -> array of running accumulators      */
+/* Element i is the accumulator AFTER folding element i: same length  */
+/* as the input, seed not emitted, empty in -> empty out.             */
+/* ================================================================== */
+static EastValue *array_scan_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *arr = args[0];
+    EastValue *acc = args[1];
+    EastValue *fn = args[2];
+    size_t len = east_array_len(arr);
+    EastValue *result = east_array_new(&east_null_type);
+    east_value_retain(acc);
+    for (size_t i = 0; i < len; i++) {
+        EastValue *idx = east_integer((int64_t)i);
+        EastValue *call_args[] = {acc, east_array_get(arr, i), idx};
+        EastValue *new_acc = call_fn(fn, call_args, 3);
+        east_value_release(idx);
+        if (!new_acc) {
+            east_value_release(acc);
+            east_value_release(result);
+            return NULL;
+        }
+        east_value_release(acc);
+        acc = new_acc;
+        east_array_push(result, acc);
+    }
+    east_value_release(acc);
+    return result;
+}
+
+/* ================================================================== */
 /* ArrayGenerate (n, fn) -> new array                                 */
 /* ================================================================== */
 static EastValue *array_generate_impl(EastValue **args, size_t n)
@@ -1565,6 +1597,12 @@ static BuiltinImpl array_fold_factory(EastType **tp, size_t ntp)
     (void)ntp;
     return array_fold_impl;
 }
+static BuiltinImpl array_scan_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return array_scan_impl;
+}
 static BuiltinImpl array_string_join_factory(EastType **tp, size_t ntp)
 {
     (void)tp;
@@ -1656,6 +1694,7 @@ void east_register_array_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "ArrayFirstMap", array_first_map_factory);
     builtin_registry_register(reg, "ArrayMapReduce", array_map_reduce_factory);
     builtin_registry_register(reg, "ArrayFold", array_fold_factory);
+    builtin_registry_register(reg, "ArrayScan", array_scan_factory);
     builtin_registry_register(reg, "ArrayStringJoin", array_string_join_factory);
     builtin_registry_register(reg, "ArrayToSet", array_to_set_factory);
     builtin_registry_register(reg, "ArrayToDict", array_to_dict_factory);

@@ -232,6 +232,7 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
         $(out.append(a.copy()));
         $(out.pushLast(a.reduce((_$, acc, x) => acc.add(x), 0n)));
         $(out.pushLast(a.mapReduce((_$, x) => x.multiply(2n), (_$, p, q) => p.add(q))));
+        $(out.append(a.scan((_$, acc, x) => acc.add(x), 0n)));
         return out;
       }),
       inputs: [nums],
@@ -318,6 +319,7 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
         $(out.pushLast(East.print(ints.flattenToSet((_$, x) => East.Array.range(x.multiply(10n), x.multiply(10n).add(2n)).toSet()))));
         $(out.pushLast(East.print(ints.flattenToDict((_$, x) => East.Array.range(0n, x.remainder(3n)).toDict((_$, y, _i) => East.str`${x}:${y}`)))));
         $(out.pushLast(East.print(ints.groupReduce((_$, x) => x.remainder(2n), (_$, _k) => 0n, (_$, acc, x) => acc.add(x)))));
+        $(out.pushLast(East.print(s.scan((_$, acc, x) => acc.concat(x), ""))));
         return out;
       }),
       inputs: [tags, intSet],
@@ -367,6 +369,7 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
         $(out.pushLast(East.print(d.flattenToSet((_$, _v, k) => East.Array.range(k.multiply(10n), k.multiply(10n).add(2n)).toSet()))));
         $(out.pushLast(East.print(d.flattenToDict((_$, v, k) => East.Array.range(0n, k.remainder(3n)).toDict((_$, y, _i) => East.str`${k}:${y}`)))));
         $(out.pushLast(East.print(d.groupReduce((_$, _v, k) => k.remainder(2n), (_$, _k) => "", (_$, acc, v, _k) => acc.concat(v)))));
+        $(out.pushLast(East.print(d.scan((_$, acc, v, _k) => acc.concat(v), ""))));
         return out;
       }),
       inputs: [table],

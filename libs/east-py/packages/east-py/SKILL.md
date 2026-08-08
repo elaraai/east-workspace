@@ -127,16 +127,16 @@ syntax, fastest first:
    FirstMap scans, so traced and eager forms have identical early-exit
    execution:
 
-   - **Array**: `map` `filter` `filter_map` `first_map` `fold` `map_reduce`
-     `flatten_to_array` `flatten_to_set` `to_dict` `to_set` `unique`
-     `group_by` `sorted` `is_sorted` `some` `every` `string_join` `concat`
-     `slice` `reversed` `copy` `get_keys` `size` `has` `get`
+   - **Array**: `map` `filter` `filter_map` `first_map` `fold` `scan`
+     `map_reduce` `flatten_to_array` `flatten_to_set` `to_dict` `to_set`
+     `unique` `group_by` `sorted` `is_sorted` `some` `every` `string_join`
+     `concat` `slice` `reversed` `copy` `get_keys` `size` `has` `get`
      `get_or_default` `try_get` `[index_expr]`
-   - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce`
+   - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
      `intersect` `diff` `sym_diff` `is_subset` `is_disjoint` `copy` `size`
      `has`
-   - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce`
+   - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
      `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
      `try_get` `[key_expr]`

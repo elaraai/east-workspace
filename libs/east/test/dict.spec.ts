@@ -298,6 +298,7 @@ await describe("Dict", (test) => {
         dictFilter: ex.dictFilter,
         dictFilterMap: ex.dictFilterMap,
         dictReduce: ex.dictReduce,
+        dictScan: ex.dictScan,
         dictSum: ex.dictSum,
         dictEvery: ex.dictEvery,
         dictSome: ex.dictSome,
@@ -353,6 +354,18 @@ await describe("Dict", (test) => {
         $(assert.equal(
             East.value(new Map([[1n, "a"], [2n, "b"], [3n, "c"]])).reduce((_$, previous, value, key) => previous.concat(str`${key}:${value};`), ""),
             "1:a;2:b;3:c;"
+        ))
+
+        // scan: running accumulators in key order, seed not emitted
+        $(assert.equal(East.value(new Map(), DictType(IntegerType, IntegerType)).scan((_$, acc, v, _k) => acc.add(v), 10n), []))
+        $(assert.equal(
+            East.value(new Map([["a", 1n], ["b", 2n], ["c", 3n]])).scan((_$, acc, v, _k) => acc.add(v), 0n),
+            [1n, 3n, 6n]
+        ))
+        // last scanned value equals reduce over the same seed; steps see (acc, value, key)
+        $(assert.equal(
+            East.value(new Map([[1n, "a"], [2n, "b"], [3n, "c"]])).scan((_$, acc, value, key) => acc.concat(str`${key}:${value};`), ""),
+            ["1:a;", "1:a;2:b;", "1:a;2:b;3:c;"]
         ))
 
         // common reductions

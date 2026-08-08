@@ -891,6 +891,26 @@ class Beast2ArrayFile(Beast2File):
             base += len(segment)
         return acc
 
+    def scan(self, initial: Any, fn: Any):
+        """``EastArray.scan`` — a scan is order-dependent across segments, so
+        ONE accumulator threads through them in stream order (each segment
+        scans natively seeded with the previous segment's last accumulator)
+        and the per-segment results extend one in-memory array: exactly
+        ``load().scan(initial, fn)``, float ordering included."""
+        import east.types.values as _ev
+        from east.types.values.collections import EastArray
+
+        result: Any = EastArray(_ev.type_of(initial), [])
+        acc = initial
+        base = 0
+        for segment in self.segments():
+            part = segment.scan(acc, _shift_acc_idx(fn, base))
+            if len(part):
+                acc = part[len(part) - 1]
+                result.extend(part)
+            base += len(segment)
+        return result
+
     def map_reduce(self, map_fn: Any, reduce_fn: Any, out: Any = None) -> Any:
         """``EastArray.map_reduce`` — the first segment reduces natively and
         later segments continue the accumulator with a composed fold."""
@@ -1736,6 +1756,24 @@ class Beast2DictFile(Beast2File):
             acc = segment.reduce(acc, fn)
         return acc
 
+    def scan(self, initial: Any, fn: Any):
+        """``EastDict.scan`` — order-dependent across segments, so one
+        accumulator threads them in key order (each segment scans natively
+        seeded with the previous segment's last accumulator) and the
+        per-segment results extend one in-memory array: exactly
+        ``load().scan(initial, fn)``."""
+        import east.types.values as _ev
+        from east.types.values.collections import EastArray
+
+        result: Any = EastArray(_ev.type_of(initial), [])
+        acc = initial
+        for segment in self._disjoint_segments():
+            part = segment.scan(acc, fn)
+            if len(part):
+                acc = part[len(part) - 1]
+                result.extend(part)
+        return result
+
     def mean(self, fn: Any = None) -> float:
         """``EastDict.mean`` — widened total threads the segments; NaN when
         empty, like eager."""
@@ -2125,6 +2163,24 @@ class Beast2SetFile(Beast2File):
         for segment in self._disjoint_segments():
             acc = segment.reduce(acc, fn)
         return acc
+
+    def scan(self, initial: Any, fn: Any):
+        """``EastSet.scan`` — order-dependent across segments, so one
+        accumulator threads them in East order (each segment scans natively
+        seeded with the previous segment's last accumulator) and the
+        per-segment results extend one in-memory array: exactly
+        ``load().scan(initial, fn)``."""
+        import east.types.values as _ev
+        from east.types.values.collections import EastArray
+
+        result: Any = EastArray(_ev.type_of(initial), [])
+        acc = initial
+        for segment in self._disjoint_segments():
+            part = segment.scan(acc, fn)
+            if len(part):
+                acc = part[len(part) - 1]
+                result.extend(part)
+        return result
 
     def sum(self, fn: Any = None) -> Any:
         """``EastSet.sum`` — one accumulator threads the segments."""

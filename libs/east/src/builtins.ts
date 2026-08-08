@@ -22,9 +22,9 @@ export type BuiltinName = "Is" | "Equal" | "NotEqual" | "Less" | "LessEqual" | "
   | "DateTimeGetYear" | "DateTimeGetMonth" | "DateTimeGetDayOfMonth" | "DateTimeGetHour" | "DateTimeGetMinute" | "DateTimeGetSecond" | "DateTimeGetDayOfWeek" | "DateTimeGetMillisecond" | "DateTimeAddMilliseconds" | "DateTimeDurationMilliseconds" | "DateTimeToEpochMilliseconds" | "DateTimeFromEpochMilliseconds" | "DateTimeFromComponents" | "DateTimePrintFormat" | "DateTimeParseFormat"
   | "BlobSize" | "BlobGetUint8" | "BlobDecodeUtf8" | "BlobDecodeUtf16" | "BlobDecodeBeast" | "BlobEncodeBeast" | "BlobDecodeBeast2" | "BlobEncodeBeast2" | "BlobDecodeCsv" | "ArrayEncodeCsv"
   | "RefGet" | "RefUpdate" | "RefMerge"
-  | "ArrayGenerate" | "ArrayRange" | "ArrayLinspace" | "ArraySize" | "ArrayHas" | "ArrayGet" | "ArrayGetOrDefault" | "ArrayTryGet" | "ArrayUpdate" | "ArrayMerge" | "ArrayPushLast" | "ArrayPopLast" | "ArrayPushFirst" | "ArrayPopFirst" | "ArrayAppend" | "ArrayPrepend" | "ArrayMergeAll" | "ArrayClear" | "ArraySortInPlace" | "ArrayReverseInPlace" | "ArraySort" | "ArrayReverse" | "ArrayIsSorted" | "ArrayFindSortedFirst" | "ArrayFindSortedLast" | "ArrayFindSortedRange" | "ArrayFindFirst" | "ArrayConcat" | "ArraySlice" | "ArrayGetKeys" | "ArrayForEach" | "ArrayCopy" | "ArrayMap" | "ArrayFilter" | "ArrayFilterMap" | "ArrayFirstMap" | "ArrayMapReduce" | "ArrayFold" | "ArrayStringJoin" | "ArrayToSet" | "ArrayToDict" | "ArrayFlattenToArray" | "ArrayFlattenToSet" | "ArrayFlattenToDict" | "ArrayGroupFold"
-  | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold"
-  | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold"
+  | "ArrayGenerate" | "ArrayRange" | "ArrayLinspace" | "ArraySize" | "ArrayHas" | "ArrayGet" | "ArrayGetOrDefault" | "ArrayTryGet" | "ArrayUpdate" | "ArrayMerge" | "ArrayPushLast" | "ArrayPopLast" | "ArrayPushFirst" | "ArrayPopFirst" | "ArrayAppend" | "ArrayPrepend" | "ArrayMergeAll" | "ArrayClear" | "ArraySortInPlace" | "ArrayReverseInPlace" | "ArraySort" | "ArrayReverse" | "ArrayIsSorted" | "ArrayFindSortedFirst" | "ArrayFindSortedLast" | "ArrayFindSortedRange" | "ArrayFindFirst" | "ArrayConcat" | "ArraySlice" | "ArrayGetKeys" | "ArrayForEach" | "ArrayCopy" | "ArrayMap" | "ArrayFilter" | "ArrayFilterMap" | "ArrayFirstMap" | "ArrayMapReduce" | "ArrayFold" | "ArrayScan" | "ArrayStringJoin" | "ArrayToSet" | "ArrayToDict" | "ArrayFlattenToArray" | "ArrayFlattenToSet" | "ArrayFlattenToDict" | "ArrayGroupFold"
+  | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetScan" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold"
+  | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictScan" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold"
   | "VectorLength" | "VectorGet" | "VectorSet" | "VectorSlice" | "VectorConcat" | "VectorFromArray" | "VectorToArray" | "VectorToMatrix" | "VectorZeros" | "VectorOnes" | "VectorFill" | "VectorMap" | "VectorFold"
   | "MatrixRows" | "MatrixCols" | "MatrixGet" | "MatrixSet" | "MatrixGetRow" | "MatrixGetCol" | "MatrixToVector" | "MatrixFromArray" | "MatrixToArray" | "MatrixTranspose" | "MatrixZeros" | "MatrixOnes" | "MatrixFill" | "MatrixMapElements" | "MatrixMapRows" | "MatrixToRows" | "MatrixFromRows"
   ;
@@ -695,6 +695,11 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     inputs: [ArrayType("T"), "T2", FunctionType(["T2", "T", IntegerType], "T2")] as const,
     output: "T2",
   },
+  ArrayScan: {
+    type_parameters: ["T", "T2"],
+    inputs: [ArrayType("T"), "T2", FunctionType(["T2", "T", IntegerType], "T2")] as const,
+    output: ArrayType("T2"),
+  },
   ArrayMapReduce: {
     type_parameters: ["T", "T2"],
     inputs: [ArrayType("T"), FunctionType(["T", IntegerType], "T2"), FunctionType(["T2", "T2"], "T2")] as const,
@@ -850,6 +855,11 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     type_parameters: ["K", "T2"],
     inputs: [SetType("K"), FunctionType(["T2", "K"], "T2"), "T2"] as const,
     output: "T2",
+  },
+  SetScan: {
+    type_parameters: ["K", "T2"],
+    inputs: [SetType("K"), FunctionType(["T2", "K"], "T2"), "T2"] as const,
+    output: ArrayType("T2"),
   },
   SetToArray: {
     type_parameters: ["K", "T2"],
@@ -1026,6 +1036,11 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     type_parameters: ["K", "V", "T2"],
     inputs: [DictType("K", "V"), FunctionType(["T2", "V", "K"], "T2"), "T2"] as const,
     output: "T2",
+  },
+  DictScan: {
+    type_parameters: ["K", "V", "T2"],
+    inputs: [DictType("K", "V"), FunctionType(["T2", "V", "K"], "T2"), "T2"] as const,
+    output: ArrayType("T2"),
   },
   DictToArray: {
     type_parameters: ["K", "V", "T2"],

@@ -2245,6 +2245,20 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
       unlockForIteration(array);
     }
   },
+  ArrayScan: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], init: any, f: (acc: any, x: any, i: bigint) => any) => {
+    lockForIteration(array);
+    try {
+      const result: any[] = [];
+      let acc = init;
+      for (let i = 0; i < array.length; i++) {
+        acc = call_function(loc_id, source_map,f, acc, array[i], BigInt(i));
+        result.push(acc);
+      }
+      return result;
+    } finally {
+      unlockForIteration(array);
+    }
+  },
   ArrayMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], mapFn: (x: any, i: bigint) => any, reduceFn: (x: any, y:any) => any) => {
     if (array.length === 0) {
       throw new EastError("Cannot reduce empty array with no initial value", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2576,6 +2590,20 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         acc = call_function(loc_id, source_map,f, acc, x);
       }
       return acc;
+    } finally {
+      unlockForIteration(s);
+    }
+  },
+  SetScan: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, f: (acc: any, x: any) => any, init: any) => {
+    const result: any[] = [];
+    let acc = init;
+    lockForIteration(s);
+    try {
+      for (const x of s) {
+        acc = call_function(loc_id, source_map,f, acc, x);
+        result.push(acc);
+      }
+      return result;
     } finally {
       unlockForIteration(s);
     }
@@ -3068,6 +3096,20 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         acc = call_function(loc_id, source_map,f, acc, v, k);
       }
       return acc;
+    } finally {
+      unlockForIteration(d);
+    }
+  },
+  DictScan: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, f: (acc: any, v: any, k: any) => any, init: any) => {
+    const result: any[] = [];
+    let acc = init;
+    lockForIteration(d);
+    try {
+      for (const [k, v] of d) {
+        acc = call_function(loc_id, source_map,f, acc, v, k);
+        result.push(acc);
+      }
+      return result;
     } finally {
       unlockForIteration(d);
     }

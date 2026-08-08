@@ -353,6 +353,17 @@ export const dictReduce = example({
     returns: "1:a;2:b;3:c;",
 });
 
+export const dictScan = example({
+    keywords: ["dict", "DictType", "scan", "running-fold", "prefix-sum", "cumulative", "running-total"],
+    description: "Scan dict values into running totals in key order",
+    fn: East.function([], ArrayType(IntegerType), ($) => {
+        const d = $.const(new Map([["a", 1n], ["b", 2n], ["c", 3n]]), DictType(StringType, IntegerType));
+        return d.scan((_$, acc, value, _key) => acc.add(value), 0n);
+    }),
+    inputs: [],
+    returns: [1n, 3n, 6n],
+});
+
 // ---------------------------------------------------------------------------
 // Common Reductions: Sum, Every, Some
 // ---------------------------------------------------------------------------

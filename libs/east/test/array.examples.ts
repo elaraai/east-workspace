@@ -458,6 +458,28 @@ export const arrayMapReduce = example({
     returns: 12n,
 });
 
+export const arrayScan = example({
+    keywords: ["array", "ArrayType", "scan", "running-fold", "prefix-sum", "cumulative", "running-total"],
+    description: "Scan an array into its running totals (every intermediate accumulator)",
+    fn: East.function([], ArrayType(IntegerType), ($) => {
+        const a = $.const([1n, 2n, 3n, 4n], ArrayType(IntegerType));
+        return a.scan(($, acc, x) => acc.add(x), 0n);
+    }),
+    inputs: [],
+    returns: [1n, 3n, 6n, 10n],
+});
+
+export const arrayScanForwardFill = example({
+    keywords: ["array", "ArrayType", "scan", "forward-fill", "ditto", "carry-forward", "state-machine"],
+    description: "Forward-fill empty cells with the last stated value using scan",
+    fn: East.function([], ArrayType(StringType), ($) => {
+        const cells = $.const(["a", "", "", "b", ""], ArrayType(StringType));
+        return cells.scan(($, acc, cell) => East.equal(cell, "").ifElse(() => acc, () => cell), "");
+    }),
+    inputs: [],
+    returns: ["a", "a", "a", "b", "b"],
+});
+
 export const arraySum = example({
     keywords: ["array", "ArrayType", "sum", "aggregation"],
     description: "Sum all elements in an array",

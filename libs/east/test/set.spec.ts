@@ -294,6 +294,7 @@ await describe("Set", (test) => {
         setForEach: ex.setForEach,
         setMap: ex.setMap,
         setReduce: ex.setReduce,
+        setScan: ex.setScan,
         setSum: ex.setSum,
         setEvery: ex.setEvery,
         setSome: ex.setSome,
@@ -321,6 +322,14 @@ await describe("Set", (test) => {
         $(assert.equal(sum, 6n))
         const product = $.let(s1.reduce(($, acc, x) => acc.multiply(x), 1n))
         $(assert.equal(product, 6n))
+
+        // scan: running accumulators in East element order, seed not emitted
+        $(assert.equal(East.value(new Set<bigint>(), SetType(IntegerType)).scan(($, acc, x) => acc.add(x), 10n), []))
+        $(assert.equal(East.value(new Set([3n, 1n, 2n])).scan(($, acc, x) => acc.add(x), 0n), [1n, 3n, 6n]))
+        // last scanned value equals reduce over the same seed
+        $(assert.equal(s1.scan(($, acc, x) => acc.add(x), 5n).get(2n), s1.reduce(($, acc, x) => acc.add(x), 5n)))
+        // accumulator type may differ from the element type
+        $(assert.equal(East.value(new Set([1n, 2n, 3n])).scan(($, acc, x) => acc.concat(East.print(x)), ""), ["1", "12", "123"]))
 
         // common reductions
         $(assert.equal(East.value(new Set([1n, 2n, 3n])).sum(), 6n))

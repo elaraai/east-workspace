@@ -584,6 +584,32 @@ static EastValue *dict_reduce_impl(EastValue **args, size_t n)
     return acc;
 }
 
+/* DictScan (dict, fn, initial) -> array of running accumulators, one per
+ * entry in key order; seed not emitted, empty in -> empty out. */
+static EastValue *dict_scan_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *d = args[0];
+    EastValue *fn = args[1];
+    EastValue *initial = args[2];
+    EastValue *result = east_array_new(&east_null_type);
+    east_value_retain(initial);
+    EastValue *acc = initial;
+    for (size_t i = 0; i < d->data.dict.len; i++) {
+        EastValue *call_args[] = {acc, east_dict_val_at(d, i), east_dict_key_at(d, i)};
+        EastValue *new_acc = call_fn(fn, call_args, 3);
+        east_value_release(acc);
+        if (!new_acc) {
+            east_value_release(result);
+            return NULL;
+        }
+        acc = new_acc;
+        east_array_push(result, acc);
+    }
+    east_value_release(acc);
+    return result;
+}
+
 static EastValue *dict_to_array_impl(EastValue **args, size_t n)
 {
     (void)n;
@@ -941,6 +967,12 @@ static BuiltinImpl dict_reduce_factory(EastType **tp, size_t ntp)
     (void)ntp;
     return dict_reduce_impl;
 }
+static BuiltinImpl dict_scan_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return dict_scan_impl;
+}
 static BuiltinImpl dict_to_array_factory(EastType **tp, size_t ntp)
 {
     (void)tp;
@@ -1016,6 +1048,7 @@ void east_register_dict_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "DictFirstMap", dict_first_map_factory);
     builtin_registry_register(reg, "DictMapReduce", dict_map_reduce_factory);
     builtin_registry_register(reg, "DictReduce", dict_reduce_factory);
+    builtin_registry_register(reg, "DictScan", dict_scan_factory);
     builtin_registry_register(reg, "DictToArray", dict_to_array_factory);
     builtin_registry_register(reg, "DictToSet", dict_to_set_factory);
     builtin_registry_register(reg, "DictToDict", dict_to_dict_factory);

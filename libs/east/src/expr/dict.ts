@@ -1758,6 +1758,47 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
   }
 
   /**
+   * Computes the running fold (prefix scan) over entries in key order, returning every intermediate accumulator.
+   *
+   * Element `i` of the result is the accumulator after folding the `i`-th entry (entries are
+   * visited in ascending key order under East's total ordering), so the result has one element
+   * per entry and its last element equals `reduce(fn, init)` for a non-empty dictionary. The
+   * seed itself is not emitted, and an empty dictionary scans to an empty array.
+   *
+   * @param fn - Function accepting (accumulator, value, key) and returning the new accumulator value
+   * @param init - Initial value for the scan (determines the result element type); not emitted
+   * @returns An ArrayExpr of the successive accumulator values, one per entry in key order
+   *
+   * @example
+   * ```ts
+   * // Running total of values in key order
+   * const runningTotal = East.function([DictType(StringType, IntegerType)], ArrayType(IntegerType), ($, dict) => {
+   *   $.return(dict.scan(($, acc, value, key) => acc.add(value), 0n));
+   * });
+   * const compiled = East.compile(runningTotal.toIR(), []);
+   * compiled(new Map([["a", 1n], ["b", 2n], ["c", 3n]]));  // [1n, 3n, 6n]
+   * compiled(new Map());                                    // []
+   * ```
+   *
+   * @see {@link reduce} for the final accumulator only.
+   */
+  scan<T2>(fn: SubtypeExprOrValue<FunctionType<[previous: TypeOf<NoInfer<T2>>, value: T, key: K], TypeOf<NoInfer<T2>>>>, init: T2): ArrayExpr<TypeOf<T2>> {
+    const initAst = valueOrExprToAst(init);
+    const accType = initAst.type;
+
+    const fnAst = valueOrExprToAstTyped(fn, FunctionType([accType, this.value_type, this.key_type], accType));
+
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: ArrayType(accType as EastType),
+      loc_id: get_location_id(),
+      builtin: "DictScan",
+      type_parameters: [this.key_type as EastType, this.value_type as EastType, accType as EastType],
+      arguments: [this[AstSymbol], fnAst, initAst],
+    }) as ArrayExpr<TypeOf<T2>>;
+  }
+
+  /**
    * Reduce dictionary to single value using projection and accumulator functions.
    *
    * The first entry of the dictionary is used as initial value and reduction starts from the second entry.

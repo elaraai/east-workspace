@@ -793,6 +793,30 @@ class EastArray(MutableSequence, Generic[T]):
         callback = EastFunction(_acc_idx_cb(fn), [t2, self.element_type, IntegerType], t2)
         return _call_builtin("ArrayFold", [self.element_type, t2], [self, initial, callback], t2)
 
+    def scan(self, initial: Any, fn: Any) -> EastArray:
+        """Running fold: the array of every intermediate accumulator (east-c ArrayScan).
+
+        Element ``i`` of the result is the accumulator after folding element
+        ``i`` — the result has the same length as this array, the seed is not
+        emitted, and for a non-empty array the last element equals
+        ``fold(initial, fn)``. An empty array scans to an empty array.
+
+        Args:
+            initial: The starting accumulator; its type fixes the result's
+                element type. Not emitted into the result.
+            fn: ``fn(accumulator, element) -> new accumulator``
+                (``fn(accumulator, element, index)`` also accepted), applied
+                left-to-right.
+
+        Returns:
+            A new array of the successive accumulator values, one per element.
+        """
+        from east.types.types import ArrayType, IntegerType
+
+        t2 = _ev.type_of(initial)
+        callback = EastFunction(_acc_idx_cb(fn), [t2, self.element_type, IntegerType], t2)
+        return _call_builtin("ArrayScan", [self.element_type, t2], [self, initial, callback], ArrayType(t2))
+
     def flatten_to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Map each element to an array and concatenate the results (east-c ArrayFlattenToArray).
 
@@ -1974,6 +1998,30 @@ class EastSet(Generic[T]):
         callback = EastFunction(_mark_kernel(lambda acc, el: fn(acc, el), fn), [t2, self.element_type], t2)
         return _call_builtin("SetReduce", [self.element_type, t2], [self, callback, initial], t2)
 
+    def scan(self, initial: Any, fn: Any) -> EastArray:
+        """Running fold: the array of every intermediate accumulator (east-c SetScan).
+
+        Elements are visited in East total order. Element ``i`` of the result
+        is the accumulator after folding the ``i``-th element — one result
+        element per member, the seed is not emitted, and for a non-empty set
+        the last element equals ``reduce(initial, fn)``. An empty set scans
+        to an empty array.
+
+        Args:
+            initial: The starting accumulator; its type fixes the result's
+                element type. Not emitted into the result.
+            fn: ``fn(accumulator, element) -> new accumulator`` applied for
+                each element in East order.
+
+        Returns:
+            A new array of the successive accumulator values.
+        """
+        from east.types.types import ArrayType
+
+        t2 = _ev.type_of(initial)
+        callback = EastFunction(_mark_kernel(lambda acc, el: fn(acc, el), fn), [t2, self.element_type], t2)
+        return _call_builtin("SetScan", [self.element_type, t2], [self, callback, initial], ArrayType(t2))
+
     def flatten_to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Concatenate the arrays returned by ``fn`` over all elements (east-c SetFlattenToArray).
 
@@ -2941,6 +2989,30 @@ class EastDict(Generic[K, V]):
         t2 = _ev.type_of(initial)
         callback = EastFunction(lambda acc, v, k: fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
         return _call_builtin("DictReduce", [self.key_type, self.value_type, t2], [self, callback, initial], t2)
+
+    def scan(self, initial: Any, fn: Any) -> EastArray:
+        """Running fold over entries in key order: the array of every
+        intermediate accumulator (east-c DictScan).
+
+        Element ``i`` of the result is the accumulator after folding the
+        ``i``-th entry (ascending key order) — one result element per entry,
+        the seed is not emitted, and for a non-empty dict the last element
+        equals ``reduce(initial, fn)``. An empty dict scans to an empty array.
+
+        Args:
+            initial: The starting accumulator; its type fixes the result's
+                element type. Not emitted into the result.
+            fn: ``fn(accumulator, key, value) -> new accumulator`` applied for
+                each entry in ascending key order.
+
+        Returns:
+            A new array of the successive accumulator values.
+        """
+        from east.types.types import ArrayType
+
+        t2 = _ev.type_of(initial)
+        callback = EastFunction(lambda acc, v, k: fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
+        return _call_builtin("DictScan", [self.key_type, self.value_type, t2], [self, callback, initial], ArrayType(t2))
 
     def to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Project each entry to an array element in key order (east-c DictToArray).

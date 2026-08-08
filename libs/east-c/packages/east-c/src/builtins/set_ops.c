@@ -393,6 +393,32 @@ static EastValue *set_reduce_impl(EastValue **args, size_t n)
     return acc;
 }
 
+/* SetScan (set, fn, initial) -> array of running accumulators, one per
+ * element in East order; seed not emitted, empty in -> empty out. */
+static EastValue *set_scan_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *s = args[0];
+    EastValue *fn = args[1];
+    EastValue *initial = args[2];
+    EastValue *result = east_array_new(&east_null_type);
+    east_value_retain(initial);
+    EastValue *acc = initial;
+    for (size_t i = 0; i < s->data.set.len; i++) {
+        EastValue *call_args[] = {acc, east_set_at(s, i)};
+        EastValue *new_acc = call_fn(fn, call_args, 2);
+        east_value_release(acc);
+        if (!new_acc) {
+            east_value_release(result);
+            return NULL;
+        }
+        acc = new_acc;
+        east_array_push(result, acc);
+    }
+    east_value_release(acc);
+    return result;
+}
+
 static EastValue *set_to_array_impl(EastValue **args, size_t n)
 {
     (void)n;
@@ -740,6 +766,12 @@ static BuiltinImpl set_reduce_factory(EastType **tp, size_t ntp)
     (void)ntp;
     return set_reduce_impl;
 }
+static BuiltinImpl set_scan_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_scan_impl;
+}
 static BuiltinImpl set_to_array_factory(EastType **tp, size_t ntp)
 {
     (void)tp;
@@ -810,6 +842,7 @@ void east_register_set_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "SetFirstMap", set_first_map_factory);
     builtin_registry_register(reg, "SetMapReduce", set_map_reduce_factory);
     builtin_registry_register(reg, "SetReduce", set_reduce_factory);
+    builtin_registry_register(reg, "SetScan", set_scan_factory);
     builtin_registry_register(reg, "SetToArray", set_to_array_factory);
     builtin_registry_register(reg, "SetToSet", set_to_set_factory);
     builtin_registry_register(reg, "SetToDict", set_to_dict_factory);

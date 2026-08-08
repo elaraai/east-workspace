@@ -33,21 +33,21 @@ What traces (#393 expanded this to the whole builtin surface):
 - Collection transforms with nested lambdas, one level or deeper — the
   authoritative per-container enumeration is ``_TRACED_SURFACE`` (also the
   error message on an unsupported method, and pinned by the surface test):
-  Array: ``map`` / ``filter`` / ``filter_map`` / ``fold`` / ``map_reduce`` /
-  ``flatten_to_array`` / ``flatten_to_set`` / ``to_dict`` / ``to_set`` /
-  ``unique`` / ``group_by`` / ``sorted`` / ``is_sorted`` / ``some`` /
-  ``every`` / ``first_map`` / ``string_join`` / ``concat`` / ``slice`` /
-  ``reversed`` / ``copy`` / ``get_keys`` / ``get`` / ``get_or_default`` /
-  ``try_get`` / ``size`` / ``has`` / ``[index_expr]``;
+  Array: ``map`` / ``filter`` / ``filter_map`` / ``fold`` / ``scan`` /
+  ``map_reduce`` / ``flatten_to_array`` / ``flatten_to_set`` / ``to_dict`` /
+  ``to_set`` / ``unique`` / ``group_by`` / ``sorted`` / ``is_sorted`` /
+  ``some`` / ``every`` / ``first_map`` / ``string_join`` / ``concat`` /
+  ``slice`` / ``reversed`` / ``copy`` / ``get_keys`` / ``get`` /
+  ``get_or_default`` / ``try_get`` / ``size`` / ``has`` / ``[index_expr]``;
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
-  ``map_reduce`` / ``flatten_to_array`` / ``flatten_to_set`` / ``to_array`` /
-  ``to_dict`` / the set algebra (``union`` / ``intersect`` / ``diff`` /
-  ``sym_diff`` / ``is_subset`` / ``is_disjoint``) / ``copy`` / ``size`` /
-  ``has``;
+  ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
+  ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
+  ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_disjoint``) / ``copy`` /
+  ``size`` / ``has``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
-  ``map_reduce`` / ``flatten_to_array`` / ``flatten_to_set`` / ``to_array`` /
-  ``to_set`` / ``to_dict`` / ``keys_set`` / ``get_keys`` / ``copy`` /
-  ``get`` / ``get_or_default`` / ``try_get`` / ``size`` / ``has``.
+  ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
+  ``to_array`` / ``to_set`` / ``to_dict`` / ``keys_set`` / ``get_keys`` /
+  ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` / ``has``.
   Inner lambdas may reference outer parameters.
   ``some``/``every``/``first_map`` compile to the native short-circuiting
   FirstMap scans (#403), so traced and eager forms have identical
@@ -403,20 +403,20 @@ def _trace_bail(op: str) -> KernelTraceError:
 # absent: the kernel language is pure.
 _TRACED_SURFACE = {
     "Array": tuple(sorted({
-        "map", "filter", "filter_map", "first_map", "fold", "map_reduce",
+        "map", "filter", "filter_map", "first_map", "fold", "scan", "map_reduce",
         "flatten_to_array", "flatten_to_set", "to_dict", "to_set", "unique",
         "group_by", "sorted", "is_sorted", "some", "every", "string_join",
         "concat", "slice", "reversed", "copy", "get_keys",
         "size", "has", "get", "get_or_default", "try_get",
     })),
     "Set": tuple(sorted({
-        "map", "filter", "filter_map", "first_map", "map_reduce",
+        "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
         "flatten_to_array", "flatten_to_set", "to_array", "to_dict",
         "union", "intersect", "diff", "sym_diff", "is_subset", "is_disjoint",
         "copy", "size", "has",
     })),
     "Dict": tuple(sorted({
-        "map", "filter", "filter_map", "first_map", "map_reduce",
+        "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
         "flatten_to_array", "flatten_to_set", "to_array", "to_set", "to_dict",
         "keys_set", "get_keys", "copy",
         "size", "has", "get", "get_or_default", "try_get",
@@ -1274,6 +1274,61 @@ class KernelExpr:
         return KernelExpr(
             _builtin("ArrayFold", acc_t, [elem_t, acc_t], [self.ir, init.ir, node]), acc_t
         )
+
+    def scan(self, initial: Any, fn: Any) -> KernelExpr:
+        """Traced running fold (ArrayScan / SetScan / DictScan): an Array of
+        every intermediate accumulator. Element ``i`` is the accumulator
+        AFTER folding element ``i`` — same length as the input, the seed is
+        not emitted, and the last element equals the matching ``fold``/
+        ``reduce``. Steps mirror the fold callbacks exactly: Array
+        ``fn(acc, el)`` (+ optional index), Set ``fn(acc, el)``, Dict
+        ``fn(acc, key, value)`` in ascending key order."""
+        from east.types.types import ArrayType as _ArrayType
+
+        tag = self.east_type.type
+        init = _lift(initial)
+        acc_t = init.east_type
+        if tag == "Array":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType])
+            if out_t != acc_t:
+                raise KernelTraceError(
+                    f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
+                )
+            out = _ArrayType(acc_t)
+            return KernelExpr(
+                _builtin("ArrayScan", out, [elem_t, acc_t], [self.ir, init.ir, node]), out
+            )
+        if tag == "Set":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2)
+            if out_t != acc_t:
+                raise KernelTraceError(
+                    f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
+                )
+            out = _ArrayType(acc_t)
+            return KernelExpr(
+                _builtin("SetScan", out, [elem_t, acc_t], [self.ir, node, init.ir]), out
+            )
+        if tag == "Dict":
+            kv = self.east_type.value
+            # The builtin's callback signature is (acc, value, key); the user
+            # fn takes (acc, key, value) like the eager method.
+            node, out_t = _trace_inner_fn(
+                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3
+            )
+            if out_t != acc_t:
+                raise KernelTraceError(
+                    f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
+                )
+            out = _ArrayType(acc_t)
+            return KernelExpr(
+                _builtin(
+                    "DictScan", out, [kv["key"], kv["value"], acc_t], [self.ir, node, init.ir]
+                ),
+                out,
+            )
+        raise KernelTraceError(f".scan() on {tag}")
 
     def some(self, fn: Any) -> KernelExpr:
         """Traced any-element predicate (native short-circuiting FirstMap scan)."""
