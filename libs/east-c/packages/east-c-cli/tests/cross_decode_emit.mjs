@@ -4,13 +4,16 @@
  */
 
 /*
- * Cross-runtime pin for the east-c emit sink (#507): runs the checked-in
- * `--emit` fixtures through a built `east-c` binary, then decodes the
- * emitted blobs with the TypeScript reader (@elaraai/east) — proving the
- * native sink's output is readable, pageable and value-identical under
- * another runtime's reader (the compliance-suite philosophy applied to
- * emitted outputs). The ctest gate (test_cli_emit.c) validates the same
- * blobs with east-c's own readers; this script is the other direction.
+ * Cross-runtime pin for the east-c emit sink (#507, #518): runs the
+ * checked-in `--emit` fixtures through a built `east-c` binary, then
+ * decodes the emitted blobs with the TypeScript reader (@elaraai/east) —
+ * proving the native sink's output is readable, pageable and
+ * value-identical under another runtime's reader (the compliance-suite
+ * philosophy applied to emitted outputs). Includes the order-robust paths:
+ * the out-of-order demote→spill→merge output must be canonical under the
+ * TS reader and byte-identical to the ordered producer's blob. The ctest
+ * gate (test_cli_emit.c) validates the same blobs with east-c's own
+ * readers; this script is the other direction.
  *
  * Usage (after `pnpm install` and building libs/east):
  *
@@ -44,8 +47,11 @@ if (!bin) {
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const scratch = mkdtempSync(join(tmpdir(), 'east-c-emit-cross-'));
 
-function runCli(args) {
-  const result = spawnSync(bin, ['run', ...args], { encoding: 'utf-8' });
+function runCli(args, env = {}) {
+  const result = spawnSync(bin, ['run', ...args], {
+    encoding: 'utf-8',
+    env: { ...process.env, ...env },
+  });
   if (result.error) throw result.error;
   return result;
 }
@@ -86,28 +92,61 @@ try {
     console.log('fold: TS reader OK (running sums)');
   }
 
-  // Dict producer: canonical ascending pairs, keyed content intact.
+  // Dict producer: canonical ascending pairs, keyed content intact. The
+  // blob is kept for the shuffled byte-identity check below.
+  let dictBlob;
   {
     const out = join(scratch, 'dict.beast2');
     const run = runCli([join(fixtures, 'emit_dict.beast2'), '--emit', 'dict', '-o', out]);
     assert.equal(run.status, 0, `dict failed: ${run.stderr}`);
-    const blob = new Uint8Array(readFileSync(out));
-    assert.equal(openBeast2PagesFor(DT)(blob).elementCount, 1000);
-    const table = decodeBeast2For(DT)(blob);
+    dictBlob = new Uint8Array(readFileSync(out));
+    assert.equal(openBeast2PagesFor(DT)(dictBlob).elementCount, 1000);
+    const table = decodeBeast2For(DT)(dictBlob);
     assert.equal(table.size, 1000);
     assert.equal(table.get(42n), 'row-42');
     console.log('dict: TS reader OK (1000 pairs, indexed)');
   }
 
-  // Out-of-order dict: canonical error, and the aborted output must not
-  // read back as an indexed blob.
+  // Out-of-order dict (#518): the sink absorbs the disorder (demote →
+  // spill → merge), reports the transition on stderr, and the output is
+  // the canonical dict under the TS reader.
   {
     const out = join(scratch, 'disorder.beast2');
     const run = runCli([join(fixtures, 'emit_dict_disorder.beast2'), '--emit', 'dict', '-o', out]);
-    assert.equal(run.status, 1, 'disorder run should exit 1');
-    assert.match(run.stderr, /strictly ascending in East key order/);
+    assert.equal(run.status, 0, `disorder run failed: ${run.stderr}`);
+    assert.match(run.stderr, /left ascending order/);
+    const table = decodeBeast2For(DT)(new Uint8Array(readFileSync(out)));
+    assert.equal(table.size, 2);
+    assert.equal(table.get(1n), 'a');
+    assert.equal(table.get(2n), 'b');
+    console.log('disorder: sink-sorted output OK under the TS reader');
+  }
+
+  // Shuffled dict (#518): the same 1000 pairs as emit_dict emitted in
+  // shuffled order under a tiny run cap — dozens of spill runs must merge
+  // to the byte-identical canonical blob.
+  {
+    const out = join(scratch, 'shuffled.beast2');
+    const run = runCli(
+      [join(fixtures, 'emit_dict_shuffled.beast2'), '--emit', 'dict', '-o', out],
+      { EAST_EMIT_RUN_ELEMENTS: '32' },
+    );
+    assert.equal(run.status, 0, `shuffled run failed: ${run.stderr}`);
+    assert.deepEqual(new Uint8Array(readFileSync(out)), dictBlob,
+      'merged blob must be byte-identical to the ordered producer blob');
+    console.log('shuffled: spill/merge blob byte-identical OK');
+  }
+
+  // Duplicate dict key (#518): the surviving hard error — non-zero exit,
+  // the canonical message, and the aborted output must not read back as an
+  // indexed blob.
+  {
+    const out = join(scratch, 'duplicate.beast2');
+    const run = runCli([join(fixtures, 'emit_dict_duplicate.beast2'), '--emit', 'dict', '-o', out]);
+    assert.equal(run.status, 1, 'duplicate run should exit 1');
+    assert.match(run.stderr, /duplicate Dict key emitted/);
     assert.throws(() => openBeast2PagesFor(DT)(new Uint8Array(readFileSync(out))));
-    console.log('disorder: canonical rejection OK');
+    console.log('duplicate: canonical rejection OK');
   }
 
   console.log('cross-decode emit: all checks passed');
