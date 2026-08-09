@@ -34,8 +34,8 @@ What traces (#393 expanded this to the whole builtin surface):
   authoritative per-container enumeration is ``_TRACED_SURFACE`` (also the
   error message on an unsupported method, and pinned by the surface test):
   Array: ``map`` / ``filter`` / ``filter_map`` / ``fold`` / ``scan`` /
-  ``map_reduce`` / ``flatten_to_array`` / ``flatten_to_set`` / ``to_dict`` /
-  ``to_set`` / ``unique`` / ``group_by`` / ``sorted`` / ``is_sorted`` /
+  ``map_reduce`` / ``flatten_to_array`` / ``flatten_to_set`` /
+  ``flatten_to_dict`` / ``to_dict`` / ``to_set`` / ``unique`` / ``group_by`` / ``sorted`` / ``is_sorted`` /
   ``some`` / ``every`` / ``first_map`` / ``string_join`` / ``concat`` /
   ``slice`` / ``reversed`` / ``copy`` / ``get_keys`` / ``get`` /
   ``get_or_default`` / ``try_get`` / ``size`` / ``has`` / ``sum`` /
@@ -49,7 +49,8 @@ What traces (#393 expanded this to the whole builtin surface):
   ``group_find_minimum`` / ``[index_expr]``;
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
-  ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
+  ``flatten_to_dict`` / ``to_array`` / ``to_dict`` / ``to_set`` /
+  the set algebra (``union`` / ``intersect`` /
   ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_superset_of`` /
   ``is_disjoint``) / ``copy`` /
   ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
@@ -58,7 +59,8 @@ What traces (#393 expanded this to the whole builtin surface):
   ``group_to_sets`` / ``group_to_dicts``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
-  ``to_array`` / ``to_set`` / ``to_dict`` / ``keys_set`` / ``get_keys`` /
+  ``flatten_to_dict`` / ``to_array`` / ``to_set`` / ``to_dict`` /
+  ``union`` / ``keys_set`` / ``get_keys`` /
   ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` /
   ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
   ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
@@ -437,6 +439,18 @@ def _with_acc_index(fn: Any) -> Any:
     return fn if _callback_arity(fn, 2) >= 3 else (lambda acc, el, _i: fn(acc, el))
 
 
+def _with_key_arg(fn: Any) -> Any:
+    """Normalise a collision handler to the builtin's ``(existing, incoming, key)``.
+
+    The eager ``_combine_cb`` accepts a 2- or 3-argument handler, so both are
+    supported EAGER calls and the traced twins must take both — otherwise a
+    working lambda stops working inside a kernel (#525).
+    """
+    from east.types.values.collections import _callback_arity
+
+    return fn if _callback_arity(fn, 2) >= 3 else (lambda a, b, _k: fn(a, b))
+
+
 def _trace_bail(op: str) -> KernelTraceError:
     return KernelTraceError(
         f"python `{op}` cannot be traced into an East kernel — use `&`, `|`, `~` for "
@@ -453,7 +467,8 @@ def _trace_bail(op: str) -> KernelTraceError:
 _TRACED_SURFACE = {
     "Array": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "fold", "scan", "map_reduce",
-        "flatten_to_array", "flatten_to_set", "to_dict", "to_set", "unique",
+        "flatten_to_array", "flatten_to_set", "flatten_to_dict",
+        "to_dict", "to_set", "unique",
         "group_by", "sorted", "is_sorted", "some", "every", "string_join",
         "concat", "slice", "reversed", "copy", "get_keys",
         "size", "has", "get", "get_or_default", "try_get",
@@ -472,7 +487,8 @@ _TRACED_SURFACE = {
     })),
     "Set": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
-        "flatten_to_array", "flatten_to_set", "to_array", "to_dict",
+        "flatten_to_array", "flatten_to_set", "flatten_to_dict",
+        "to_array", "to_dict", "to_set",
         "union", "intersect", "diff", "sym_diff", "is_subset", "is_superset_of",
         "is_disjoint", "copy", "size", "has",
         # reductions (#525 phase 1)
@@ -485,7 +501,8 @@ _TRACED_SURFACE = {
     })),
     "Dict": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
-        "flatten_to_array", "flatten_to_set", "to_array", "to_set", "to_dict",
+        "flatten_to_array", "flatten_to_set", "flatten_to_dict",
+        "to_array", "to_set", "to_dict", "union",
         "keys_set", "get_keys", "copy",
         "size", "has", "get", "get_or_default", "try_get",
         # reductions (#525 phase 1)
@@ -2024,11 +2041,39 @@ class KernelExpr:
             _builtin(builtin, t2, [*tps, t2], [self.ir, map_node, reduce_node]), t2
         )
 
-    def _second_wins_node(self, t2: EastType, k2: EastType):
+    def _key_error_node(self, t2: EastType, k2: EastType, prefix: str, suffix: str):
+        """A collision handler that RAISES, naming the offending key.
+
+        The key is printed with the East ``Print`` builtin so the message
+        matches the eager path's ``print_east(k, key_type)`` and TypeScript's
+        ``Expr.str`… ${key} …``` byte for byte.
+        """
         v1 = _var(_fresh_name(), t2)
         v2 = _var(_fresh_name(), t2)
         ck = _var(_fresh_name(), k2)
-        return _k_function(FunctionType([t2, t2, k2], t2), [], [v1, v2, ck], v2)
+        printed = _builtin("Print", StringType, [k2], [ck])
+        msg = _builtin(
+            "StringConcat", StringType, [],
+            [_builtin("StringConcat", StringType, [],
+                      [_literal(prefix, StringType), printed]),
+             _literal(suffix, StringType)],
+        )
+        return _k_function(
+            FunctionType([t2, t2, k2], t2), [], [v1, v2, ck], ir_error(t2, msg)
+        )
+
+    def _duplicate_key_node(self, t2: EastType, k2: EastType):
+        """The default ``to_dict``/``flatten_to_dict`` collision handler: ERROR.
+
+        This used to be a "second value wins" function, which made a traced
+        ``to_dict`` over data with a duplicate key return a WRONG ANSWER —
+        silently keeping the last value — where the eager method and TypeScript
+        both raise ``Cannot insert duplicate key … into dict``. Losing rows
+        without a word is the worse of the two failure modes, and it diverged
+        from both other runtimes (#525).
+        """
+        return self._key_error_node(
+            t2, k2, "Cannot insert duplicate key ", " into dict")
 
     def to_dict(self, key: Any, value: Any = None, combine: Any = None) -> KernelExpr:
         """Traced ArrayToDict / DictToDict, shaped like the eager methods:
@@ -2046,10 +2091,10 @@ class KernelExpr:
             val_node, t2 = _trace_inner_fn(
                 lambda el, _i: val(el), [elem_t, IntegerType], declared=2)
             if combine is None:
-                combine_node = self._second_wins_node(t2, k2)
+                combine_node = self._duplicate_key_node(t2, k2)
             else:
                 combine_node, c_out = _trace_inner_fn(
-                    lambda a, b, _k: combine(a, b), [t2, t2, k2], declared=3)
+                    _with_key_arg(combine), [t2, t2, k2], declared=3)
                 if c_out != t2:
                     raise KernelTraceError(
                         f".to_dict() combine returns {c_out.type}, values are {t2.type}")
@@ -2070,9 +2115,10 @@ class KernelExpr:
                 val_node, t2 = _trace_inner_fn(
                     lambda v, k: value(k, v), [kv["value"], kv["key"]], declared=2)
             if combine is None:
-                combine_node = self._second_wins_node(t2, k2)
+                combine_node = self._duplicate_key_node(t2, k2)
             else:
-                combine_node, c_out = _trace_inner_fn(combine, [t2, t2, k2], declared=3)
+                combine_node, c_out = _trace_inner_fn(
+                    _with_key_arg(combine), [t2, t2, k2], declared=3)
                 if c_out != t2:
                     raise KernelTraceError(
                         f".to_dict() combine returns {c_out.type}, values are {t2.type}")
@@ -2089,9 +2135,10 @@ class KernelExpr:
                 raise KernelTraceError(".to_dict() on a Set needs a value fn(element)")
             val_node, t2 = _trace_inner_fn(value, [elem_t], declared=1)
             if combine is None:
-                combine_node = self._second_wins_node(t2, k2)
+                combine_node = self._duplicate_key_node(t2, k2)
             else:
-                combine_node, c_out = _trace_inner_fn(combine, [t2, t2, k2], declared=3)
+                combine_node, c_out = _trace_inner_fn(
+                    _with_key_arg(combine), [t2, t2, k2], declared=3)
                 if c_out != t2:
                     raise KernelTraceError(
                         f".to_dict() combine returns {c_out.type}, values are {t2.type}")
@@ -2103,12 +2150,69 @@ class KernelExpr:
             )
         raise KernelTraceError(f".to_dict() on {tag}")
 
+    def flatten_to_dict(self, fn: Any, combine: Any = None) -> KernelExpr:
+        """Traced flatten into a dict: merge the dicts ``fn`` produces.
+
+        The third member of the flatten family (``flatten_to_array`` /
+        ``flatten_to_set`` already traced), and the one whose absence forced a
+        two-stage kernel with a materialised intermediate. Without ``combine`` a
+        key produced by two different elements errors, matching the eager method
+        and TS; with it, collisions resolve as ``combine(existing, incoming)``.
+        """
+        from east.types.types import DictType as _DictType
+
+        tag = self.east_type.type
+        if tag == "Array":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(
+                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2)
+            builtin, tps = "ArrayFlattenToDict", [elem_t]
+        elif tag == "Set":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1)
+            builtin, tps = "SetFlattenToDict", [elem_t]
+        elif tag == "Dict":
+            kv = self.east_type.value
+            node, out_t = _trace_inner_fn(
+                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2)
+            builtin, tps = "DictFlattenToDict", [kv["key"], kv["value"]]
+        else:
+            raise KernelTraceError(f".flatten_to_dict() on {tag}")
+        if out_t.type != "Dict":
+            raise KernelTraceError(
+                f".flatten_to_dict() callback must return a Dict, got {out_t.type}")
+        k2, v2 = out_t.value["key"], out_t.value["value"]
+        if combine is None:
+            combine_node = self._duplicate_key_node(v2, k2)
+        else:
+            combine_node, c_out = _trace_inner_fn(
+                _with_key_arg(combine), [v2, v2, k2], declared=3)
+            if c_out != v2:
+                raise KernelTraceError(
+                    f".flatten_to_dict() combine returns {c_out.type}, values are {v2.type}")
+        out = _DictType(k2, v2)
+        return KernelExpr(
+            _builtin(builtin, out, [*tps, k2, v2], [self.ir, node, combine_node]), out
+        )
+
     def to_set(self, key: Any = None) -> KernelExpr:
-        """Traced ArrayToSet / DictToSet: the set of elements or projections
-        (``key(key, value)`` for a Dict, where it is required)."""
+        """Traced ArrayToSet / SetToSet / DictToSet: the set of elements or
+        projections (``key(key, value)`` for a Dict, where it is required)."""
         from east.types.types import SetType as _SetType
 
         tag = self.east_type.type
+        if tag == "Set":
+            # SetToSet — the eager `EastSet.to_set(fn)` twin. Without it the
+            # whole to_* family traced except this one member, so a working
+            # eager lambda silently dropped its loop to the python path.
+            if key is None:
+                raise KernelTraceError(".to_set() on a Set needs a projection fn(element)")
+            elem_t = self.east_type.value
+            node, k2 = _trace_inner_fn(key, [elem_t], declared=1)
+            out = _SetType(k2)
+            return KernelExpr(
+                _builtin("SetToSet", out, [elem_t, k2], [self.ir, node]), out
+            )
         if tag == "Array":
             elem_t = self.east_type.value
             proj = key if key is not None else (lambda el: el)
@@ -2768,9 +2872,44 @@ class KernelExpr:
             _builtin(builtin, out, [self.east_type.value], [self.ir, o.ir]), out
         )
 
-    def union(self, other: Any) -> KernelExpr:
-        """Traced SetUnion."""
-        return self._set_algebra("SetUnion", "union", other)
+    def union(self, other: Any, combine: Any = None) -> KernelExpr:
+        """Traced union: SetUnion, or the pure whole-dict union for a Dict.
+
+        The Dict form is the traced twin of the ``EastDict.union`` added in
+        #527, composed the same way the eager method composes it — a
+        ``DictCopy`` bound to a ``Let``, then ``DictUnionInPlace`` into that
+        copy — so neither input is modified. Without ``combine`` a key present
+        in both errors, exactly as eager and TS's ``unionInPlace`` do.
+        """
+        if self.east_type.type == "Set":
+            if combine is not None:
+                raise KernelTraceError(".union() on a Set takes no combine — sets have no values")
+            return self._set_algebra("SetUnion", "union", other)
+        if self.east_type.type != "Dict":
+            raise KernelTraceError(f".union() on {self.east_type.type}")
+        kv = self.east_type.value
+        k_t, v_t = kv["key"], kv["value"]
+        o = self._same_typed("union", other)
+        if combine is None:
+            merge_node = self._key_error_node(
+                v_t, k_t, "Key ", " exists in both dictionaries")
+        else:
+            merge_node, c_out = _trace_inner_fn(
+                _with_key_arg(combine), [v_t, v_t, k_t], declared=3)
+            if c_out != v_t:
+                raise KernelTraceError(
+                    f".union() combine returns {c_out.type}, values are {v_t.type}")
+        name = _fresh_name()
+        result = _var(name, self.east_type)
+        copy = _builtin("DictCopy", self.east_type, [k_t, v_t], [self.ir])
+        merged = _builtin(
+            "DictUnionInPlace", NullType, [k_t, v_t], [result, o.ir, merge_node])
+        return KernelExpr(
+            _k_block(self.east_type,
+                     [ir_let(self.east_type, _var(name, self.east_type), copy),
+                      merged, result]),
+            self.east_type,
+        )
 
     def intersect(self, other: Any) -> KernelExpr:
         """Traced SetIntersect."""

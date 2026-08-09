@@ -128,8 +128,8 @@ syntax, fastest first:
    execution:
 
    - **Array**: `map` `filter` `filter_map` `first_map` `fold` `scan`
-     `map_reduce` `flatten_to_array` `flatten_to_set` `to_dict` `to_set`
-     `unique` `group_by` `sorted` `is_sorted` `some` `every` `string_join`
+     `map_reduce` `flatten_to_array` `flatten_to_set` `flatten_to_dict`
+     `to_dict` `to_set` `unique` `group_by` `sorted` `is_sorted` `some` `every` `string_join`
      `concat` `slice` `reversed` `copy` `get_keys` `size` `has` `get`
      `get_or_default` `try_get` `sum` `mean` `maximum` `minimum`
      `find_first` `find_all` `find_maximum` `find_minimum` `find_sorted_first`
@@ -139,14 +139,14 @@ syntax, fastest first:
      `group_find_all` `group_find_first` `group_find_maximum`
      `group_find_minimum` `[index_expr]`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
-     `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
-     `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
+     `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
+     `to_dict` `to_set` `union` `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
      `copy` `size` `has` `reduce` `sum` `mean` `every` `some` `group_fold`
      `group_size` `group_sum` `group_mean` `group_every` `group_some`
      `group_to_arrays` `group_to_sets` `group_to_dicts`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
-     `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
-     `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
+     `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
+     `to_set` `to_dict` `union` `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
      `try_get` `reduce` `sum` `mean` `every` `some` `group_fold` `group_size`
      `group_sum` `group_mean` `group_every` `group_some` `group_to_arrays`
      `group_to_sets` `group_to_dicts` `[key_expr]`

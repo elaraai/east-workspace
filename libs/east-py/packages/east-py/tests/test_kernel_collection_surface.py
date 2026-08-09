@@ -115,11 +115,49 @@ def test_slice_takes_traced_bounds():
 
 
 def test_dict_get_keys_with_fill():
+    # NB the csv is "b,a,c,a", so "a" is a DUPLICATE key. This test is about
+    # get_keys + fill, so resolve the collision explicitly rather than relying
+    # on a default — the traced default used to be "later value wins" while the
+    # eager path and TS both raise, and this test was silently encoding that
+    # divergence (#525).
     k = kernel(Row, lambda r: r["csv"].split(",")
-               .to_dict(lambda p: p, value=lambda p: p.length())
+               .to_dict(lambda p: p, value=lambda p: p.length(),
+                        combine=lambda a, _b: a)
                .get_keys(array(StringType, ["a", "zz"]).unique(), lambda _k: 0))
     d = k(ROW)
     assert dict(d.items()) == {"a": 1, "zz": 0}
+
+
+def test_to_dict_duplicate_key_errors_like_eager_and_ts():
+    """No combine + a duplicate key = an ERROR, on every runtime.
+
+    The traced default was a "second value wins" function, so a kernel silently
+    DROPPED rows where the eager method and TypeScript both raise
+    `Cannot insert duplicate key … into dict`. Losing data without a word is
+    the worse failure mode, and it made the two paths disagree on the same
+    input — which is the whole thing this surface exists to prevent.
+    """
+    from east.runtime.errors import EastError
+
+    parts = array(StringType, ["b", "a", "c", "a"])
+    t = ArrayType(StringType)
+    with pytest.raises(EastError, match="Cannot insert duplicate key"):
+        parts.to_dict(lambda p: p, value=lambda p: len(p))
+    with pytest.raises(EastError, match="Cannot insert duplicate key"):
+        kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
+    # ...and the message names the offending key, as eager and TS do
+    with pytest.raises(EastError, match='duplicate key "?a"? into dict'):
+        kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
+    # with a combine, both paths agree on the resolved value
+    got = kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
+                                        combine=lambda x, y: x + y))(parts)
+    want = parts.to_dict(lambda p: p, value=lambda p: len(p), combine=lambda x, y: x + y)
+    assert dict(got.items()) == dict(want.items())
+
+    # a 3-argument combine is a supported EAGER call, so it must trace too
+    got3 = kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
+                                         combine=lambda x, y, _k: x + y))(parts)
+    assert dict(got3.items()) == dict(want.items())
 
 
 # ── the surface is closed and visible ────────────────────────────────────────

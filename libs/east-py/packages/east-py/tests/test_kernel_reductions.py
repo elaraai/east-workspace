@@ -1267,3 +1267,119 @@ def test_the_group_to_family_is_one_native_kernel():
     want = rows.filter(lambda r: r["n"] % 2 == 0).group_to_sets(
         lambda r: r["g"], lambda r: r["v"])
     assert _norm(got) == _norm(want)
+
+
+# ── flatten_to_dict / Set.to_set / Dict.union (#525 phase 4) ─────────────────
+#
+# The last three eager methods with no traced twin. With these the traced
+# surface equals the eager one on every container.
+
+_P4_ROW = StructType([("g", StringType), ("n", IntegerType), ("tags", ArrayType(StringType))])
+_P4_A = ArrayType(_P4_ROW)
+
+
+def test_array_flatten_to_dict_matches_eager():
+    rows = array(_P4_ROW, [{"g": "a", "n": 1, "tags": ["p", "q"]},
+                           {"g": "b", "n": 2, "tags": ["r"]}])
+    got = _native(lambda a: a.flatten_to_dict(
+        lambda r: r.tags.to_dict(lambda t: t, lambda _t: r.n)), _P4_A, rows)
+    want = rows.flatten_to_dict(
+        lambda r: r["tags"].to_dict(lambda t: t, lambda _t: r["n"]))
+    _same_dict(got, want)
+
+
+def test_set_and_dict_flatten_to_dict_match_eager():
+    s = EastSet(IntegerType, [1, 2, 3])
+    got = _native(lambda x: x.flatten_to_dict(lambda e: x.map(lambda y: y * e),
+                                              lambda a, b: a + b), _G_SET, s)
+    want = s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda a, b: a + b)
+    _same_dict(got, want)
+
+    d = EastDict(StringType, IntegerType, {"x": 1, "y": 2})
+    t = DictType(StringType, IntegerType)
+    got_d = _native(lambda x: x.flatten_to_dict(
+        lambda k, _v: x.filter(lambda k2, _v2: k2 == k)), t, d)
+    want_d = d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k))
+    _same_dict(got_d, want_d)
+
+
+def test_set_to_set_traces_like_its_eager_twin():
+    """The whole `to_*` family traced except this one member, so a working
+    eager `EastSet.to_set(fn)` silently dropped its loop to python."""
+    s = EastSet(IntegerType, [1, 2, 3, 4])
+    got = _native(lambda x: x.to_set(lambda e: e % 2), _G_SET, s)
+    assert sorted(got) == sorted(s.to_set(lambda e: e % 2)) == [0, 1]
+    with pytest.raises(KernelTraceError, match="needs a projection"):
+        kernel(_G_SET, lambda x: x.to_set())
+
+
+def test_dict_union_is_pure_and_matches_eager():
+    """The traced twin of the `EastDict.union` added in #527 — a copy plus an
+    in-place merge, so neither input is modified."""
+    t = DictType(StringType, IntegerType)
+    d = EastDict(StringType, IntegerType, {"x": 1, "y": 2})
+    other = EastDict(StringType, IntegerType, {"z": 9})
+    got = _native(lambda a: a.union(other), t, d)
+    _same_dict(got, d.union(other))
+    assert dict(d.items()) == {"x": 1, "y": 2}          # receiver untouched
+    assert dict(other.items()) == {"z": 9}              # argument untouched
+
+    overlap = EastDict(StringType, IntegerType, {"x": 10})
+    _same_dict(_native(lambda a: a.union(overlap, lambda p, q: p + q), t, d),
+               d.union(overlap, lambda p, q: p + q))
+
+
+def test_dict_union_overlap_without_a_combine_errors_on_both_paths():
+    from east.runtime.errors import EastError
+
+    t = DictType(StringType, IntegerType)
+    d = EastDict(StringType, IntegerType, {"x": 1})
+    overlap = EastDict(StringType, IntegerType, {"x": 5})
+    with pytest.raises(EastError, match="exists in both dictionaries"):
+        d.union(overlap)
+    with pytest.raises(EastError, match="exists in both dictionaries"):
+        kernel(t, lambda a: a.union(overlap))(d)
+    # the message names the key, as eager and TS both do
+    with pytest.raises(EastError, match='Key "?x"? exists in both'):
+        kernel(t, lambda a: a.union(overlap))(d)
+
+
+def test_a_set_union_still_takes_no_combine():
+    """`union` now serves two containers; a Set has no values to combine, so
+    passing one is a caller error rather than a silently ignored argument."""
+    with pytest.raises(KernelTraceError, match="takes no combine"):
+        kernel(_G_SET, lambda s: s.union(EastSet(IntegerType, [9]), lambda a, b: a))
+
+
+def test_the_traced_surface_now_equals_the_eager_one():
+    """The epic's actual goal, asserted directly.
+
+    Every public eager collection method has a traced twin. The exclusions are
+    named rather than filtered by a fuzzy rule: mutators and side-effecting
+    methods (the kernel language is pure), the columnar/bulk boundary helpers,
+    and the python mapping VIEWS `items`/`keys`/`values` — whose East-value
+    spelling is `keys_set`, which does trace.
+    """
+    from east.kernel import _TRACED_SURFACE
+    from east.types.values.collections import EastArray, EastDict, EastSet
+
+    excluded = {
+        # mutators / side effects
+        "insert", "delete", "add", "discard", "remove", "clear", "append",
+        "extend", "pop", "update", "union_in_place", "insert_or_update",
+        "get_or_insert", "swap", "try_insert", "try_delete", "merge",
+        "merge_key", "merge_all", "update_many", "for_each",
+        # constructors and the columnar / bulk boundary
+        "generate", "range", "linspace", "to_columns", "from_columns",
+        "map_batches", "count", "index", "sort", "reverse",
+        # python mapping views (the East spelling of `keys` is `keys_set`)
+        "items", "keys", "values",
+    }
+    gaps = []
+    for tag, cls in (("Array", EastArray), ("Set", EastSet), ("Dict", EastDict)):
+        eager = {n for n in dir(cls)
+                 if not n.startswith("_") and callable(getattr(cls, n, None))
+                 and n not in excluded}
+        for name in sorted(eager - set(_TRACED_SURFACE[tag])):
+            gaps.append(f"{tag}.{name} is eager-only")
+    assert not gaps, gaps
