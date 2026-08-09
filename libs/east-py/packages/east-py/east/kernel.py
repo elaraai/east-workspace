@@ -1322,6 +1322,19 @@ class KernelExpr:
 
     # ── collection transforms (nested lambdas traced recursively, #393) ──
 
+    @staticmethod
+    def _check_out(op: str, traced_t: EastType, out: EastType | None) -> None:
+        """Reject an ``out=`` that disagrees with the traced projection.
+
+        The eager twins accept ``out=`` to PIN a type they would otherwise
+        sample; a kernel always knows it, so ``out`` can only confirm or
+        contradict. Contradicting it silently would label the result with a
+        type that does not describe it — the #467 failure mode.
+        """
+        if out is not None and out != traced_t:
+            raise KernelTraceError(
+                f"{op} projection yields {traced_t.type}, out= declares {out.type}")
+
     def _array_elem(self, op: str) -> EastType:
         if self.east_type.type != "Array":
             raise KernelTraceError(f".{op}() on {self.east_type.type} (needs Array)")
@@ -2051,7 +2064,12 @@ class KernelExpr:
         v1 = _var(_fresh_name(), t2)
         v2 = _var(_fresh_name(), t2)
         ck = _var(_fresh_name(), k2)
-        printed = _builtin("Print", StringType, [k2], [ck])
+        # A String key is emitted BARE. `Print` would JSON-quote it, and both
+        # the eager path (`printed = k if isinstance(k, str) else print_east(…)`)
+        # and TS (`Expr.str` splices a String expression directly, wrapping only
+        # non-String types) leave it unquoted — so wrapping unconditionally made
+        # the traced message the odd one out of three runtimes.
+        printed = ck if k2.type == "String" else _builtin("Print", StringType, [k2], [ck])
         msg = _builtin(
             "StringConcat", StringType, [],
             [_builtin("StringConcat", StringType, [],
@@ -2078,8 +2096,9 @@ class KernelExpr:
     def to_dict(self, key: Any, value: Any = None, combine: Any = None) -> KernelExpr:
         """Traced ArrayToDict / DictToDict, shaped like the eager methods:
         Array keys by ``key(element)`` with ``value(element)`` (the element
-        itself when omitted) and later-wins collisions unless ``combine``;
-        Dict re-keys with ``key(key, value)`` / ``value(key, value)``."""
+        itself when omitted); Dict re-keys with ``key(key, value)`` /
+        ``value(key, value)``. Without ``combine`` a duplicate key ERRORS, like
+        the eager method and TypeScript — it does not keep the later value."""
         from east.types.types import DictType as _DictType
 
         tag = self.east_type.type
@@ -2195,9 +2214,15 @@ class KernelExpr:
             _builtin(builtin, out, [*tps, k2, v2], [self.ir, node, combine_node]), out
         )
 
-    def to_set(self, key: Any = None) -> KernelExpr:
+    def to_set(self, key: Any = None, out: EastType | None = None) -> KernelExpr:
         """Traced ArrayToSet / SetToSet / DictToSet: the set of elements or
-        projections (``key(key, value)`` for a Dict, where it is required)."""
+        projections (``key(key, value)`` for a Dict, where it is required).
+
+        ``out`` pins the result element type. It is accepted because the eager
+        ``EastSet.to_set(fn, out=…)`` accepts it — a keyword the traced twin
+        rejected would make a working eager call stop tracing, silently, which
+        is the failure this surface exists to prevent (#525).
+        """
         from east.types.types import SetType as _SetType
 
         tag = self.east_type.type
@@ -2209,18 +2234,20 @@ class KernelExpr:
                 raise KernelTraceError(".to_set() on a Set needs a projection fn(element)")
             elem_t = self.east_type.value
             node, k2 = _trace_inner_fn(key, [elem_t], declared=1)
-            out = _SetType(k2)
+            self._check_out(".to_set()", k2, out)
+            out_t = _SetType(k2)
             return KernelExpr(
-                _builtin("SetToSet", out, [elem_t, k2], [self.ir, node]), out
+                _builtin("SetToSet", out_t, [elem_t, k2], [self.ir, node]), out_t
             )
         if tag == "Array":
             elem_t = self.east_type.value
             proj = key if key is not None else (lambda el: el)
             node, k2 = _trace_inner_fn(
                 lambda el, _i: proj(el), [elem_t, IntegerType], declared=2)
-            out = _SetType(k2)
+            self._check_out(".to_set()", k2, out)
+            out_t = _SetType(k2)
             return KernelExpr(
-                _builtin("ArrayToSet", out, [elem_t, k2], [self.ir, node]), out
+                _builtin("ArrayToSet", out_t, [elem_t, k2], [self.ir, node]), out_t
             )
         if tag == "Dict":
             if key is None:
@@ -2228,10 +2255,11 @@ class KernelExpr:
             kv = self.east_type.value
             node, k2 = _trace_inner_fn(
                 lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2)
-            out = _SetType(k2)
+            self._check_out(".to_set()", k2, out)
+            out_t = _SetType(k2)
             return KernelExpr(
-                _builtin("DictToSet", out, [kv["key"], kv["value"], k2], [self.ir, node]),
-                out,
+                _builtin("DictToSet", out_t, [kv["key"], kv["value"], k2], [self.ir, node]),
+                out_t,
             )
         raise KernelTraceError(f".to_set() on {tag}")
 
@@ -2599,7 +2627,7 @@ class KernelExpr:
             add_name = "DictInsert"
         else:
             node, c_out = _trace_inner_fn(
-                lambda a, b, _k: combine(a, b), [v_t, v_t, k2_t], declared=3)
+                _with_key_arg(combine), [v_t, v_t, k2_t], declared=3)
             if c_out != v_t:
                 raise KernelTraceError(
                     f".group_to_dicts() combine returns {c_out.type}, "

@@ -969,12 +969,16 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import DictType, IntegerType
 
-        if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
-        _ko = _kernel_out_type(fn)
+        # Declared type first, and BEFORE the empty check. The degenerate
+        # `(element_type, element_type)` bail did not merely disagree with the
+        # traced twin: on a struct element with an Array field it RAISES, since
+        # a mutable type cannot key a Dict (#522/#525).
+        _ko = _kernel_out_type(fn, _elem_in(fn, self.element_type))
         if _ko is not None:
             k2 = _ko.value["key"]
             t2 = _ko.value["value"]
+        elif len(self) == 0:
+            return EastDict(self.element_type, self.element_type)
         else:
             sample = _call_elem(fn, self[0])
             k2 = sample.key_type
@@ -1406,6 +1410,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.kernel import KernelExpr, where
         from east.namespace import East
+        from east.types.coercion import coerce_to
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import ArrayType, IntegerType, NullType, StructType, VariantType
@@ -1414,6 +1419,15 @@ class EastArray(MutableSequence, Generic[T]):
         # Declared type first, sampling only as a fallback (#450).
         k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))
         p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type)) or _ev.type_of(_call_elem(proj, self[0]))
+        # Coerce the target INTO the projection's type, exactly as `_search_key`
+        # does for the ungrouped `find_*` family. Without this, `East.equal`
+        # compares a python `int` target against a Float projection under East's
+        # cross-type total order and is never true, so `group_find_all(2, ...)`
+        # over Float data reported NO matches while the traced twin — which
+        # lifts the literal with `hint=p_t` — reported them. Same call, two
+        # answers, decided only by whether the enclosing lambda happened to
+        # trace (#525).
+        value = coerce_to(value, p_t)
         pair_t = StructType([("i", IntegerType), ("k", k2)])
         kf, pf = _as_idx_fn(key), _as_idx_fn(proj)
 
@@ -1453,8 +1467,14 @@ class EastArray(MutableSequence, Generic[T]):
         from east.kernel import _empty_array_kernel
         from east.types.types import ArrayType, IntegerType
 
+        # A typeable key fixes the GROUP KEY type even with no rows; the value
+        # type is Array<Integer> either way. Bailing to `element_type` made the
+        # eager result a differently-typed empty dict from the traced one, and
+        # the two only diverge on empty input — invisibly, until a consumer
+        # unions or declares the type (#525).
+        k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
         if len(self) == 0:
-            return EastDict(self.element_type, ArrayType(IntegerType))
+            return EastDict(k2e or self.element_type, ArrayType(IntegerType))
         pairs, k2, _pair_t = self._find_index_pairs(key, value, by)
         # The groups come from the WHOLE array and the matches fill them in, so
         # a group whose members all failed still appears (with an empty array).
@@ -1482,8 +1502,9 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType, OptionType
 
+        k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
         if len(self) == 0:
-            return EastDict(self.element_type, OptionType(IntegerType))
+            return EastDict(k2e or self.element_type, OptionType(IntegerType))
         # group_find_all already yields matches in row order per group, so the
         # first match is element 0 — and `out=` pins Option<Integer> rather
         # than letting a `some`-only sample type the dict (#450).
@@ -1532,8 +1553,9 @@ class EastArray(MutableSequence, Generic[T]):
     def _group_find_extreme(self, key: Any, by: Any, want_max: bool) -> EastDict:
         from east.types.types import IntegerType
 
+        k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
         if len(self) == 0:
-            return EastDict(self.element_type, IntegerType)
+            return EastDict(k2e or self.element_type, IntegerType)
         pairs = self._group_find_extreme_pairs(key, by, want_max)
         return pairs.map(lambda v: v["index"], out=IntegerType)
 
@@ -1609,8 +1631,12 @@ class EastArray(MutableSequence, Generic[T]):
 
         if value is None:
             return self.group_by(key)
+        # Typeable callbacks fix the result type even with no rows (#525).
+        k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
+        v_te = _kernel_out_type(value, _elem_in(value, self.element_type))
         if len(self) == 0:
-            return EastDict(self.element_type, ArrayType(self.element_type))
+            return EastDict(k2e or self.element_type,
+                            ArrayType(v_te or self.element_type))
         pairs, pair_t = self._group_pairs(key, value)
         k2 = next(f["type"] for f in pair_t.value if f["name"] == "k")
         v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
@@ -1627,9 +1653,13 @@ class EastArray(MutableSequence, Generic[T]):
         from east.kernel import _empty_set_kernel, _set_insert_field_kernel
         from east.types.types import DictType, IntegerType, SetType
 
+        val = value if value is not None else (lambda el: el)
+        k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
+        v_te = _kernel_out_type(val, _elem_in(val, self.element_type))
         if len(self) == 0:
-            return EastDict(self.element_type, SetType(self.element_type))
-        pairs, pair_t = self._group_pairs(key, value if value is not None else (lambda el: el))
+            return EastDict(k2e or self.element_type,
+                            SetType(v_te or self.element_type))
+        pairs, pair_t = self._group_pairs(key, val)
         k2 = next(f["type"] for f in pair_t.value if f["name"] == "k")
         v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
         key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k2)
@@ -1650,9 +1680,14 @@ class EastArray(MutableSequence, Generic[T]):
         from east.kernel import _dict_insert_fields_kernel, _empty_dict_kernel
         from east.types.types import DictType, IntegerType
 
-        if len(self) == 0:
-            return EastDict(self.element_type, DictType(self.element_type, self.element_type))
         val = value if value is not None else (lambda el: el)
+        k1e = _kernel_out_type(key, _elem_in(key, self.element_type))
+        k2e = _kernel_out_type(key2, _elem_in(key2, self.element_type))
+        v_te = _kernel_out_type(val, _elem_in(val, self.element_type))
+        if len(self) == 0:
+            return EastDict(k1e or self.element_type,
+                            DictType(k2e or self.element_type,
+                                     v_te or self.element_type))
         pairs, pair_t = self._group_pairs(key, val, extra=key2)
         k1 = next(f["type"] for f in pair_t.value if f["name"] == "k")
         k2t = next(f["type"] for f in pair_t.value if f["name"] == "k2")
@@ -2118,13 +2153,14 @@ class EastSet(Generic[T]):
         from east.types.types import SetType
 
         _check_kernel_out(fn, out)
+        # Declared type first, and BEFORE the empty check — a typeable
+        # projection fixes the element type with no members to sample (#525).
+        k2 = out if out is not None else (
+            _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]))
         if len(self) == 0:
-            return EastSet(out if out is not None else self.element_type)
-        if out is not None:
-            k2 = out
-        else:
-            _ko = _kernel_out_type(fn)
-            k2 = _ko if _ko is not None else _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self))))
+            return EastSet(k2 if k2 is not None else self.element_type)
+        if k2 is None:
+            k2 = _ev.type_of(fn(next(iter(self))))
         callback = EastFunction(fn, [self.element_type], k2)
         return _call_builtin("SetToSet", [self.element_type, k2], [self, callback], SetType(k2))
 
@@ -2387,15 +2423,16 @@ class EastSet(Generic[T]):
         """
         from east.types.types import DictType
 
-        if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
-        # Declared type first (#450); NB a declared Dict TYPE carries its key/
-        # value under .value — .key_type exists only on a sampled dict VALUE
-        # (reading it off the type crashed every kernel/traceable callback here).
+        # Declared type first (#450) and BEFORE the empty check (#525); NB a
+        # declared Dict TYPE carries its key/value under .value — .key_type
+        # exists only on a sampled dict VALUE (reading it off the type crashed
+        # every kernel/traceable callback here).
         _ko = _kernel_out_type(fn, [self.element_type])
         if _ko is not None:
             k2 = _ko.value["key"]
             t2 = _ko.value["value"]
+        elif len(self) == 0:
+            return EastDict(self.element_type, self.element_type)
         else:
             sample = fn(next(iter(self)))
             k2 = sample.key_type
@@ -3033,20 +3070,30 @@ class EastDict(Generic[K, V]):
         """Per group: True when ``pred(key, value)`` holds for any entry."""
         return self.group_fold(key_fn, lambda _k: False, lambda acc, k, v: acc | pred(k, v))
 
-    def group_to_arrays(self, key_fn: Any, value_fn: Any) -> EastDict:
-        """Arrays of ``value_fn(key, value)`` per group (native via to_array)."""
-        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": value_fn(k, v)})
+    def group_to_arrays(self, key_fn: Any, value_fn: Any = None) -> EastDict:
+        """Arrays of ``value_fn(key, value)`` per group (native via to_array).
+
+        ``value_fn`` is optional — omitted, the dict's VALUES are collected —
+        matching TypeScript's ``groupToArrays(keyFn, valueFn?)`` and the traced
+        twin. Requiring it here made east-py the outlier of the three runtimes
+        (#525).
+        """
+        vf = value_fn if value_fn is not None else (lambda _k, v: v)
+        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": vf(k, v)})
         return pairs.group_to_arrays(lambda p: p["k"], lambda p: p["v"])
 
-    def group_to_sets(self, key_fn: Any, value_fn: Any) -> EastDict:
-        """Sets of ``value_fn(key, value)`` per group (native via to_array)."""
-        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": value_fn(k, v)})
+    def group_to_sets(self, key_fn: Any, value_fn: Any = None) -> EastDict:
+        """Sets of ``value_fn(key, value)`` per group (the VALUES when omitted)."""
+        vf = value_fn if value_fn is not None else (lambda _k, v: v)
+        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": vf(k, v)})
         return pairs.group_to_sets(lambda p: p["k"], lambda p: p["v"])
 
-    def group_to_dicts(self, key_fn: Any, key2_fn: Any, value_fn: Any, combine: Any = None) -> EastDict:
-        """Dicts of ``key2 -> value`` per group (native via to_array)."""
+    def group_to_dicts(self, key_fn: Any, key2_fn: Any, value_fn: Any = None,
+                       combine: Any = None) -> EastDict:
+        """Dicts of ``key2 -> value`` per group (the VALUES when omitted)."""
+        vf = value_fn if value_fn is not None else (lambda _k, v: v)
         pairs = self.to_array(
-            lambda k, v: {"k": key_fn(k, v), "k2": key2_fn(k, v), "v": value_fn(k, v)}
+            lambda k, v: {"k": key_fn(k, v), "k2": key2_fn(k, v), "v": vf(k, v)}
         )
         return pairs.group_to_dicts(
             lambda p: p["k"], lambda p: p["k2"], lambda p: p["v"], combine
@@ -3749,7 +3796,11 @@ class EastDict(Generic[K, V]):
             v2 = _ev.type_of(value_fn(first_key, self[first_key]))
         key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
         value_cb = EastFunction(lambda v, k: value_fn(k, v), [self.value_type, self.key_type], v2)
-        combine_cb = EastFunction(combine, [v2, v2, k2], v2)
+        # `_combine_cb`, like the Array and Set twins: it accepts a 2- OR
+        # 3-argument handler. Wiring `combine` raw made a 2-arg lambda — which
+        # works on every other collection, and which the traced twin accepts —
+        # fail at run time on a Dict alone (#525).
+        combine_cb = EastFunction(_combine_cb(combine, k2), [v2, v2, k2], v2)
         return _call_builtin("DictToDict", [self.key_type, self.value_type, k2, v2], [self, key_cb, value_cb, combine_cb], DictType(k2, v2))
 
     def flatten_to_array(self, fn: Any) -> EastArray:
@@ -3813,12 +3864,12 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType
 
-        if len(self) == 0:
-            return EastDict(self.key_type, self.value_type)
-        # Declared type first (#450): sample only untraceable callbacks.
+        # Declared type first (#450), and BEFORE the empty check (#525).
         _ko = _kernel_out_type(fn, [self.key_type, self.value_type])
         if _ko is not None:
             k2, v2 = _ko.value["key"], _ko.value["value"]
+        elif len(self) == 0:
+            return EastDict(self.key_type, self.value_type)
         else:
             first_key = next(iter(self))
             sample = fn(first_key, self[first_key])

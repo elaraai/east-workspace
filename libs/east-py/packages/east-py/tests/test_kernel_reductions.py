@@ -366,6 +366,52 @@ def _builtin_count(traced, param_type, builtin):
     return text.count(f'"{builtin}"')
 
 
+def _builtin_count_inside_callbacks(traced, param_type, builtin):
+    """How many times ``builtin`` appears INSIDE a per-element callback.
+
+    `_builtin_count` counts occurrences in the whole IR, which is 1 whether a
+    target is `Let`-bound at block level or spliced into the per-element probe
+    — the Let changes WHERE it is evaluated, not how many nodes exist. So the
+    "evaluates its target once" tests could not fail: deleting the binding left
+    them green while the operation went quadratic (measured 3 300x at n=8000).
+
+    Walk the traced IR and count only occurrences under a Function node other
+    than the kernel's own top-level one. Spliced -> >= 1; Let-bound -> 0.
+    """
+    from east.kernel import trace
+    from east.types.values import is_east_struct, is_east_variant
+
+    ir, _out = trace(traced, [param_type])
+    hits = 0
+
+    def walk(node, in_callback):
+        nonlocal hits
+        if isinstance(node, (list, tuple)) or hasattr(node, "element_type"):
+            for x in node:
+                walk(x, in_callback)
+            return
+        if is_east_struct(node):
+            for _f, v in node.items():
+                walk(v, in_callback)
+            return
+        if not is_east_variant(node):
+            return
+        if node.type == "Builtin" and node.value["builtin"] == builtin and in_callback:
+            hits += 1
+        inner = in_callback or node.type == "Function"
+        payload = node.value
+        if is_east_struct(payload):
+            for fname, v in payload.items():
+                if fname in ("type", "loc_id", "type_parameters", "builtin", "name"):
+                    continue
+                walk(v, inner)
+
+    # the kernel's own outermost Function is not a per-element callback
+    body = ir.value["body"] if ir.type == "Function" else ir
+    walk(body, False)
+    return hits
+
+
 @pytest.mark.parametrize("builtin", ["ArrayFilter", "ArraySort"])
 def test_mean_does_not_duplicate_a_computed_receiver(builtin):
     """`mean` reads the receiver twice — the fold and `size()`.
@@ -576,7 +622,10 @@ def test_find_all_evaluates_an_expression_target_once():
     not in the callback."""
     rows = _rows()
     nested = lambda a: a.find_all(a.maximum(lambda r: r.v), lambda r: r.v)  # noqa: E731
-    # ArrayMapReduce is the target (`maximum`); it must be emitted exactly once
+    # The target (`maximum` -> ArrayMapReduce) must be evaluated at BLOCK level,
+    # not inside the per-element probe. A whole-IR count cannot see this — it is
+    # 1 either way — so check WHERE the node sits.
+    assert _builtin_count_inside_callbacks(nested, A_ROW, "ArrayMapReduce") == 0
     assert _builtin_count(nested, A_ROW, "ArrayMapReduce") == 1
     got = _native(nested, A_ROW, rows)
     want = rows.find_all(rows.maximum(lambda r: r["v"]), by=lambda r: r["v"])
@@ -1250,12 +1299,27 @@ def test_group_find_all_evaluates_an_expression_target_once():
     documents. The target binds to a Let instead."""
     nested = lambda a: a.group_find_all(  # noqa: E731
         lambda r: r.g, a.maximum(lambda r: r.v), lambda r: r.v)
-    assert _builtin_count(nested, A_ROW, "ArrayMapReduce") == 1
+    # WHERE the target sits is the whole point: a whole-IR count is 1 whether it
+    # is Let-bound or spliced into the probe, so it cannot fail. Deleting the
+    # binding measured 3 738 ms vs 2.43 ms at n=4000 with the suite still green.
+    assert _builtin_count_inside_callbacks(nested, A_ROW, "ArrayMapReduce") == 0
     rows = _g_rows()
     got = _native(nested, A_ROW, rows)
     want = rows.group_find_all(lambda r: r["g"], rows.maximum(lambda r: r["v"]),
                                lambda r: r["v"])
     assert _norm(got) == _norm(want)
+
+
+@pytest.mark.parametrize("builtin", ["ArraySort", "ArrayFilter"])
+def test_group_find_all_does_not_duplicate_a_computed_receiver(builtin):
+    """`group_find_all` scans the receiver TWICE (matches + the group set), so
+    it binds it — the same trap `mean`/`find_*` fell into. Dropping the binding
+    left the suite green while the receiver was re-executed per group."""
+    stage = (lambda b: b.sorted(lambda r: r.n)) if builtin == "ArraySort" \
+        else (lambda b: b.filter(lambda r: r.n > 0))
+    nested = lambda a: a.group_by(lambda r: r.g).map(  # noqa: E731
+        lambda b: stage(b).group_find_all(lambda r: r.g, 1.5, lambda r: r.v))
+    assert _builtin_count(nested, A_ROW, builtin) == 1
 
 
 def test_the_group_to_family_is_one_native_kernel():
@@ -1351,6 +1415,33 @@ def test_a_set_union_still_takes_no_combine():
         kernel(_G_SET, lambda s: s.union(EastSet(IntegerType, [9]), lambda a, b: a))
 
 
+# Keywords an eager method accepts that its traced twin does not. Two kinds:
+#
+# * a parameter NAME difference (traced `fn` where eager says `pred`/`key`/
+#   `value_fn`) — a positional call behaves identically, only a keyword call
+#   differs;
+# * a genuinely missing `out=`/`key_out=`/`acc_out=` type pin. A kernel always
+#   knows its types so the pin is redundant, but passing it raises TypeError
+#   and the enclosing loop silently drops to the per-element python path —
+#   the same defect `to_set` had, fixed in #525 phase 4.
+#
+# Tracked in #536. RATCHET: this list may only ever SHRINK.
+_KNOWN_KEYWORD_GAPS = {
+    "Array.every": {"pred"}, "Array.some": {"pred"},
+    "Array.map": {"out"}, "Array.filter_map": {"out"}, "Array.map_reduce": {"out"},
+    "Array.flatten_to_array": {"out"}, "Array.flatten_to_set": {"out"},
+    "Set.every": {"pred"}, "Set.some": {"pred"}, "Set.to_array": {"key"},
+    "Set.map": {"out"}, "Set.filter_map": {"out"},
+    "Set.flatten_to_array": {"out"}, "Set.flatten_to_set": {"out"},
+    "Dict.every": {"pred"}, "Dict.some": {"pred"}, "Dict.get": {"default"},
+    "Dict.map": {"out"}, "Dict.filter_map": {"out"}, "Dict.map_reduce": {"out"},
+    "Dict.to_array": {"out"}, "Dict.to_dict": {"key_out", "value_out"},
+    "Dict.group_fold": {"acc_out", "key_out"},
+    "Dict.group_to_arrays": {"value_fn"}, "Dict.group_to_sets": {"value_fn"},
+    "Dict.group_to_dicts": {"value_fn"},
+}
+
+
 def test_the_traced_surface_now_equals_the_eager_one():
     """The epic's actual goal, asserted directly.
 
@@ -1360,7 +1451,7 @@ def test_the_traced_surface_now_equals_the_eager_one():
     and the python mapping VIEWS `items`/`keys`/`values` — whose East-value
     spelling is `keys_set`, which does trace.
     """
-    from east.kernel import _TRACED_SURFACE
+    from east.kernel import _TRACED_SURFACE, KernelExpr
     from east.types.values.collections import EastArray, EastDict, EastSet
 
     excluded = {
@@ -1375,6 +1466,8 @@ def test_the_traced_surface_now_equals_the_eager_one():
         # python mapping views (the East spelling of `keys` is `keys_set`)
         "items", "keys", "values",
     }
+    import inspect
+
     gaps = []
     for tag, cls in (("Array", EastArray), ("Set", EastSet), ("Dict", EastDict)):
         eager = {n for n in dir(cls)
@@ -1382,4 +1475,271 @@ def test_the_traced_surface_now_equals_the_eager_one():
                  and n not in excluded}
         for name in sorted(eager - set(_TRACED_SURFACE[tag])):
             gaps.append(f"{tag}.{name} is eager-only")
+        # ...and the NAME existing is not enough: a traced twin that needs more
+        # arguments, or refuses a keyword eager accepts, makes a working eager
+        # call stop tracing — silently, which is the failure mode this whole
+        # surface exists to prevent. Compare the SIGNATURES too.
+        for name in sorted(eager & set(_TRACED_SURFACE[tag])):
+            e_fn, t_fn = getattr(cls, name), getattr(KernelExpr, name, None)
+            if t_fn is None or not callable(t_fn):
+                continue
+            try:
+                e_p = inspect.signature(e_fn).parameters
+                t_p = inspect.signature(t_fn).parameters
+            except (TypeError, ValueError):
+                continue
+            def required(ps):
+                return sum(1 for n, x in ps.items()
+                           if n != "self" and x.default is inspect.Parameter.empty
+                           and x.kind in (x.POSITIONAL_ONLY, x.POSITIONAL_OR_KEYWORD))
+            if required(t_p) > required(e_p):
+                gaps.append(f"{tag}.{name}: traced needs {required(t_p)} args, "
+                            f"eager accepts {required(e_p)}")
+            missing_kw = {n for n, x in e_p.items()
+                          if n != "self" and x.default is not inspect.Parameter.empty} - set(t_p)
+            missing_kw -= _KNOWN_KEYWORD_GAPS.get(f"{tag}.{name}", set())
+            if missing_kw:
+                gaps.append(f"{tag}.{name}: eager accepts {sorted(missing_kw)}, traced does not")
     assert not gaps, gaps
+
+
+def test_group_find_first_reports_the_FIRST_match_not_the_last():
+    """Two matches per group, so "first" is observable.
+
+    The `_G_ROWS` fixture gives each group exactly one element equal to the
+    probed value, so the row-order contract of `group_find_all` and the
+    "first" contract of `group_find_first` were both unpinned — mutating
+    `try_get(0)` to `reversed().try_get(0)`, and reversing the pair order, each
+    left the whole suite green.
+    """
+    rows = array(ROW, [{"g": "a", "v": 1.0, "n": 0}, {"g": "b", "v": 9.0, "n": 1},
+                       {"g": "a", "v": 1.0, "n": 2}, {"g": "b", "v": 1.0, "n": 3},
+                       {"g": "b", "v": 1.0, "n": 4}])
+    got_all = _native(lambda a: a.group_find_all(lambda r: r.g, 1.0, lambda r: r.v), A_ROW, rows)
+    want_all = rows.group_find_all(lambda r: r["g"], 1.0, lambda r: r["v"])
+    assert {k: list(v) for k, v in got_all.items()} == {"a": [0, 2], "b": [3, 4]}
+    assert {k: list(v) for k, v in got_all.items()} == {k: list(v) for k, v in want_all.items()}
+
+    got_first = _native(lambda a: a.group_find_first(lambda r: r.g, 1.0, lambda r: r.v),
+                        A_ROW, rows)
+    want_first = rows.group_find_first(lambda r: r["g"], 1.0, lambda r: r["v"])
+    assert {k: (v.type, v.value) for k, v in got_first.items()} == {
+        "a": ("some", 0), "b": ("some", 3)}
+    assert {k: (v.type, v.value) for k, v in got_first.items()} == {
+        k: (v.type, v.value) for k, v in want_first.items()}
+
+
+def test_a_collision_handler_receives_existing_then_incoming():
+    """Slot ORDER, pinned with a NON-commutative combine.
+
+    Every `combine` in these tests was `x + y` on numbers, so swapping the two
+    arguments left the suite green while `union` produced 'R|L' instead of
+    'L|R'. Order is part of the contract: `existing` is this dict's value.
+    """
+    t = DictType(StringType, StringType)
+    left = EastDict(StringType, StringType, {"x": "L"})
+    right = EastDict(StringType, StringType, {"x": "R"})
+    joined = _native(lambda a: a.union(right, lambda ex, inc: ex + "|" + inc), t, left)
+    assert dict(joined.items()) == {"x": "L|R"}
+    assert dict(joined.items()) == dict(left.union(right, lambda ex, inc: ex + "|" + inc).items())
+
+    # ...and the same for to_dict's collision handler
+    parts = array(StringType, ["a", "a"])
+    got = _native(lambda a: a.to_dict(lambda p: p, lambda p: p, lambda ex, inc: ex + "|" + inc),
+                  ArrayType(StringType), parts)
+    assert dict(got.items()) == {"a": "a|a"}
+
+
+def test_the_duplicate_key_error_message_is_unquoted_like_eager_and_ts():
+    """A String key is printed BARE on all three runtimes.
+
+    The traced path wrapped every key in the East `Print` builtin, which
+    JSON-quotes a String, so the kernel's message read `key "a"` where eager
+    and TS both read `key a`. The two tests written at the time used a
+    `"?a"?` regex that accepted either, so CI could not see it.
+    """
+    from east.runtime.errors import EastError
+
+    parts = array(StringType, ["b", "a", "c", "a"])
+    t = ArrayType(StringType)
+    with pytest.raises(EastError, match="Cannot insert duplicate key a into dict"):
+        kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
+    with pytest.raises(EastError, match="Cannot insert duplicate key a into dict"):
+        parts.to_dict(lambda p: p, value=lambda p: len(p))
+
+    dt = DictType(StringType, IntegerType)
+    d = EastDict(StringType, IntegerType, {"x": 1})
+    o = EastDict(StringType, IntegerType, {"x": 5})
+    with pytest.raises(EastError, match="Key x exists in both dictionaries"):
+        kernel(dt, lambda a: a.union(o))(d)
+    with pytest.raises(EastError, match="Key x exists in both dictionaries"):
+        d.union(o)
+    # a NON-String key still goes through Print, so an Integer key is bare too
+    ints = array(IntegerType, [7, 7])
+    with pytest.raises(EastError, match="duplicate key 7 into dict"):
+        kernel(ArrayType(IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p))(ints)
+
+
+def test_group_find_coerces_the_target_into_the_projection_type():
+    """A python literal target must mean the same thing on both paths.
+
+    The eager probe handed the raw literal to `East.equal(p_t, …)`, so an
+    Integer `2` against a Float projection was NEVER equal under East's
+    cross-type total order and `group_find_all` reported no matches — while the
+    traced twin lifts with `hint=p_t`, coerces, and reports them. Same call,
+    two answers, decided only by whether the enclosing lambda happened to
+    trace. The ungrouped `find_*` family was fixed this way in phase 2; the
+    grouped one goes through a different helper and was missed.
+    """
+    rows = array(ROW, [{"g": "a", "v": 2.0, "n": 0}, {"g": "a", "v": 3.0, "n": 1}])
+    for target in (2, 2.0):
+        got = _native(lambda a, _t=target: a.group_find_all(lambda r: r.g, _t, lambda r: r.v),
+                      A_ROW, rows)
+        want = rows.group_find_all(lambda r: r["g"], target, lambda r: r["v"])
+        assert {k: list(v) for k, v in got.items()} == {"a": [0]}, f"target={target!r}"
+        assert {k: list(v) for k, v in got.items()} == {k: list(v) for k, v in want.items()}
+    # ...and group_find_first, which composes it
+    first = rows.group_find_first(lambda r: r["g"], 2, lambda r: r["v"])
+    assert {k: (v.type, v.value) for k, v in first.items()} == {"a": ("some", 0)}
+
+
+@pytest.mark.parametrize("tag", ["array", "set", "dict"])
+def test_group_to_dicts_accepts_a_three_argument_combine(tag):
+    """`combine(existing, incoming, key)` is a supported EAGER call.
+
+    `group_to_dicts` was the one collision site phase 4's `_with_key_arg`
+    normalisation missed, so the 3-arg form raised inside an explicit kernel
+    and — worse — silently trampolined (measured 203 per-element calls) when it
+    appeared inside an enclosing lambda.
+    """
+    if tag == "array":
+        rows = array(ROW, [{"g": "a", "v": 1.0, "n": 1}, {"g": "a", "v": 2.0, "n": 1}])
+        traced = lambda a: a.group_to_dicts(  # noqa: E731
+            lambda r: r.g, lambda r: r.n, lambda r: r.v, lambda ex, inc, _k: ex + inc)
+        eager = lambda a: a.group_to_dicts(  # noqa: E731
+            lambda r: r["g"], lambda r: r["n"], lambda r: r["v"], lambda ex, inc, _k: ex + inc)
+        pt, val = A_ROW, rows
+    elif tag == "set":
+        val, pt = EastSet(IntegerType, [1, 2, 3, 4]), _G_SET
+        traced = eager = lambda s: s.group_to_dicts(  # noqa: E731
+            lambda e: e % 2, lambda _e: 0, lambda e: e, lambda ex, inc, _k: ex + inc)
+    else:
+        val = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
+        pt = D_SF
+        traced = eager = lambda d: d.group_to_dicts(  # noqa: E731
+            lambda _k, _v: "g", lambda _k, _v: "same", lambda _k, v: v,
+            lambda ex, inc, _k2: ex + inc)
+    got, want = _native(traced, pt, val), eager(val)
+    assert {k: dict(v.items()) for k, v in got.items()} == \
+           {k: dict(v.items()) for k, v in want.items()}
+
+
+_P4_EROW = StructType([("g", StringType), ("v", FloatType), ("n", IntegerType),
+                       ("tags", ArrayType(StringType))])
+_P4_EA = ArrayType(_P4_EROW)
+
+_EMPTY_NEW_NAMES = [
+    ("group_find_all", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_find_all(lambda r: r.g, 2.0, lambda r: r.v),
+     lambda a: a.group_find_all(lambda r: r["g"], 2.0, lambda r: r["v"])),
+    ("group_find_first", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_find_first(lambda r: r.g, 2.0, lambda r: r.v),
+     lambda a: a.group_find_first(lambda r: r["g"], 2.0, lambda r: r["v"])),
+    ("group_find_maximum", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_find_maximum(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_find_maximum(lambda r: r["g"], lambda r: r["v"])),
+    ("group_find_minimum", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_find_minimum(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_find_minimum(lambda r: r["g"], lambda r: r["v"])),
+    ("group_to_arrays", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_to_arrays(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_to_arrays(lambda r: r["g"], lambda r: r["v"])),
+    ("group_to_sets", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_to_sets(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_to_sets(lambda r: r["g"], lambda r: r["v"])),
+    ("group_to_dicts", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.group_to_dicts(lambda r: r.g, lambda r: r.n, lambda r: r.v),
+     lambda a: a.group_to_dicts(lambda r: r["g"], lambda r: r["n"], lambda r: r["v"])),
+    ("array_flatten_to_dict", _P4_EA, lambda: array(_P4_EROW, []),
+     lambda a: a.flatten_to_dict(lambda r: r.tags.to_dict(lambda x: x, lambda _x: r.n)),
+     lambda a: a.flatten_to_dict(lambda r: r["tags"].to_dict(lambda x: x, lambda _x: r["n"]))),
+    ("set_flatten_to_dict", SetType(IntegerType), lambda: EastSet(IntegerType),
+     lambda s: s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda p, q: p + q),
+     lambda s: s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda p, q: p + q)),
+    ("dict_flatten_to_dict", D_SF, lambda: EastDict(StringType, FloatType),
+     lambda d: d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k)),
+     lambda d: d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k))),
+]
+
+
+@pytest.mark.parametrize(("name", "param_type", "make", "traced", "eager"),
+                         _EMPTY_NEW_NAMES, ids=[c[0] for c in _EMPTY_NEW_NAMES])
+def test_the_newly_traced_names_agree_on_empty_input(name, param_type, make, traced, eager):
+    """Every name phases 3b/4 traced, on an EMPTY receiver.
+
+    The eager methods bailed out with a dict typed from the SOURCE while the
+    new traced twins derive the real types, so the two disagreed on exactly the
+    input where both look identical — two empty dicts compare equal however
+    they are typed. It surfaces later: `empty.union(full)` raises
+    `EastTypeError`, and `EastArray.flatten_to_dict` bailed to
+    `(element_type, element_type)`, which on a struct with an Array field
+    RAISES outright because a mutable type cannot key a Dict.
+
+    Compare the TYPES; the contents are `{}` on both sides by construction.
+    """
+    empty = make()
+    got, want = _native(traced, param_type, empty), eager(empty)
+    assert (got.key_type, got.value_type) == (want.key_type, want.value_type), (
+        f"{name}: traced Dict<{got.key_type.type},{got.value_type.type}> vs "
+        f"eager Dict<{want.key_type.type},{want.value_type.type}>")
+    assert dict(got.items()) == dict(want.items()) == {}
+
+
+def test_set_to_set_agrees_on_empty_input():
+    """Set.to_set returns a Set, not a Dict — same rule, different shape."""
+    empty = EastSet(IntegerType)
+    got = _native(lambda s: s.to_set(lambda e: e.to_float()), _G_SET, empty)
+    want = empty.to_set(lambda e: e.to_float())
+    assert got.element_type == want.element_type == FloatType
+    assert list(got) == list(want) == []
+
+
+def test_a_dict_group_to_value_projection_is_optional_on_both_paths():
+    """TypeScript makes `valueFn` optional on all three `groupTo*`; east-py's
+    eager Dict spellings required it, so the traced twin (which follows TS) was
+    laxer than its own eager method — a call that traced fine raised outside a
+    kernel."""
+    d = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
+    t = DictType(StringType, FloatType)
+    for traced, eager in (
+        (lambda x: x.group_to_arrays(lambda k, w: w > 1.0),
+         lambda x: x.group_to_arrays(lambda k, w: w > 1.0)),
+        (lambda x: x.group_to_sets(lambda k, w: w > 1.0),
+         lambda x: x.group_to_sets(lambda k, w: w > 1.0)),
+    ):
+        got, want = _native(traced, t, d), eager(d)
+        assert {k: sorted(v) for k, v in got.items()} == {k: sorted(v) for k, v in want.items()}
+
+
+def test_dict_to_dict_accepts_a_two_argument_combine_like_its_siblings():
+    """`EastDict.to_dict` wired its handler raw at 3 args while Array and Set
+    both route through `_combine_cb`, which accepts 2 or 3 — so a 2-arg lambda
+    that works on every other collection failed on a Dict alone."""
+    d = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
+    t = DictType(StringType, FloatType)
+    got = _native(lambda x: x.to_dict(lambda k, v: "same", lambda k, v: v,
+                                      combine=lambda p, q: p + q), t, d)
+    want = d.to_dict(lambda k, v: "same", lambda k, v: v, lambda p, q: p + q)
+    _same_dict(got, want)
+    assert dict(got.items()) == {"same": 3.0}
+
+
+def test_traced_to_set_accepts_the_out_keyword_its_eager_twin_takes():
+    """`EastSet.to_set(fn, out=T)` is a documented eager call; the traced twin
+    rejected the keyword, so it silently fell back to the per-element path."""
+    s = EastSet(IntegerType, [1, 2, 3, 4])
+    got = _native(lambda x: x.to_set(lambda e: e % 2, out=IntegerType), _G_SET, s)
+    assert sorted(got) == sorted(s.to_set(lambda e: e % 2, out=IntegerType)) == [0, 1]
+    # a contradictory out= is a caller error, not a silent relabel (#467)
+    with pytest.raises(KernelTraceError, match="out= declares"):
+        kernel(_G_SET, lambda x: x.to_set(lambda e: e % 2, out=SetType(IntegerType)))
