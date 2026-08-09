@@ -22,6 +22,7 @@ import pytest
 
 from east import (
     ArrayType,
+    BooleanType,
     DictType,
     EastArray,
     EastDict,
@@ -438,6 +439,22 @@ ARRAY_COMPUTE_CASES = [
     ("group_mean", lambda c: c.group_mean(lambda r: r["sku"], lambda r: r["amt"])),
     ("group_maximum", lambda c: c.group_maximum(lambda r: r["sku"], by=lambda r: r["amt"])),
     ("group_minimum", lambda c: c.group_minimum(lambda r: r["sku"], by=lambda r: r["amt"])),
+    # #526: the group-find family reports GLOBAL row indices, so a
+    # segment-streamed file must rebase them and merge in stream order.
+    ("group_find_all", lambda c: {k: list(v) for k, v in c.group_find_all(
+        lambda r: r["sku"], "S2", lambda r: r["sku"]).items()}),
+    ("group_find_all_miss", lambda c: {k: list(v) for k, v in c.group_find_all(
+        lambda r: r["sku"], "nope", lambda r: r["sku"]).items()}),
+    ("group_find_first", lambda c: c.group_find_first(
+        lambda r: r["sku"], "S2", lambda r: r["sku"])),
+    ("group_find_maximum", lambda c: c.group_find_maximum(
+        lambda r: r["sku"], lambda r: r["amt"])),
+    ("group_find_minimum", lambda c: c.group_find_minimum(
+        lambda r: r["sku"], lambda r: r["amt"])),
+    ("group_find_max_ties", lambda c: c.group_find_maximum(lambda r: r["sku"], lambda _r: 0)),
+    ("group_find_min_ties", lambda c: c.group_find_minimum(lambda r: r["sku"], lambda _r: 0)),
+    ("scan", lambda c: list(c.scan(0, lambda a, r: a + r["qty"]))),
+    ("scan_idx", lambda c: list(c.scan(0, lambda a, r, i: a + r["qty"] + i))),
     ("group_every", lambda c: c.group_every(lambda r: r["sku"], lambda r: r["qty"] > 2)),
     ("group_some", lambda c: c.group_some(lambda r: r["sku"], lambda r: r["qty"] > 30)),
     ("group_to_arrays", lambda c: c.group_to_arrays(lambda r: r["sku"], lambda r: r["qty"])),
@@ -520,8 +537,16 @@ def test_array_compute_string_join_and_columns(tmp_path):
 
 DICT_COMPUTE_CASES = [
     ("reduce", lambda c: c.reduce(0.0, lambda a, k, v: a + v)),
+    ("scan", lambda c: list(c.scan(0.0, lambda a, k, v: a + v))),
     ("mean", lambda c: c.mean()),
     ("mean_proj", lambda c: c.mean(lambda k, v: v * 2.0)),
+    # #526: Dict gained every/some/sum, so the file surface mirrors them.
+    ("sum", lambda c: c.sum()),
+    ("sum_proj", lambda c: c.sum(lambda k, v: v * 2.0)),
+    ("every", lambda c: c.every(lambda k, v: v >= 0.0)),
+    ("every_false", lambda c: c.every(lambda k, v: v > 5.0)),
+    ("some", lambda c: c.some(lambda k, v: v > 5.0)),
+    ("some_false", lambda c: c.some(lambda k, v: v > 1e9)),
     ("map", lambda c: c.map(lambda v: v * 2)),
     ("map_with_key", lambda c: c.map(lambda v, k: k)),
     ("filter", lambda c: c.filter(lambda k, v: v > 5.0)),
@@ -571,6 +596,41 @@ def test_dict_compute_matches_load(tmp_path):
                 assert _same(got, want), f"{name} [{label}]: {got!r} != {want!r}"
 
 
+def test_dict_file_every_and_some_without_a_predicate(tmp_path):
+    """The Boolean-values spelling of the #526 additions.
+
+    The Float-valued fixture above can only reach ``every``/``some`` WITH a
+    predicate, so the ``pred is None`` branch — which requires Boolean values
+    and short-circuits across segments — needs its own file. The
+    counterexample sits in the LAST segment, so a short-circuit that stopped
+    early would answer wrongly rather than merely slowly.
+    """
+    dt = DictType(StringType, BooleanType)
+    for label, data, expect_every, expect_some in [
+        ("all-true", {f"k{i:03d}": True for i in range(20)}, True, True),
+        ("last-false", {f"k{i:03d}": i != 19 for i in range(20)}, False, True),
+        ("all-false", {f"k{i:03d}": False for i in range(20)}, False, False),
+        ("empty", {}, True, False),
+    ]:
+        path = tmp_path / f"bool-{label}.beast2"
+        write_beast2_file(path, dt, EastDict(StringType, BooleanType, data), segment_rows=4)
+        with open_beast2_file(path, dt) as d:
+            assert d.every() is expect_every, f"every [{label}]"
+            assert d.some() is expect_some, f"some [{label}]"
+            assert d.every() == d.load().every(), f"every vs load [{label}]"
+            assert d.some() == d.load().some(), f"some vs load [{label}]"
+
+    # Non-Boolean values raise the same TypeError the eager dict raises.
+    numeric = tmp_path / "bool-numeric.beast2"
+    ndt = DictType(StringType, IntegerType)
+    write_beast2_file(numeric, ndt, EastDict(StringType, IntegerType, {"a": 1}))
+    with open_beast2_file(numeric, ndt) as d:
+        with pytest.raises(TypeError, match="Boolean values"):
+            d.every()
+        with pytest.raises(TypeError, match="Boolean values"):
+            d.some()
+
+
 def test_cross_segment_float_collisions_carry_the_documented_caveat(tmp_path):
     """A non-associative (float-sum) ``combine`` on keys colliding ACROSS
     segments combines partials left-associatively in stream order — equal to
@@ -610,6 +670,7 @@ def test_dict_compute_with_variant_keys(tmp_path):
 
 SET_COMPUTE_CASES = [
     ("reduce", lambda c: c.reduce(0, lambda a, el: a + el)),
+    ("scan", lambda c: list(c.scan(0, lambda a, el: a + el))),
     ("sum", lambda c: c.sum()),
     ("mean", lambda c: c.mean()),
     ("map", lambda c: c.map(lambda el: el * 2)),
@@ -664,6 +725,14 @@ def test_set_compute_matches_load(tmp_path):
                 ("sym_diff", lambda c, o=other: c.sym_diff(o)),
                 ("is_subset", lambda c, o=other: c.is_subset(o)),
                 ("is_disjoint", lambda c, o=other: c.is_disjoint(o)),
+                # #526: is_superset_of — the file drains the outstanding
+                # remainder segment by segment, so it must agree with the
+                # whole-value answer for covered AND uncovered `other`s.
+                ("is_superset_of", lambda c, o=other: c.is_superset_of(o)),
+                ("is_superset_of_subset", lambda c: c.is_superset_of(
+                    EastSet(IntegerType, [0, 3, 6]))),
+                ("is_superset_of_empty", lambda c: c.is_superset_of(EastSet(IntegerType))),
+                ("is_superset_of_self", lambda c, o=table: c.is_superset_of(o)),
             ]:
                 got, want = _outcome(run, s), _outcome(run, table)
                 assert _same(got, want), f"{name} [{label}]: {got!r} != {want!r}"
@@ -691,6 +760,27 @@ def test_compute_callback_modes_stay_native(tmp_path):
 
         assert via_kernel == via_traced == list(table.map(double))
         assert traced_sum == table.sum(lambda r: r.amt)
+
+        # The group-find family, which rebases per-segment indices to global
+        # rows: doing that to the GROUPED result costs one python call per
+        # group per segment — O(rows) on a finely segmented file — so the
+        # rebase folds into the traced probe instead (#526 review). A `value`
+        # that matches nothing is the worst case: every group needs filling.
+        sku = kernel(W4_ROW, lambda r: r.sku)
+        qty = kernel(W4_ROW, lambda r: r.qty)
+        before = eager_stats().get("trampoline_calls", 0)
+        find_all = f.group_find_all(sku, -1, qty)
+        find_first = f.group_find_first(sku, -1, qty)
+        find_max = f.group_find_maximum(sku, qty)
+        find_min = f.group_find_minimum(sku, qty)
+        moved = eager_stats().get("trampoline_calls", 0) - before
+        assert moved == 0, f"group-find file compute trampolined {moved} time(s)"
+
+        assert {k: list(v) for k, v in find_all.items()} == \
+            {k: list(v) for k, v in table.group_find_all(sku, -1, qty).items()}
+        assert dict(find_first.items()) == dict(table.group_find_first(sku, -1, qty).items())
+        assert dict(find_max.items()) == dict(table.group_find_maximum(sku, qty).items())
+        assert dict(find_min.items()) == dict(table.group_find_minimum(sku, qty).items())
 
         seen = []
 

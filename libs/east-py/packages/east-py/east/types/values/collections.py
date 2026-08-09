@@ -1269,6 +1269,167 @@ class EastArray(MutableSequence, Generic[T]):
 
         return self._group_extreme(key, by, least)
 
+    def _find_index_pairs(self, key: Any, value: Any, by: Any, base: int = 0) -> tuple:
+        """Native scan to ``Array<{i, k}>`` — global index + group key — over
+        the elements whose projection equals ``value`` (ArrayFilterMap).
+
+        The shared machinery behind :meth:`group_find_all` /
+        :meth:`group_find_first`: matching is one native pass, and grouping the
+        surviving pairs afterwards keeps the whole composition inside east-c.
+
+        Args:
+            key: ``key(element[, index]) -> group key``.
+            value: The value matched against the projection.
+            by: Optional projection; the element itself when omitted.
+            base: Added to every emitted index INSIDE the traced probe, so a
+                segment-streamed file rebases to global row indices natively.
+                Rebasing the grouped result afterwards instead would cost a
+                python callback per group per segment — O(rows) trampolines
+                on a file whose segments are small (#470).
+        """
+        from east.kernel import KernelExpr, where
+        from east.namespace import East
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import ArrayType, IntegerType, NullType, StructType, VariantType
+
+        proj: Any = by if by is not None else (lambda el: el)
+        # Declared type first, sampling only as a fallback (#450).
+        k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))
+        p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type)) or _ev.type_of(_call_elem(proj, self[0]))
+        pair_t = StructType([("i", IntegerType), ("k", k2)])
+        kf, pf = _as_idx_fn(key), _as_idx_fn(proj)
+
+        def _probe(el, i):  # noqa: ANN001, ANN202
+            # East equality, not python `==`: the East namespace is dual-mode,
+            # so a traced callback emits IR and an untraceable one runs east-c
+            # on the values — the two paths then agree on -0.0/NaN and on every
+            # structured type, which python `==` does not guarantee.
+            r = East.equal(p_t, pf(el, i), value)
+            gi = i + base if base else i
+            if isinstance(r, KernelExpr):
+                return where(r, _some({"i": gi, "k": kf(el, i)}), _none)
+            return _some({"i": gi, "k": kf(el, i)}) if r else _none
+
+        out_variant = VariantType([("none", NullType), ("some", pair_t)])
+        callback = EastFunction(_probe, [self.element_type, IntegerType], out_variant)
+        pairs = _call_builtin(
+            "ArrayFilterMap", [self.element_type, pair_t], [self, callback], ArrayType(pair_t)
+        )
+        return pairs, k2, pair_t
+
+    def group_find_all(self, key: Any, value: Any, by: Any = None) -> EastDict:
+        """Indices of every element equal to ``value``, per group (native).
+
+        Args:
+            key: ``key(element) -> group key`` (``key(element, index)`` also
+                accepted).
+            value: The value matched against ``by(element)`` — or the element
+                itself when ``by`` is omitted — under East equality.
+            by: Optional projection ``by(element) -> comparable``.
+
+        Returns:
+            A dict from each group key to the array of matching GLOBAL indices,
+            in row order. Every group the array has appears, so a group with no
+            match maps to an empty array (TS ``groupFindAll`` parity).
+        """
+        from east.kernel import _empty_array_kernel
+        from east.types.types import ArrayType, IntegerType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, ArrayType(IntegerType))
+        pairs, k2, _pair_t = self._find_index_pairs(key, value, by)
+        # The groups come from the WHOLE array and the matches fill them in, so
+        # a group whose members all failed still appears (with an empty array).
+        groups = self.to_set(key)
+        found = pairs.group_to_arrays(lambda p: p["k"], lambda p: p["i"]) if len(pairs) \
+            else EastDict(k2, ArrayType(IntegerType))
+        # The compiled group-init kernel, not `lambda _k: EastArray(...)`: a
+        # python fill closes over EastArray/IntegerType, which the purity scan
+        # rejects, so east-c would trampoline once per UNMATCHED group — linear
+        # in an unbounded group count, and invisible whenever every group
+        # happens to match (#470).
+        return found.get_keys(groups, _empty_array_kernel(k2, IntegerType))
+
+    def group_find_first(self, key: Any, value: Any, by: Any = None) -> EastDict:
+        """First index equal to ``value``, per group (native).
+
+        Args:
+            key: ``key(element) -> group key``.
+            value: The value matched against ``by(element)`` (or the element).
+            by: Optional projection ``by(element) -> comparable``.
+
+        Returns:
+            A dict from each group key to ``some(global index)`` for its first
+            match, or ``none`` for a group with no match (TS parity).
+        """
+        from east.types.types import IntegerType, OptionType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, OptionType(IntegerType))
+        # group_find_all already yields matches in row order per group, so the
+        # first match is element 0 — and `out=` pins Option<Integer> rather
+        # than letting a `some`-only sample type the dict (#450).
+        return self.group_find_all(key, value, by).map(
+            lambda idxs: idxs.try_get(0), out=OptionType(IntegerType))
+
+    @staticmethod
+    def _group_extreme_combine(pair_t: EastType, key_type: EastType, want_max: bool) -> EastFunction:
+        """The ``{by, index}`` collision handler behind the group-find extremes.
+
+        ``a`` is the incumbent (earlier) pair and ``b`` the incoming one, so a
+        NON-STRICT comparison keeps the first on ties — the reported index is
+        the earliest extreme, matching TS. The East namespace is dual-mode, so
+        this traces instead of trampolining. Shared with the beast2 file
+        surface, which merges per-segment pairs under the same rule.
+        """
+        from east.kernel import where
+        from east.namespace import East
+
+        p_t = next(f["type"] for f in pair_t.value if f["name"] == "by")
+        return EastFunction(
+            (lambda a, b, _k: where(East.greater_equal(p_t, a["by"], b["by"]), a, b)) if want_max
+            else (lambda a, b, _k: where(East.less_equal(p_t, a["by"], b["by"]), a, b)),
+            [pair_t, pair_t, key_type], pair_t)
+
+    def _group_find_extreme_pairs(self, key: Any, by: Any, want_max: bool) -> EastDict:
+        """``Dict<group key, {by, index}>`` of each group's extreme element
+        (native ArrayToDict) — the index-carrying form the public
+        :meth:`group_find_minimum` / :meth:`group_find_maximum` project, and
+        the shape a segment-streamed file merges across segments."""
+        from east.types.types import DictType, IntegerType, StructType
+
+        proj: Any = by if by is not None else (lambda el: el)
+        k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))
+        p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type)) or _ev.type_of(_call_elem(proj, self[0]))
+        pair_t = StructType([("by", p_t), ("index", IntegerType)])
+        kf, pf = _as_idx_fn(key), _as_idx_fn(proj)
+        key_cb = EastFunction(kf, [self.element_type, IntegerType], k2)
+        val_cb = EastFunction(lambda el, i: {"by": pf(el, i), "index": i},
+                              [self.element_type, IntegerType], pair_t)
+        return _call_builtin(
+            "ArrayToDict", [self.element_type, k2, pair_t],
+            [self, key_cb, val_cb, self._group_extreme_combine(pair_t, k2, want_max)],
+            DictType(k2, pair_t))
+
+    def _group_find_extreme(self, key: Any, by: Any, want_max: bool) -> EastDict:
+        from east.types.types import IntegerType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, IntegerType)
+        pairs = self._group_find_extreme_pairs(key, by, want_max)
+        return pairs.map(lambda v: v["index"], out=IntegerType)
+
+    def group_find_minimum(self, key: Any, by: Any = None) -> EastDict:
+        """Index of the smallest element/projection per group (East total
+        order; a tie keeps the earliest index, like TS)."""
+        return self._group_find_extreme(key, by, want_max=False)
+
+    def group_find_maximum(self, key: Any, by: Any = None) -> EastDict:
+        """Index of the largest element/projection per group (East total
+        order; a tie keeps the earliest index, like TS)."""
+        return self._group_find_extreme(key, by, want_max=True)
+
     def group_every(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for all members (native)."""
         step = (lambda acc, el, i: acc & pred(el, i)) if _callback_arity(pred, 1) >= 2 \
@@ -1762,6 +1923,14 @@ class EastSet(Generic[T]):
         from east.types.types import BooleanType
 
         return _call_builtin("SetIsSubset", [self.element_type], [self, other], BooleanType)
+
+    def is_superset_of(self, other: EastSet) -> bool:
+        """Whether every element of ``other`` is also in self (east-c
+        SetIsSubset with the operands swapped — the same spelling TS's
+        ``SetExpr.isSupersetOf`` uses)."""
+        from east.types.types import BooleanType
+
+        return _call_builtin("SetIsSubset", [self.element_type], [other, self], BooleanType)
 
     def is_disjoint(self, other: EastSet) -> bool:
         """Whether self and ``other`` share no elements (east-c SetIsDisjoint)."""
@@ -2319,6 +2488,18 @@ class EastDict(Generic[K, V]):
         raise NotImplementedError
 
     def keys(self) -> Any:
+        """The keys as a python list, in East key order (mapping protocol).
+
+        This is the python VIEW, the sibling of :meth:`items` / :meth:`values`
+        — every key crosses into python, so it is a boundary convenience, not
+        the scan idiom. TypeScript's ``DictExpr.keys`` is the East-value
+        spelling and corresponds to :meth:`keys_set`, which stays in east-c
+        and returns an ``EastSet``; reach for that when porting TS.
+
+        Implemented by ``EastDictProxy`` against the live east-c dict — this
+        declaration exists so ``EastDict`` reads as a concrete mapping to
+        static checkers and never runs.
+        """
         raise NotImplementedError
 
     def values(self) -> Any:
@@ -2500,6 +2681,97 @@ class EastDict(Generic[K, V]):
         from east.types.types import BooleanType
 
         return _call_builtin("DictTryDelete", [self.key_type, self.value_type], [self, key], BooleanType)
+
+    def _first_map_bool(self, want: bool, pred: Any) -> bool:
+        """Shared native short-circuit scan: some(True) on the deciding entry.
+
+        The Dict twin of the Array/Set helpers — the callback takes
+        ``(key, value)`` like every other eager Dict callback, while the
+        builtin's own slot is ``(value, key)``.
+        """
+        from east.kernel import KernelExpr, where
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import BooleanType, NullType, VariantType
+
+        def _probe(v, k):  # noqa: ANN001, ANN202
+            r = pred(k, v)
+            decided = (r if isinstance(r, KernelExpr) else bool(r)) if want else (
+                ~r if isinstance(r, KernelExpr) else not bool(r)
+            )
+            if isinstance(decided, KernelExpr):
+                return where(decided, _some(True), _none)
+            return _some(True) if decided else _none
+
+        out_variant = VariantType([("none", NullType), ("some", BooleanType)])
+        callback = EastFunction(_probe, [self.value_type, self.key_type], out_variant)
+        result = _call_builtin(
+            "DictFirstMap", [self.key_type, self.value_type, BooleanType], [self, callback], out_variant
+        )
+        return result.type == "some"
+
+    def every(self, pred: Any = None) -> bool:
+        """True when ``pred(key, value)`` holds for every entry (native
+        short-circuiting DictFirstMap scan, like TS). Without ``pred`` the
+        values must be Booleans. True for an empty dict.
+        """
+        if pred is None:
+            if self.value_type.type != "Boolean":
+                raise TypeError("every() without a predicate needs Boolean values")
+            pred = lambda _k, v: v  # noqa: E731
+        return not self._first_map_bool(False, pred)
+
+    def some(self, pred: Any = None) -> bool:
+        """True when ``pred(key, value)`` holds for any entry (native
+        short-circuit). Without ``pred`` the values must be Booleans. False
+        for an empty dict.
+        """
+        if pred is None:
+            if self.value_type.type != "Boolean":
+                raise TypeError("some() without a predicate needs Boolean values")
+            pred = lambda _k, v: v  # noqa: E731
+        return self._first_map_bool(True, pred)
+
+    def sum(self, fn: Any = None) -> Any:
+        """Sum over entries: of values, or of ``fn(key, value)`` (native
+        DictReduce).
+
+        Args:
+            fn: Optional numeric projection ``fn(key, value)``; without it the
+                values must be Integer or Float.
+
+        Returns:
+            The total; the type's zero for an empty dict.
+        """
+        if fn is None:
+            t2 = self.value_type
+        else:
+            # Only the SAMPLE needs an entry — the declared type does not, so
+            # it is read first and unconditionally. Gating the whole derivation
+            # on `len(self)` would type an empty dict's zero from value_type:
+            # a numeric projection over non-numeric values would raise, and a
+            # Float projection over Integer values would return an Integer zero
+            # whose type flips once a row arrives (#450).
+            t2 = _kernel_out_type(fn) or _kernel_out_type(fn, [self.key_type, self.value_type])
+            if t2 is None:
+                if len(self):
+                    k0 = next(iter(self))
+                    t2 = _ev.type_of(fn(k0, self[k0]))
+                else:
+                    t2 = self.value_type
+        if t2.type == "Integer":
+            zero: Any = 0
+        elif t2.type == "Float":
+            zero = 0.0
+        else:
+            raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
+        proj = fn if fn is not None else (lambda _k, v: v)
+        step = EastFunction(
+            lambda acc, v, k: acc + proj(k, v), [t2, self.value_type, self.key_type], t2
+        )
+        return _call_builtin(
+            "DictReduce", [self.key_type, self.value_type, t2], [self, step, zero], t2
+        )
 
     def mean(self, fn: Any = None) -> float:
         """Float mean over entries: of values, or of ``fn(key, value)``

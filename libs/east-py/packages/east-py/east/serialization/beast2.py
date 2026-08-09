@@ -1107,6 +1107,93 @@ class Beast2ArrayFile(Beast2File):
             base += len(segment)
         return result
 
+    def group_find_all(self, key: Any, value: Any, by: Any = None):
+        """``EastArray.group_find_all`` — GLOBAL matching indices per group.
+
+        Each segment matches natively and emits indices ALREADY rebased to
+        global rows — the probe adds the segment base inside east-c — so the
+        per-segment dicts merge by native concat and each group's indices stay
+        in row order. Rebasing the grouped arrays afterwards instead would cost
+        a python callback per group per segment, i.e. O(rows) trampolines on a
+        finely segmented file (#470). The group set is the union across
+        segments, so a group that matched nowhere still lists an empty array.
+        """
+        from east.kernel import _empty_array_kernel
+        from east.types.types import ArrayType, IntegerType
+        from east.types.values.collections import EastDict
+
+        matched = None   # Dict<k2, Array<Integer>> — only the groups that hit
+        groups = None    # Set<k2> — every group key the file contains
+        k2 = None
+        base = 0
+        for segment in self.segments():
+            shifted_key = _shift_idx(key, base)
+            pairs, k2, _pair_t = segment._find_index_pairs(
+                shifted_key, value, _shift_idx(by, base), base)
+            part = pairs.group_to_arrays(lambda p: p["k"], lambda p: p["i"]) \
+                if len(pairs) else EastDict(k2, ArrayType(IntegerType))
+            seg_groups = segment.to_set(shifted_key)
+            base += len(segment)
+            if matched is None:
+                matched, groups = part, seg_groups
+            else:
+                _merge_partial(matched, part, lambda a, b: a.concat(b))
+                groups.union_in_place(seg_groups)
+        if matched is None:
+            return EastDict(self.element_type, ArrayType(IntegerType))
+        return matched.get_keys(groups, _empty_array_kernel(k2, IntegerType))
+
+    def group_find_first(self, key: Any, value: Any, by: Any = None):
+        """``EastArray.group_find_first`` — ``some(global index)`` of each
+        group's first match, ``none`` for a group with none."""
+        from east.types.types import IntegerType, OptionType
+
+        # No empty guard: `group_find_all` already answers an empty file with
+        # an empty dict, and `map` carries the key type and `out=` through it
+        # — guarding would only decode segment 0 a second time.
+        return self.group_find_all(key, value, by).map(
+            lambda idxs: idxs.try_get(0), out=OptionType(IntegerType))
+
+    def _group_find_extreme(self, key: Any, by: Any, want_max: bool):
+        """Index of each group's extreme element, GLOBAL across segments.
+
+        Each segment reduces to its own ``{by, index}`` pairs; merging them
+        applies the SAME first-wins tie rule left-associatively in stream
+        order, so a tie across segments keeps the earlier row — exactly the
+        eager (and TS) answer."""
+        from east.types.types import IntegerType
+        from east.types.values.collections import EastArray, EastDict
+
+        result = None
+        base = 0
+        for segment in self.segments():
+            part = segment._group_find_extreme_pairs(
+                _shift_idx(key, base), _shift_idx(by, base), want_max)
+            pair_t = part.value_type
+            if base:
+                part = part.map(
+                    lambda p, *, _b=base: {"by": p["by"], "index": p["index"] + _b},
+                    out=pair_t)
+            base += len(segment)
+            if result is None:
+                result = part
+            else:
+                combine = EastArray._group_extreme_combine(
+                    pair_t, result.key_type, want_max)
+                _merge_partial(result, part, combine.fn)
+        return result.map(lambda p: p["index"], out=IntegerType) \
+            if result is not None else EastDict(self.element_type, IntegerType)
+
+    def group_find_minimum(self, key: Any, by: Any = None):
+        """``EastArray.group_find_minimum`` — global index of each group's
+        smallest element/projection (ties keep the earliest row)."""
+        return self._group_find_extreme(key, by, want_max=False)
+
+    def group_find_maximum(self, key: Any, by: Any = None):
+        """``EastArray.group_find_maximum`` — global index of each group's
+        largest element/projection (ties keep the earliest row)."""
+        return self._group_find_extreme(key, by, want_max=True)
+
     def find_maximum(self, by: Any = None):
         """``EastArray.find_maximum`` — ``some(index)`` of the first maximum
         (the eager two-pass composition, segment-streamed)."""
@@ -1773,6 +1860,55 @@ class Beast2DictFile(Beast2File):
                 acc = part[len(part) - 1]
                 result.extend(part)
         return result
+
+    def every(self, pred: Any = None) -> bool:
+        """``EastDict.every`` — native short-circuit per segment, stopping
+        the scan (and further decoding) at the first counterexample."""
+        if pred is None:
+            if self.value_type.type != "Boolean":
+                raise TypeError("every() without a predicate needs Boolean values")
+            pred = lambda _k, v: v  # noqa: E731
+        return all(segment.every(pred) for segment in self._disjoint_segments())
+
+    def some(self, pred: Any = None) -> bool:
+        """``EastDict.some`` — native short-circuit per segment."""
+        if pred is None:
+            if self.value_type.type != "Boolean":
+                raise TypeError("some() without a predicate needs Boolean values")
+            pred = lambda _k, v: v  # noqa: E731
+        return any(segment.some(pred) for segment in self._disjoint_segments())
+
+    def sum(self, fn: Any = None) -> Any:
+        """``EastDict.sum`` — one accumulator threads the segments in key
+        order, exactly the eager fold's element order."""
+        from east.types.values.collections import _kernel_out_type
+
+        acc = None
+        for segment in self._disjoint_segments():
+            if acc is None:
+                acc = segment.sum(fn)
+            else:
+                proj = fn if fn is not None else (lambda _k, v: v)
+
+                def step(a, k, v, *, _p=proj):  # noqa: ANN001, ANN202
+                    return a + _p(k, v)
+                acc = segment.reduce(acc, step)
+        if acc is not None:
+            return acc
+        # Empty file: the zero is typed from the PROJECTION when there is one,
+        # as the eager EastDict.sum types it — reading value_type instead would
+        # raise for a numeric projection over non-numeric values, and return an
+        # Integer zero where a Float projection returns 0.0 (#450).
+        t = self.value_type
+        if fn is not None:
+            t = (_kernel_out_type(fn)
+                 or _kernel_out_type(fn, [self.key_type, self.value_type])
+                 or self.value_type)
+        if t.type == "Integer":
+            return 0
+        if t.type == "Float":
+            return 0.0
+        raise TypeError(f"expected a numeric (Integer/Float) type, got {t.type}")
 
     def mean(self, fn: Any = None) -> float:
         """``EastDict.mean`` — widened total threads the segments; NaN when
@@ -2507,6 +2643,24 @@ class Beast2SetFile(Beast2File):
         """``EastSet.is_subset`` — every segment checks natively,
         short-circuiting."""
         return all(segment.is_subset(other) for segment in self._disjoint_segments())
+
+    def is_superset_of(self, other) -> bool:
+        """``EastSet.is_superset_of`` — whether the file covers every element
+        of ``other``.
+
+        Each segment removes what it covers from the outstanding remainder
+        (one native SetDiff per segment), so the scan stops as soon as the
+        remainder empties. The emptiness test sits AFTER each diff and once
+        before the loop, so a covered ``other`` never costs the decode of the
+        following segment, and an empty ``other`` decodes nothing at all."""
+        remaining = other.copy()
+        if not len(remaining):
+            return True
+        for segment in self._disjoint_segments():
+            remaining = remaining.diff(segment)
+            if not len(remaining):
+                return True
+        return False
 
     def is_disjoint(self, other) -> bool:
         """``EastSet.is_disjoint`` — per segment, short-circuiting."""

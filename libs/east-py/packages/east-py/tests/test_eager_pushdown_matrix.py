@@ -103,6 +103,14 @@ ARRAY_CASES = {
     "group_some":      lambda a, c: a.group_some(c["g"], c["pred"]),
     "group_maximum":   lambda a, c: a.group_maximum(c["g"], by=c["v"]),
     "group_minimum":   lambda a, c: a.group_minimum(c["g"], by=c["v"]),
+    # -1.0 matches NOTHING on purpose: the group-find family fills every
+    # unmatched group, and that fill is what trampolined once per group (#526
+    # review). A value that hits every group would score a healthy 0 while the
+    # unbounded-cardinality case cost one python call per group.
+    "group_find_all":     lambda a, c: a.group_find_all(c["g"], -1.0, c["v"]),
+    "group_find_first":   lambda a, c: a.group_find_first(c["g"], -1.0, c["v"]),
+    "group_find_maximum": lambda a, c: a.group_find_maximum(c["g"], by=c["v"]),
+    "group_find_minimum": lambda a, c: a.group_find_minimum(c["g"], by=c["v"]),
     "group_reduce":    lambda a, c: a.group_reduce(c["g"], lambda _k: 0.0, c["folder"]),
     "group_to_arrays": lambda a, c: a.group_to_arrays(c["g"], c["v"]),
     "group_to_sets":   lambda a, c: a.group_to_sets(c["g"], c["v"]),
