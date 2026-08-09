@@ -1513,7 +1513,7 @@ class Beast2ArrayFile(Beast2File):
 
         def _inner(a, b):  # noqa: ANN001, ANN202
             if combine is not None:
-                return a.merge(b, combine)
+                return a.union(b, combine)
             from east.runtime.errors import EastError
             from east.serialization.east_printer import print_east
 
@@ -1521,7 +1521,7 @@ class Beast2ArrayFile(Beast2File):
                 printed = ik if isinstance(ik, str) else print_east(ik, a.key_type)
                 raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
 
-            return a.merge(b, _dup)
+            return a.union(b, _dup)
 
         result = None
         base = 0
@@ -2162,7 +2162,7 @@ class Beast2DictFile(Beast2File):
 
         def _inner(a, b):  # noqa: ANN001, ANN202
             if combine is not None:
-                return a.merge(b, combine)
+                return a.union(b, combine)
             from east.runtime.errors import EastError
             from east.serialization.east_printer import print_east
 
@@ -2170,7 +2170,7 @@ class Beast2DictFile(Beast2File):
                 printed = ik if isinstance(ik, str) else print_east(ik, a.key_type)
                 raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
 
-            return a.merge(b, _dup)
+            return a.union(b, _dup)
 
         result = None
         for segment in self._disjoint_segments():
@@ -2575,7 +2575,7 @@ class Beast2SetFile(Beast2File):
 
         def _inner(a, b):  # noqa: ANN001, ANN202
             if combine is not None:
-                return a.merge(b, combine)
+                return a.union(b, combine)
             from east.runtime.errors import EastError
             from east.serialization.east_printer import print_east
 
@@ -2583,7 +2583,7 @@ class Beast2SetFile(Beast2File):
                 printed = ik if isinstance(ik, str) else print_east(ik, a.key_type)
                 raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
 
-            return a.merge(b, _dup)
+            return a.union(b, _dup)
 
         result = None
         for segment in self._disjoint_segments():

@@ -867,8 +867,11 @@ def test_file_surface_covers_the_eager_read_surface():
             # mutators
             "insert", "get_or_insert", "insert_or_update", "update", "swap",
             "delete", "try_delete", "pop", "clear", "update_many", "merge_all",
-            # materializers / constructor
-            "merge", "copy", "generate",
+            "union_in_place", "merge_key",
+            # materializers / constructor — `union` (and its deprecated `merge`
+            # spelling, #527) would pull the whole file into one dict, so it
+            # keeps the exclusion the old `merge` name already had.
+            "union", "merge", "copy", "generate",
         },
     }
     pairs = [

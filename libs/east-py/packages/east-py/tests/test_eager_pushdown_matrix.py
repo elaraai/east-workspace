@@ -123,7 +123,7 @@ SET_CASES = {
 }
 
 DICT_CASES = {
-    "merge":           lambda d, c: d.merge(d, c["comb"]),
+    "union":           lambda d, c: d.union(d, c["comb"]),
     "mean":            lambda d, c: d.mean(c["dv"]),
     "group_fold":      lambda d, c: d.group_fold(
         c["dg"], lambda _k: 0.0, lambda acc, k, v: acc + v),

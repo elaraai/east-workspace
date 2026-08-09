@@ -458,7 +458,7 @@ Task → What do you need?
     │   ├─ Dict<K,V>  (callbacks: map=fn(v)|fn(v,k) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
     │   │   ├─ Access → d[k] · get(k, default=None) · get_or_default(k, d) · try_get(k) · has(k) · len() ·
     │   │   │            keys()/values()/items() (python views — TS's `keys` is keys_set())
-    │   │   ├─ Combine → merge(other, combine=) ❗shared key w/o combine · get_keys(keys, fill)
+    │   │   ├─ Combine → union(other, combine=) ❗shared key w/o combine (pure; `merge` = deprecated alias #527) · union_in_place(other, combine=) · merge_key(key, value, update, initial=) (ONE key, in place) · get_keys(keys, fill)
     │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · scan(init, fn) (running fold → Array, key order) ·
     │   │   │            map_reduce(map_fn, reduce_fn, out=) ❗empty · sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
@@ -753,12 +753,16 @@ Mutable, **East-sorted by key**. `.key_type` / `.value_type`. **Callback arities
 `map` takes `fn(value)` (no key); `filter`/`first_map`/`to_*`/`flatten_to_*`/`group_fold`/`map_reduce`
 and the predicates/projections of `every`/`some`/`sum`/`mean` take `fn(key, value)`;
 `reduce` takes `fn(acc, key, value)`; collision `combine` is
-`combine(existing, incoming, key)` (3-arg) **except `merge`'s is `combine(existing, incoming)` (2-arg)**.
+`combine(existing, incoming, key)` — for `union`/`union_in_place`/`merge` a 2-arg
+`combine(existing, incoming)` is also accepted (a 3-arg one still receives the key).
+⚠️ `union`/`merge_all` require `other` to have the SAME value type — a mismatched
+`other` is a memory-unsafe read, not an error; use `merge_key` for a
+differently-typed incoming value.
 
 | Group | Methods |
 |-------|---------|
 | Access | `d[k]` · `k in d` · `has(k)` · `len(d)`/`size()` · `get(k, default=None)` · `get_or_default(k, default)` · `try_get(k) -> some/none` · `keys()`/`values()`/`items()` |
-| Combine | `merge(other, combine=None)` (new dict; a shared key errors without `combine`) · `merge_all(other, merge(existing, incoming, key), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys) · `get_keys(keys: Set, fill(k)) -> Dict` |
+| Combine | `union(other, combine=None) -> Dict` (NEW dict, both inputs untouched; a shared key errors without `combine`) · `union_in_place(other, combine=None) -> None` · `merge_all(other, merge(existing, incoming, key), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys) · `merge_key(key, value, update(existing, incoming[, key]), initial=None) -> None` (ONE key, in place; `value` may be a different type — TS's `DictExpr.merge`) · `get_keys(keys: Set, fill(k)) -> Dict` · ⚠️ `merge(other, combine=None)` is the DEPRECATED alias of `union` (#527) |
 | Per-entry | `map(fn(value), out=None)` (a two-arg `fn(value, key)` also accepted) · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
 | Reduce | `reduce(initial, fn(acc, key, value))` · `scan(initial, fn(acc, key, value)) -> Array` (running fold in key order) · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) · `sum(fn(key, value)=None)` · `mean(fn(key, value)=None) -> float` · `every(pred(key, value)=None) -> bool` · `some(pred(key, value)=None) -> bool` (native short-circuit) |
 | Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` |

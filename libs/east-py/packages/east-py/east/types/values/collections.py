@@ -2983,23 +2983,14 @@ class EastDict(Generic[K, V]):
         )
         del keep_alive
 
-    def merge(self, other: EastDict, combine: Any = None) -> EastDict:
-        """New dict merging ``other`` into a copy of this one (east-c DictCopy + DictUnionInPlace).
+    def _union_combine(self, combine: Any) -> EastFunction:
+        """The shared overlap handler for :meth:`union` / :meth:`union_in_place`.
 
-        Args:
-            other: The dict whose entries are merged in. Its key/value types
-                must match this dict's.
-            combine: For a key present in both, called as
-                ``combine(existing, incoming[, key]) -> value`` to pick the
-                result. When omitted a shared key errors, like every other
-                East runtime.
-
-        Returns:
-            A new dict; this dict and ``other`` are unchanged.
+        ``None`` means East's default for a whole-dict union: error naming the
+        shared key — the same default TS's ``DictExpr.unionInPlace`` injects
+        (and a DIFFERENT message from the duplicate-insert one ``_combine_cb``
+        produces, matching TS).
         """
-        from east.types.types import DictType, NullType
-
-        result = _call_builtin("DictCopy", [self.key_type, self.value_type], [self], DictType(self.key_type, self.value_type))
         if combine is None:
             key_type = self.key_type
 
@@ -3013,9 +3004,128 @@ class EastDict(Generic[K, V]):
             cb_fn: Any = _dup
         else:
             cb_fn = _combine_cb(combine, self.key_type)
-        callback = EastFunction(cb_fn, [self.value_type, self.value_type, self.key_type], self.value_type)
-        _call_builtin("DictUnionInPlace", [self.key_type, self.value_type], [result, other, callback], NullType)
+        return EastFunction(cb_fn, [self.value_type, self.value_type, self.key_type], self.value_type)
+
+    def union(self, other: EastDict, combine: Any = None) -> EastDict:
+        """New dict holding the entries of both (east-c DictCopy + DictUnionInPlace).
+
+        The pure counterpart of :meth:`union_in_place`, exactly as
+        :meth:`EastSet.union` is of ``EastSet.union_in_place``, and the same
+        operation TypeScript spells ``DictExpr.union``.
+
+        ``other`` must have the SAME key and value types. Unlike TypeScript's
+        ``DictExpr.mergeAll``, east-py's :meth:`merge_all` is homogeneous too —
+        it decodes ``other``'s values as THIS dict's value type, so a
+        differently-typed ``other`` is a memory-unsafe read rather than an
+        error. Use :meth:`merge_key` for a differently-typed incoming value.
+
+        Args:
+            other: The dict whose entries are merged in. Its key/value types
+                must match this dict's.
+            combine: For a key present in both, called as
+                ``combine(existing, incoming)`` — or
+                ``combine(existing, incoming, key)`` when it accepts three
+                arguments — returning the value to keep. When omitted a shared
+                key errors, like every other East runtime.
+
+        Returns:
+            A new dict; this dict and ``other`` are unchanged.
+        """
+        from east.types.types import DictType, NullType
+
+        result = _call_builtin("DictCopy", [self.key_type, self.value_type], [self], DictType(self.key_type, self.value_type))
+        _call_builtin("DictUnionInPlace", [self.key_type, self.value_type],
+                      [result, other, self._union_combine(combine)], NullType)
         return result
+
+    def union_in_place(self, other: EastDict, combine: Any = None) -> None:
+        """Add every entry of ``other`` to this dict in place (east-c DictUnionInPlace).
+
+        The in-place counterpart of :meth:`union`, and the sibling of
+        ``EastSet.union_in_place``. Matches TypeScript's
+        ``DictExpr.unionInPlace``, including the error on an overlapping key
+        when no ``combine`` is given.
+
+        Args:
+            other: The dict whose entries are added. Its key/value types must
+                match this dict's.
+            combine: For a key present in both, ``combine(existing, incoming
+                [, key]) -> value``; without it a shared key errors.
+        """
+        from east.types.types import NullType
+
+        self._check_not_iterating()
+        _call_builtin("DictUnionInPlace", [self.key_type, self.value_type],
+                      [self, other, self._union_combine(combine)], NullType)
+
+    def merge(self, other: EastDict, combine: Any = None) -> EastDict:
+        """Deprecated alias for :meth:`union` (issue #527).
+
+        This name meant the PURE WHOLE-DICT union here while TypeScript's
+        ``DictExpr.merge`` means a single-key in-place upsert — so porting
+        ``merge`` by name between the runtimes was silently wrong in both
+        directions. The operation is unchanged; only the spelling moves.
+
+        Use :meth:`union` for this behaviour, and :meth:`merge_key` for what
+        TypeScript's ``merge`` does. ``merge`` is reserved so it can take the
+        TypeScript meaning once this alias is retired.
+        """
+        import warnings
+
+        warnings.warn(
+            "EastDict.merge is deprecated: it is the pure whole-dict union, "
+            "which is now spelled EastDict.union. (TypeScript's DictExpr.merge "
+            "is the single-key upsert, spelled EastDict.merge_key here.) See "
+            "issue #527.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.union(other, combine)
+
+    def merge_key(self, key: Any, value: Any, update: Any, initial: Any = None) -> None:
+        """Combine ``value`` into the entry at ``key``, in place (east-c DictMerge).
+
+        The single-key upsert TypeScript spells ``DictExpr.merge`` — the
+        sibling of ``ArrayExpr.merge`` (one index) and ``EastRef.merge`` (the
+        cell). Unlike :meth:`insert_or_update`, ``value`` may have a DIFFERENT
+        East type from the dict's values (``update`` bridges the two), and a
+        missing key errors unless ``initial`` supplies a seed.
+
+        Args:
+            key: The key to combine into.
+            value: The incoming value; its East type is inferred with
+                ``type_of`` and need not match the dict's value type.
+            update: ``update(existing, incoming[, key]) -> value`` producing
+                the stored result.
+            initial: Optional ``initial(key) -> value`` seeding a missing key;
+                without it a missing key raises.
+
+        Returns:
+            None; the dict is modified in place.
+        """
+        from east.types.types import NullType
+
+        v2 = _ev.type_of(value)
+        update_fn = update if _callback_arity(update, 2) >= 3 else (
+            lambda existing, incoming, _k: update(existing, incoming))
+        update_cb = EastFunction(_mark_kernel(update_fn, update),
+                                 [self.value_type, v2, self.key_type], self.value_type)
+        if initial is None:
+            key_type = self.key_type
+
+            def _missing(k):  # noqa: ANN001, ANN202
+                from east.runtime.errors import EastError
+                from east.serialization.east_printer import print_east
+
+                printed = k if isinstance(k, str) else print_east(k, key_type)
+                raise EastError(f"Key {printed} not found in dictionary", [])
+
+            init_fn: Any = _missing
+        else:
+            init_fn = initial
+        init_cb = EastFunction(_mark_kernel(init_fn, init_fn), [self.key_type], self.value_type)
+        _call_builtin("DictMerge", [self.key_type, self.value_type, v2],
+                      [self, key, value, update_cb, init_cb], NullType)
 
     def merge_all(self, other: EastDict, merge: Any, default: Any) -> None:
         """Fold every entry of ``other`` into self in place (east-c DictMergeAll).

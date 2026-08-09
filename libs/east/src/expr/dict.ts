@@ -27,15 +27,30 @@ import { none, some } from "../containers/variant.js";
  *
  * @example
  * ```ts
- * // Creating and manipulating dictionaries
- * const updateCounts = East.function([DictType(StringType, IntegerType), StringType], DictType(StringType, IntegerType), ($, counts, word) => {
+ * // `merge` combines a value into ONE key, IN PLACE, and returns null —
+ * // the sibling of ArrayExpr.merge (one index) and RefExpr.merge (the cell).
+ * const updateCounts = East.function([DictType(StringType, IntegerType), StringType], NullType, ($, counts, word) => {
  *   // Increment count for a word, initializing to 0 if missing
- *   $.return(counts.merge(word, 1n, ($, existing, increment) => existing.add(increment), () => 0n));
+ *   $(counts.merge(word, 1n, ($, existing, increment) => existing.add(increment), () => 0n));
+ *   $.return(null);
  * });
  * const compiled = East.compile(updateCounts.toIR(), []);
  * const counts = new Map([["hello", 5n], ["world", 3n]]);
- * compiled(counts, "hello");  // Map([["hello", 6n], ["world", 3n]])
- * compiled(counts, "new");    // Map([["hello", 6n], ["new", 1n], ["world", 3n]])
+ * compiled(counts, "hello");  // counts is now Map([["hello", 6n], ["world", 3n]])
+ * compiled(counts, "new");    // counts is now Map([["hello", 6n], ["new", 1n], ["world", 3n]])
+ * ```
+ *
+ * @example
+ * ```ts
+ * // `union` is the whole-dictionary operation, and it is PURE — contrast the
+ * // single-key `merge` above. (east-py spells this `EastDict.union` too; its
+ * // `merge` is the deprecated alias for THIS operation, not the one above.)
+ * const combine = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, a, b) => {
+ *   $.return(a.union(b, ($, existing, incoming) => existing.add(incoming)));
+ * });
+ * const compiled = East.compile(combine.toIR(), []);
+ * compiled(new Map([["a", 1n], ["b", 2n]]), new Map([["b", 3n], ["c", 4n]]));
+ * // Map([["a", 1n], ["b", 5n], ["c", 4n]]) — both inputs unchanged
  * ```
  *
  * @example
@@ -348,6 +363,14 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * This is useful for patterns where you want to update an entry based on its current value, e.g. incrementing a number,
    * appending to a string, updating fields in a struct, or pushing to an array.
    *
+   * Operates on ONE key and mutates the receiver, matching `ArrayExpr.merge`
+   * (one index) and `RefExpr.merge` (the cell) — `merge` means "combine a
+   * value into this slot" across the whole expression API. It is therefore
+   * **not** the whole-dictionary operation east-py's `EastDict.merge`
+   * historically named; that one is pure and is spelled {@link union} here
+   * (and `EastDict.union` there). Porting `merge` by name between the two
+   * runtimes was silently wrong in both directions — see issue #527.
+   *
    * @param key - The key to update
    * @param value - The value to merge with the existing value
    * @param updateFn - Function accepting (existing, new, key) and returning the merged value
@@ -356,6 +379,8 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *
    * @throws East runtime error if key is not found and initialFn is not provided
    *
+   * @see {@link union} for the pure whole-dictionary union
+   * @see {@link mergeAll} to merge every entry of another dictionary
    * @see {@link insertOrUpdate} and {@link update} for simply replacing the value
    *
    * @example
@@ -666,6 +691,52 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], Expr.ast(dict2Expr), mergerAst],
     }) as NullExpr;
+  }
+
+  /**
+   * Unions another dictionary with this one, returning a NEW dictionary.
+   *
+   * The pure counterpart of {@link unionInPlace}: neither input is modified,
+   * exactly as {@link SetExpr.union} is the pure counterpart of
+   * `SetExpr.unionInPlace`. Both dictionaries must have the same key and
+   * value types; use {@link mergeAll} when the other dictionary's values have
+   * a different type.
+   *
+   * This is the operation east-py spells `EastDict.union` (and, until it is
+   * retired, `EastDict.merge`). Note that it is NOT what {@link merge} does
+   * here — `merge` updates a SINGLE key in place, matching `ArrayExpr.merge`
+   * and `RefExpr.merge`. See issue #527.
+   *
+   * @param dict2 - The dictionary to union with this one
+   * @param mergeFn - Optional function to combine values when a key is present in both; accepts (existing, new, key) and returns the merged value
+   * @returns A new DictExpr holding the entries of both dictionaries
+   *
+   * @throws East runtime error if a key is present in both and mergeFn is not provided
+   *
+   * @see {@link unionInPlace} for the in-place form
+   * @see {@link mergeAll} to merge a dictionary whose values have a different type
+   * @see {@link merge} to combine a value into one key
+   *
+   * @example
+   * ```ts
+   * const combine = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict1, dict2) => {
+   *   $.return(dict1.union(dict2, ($, existing, newVal) => existing.add(newVal)));
+   * });
+   * const compiled = East.compile(combine.toIR(), []);
+   * const dict1 = new Map([["a", 1n], ["b", 2n]]);
+   * const dict2 = new Map([["b", 3n], ["c", 4n]]);
+   * compiled(dict1, dict2);  // Map([["a", 1n], ["b", 5n], ["c", 4n]]) — dict1 is unchanged
+   * ```
+   */
+  union(dict2: SubtypeExprOrValue<DictType<K, T>>, mergeFn?: SubtypeExprOrValue<FunctionType<[T, T, K], T>>): DictExpr<K, T> {
+    // A copy plus an in-place union: the same two builtins east-py's eager
+    // implementation uses, so every runtime performs one bulk native merge
+    // rather than a per-entry insert loop.
+    return Expr.block(($: any) => {
+      const result = $.let(this.copy()) as DictExpr<K, T>;
+      $(result.unionInPlace(dict2, mergeFn));
+      return result;
+    }) as DictExpr<K, T>;
   }
 
   /**

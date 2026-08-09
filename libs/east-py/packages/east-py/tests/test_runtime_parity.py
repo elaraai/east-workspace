@@ -314,6 +314,71 @@ def test_group_find_family_accepts_precompiled_kernels():
     assert dict(rows.group_find_first(key, 5, by).items()) == {"a": some(1), "b": none}
 
 
+# ── Dict.union / union_in_place / merge_key: the #527 naming split ───────────
+
+def test_dict_union_is_pure_and_matches_the_old_merge():
+    a = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
+    b = EastDict(StringType, IntegerType, {"b": 30, "c": 4})
+
+    got = a.union(b, lambda x, y: x + y)
+    assert dict(got.items()) == {"a": 1, "b": 32, "c": 4}
+    # neither input touched — this is the whole point of the pure form
+    assert dict(a.items()) == {"a": 1, "b": 2}
+    assert dict(b.items()) == {"b": 30, "c": 4}
+
+    # disjoint dicts need no handler; an overlap without one errors
+    assert dict(a.union(EastDict(StringType, IntegerType, {"z": 9})).items()) == \
+        {"a": 1, "b": 2, "z": 9}
+    with pytest.raises(Exception, match="exists in both dictionaries"):
+        a.union(b)
+
+
+def test_dict_merge_still_works_but_warns():
+    """The old spelling keeps working — it just tells you where it went."""
+    a = EastDict(StringType, IntegerType, {"a": 1})
+    b = EastDict(StringType, IntegerType, {"b": 2})
+    with pytest.warns(DeprecationWarning, match="union"):
+        got = a.merge(b)
+    assert dict(got.items()) == {"a": 1, "b": 2}
+
+
+def test_dict_union_in_place():
+    a = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
+    b = EastDict(StringType, IntegerType, {"b": 30, "c": 4})
+    assert a.union_in_place(b, lambda x, y: x + y) is None
+    assert dict(a.items()) == {"a": 1, "b": 32, "c": 4}   # receiver mutated
+    assert dict(b.items()) == {"b": 30, "c": 4}           # argument untouched
+    with pytest.raises(Exception, match="exists in both dictionaries"):
+        a.union_in_place(EastDict(StringType, IntegerType, {"a": 0}))
+
+
+def test_dict_merge_key_is_the_ts_single_key_merge():
+    """TS ``DictExpr.merge``: one key, in place, heterogeneous incoming value."""
+    counts = EastDict(StringType, IntegerType, {"hello": 5})
+    # the TS doc's own worked example: increment, seeding a missing key with 0
+    counts.merge_key("hello", 1, lambda existing, inc: existing + inc, lambda _k: 0)
+    assert dict(counts.items()) == {"hello": 6}
+    counts.merge_key("world", 1, lambda existing, inc: existing + inc, lambda _k: 0)
+    assert dict(counts.items()) == {"hello": 6, "world": 1}
+
+    # without `initial`, a missing key raises rather than being created
+    with pytest.raises(Exception, match="not found in dictionary"):
+        counts.merge_key("nope", 1, lambda existing, inc: existing + inc)
+    assert "nope" not in counts
+
+    # the incoming value may have a DIFFERENT type from the values — the thing
+    # insert_or_update cannot express (its value must be the dict's value type)
+    lengths = EastDict(StringType, IntegerType, {"a": 10})
+    lengths.merge_key("a", "xyz", lambda existing, s: existing + len(s))
+    assert dict(lengths.items()) == {"a": 13}
+
+    # a three-argument update also receives the key
+    seen: list = []
+    tagged = EastDict(StringType, StringType, {"k": "v"})
+    tagged.merge_key("k", "!", lambda existing, inc, key: (seen.append(key), existing + inc)[1])
+    assert dict(tagged.items()) == {"k": "v!"} and seen == ["k"]
+
+
 # ── keys(): the python view, not the East-value spelling ─────────────────────
 
 def test_dict_keys_is_the_python_view_and_keys_set_is_the_east_value():

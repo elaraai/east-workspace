@@ -214,6 +214,18 @@ export const dictUnionInPlace = example({
     returns: new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]]),
 });
 
+export const dictUnion = example({
+    keywords: ["dict", "DictType", "union", "merge", "pure", "combine", "copy", "#527"],
+    description: "Union two dicts into a NEW dict, leaving both inputs unchanged",
+    fn: East.function([], DictType(IntegerType, StringType), ($) => {
+        const d1 = $.const(new Map([[1n, "a"], [2n, "b"]]), DictType(IntegerType, StringType));
+        const d2 = $.const(new Map([[2n, "B"], [3n, "C"]]), DictType(IntegerType, StringType));
+        return d1.union(d2, ($, v1, v2) => v1.concat("+").concat(v2));
+    }),
+    inputs: [],
+    returns: new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]]),
+});
+
 export const dictMergeAll = example({
     keywords: ["dict", "DictType", "mergeAll", "combine", "missing"],
     description: "Merge all entries from another dict with conflict and missing handlers",

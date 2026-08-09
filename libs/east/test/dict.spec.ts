@@ -228,6 +228,7 @@ await describe("Dict", (test) => {
 
     assert.examples(test, {
         dictUnionInPlace: ex.dictUnionInPlace,
+        dictUnion: ex.dictUnion,
         dictMergeAll: ex.dictMergeAll,
     });
 
@@ -241,6 +242,19 @@ await describe("Dict", (test) => {
 
         $(d1b.unionInPlace(d2, ($, v1, v2) => v1.concat("+").concat(v2)))
         $(assert.equal(d1b, new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]])))
+
+        // `union` is the PURE counterpart: same answer, both inputs untouched (#527)
+        const u1 = $.let(new Map([[1n, "a"], [2n, "b"]]), DictType(IntegerType, StringType))
+        const u2 = $.let(new Map([[2n, "B"], [3n, "C"]]), DictType(IntegerType, StringType))
+        $(assert.equal(u1.union(u2, ($, v1, v2) => v1.concat("+").concat(v2)),
+            new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]])))
+        $(assert.equal(u1, new Map([[1n, "a"], [2n, "b"]])))       // receiver unchanged
+        $(assert.equal(u2, new Map([[2n, "B"], [3n, "C"]])))       // argument unchanged
+        // and, like unionInPlace, an overlapping key without a handler errors
+        $(assert.throws(u1.union(u2), /Key .* exists in both dictionaries/))
+        // disjoint dicts need no handler at all
+        const u3 = $.let(new Map([[9n, "z"]]), DictType(IntegerType, StringType))
+        $(assert.equal(u1.union(u3), new Map([[1n, "a"], [2n, "b"], [9n, "z"]])))
 
         const d3 = $.let(new Map([[1n, "a"], [2n, "b"]]), DictType(IntegerType, StringType))
         const d4 = $.let(new Map([[2n, "B"], [3n, "C"]]), DictType(IntegerType, StringType))
