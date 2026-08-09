@@ -131,15 +131,16 @@ syntax, fastest first:
      `map_reduce` `flatten_to_array` `flatten_to_set` `to_dict` `to_set`
      `unique` `group_by` `sorted` `is_sorted` `some` `every` `string_join`
      `concat` `slice` `reversed` `copy` `get_keys` `size` `has` `get`
-     `get_or_default` `try_get` `[index_expr]`
+     `get_or_default` `try_get` `sum` `mean` `maximum` `minimum`
+     `[index_expr]`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
      `intersect` `diff` `sym_diff` `is_subset` `is_disjoint` `copy` `size`
-     `has`
+     `has` `reduce` `sum` `mean` `every` `some`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
      `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
-     `try_get` `[key_expr]`
+     `try_get` `reduce` `sum` `mean` `every` `some` `[key_expr]`
 
    Mutators and side-effecting methods are deliberately absent (the kernel
    language is pure), so a whole `record → legs → values` descent — or a

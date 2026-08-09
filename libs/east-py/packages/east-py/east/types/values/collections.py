@@ -995,11 +995,16 @@ class EastArray(MutableSequence, Generic[T]):
             zero = self._numeric_zero(t)
             step = EastFunction(lambda acc, el, _i: acc + el, [t, t, IntegerType], t)
             return _call_builtin("ArrayFold", [t, t], [self, zero, step], t)
-        _ko = _kernel_out_type(fn)
-        if _ko is not None:
-            t2 = _ko
-        else:
-            t2 = _kernel_out_type(fn, _elem_in(fn, self.element_type)) or _ev.type_of(_call_elem(fn, self[0])) if len(self) else self.element_type
+        # Declared type first and UNCONDITIONALLY — only the SAMPLE needs an
+        # element. Gating the whole derivation on `len(self)` typed an empty
+        # array's zero from the element type, so a numeric projection over
+        # non-numeric elements RAISED when empty while working non-empty
+        # (#450). The Dict twin was fixed in #526; the traced `sum` added in
+        # #525 derives from the projection either way, so leaving this made
+        # traced and eager disagree on exactly the empty case.
+        t2 = _kernel_out_type(fn) or _kernel_out_type(fn, _elem_in(fn, self.element_type))
+        if t2 is None:
+            t2 = _ev.type_of(_call_elem(fn, self[0])) if len(self) else self.element_type
         zero = self._numeric_zero(t2)
         wants_idx = _callback_arity(fn, 1) >= 2
         step = EastFunction(
@@ -2271,11 +2276,17 @@ class EastSet(Generic[T]):
         )
 
     def sum(self, fn: Any = None) -> Any:
-        """Sum of elements or of ``fn(element)`` (native SetReduce)."""
+        """Sum of elements or of ``fn(element)`` (native SetReduce).
+
+        The zero is typed from the projection, so an empty set sums to the
+        projection's zero — see the note on ``EastArray.sum`` (#450/#525).
+        """
         if fn is None:
             t2 = self.element_type
         else:
-            t2 = _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))) if len(self) else self.element_type
+            t2 = _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type])
+            if t2 is None:
+                t2 = _ev.type_of(fn(next(iter(self)))) if len(self) else self.element_type
         if t2.type == "Integer":
             zero: Any = 0
         elif t2.type == "Float":

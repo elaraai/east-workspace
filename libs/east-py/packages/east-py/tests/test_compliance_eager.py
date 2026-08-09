@@ -46,7 +46,8 @@ FUNNEL_ONLY = frozenset({
     "ArrayPrepend", "BlobDecodeBeast", "BlobDecodeBeast2", "BlobDecodeCsv",
     "BlobDecodeUtf8", "BlobDecodeUtf16", "BlobEncodeBeast", "BlobEncodeBeast2",
     "BlobGetUint8", "BlobSize", "DateTimeParseFormat", "DateTimePrintFormat",
-    "DictMerge", "DictUnionInPlace",
+    # DictMerge / DictUnionInPlace left this set in #527: east-py gained
+    # `merge_key` and `union_in_place`, so both now route through the surface.
     "MatrixCols", "MatrixFill", "MatrixFromArray", "MatrixFromRows",
     "MatrixGet", "MatrixGetCol", "MatrixGetRow", "MatrixMapRows", "MatrixOnes",
     "MatrixRows", "MatrixSet", "MatrixToArray", "MatrixToRows",

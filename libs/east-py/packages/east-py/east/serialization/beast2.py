@@ -947,7 +947,11 @@ class Beast2ArrayFile(Beast2File):
     def sum(self, fn: Any = None) -> Any:
         """``EastArray.sum`` — one accumulator threads the segments, exactly
         the eager fold's element order."""
-        from east.types.values.collections import _callback_arity
+        from east.types.values.collections import (
+            _callback_arity,
+            _elem_in,
+            _kernel_out_type,
+        )
 
         acc = None
         base = 0
@@ -974,7 +978,14 @@ class Beast2ArrayFile(Beast2File):
             base += len(segment)
         if acc is not None:
             return acc
+        # Empty file: type the zero from the PROJECTION when there is one, as
+        # the eager EastArray.sum does — reading element_type instead would
+        # raise for a numeric projection over non-numeric elements (#450/#525).
         t = self.element_type
+        if fn is not None:
+            t = (_kernel_out_type(fn)
+                 or _kernel_out_type(fn, _elem_in(fn, self.element_type))
+                 or self.element_type)
         if t.type == "Integer":
             return 0
         if t.type == "Float":
@@ -2320,6 +2331,8 @@ class Beast2SetFile(Beast2File):
 
     def sum(self, fn: Any = None) -> Any:
         """``EastSet.sum`` — one accumulator threads the segments."""
+        from east.types.values.collections import _kernel_out_type
+
         acc = None
         for segment in self._disjoint_segments():
             if acc is None:
@@ -2332,7 +2345,13 @@ class Beast2SetFile(Beast2File):
                 acc = segment.reduce(acc, step)
         if acc is not None:
             return acc
+        # Empty file: the zero is typed from the PROJECTION, as the eager
+        # EastSet.sum types it (#450/#525).
         t = self.element_type
+        if fn is not None:
+            t = (_kernel_out_type(fn)
+                 or _kernel_out_type(fn, [self.element_type])
+                 or self.element_type)
         if t.type == "Integer":
             return 0
         if t.type == "Float":

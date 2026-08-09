@@ -38,16 +38,21 @@ What traces (#393 expanded this to the whole builtin surface):
   ``to_set`` / ``unique`` / ``group_by`` / ``sorted`` / ``is_sorted`` /
   ``some`` / ``every`` / ``first_map`` / ``string_join`` / ``concat`` /
   ``slice`` / ``reversed`` / ``copy`` / ``get_keys`` / ``get`` /
-  ``get_or_default`` / ``try_get`` / ``size`` / ``has`` / ``[index_expr]``;
+  ``get_or_default`` / ``try_get`` / ``size`` / ``has`` / ``sum`` /
+  ``mean`` / ``maximum`` / ``minimum`` / ``[index_expr]``;
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
   ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_disjoint``) / ``copy`` /
-  ``size`` / ``has``;
+  ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_set`` / ``to_dict`` / ``keys_set`` / ``get_keys`` /
-  ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` / ``has``.
+  ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` /
+  ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some``.
+  The reductions (``sum`` / ``mean`` / ``maximum`` / ``minimum`` /
+  ``reduce``) run the same builtin the eager methods do, so traced and eager
+  agree including float accumulation order (#525).
   Inner lambdas may reference outer parameters.
   ``some``/``every``/``first_map`` compile to the native short-circuiting
   FirstMap scans (#403), so traced and eager forms have identical
@@ -388,6 +393,38 @@ def _option_inner(t: EastType) -> EastType:
     return t.value[1]["type"]
 
 
+def _wants_index(fn: Any) -> bool:
+    """Whether an element callback takes the builtin's optional trailing index.
+
+    The eager methods all normalise this (``_callback_arity`` in
+    ``types/values/collections.py``), so ``a.sum(lambda el, i: …)`` is a
+    supported eager call; the traced twins must accept it too or a working
+    lambda simply fails to trace (#525). A precompiled kernel answers from its
+    declared signature, a plain lambda from its positional count, and a
+    ``*args`` callable takes everything the builtin offers.
+    """
+    handle = getattr(fn, "_eastc_handle", None)
+    if handle is None:
+        inner = getattr(fn, "_east_kernel", None)
+        handle = getattr(inner, "_eastc_handle", None) if inner is not None else None
+    if handle is not None:
+        try:
+            return len(handle.get_input_types()) >= 2
+        except Exception:
+            return False
+    code = getattr(fn, "__code__", None)
+    if code is None:
+        return False
+    if code.co_flags & 0x04:  # CO_VARARGS — accepts the index too
+        return True
+    return code.co_argcount >= 2
+
+
+def _with_index(fn: Any) -> Any:
+    """Normalise an element callback to the two-argument ``(el, idx)`` shape."""
+    return fn if _wants_index(fn) else (lambda el, _i: fn(el))
+
+
 def _trace_bail(op: str) -> KernelTraceError:
     return KernelTraceError(
         f"python `{op}` cannot be traced into an East kernel — use `&`, `|`, `~` for "
@@ -408,18 +445,24 @@ _TRACED_SURFACE = {
         "group_by", "sorted", "is_sorted", "some", "every", "string_join",
         "concat", "slice", "reversed", "copy", "get_keys",
         "size", "has", "get", "get_or_default", "try_get",
+        # reductions (#525 phase 1)
+        "sum", "mean", "maximum", "minimum",
     })),
     "Set": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
         "flatten_to_array", "flatten_to_set", "to_array", "to_dict",
         "union", "intersect", "diff", "sym_diff", "is_subset", "is_disjoint",
         "copy", "size", "has",
+        # reductions (#525 phase 1)
+        "reduce", "sum", "mean", "every", "some",
     })),
     "Dict": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
         "flatten_to_array", "flatten_to_set", "to_array", "to_set", "to_dict",
         "keys_set", "get_keys", "copy",
         "size", "has", "get", "get_or_default", "try_get",
+        # reductions (#525 phase 1)
+        "reduce", "sum", "mean", "every", "some",
     })),
 }
 
@@ -1330,29 +1373,49 @@ class KernelExpr:
             )
         raise KernelTraceError(f".scan() on {tag}")
 
-    def some(self, fn: Any) -> KernelExpr:
-        """Traced any-element predicate (native short-circuiting FirstMap scan)."""
+    def some(self, fn: Any = None) -> KernelExpr:
+        """Traced any-element predicate (native short-circuiting FirstMap scan).
+
+        Without ``fn`` the elements — a Dict's VALUES — must be Boolean, like
+        the eager ``some()``.
+        """
         return self._quantifier("some", fn)
 
-    def every(self, fn: Any) -> KernelExpr:
-        """Traced all-elements predicate (native short-circuiting FirstMap scan)."""
+    def every(self, fn: Any = None) -> KernelExpr:
+        """Traced all-elements predicate (native short-circuiting FirstMap scan).
+
+        Without ``fn`` the elements — a Dict's VALUES — must be Boolean, like
+        the eager ``every()``.
+        """
         return self._quantifier("every", fn)
 
     def _quantifier(self, op: str, fn: Any) -> KernelExpr:
-        """some/every as an ArrayFirstMap probe that yields ``some(True)`` on
-        the deciding element — the scan short-circuits exactly like the eager
+        """some/every as a FirstMap probe that yields ``some(True)`` on the
+        deciding element — the scan short-circuits exactly like the eager
         ``_first_map_bool`` path (#403), where the previous fold encoding
-        evaluated the predicate for every element.
+        evaluated the predicate for every element. Array/Set take
+        ``fn(element)`` (Array also accepts the index); Dict takes
+        ``fn(key, value)``, like every other eager Dict callback (#525).
         """
-        elem_t = self._array_elem(op)
-        code = getattr(fn, "__code__", None)
-        arity = code.co_argcount if code is not None else 1
         want = op == "some"
         from east.types.construct import none as _none
         from east.types.construct import some as _some
 
-        def probe(el: KernelExpr, i: KernelExpr) -> KernelExpr:
-            pred = _lift(fn(*([el, i][:arity])))
+        if fn is None:
+            # The no-predicate form: Boolean elements (a Dict's VALUES) are the
+            # predicate, exactly as the eager `every()`/`some()` allow.
+            probed = self.east_type.value
+            probed = probed["value"] if self.east_type.type == "Dict" else probed
+            if getattr(probed, "type", None) != "Boolean":
+                raise KernelTraceError(
+                    f".{op}() without a predicate needs Boolean "
+                    f"{'values' if self.east_type.type == 'Dict' else 'elements'}, "
+                    f"got {getattr(probed, 'type', self.east_type.type)}"
+                )
+            fn = (lambda _k, v: v) if self.east_type.type == "Dict" else (lambda el: el)
+
+        def decide(raw: Any) -> KernelExpr:
+            pred = _lift(raw)
             if pred.east_type.type != "Boolean":
                 raise KernelTraceError(
                     f".{op}() predicate must return Boolean, got {pred.east_type.type}"
@@ -1360,14 +1423,183 @@ class KernelExpr:
             decided = pred if want else ~pred
             return where(decided, _some(True), _none)
 
-        node, out_t = _trace_inner_fn(probe, [elem_t, IntegerType], declared=2)
-        scanned = KernelExpr(
-            _builtin("ArrayFirstMap", out_t, [elem_t, BooleanType], [self.ir, node]), out_t
-        )
+        tag = self.east_type.type
+        if tag == "Array":
+            elem_t = self.east_type.value
+            pred = _with_index(fn)
+            node, out_t = _trace_inner_fn(
+                lambda el, i: decide(pred(el, i)), [elem_t, IntegerType], declared=2
+            )
+            builtin, tps = "ArrayFirstMap", [elem_t, BooleanType]
+        elif tag == "Set":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(lambda el: decide(fn(el)), [elem_t], declared=1)
+            builtin, tps = "SetFirstMap", [elem_t, BooleanType]
+        elif tag == "Dict":
+            kv = self.east_type.value
+            # The builtin's slot is (value, key); the user fn takes (key, value).
+            node, out_t = _trace_inner_fn(
+                lambda v, k: decide(fn(k, v)), [kv["value"], kv["key"]], declared=2
+            )
+            builtin, tps = "DictFirstMap", [kv["key"], kv["value"], BooleanType]
+        else:
+            raise KernelTraceError(f".{op}() on {tag}")
+        scanned = KernelExpr(_builtin(builtin, out_t, tps, [self.ir, node]), out_t)
         # some: a deciding element exists; every: no counterexample exists.
-        # FirstMap on an empty array yields none, so some([])=False and
+        # FirstMap on an empty collection yields none, so some([])=False and
         # every([])=True fall out — matching the eager path exactly.
         return scanned.is_some() if want else scanned.is_none()
+
+    # ── reductions (#525 phase 1) ───────────────────────────────────────
+    # Hand-rolling these as a fold is where the accidental-quadratic risk
+    # lives (#524 measured 6h02m for 729k rows), so they are the highest-value
+    # additions to the surface. Every one composes the SAME builtin the eager
+    # method uses, so traced and eager agree including float accumulation
+    # order.
+
+    def reduce(self, initial: Any, fn: Any) -> KernelExpr:
+        """Traced SetReduce / DictReduce: fold every element into one
+        accumulator, in East order. Set steps take ``fn(acc, element)``, Dict
+        steps ``fn(acc, key, value)``. An Array's spelling is :meth:`fold`.
+        """
+        tag = self.east_type.type
+        init = _lift(initial)
+        acc_t = init.east_type
+        if tag == "Set":
+            elem_t = self.east_type.value
+            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2)
+            builtin, tps, args = "SetReduce", [elem_t, acc_t], [self.ir, node, init.ir]
+        elif tag == "Dict":
+            kv = self.east_type.value
+            # The builtin's slot is (acc, value, key); the user fn takes
+            # (acc, key, value), matching the eager Dict callbacks.
+            node, out_t = _trace_inner_fn(
+                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3
+            )
+            builtin = "DictReduce"
+            tps = [kv["key"], kv["value"], acc_t]
+            args = [self.ir, node, init.ir]
+        else:
+            raise KernelTraceError(
+                f".reduce() on {tag}" + (" — an Array folds with .fold()" if tag == "Array" else "")
+            )
+        if out_t != acc_t:
+            raise KernelTraceError(
+                f".reduce() step returns {out_t.type}, accumulator is {acc_t.type}"
+            )
+        return KernelExpr(_builtin(builtin, acc_t, tps, args), acc_t)
+
+    def _numeric_projection(self, op: str, fn: Any) -> tuple:
+        """``(projection, its traced numeric type)`` for sum/mean.
+
+        The returned projection is normalised to the container's own element
+        callback shape — ``(el, idx)`` for an Array, ``(el)`` for a Set,
+        ``(key, value)`` for a Dict — so an index-taking projection, which the
+        eager methods accept, traces here too (#525).
+
+        The type comes from TRACING the projection, never from a value — a
+        kernel has no data to sample, which is exactly why the traced surface
+        cannot fall into the #450 single-case-variant trap here.
+        """
+        tag = self.east_type.type
+        proj: Any
+        if tag == "Array":
+            elem_t = self.east_type.value
+            proj = _with_index(fn if fn is not None else (lambda el: el))
+            _n, t2 = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
+        elif tag == "Set":
+            elem_t = self.east_type.value
+            proj = fn if fn is not None else (lambda el: el)
+            _n, t2 = _trace_inner_fn(proj, [elem_t], declared=1)
+        elif tag == "Dict":
+            kv = self.east_type.value
+            proj = fn if fn is not None else (lambda _k, v: v)
+            _n, t2 = _trace_inner_fn(
+                lambda v, k: proj(k, v), [kv["value"], kv["key"]], declared=2
+            )
+        else:
+            raise KernelTraceError(f".{op}() on {tag}")
+        if t2.type not in ("Integer", "Float"):
+            raise KernelTraceError(
+                f".{op}() needs a numeric (Integer/Float) projection, got {t2.type}"
+            )
+        return proj, t2
+
+    def _reduce_numeric(self, zero: Any, proj: Any, wrap: Any) -> KernelExpr:
+        """Fold ``wrap(proj(...))`` from ``zero`` with the container's own
+        callback shape (Array folds with the index in scope)."""
+        tag = self.east_type.type
+        if tag == "Dict":
+            return self.reduce(zero, lambda acc, k, v: acc + wrap(proj(k, v)))
+        if tag == "Array":
+            return self.fold(zero, lambda acc, el, i: acc + wrap(proj(el, i)))
+        return self.reduce(zero, lambda acc, el: acc + wrap(proj(el)))
+
+    def sum(self, fn: Any = None) -> KernelExpr:
+        """Traced sum of the elements, or of ``fn(...)`` over them.
+
+        The zero is typed from the projection, so an empty collection sums to
+        the projection's zero (not the element type's). Without ``fn`` the
+        elements — a Dict's VALUES — must be Integer or Float.
+        """
+        proj, t2 = self._numeric_projection("sum", fn)
+        zero: Any = 0 if t2.type == "Integer" else 0.0
+        return self._reduce_numeric(zero, proj, lambda v: v)
+
+    def mean(self, fn: Any = None) -> KernelExpr:
+        """Traced arithmetic mean as a Float.
+
+        An Integer projection widens once per element with IntegerToFloat, so
+        the accumulation happens in Float exactly as the eager ``mean`` does.
+        An empty collection yields NaN — ``0.0 / 0.0`` — matching the eager
+        methods' explicit NaN rather than raising.
+        """
+        proj, t2 = self._numeric_projection("mean", fn)
+        widen = t2.type == "Integer"
+
+        def as_float(value: Any) -> KernelExpr:
+            # One IntegerToFloat per element, decided once from the TYPE — the
+            # traced twin of the eager `_float_proj` rule (#470). Lift FIRST:
+            # a projection may legitimately return a plain python number
+            # (`.mean(lambda r: 1)` works eagerly), which has no `.to_float()`.
+            lifted = _lift(value)
+            return lifted.to_float() if widen else lifted
+
+        # Bind the receiver to a Let FIRST. mean touches it twice — the fold
+        # and size() — and _finalize_ir's CSE can only hoist a shared subtree
+        # whose free variables are the kernel's own parameters. Inside an inner
+        # lambda (`group_by(...).map(b => b.sorted(...).mean())`, the shape
+        # this surface exists for) the receiver closes over the inner
+        # parameter, the hoist is refused, and an unbound receiver would be
+        # emitted AND EXECUTED twice — squaring with each nesting level.
+        name = _fresh_name()
+        recv = KernelExpr(_var(name, self.east_type), self.east_type)
+        total = recv._reduce_numeric(0.0, proj, as_float)
+        body = total / recv.size().to_float()
+        return KernelExpr(
+            _k_block(
+                FloatType,
+                [ir_let(self.east_type, _var(name, self.east_type), self.ir), body.ir],
+            ),
+            FloatType,
+        )
+
+    def maximum(self, by: Any = None) -> KernelExpr:
+        """Traced ArrayMapReduce under ``greatest`` (East total order).
+
+        Errors at run time on an empty array, like the eager ``maximum`` —
+        there is no identity element for a max.
+        """
+        self._array_elem("maximum")
+        return self.map_reduce(by if by is not None else (lambda el: el),
+                               lambda a, b: greatest(a, b))
+
+    def minimum(self, by: Any = None) -> KernelExpr:
+        """Traced ArrayMapReduce under ``least``; errors on empty, like the
+        eager ``minimum``."""
+        self._array_elem("minimum")
+        return self.map_reduce(by if by is not None else (lambda el: el),
+                               lambda a, b: least(a, b))
 
     def first_map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
         """Traced early-exit scan: the first ``some(value)`` that ``fn``
@@ -1560,8 +1792,11 @@ class KernelExpr:
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
+            # `_with_index`: the eager ArrayMapReduce passes the index through
+            # `_idx_cb`, so an (element, index) map_fn is a supported eager
+            # call and must trace too (#525).
             map_node, t2 = _trace_inner_fn(
-                lambda el, _i: map_fn(el), [elem_t, IntegerType], declared=2)
+                _with_index(map_fn), [elem_t, IntegerType], declared=2)
             builtin, tps = "ArrayMapReduce", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
