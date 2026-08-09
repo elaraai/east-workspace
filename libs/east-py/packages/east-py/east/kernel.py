@@ -41,18 +41,24 @@ What traces (#393 expanded this to the whole builtin surface):
   ``get_or_default`` / ``try_get`` / ``size`` / ``has`` / ``sum`` /
   ``mean`` / ``maximum`` / ``minimum`` / ``find_first`` / ``find_all`` /
   ``find_maximum`` / ``find_minimum`` / ``find_sorted_first`` /
-  ``find_sorted_last`` / ``find_sorted_range`` / ``[index_expr]``;
+  ``find_sorted_last`` / ``find_sorted_range`` / ``group_reduce`` /
+  ``group_size`` / ``group_sum`` / ``group_mean`` / ``group_every`` /
+  ``group_some`` / ``group_maximum`` / ``group_minimum`` / ``[index_expr]``;
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
   ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_superset_of`` /
   ``is_disjoint``) / ``copy`` /
-  ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some``;
+  ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
+  ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
+  ``group_every`` / ``group_some``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_set`` / ``to_dict`` / ``keys_set`` / ``get_keys`` /
   ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` /
-  ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some``.
+  ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
+  ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
+  ``group_every`` / ``group_some``.
   The reductions (``sum`` / ``mean`` / ``maximum`` / ``minimum`` /
   ``reduce``) run the same builtin the eager methods do, so traced and eager
   agree including float accumulation order (#525).
@@ -414,6 +420,18 @@ def _with_index(fn: Any) -> Any:
     return fn if _callback_arity(fn, 1) >= 2 else (lambda el, _i: fn(el))
 
 
+def _with_acc_index(fn: Any) -> Any:
+    """Normalise a fold callback to the three-argument ``(acc, el, idx)`` shape.
+
+    The Array fold slots carry the element index, and the eager methods accept
+    a callback that takes it (`_acc_idx_cb` in collections.py), so the traced
+    twins must too.
+    """
+    from east.types.values.collections import _callback_arity
+
+    return fn if _callback_arity(fn, 2) >= 3 else (lambda acc, el, _i: fn(acc, el))
+
+
 def _trace_bail(op: str) -> KernelTraceError:
     return KernelTraceError(
         f"python `{op}` cannot be traced into an East kernel — use `&`, `|`, `~` for "
@@ -439,6 +457,9 @@ _TRACED_SURFACE = {
         # find_* (#525 phase 2)
         "find_first", "find_all", "find_maximum", "find_minimum",
         "find_sorted_first", "find_sorted_last", "find_sorted_range",
+        # group_* (#525 phase 3)
+        "group_reduce", "group_size", "group_sum", "group_mean",
+        "group_every", "group_some", "group_maximum", "group_minimum",
     })),
     "Set": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -447,6 +468,9 @@ _TRACED_SURFACE = {
         "is_disjoint", "copy", "size", "has",
         # reductions (#525 phase 1)
         "reduce", "sum", "mean", "every", "some",
+        # group_* (#525 phase 3)
+        "group_fold", "group_size", "group_sum", "group_mean",
+        "group_every", "group_some",
     })),
     "Dict": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -455,6 +479,9 @@ _TRACED_SURFACE = {
         "size", "has", "get", "get_or_default", "try_get",
         # reductions (#525 phase 1)
         "reduce", "sum", "mean", "every", "some",
+        # group_* (#525 phase 3)
+        "group_fold", "group_size", "group_sum", "group_mean",
+        "group_every", "group_some",
     })),
 }
 
@@ -2149,6 +2176,210 @@ class KernelExpr:
                      [self.ir, key_node, init_node, fold_node]),
             out,
         )
+
+    # ── group_* (#525 phase 3) ──────────────────────────────────────────
+    # The grouped fold is the primitive; everything else composes from it,
+    # exactly as the eager methods do, so a whole aggregate is ONE compiled
+    # kernel. Names mirror the eager twins per container — Array spells the
+    # general fold `group_reduce`, Set and Dict spell it `group_fold` — and
+    # Set/Dict have no group_maximum/group_minimum because their eager
+    # surfaces do not either.
+
+    def _group_fold_parts(self, op: str, key: Any) -> tuple:
+        """``(builtin, type-param prefix, key node, K2, element param types)``
+        for the container's GroupFold, with the container's own callback
+        shape."""
+        tag = self.east_type.type
+        if tag == "Array":
+            elem_t = self.east_type.value
+            key_node, k2 = _trace_inner_fn(_with_index(key), [elem_t, IntegerType], declared=2)
+            return "ArrayGroupFold", [elem_t], key_node, k2, [elem_t, IntegerType]
+        if tag == "Set":
+            elem_t = self.east_type.value
+            key_node, k2 = _trace_inner_fn(key, [elem_t], declared=1)
+            return "SetGroupFold", [elem_t], key_node, k2, [elem_t]
+        if tag == "Dict":
+            kv = self.east_type.value
+            # The builtin's key slot is (value, key); the user fn takes
+            # (key, value), like every other eager Dict callback.
+            key_node, k2 = _trace_inner_fn(
+                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2)
+            return ("DictGroupFold", [kv["key"], kv["value"]], key_node, k2,
+                    [kv["value"], kv["key"]])
+        raise KernelTraceError(f".{op}() on {tag}")
+
+    def _group_fold(self, op: str, key: Any, init: Any, fold: Any) -> KernelExpr:
+        """The shared grouped fold behind every ``group_*`` method."""
+        from east.types.types import DictType as _DictType
+
+        builtin, tps, key_node, k2, elem_params = self._group_fold_parts(op, key)
+        init_node, acc_t = _trace_inner_fn(init, [k2], declared=1)
+        if self.east_type.type == "Dict":
+            fold_node, out_t = _trace_inner_fn(
+                lambda a, v, k: fold(a, k, v), [acc_t, *elem_params], declared=3)
+        else:
+            fold_node, out_t = _trace_inner_fn(
+                _with_acc_index(fold) if self.east_type.type == "Array" else fold,
+                [acc_t, *elem_params],
+                declared=3 if self.east_type.type == "Array" else 2)
+        if out_t != acc_t:
+            raise KernelTraceError(
+                f".{op}() step returns {out_t.type}, the accumulator from "
+                f"init() is {acc_t.type}"
+            )
+        out = _DictType(k2, acc_t)
+        return KernelExpr(
+            _builtin(builtin, out, [*tps, k2, acc_t],
+                     [self.ir, key_node, init_node, fold_node]),
+            out,
+        )
+
+    def group_reduce(self, key: Any, init: Any, fold: Any) -> KernelExpr:
+        """Traced ArrayGroupFold: a Dict from ``key(element)`` to the value
+        ``fold`` accumulates from ``init(group_key)``. The Array spelling of
+        the grouped fold; Set and Dict spell it :meth:`group_fold`."""
+        if self.east_type.type != "Array":
+            raise KernelTraceError(
+                f".group_reduce() on {self.east_type.type} — a Set or Dict "
+                "groups with .group_fold()"
+            )
+        return self._group_fold("group_reduce", key, init, fold)
+
+    def group_fold(self, key: Any, init: Any, fold: Any) -> KernelExpr:
+        """Traced SetGroupFold / DictGroupFold: a Dict from the group key to
+        the folded accumulator. Set steps take ``fold(acc, element)``, Dict
+        steps ``fold(acc, key, value)``. An Array's spelling is
+        :meth:`group_reduce`."""
+        if self.east_type.type == "Array":
+            raise KernelTraceError(
+                ".group_fold() on Array — an Array groups with .group_reduce()"
+            )
+        return self._group_fold("group_fold", key, init, fold)
+
+    def _grouped(self, op: str, key: Any, init: Any, fold: Any) -> KernelExpr:
+        """Dispatch to the container's own grouped-fold spelling."""
+        return self._group_fold(op, key, init, fold)
+
+    def _per_element(self, fn: Any) -> Any:
+        """Normalise a user element callback to the container's fold shape."""
+        if self.east_type.type == "Dict":
+            return fn if fn is not None else (lambda _k, v: v)
+        return fn if fn is not None else (lambda el: el)
+
+    def group_size(self, key: Any = None) -> KernelExpr:
+        """Traced count per group key.
+
+        ``key`` is optional on an Array — omitted, elements are counted by
+        their own value — and required on a Set or Dict, mirroring the eager
+        signatures exactly. Without the default a lambda that works eagerly
+        stops tracing, which silently drops the enclosing loop to the
+        per-element python path (#525).
+        """
+        if key is None:
+            if self.east_type.type != "Array":
+                raise KernelTraceError(
+                    f".group_size() on a {self.east_type.type} needs a key "
+                    "function — only an Array defaults to the identity key"
+                )
+            key = lambda el: el  # noqa: E731
+        zero = lambda _gk: 0  # noqa: E731
+        if self.east_type.type == "Dict":
+            return self._grouped("group_size", key, zero, lambda acc, _k, _v: acc + 1)
+        if self.east_type.type == "Array":
+            return self._grouped("group_size", key, zero, lambda acc, _el, _i: acc + 1)
+        return self._grouped("group_size", key, zero, lambda acc, _el: acc + 1)
+
+    def group_sum(self, key: Any, fn: Any = None) -> KernelExpr:
+        """Traced sum per group of ``fn(...)`` — the elements (a Dict's
+        VALUES) when omitted. The zero is typed from the projection."""
+        proj, t2 = self._numeric_projection("group_sum", fn)
+        zero: Any = 0 if t2.type == "Integer" else 0.0
+        if self.east_type.type == "Dict":
+            return self._grouped("group_sum", key, lambda _gk: zero,
+                                 lambda acc, k, v: acc + proj(k, v))
+        if self.east_type.type == "Array":
+            return self._grouped("group_sum", key, lambda _gk: zero,
+                                 lambda acc, el, i: acc + proj(el, i))
+        return self._grouped("group_sum", key, lambda _gk: zero,
+                             lambda acc, el: acc + proj(el))
+
+    def _group_quantifier(self, op: str, key: Any, pred: Any, seed: bool) -> KernelExpr:
+        """group_every / group_some as a grouped boolean fold."""
+        step: Any
+        if self.east_type.type == "Dict":
+            step = (lambda acc, k, v: acc & _lift(pred(k, v))) if seed \
+                else (lambda acc, k, v: acc | _lift(pred(k, v)))
+        elif self.east_type.type == "Array":
+            p = _with_index(pred)
+            step = (lambda acc, el, i: acc & _lift(p(el, i))) if seed \
+                else (lambda acc, el, i: acc | _lift(p(el, i)))
+        else:
+            step = (lambda acc, el: acc & _lift(pred(el))) if seed \
+                else (lambda acc, el: acc | _lift(pred(el)))
+        return self._grouped(op, key, lambda _gk: seed, step)
+
+    def group_every(self, key: Any, pred: Any) -> KernelExpr:
+        """Traced per group: True when ``pred`` holds for every member."""
+        return self._group_quantifier("group_every", key, pred, True)
+
+    def group_some(self, key: Any, pred: Any) -> KernelExpr:
+        """Traced per group: True when ``pred`` holds for any member."""
+        return self._group_quantifier("group_some", key, pred, False)
+
+    def _group_extreme(self, op: str, key: Any, by: Any, pick: Any) -> KernelExpr:
+        """group_maximum / group_minimum (Array only, like the eager twins).
+
+        Folds an ``Option`` so the first element of each group seeds the
+        accumulator without inventing an identity, then unwraps — the same
+        shape the eager method uses, so ties break identically.
+        """
+        from east.types.construct import some as _some
+
+        self._array_elem(op)
+        proj = _with_index(by if by is not None else (lambda el: el))
+        _n, p_t = _trace_inner_fn(proj, [self.east_type.value, IntegerType], declared=2)
+        opt_t = _option_type(p_t)
+        grouped = self._grouped(
+            op, key,
+            lambda _gk: KernelExpr(ir_variant(opt_t, "none", _literal(None, NullType)), opt_t),
+            lambda acc, el, i: _some(pick(acc.unwrap_or(proj(el, i)), proj(el, i))),
+        )
+        return grouped.map(lambda v: v.unwrap("some"))
+
+    def group_maximum(self, key: Any, by: Any = None) -> KernelExpr:
+        """Traced largest element/projection per group (East total order)."""
+        return self._group_extreme("group_maximum", key, by, lambda a, b: greatest(a, b))
+
+    def group_minimum(self, key: Any, by: Any = None) -> KernelExpr:
+        """Traced smallest element/projection per group (East total order)."""
+        return self._group_extreme("group_minimum", key, by, lambda a, b: least(a, b))
+
+    def group_mean(self, key: Any, fn: Any = None) -> KernelExpr:
+        """Traced Float mean per group.
+
+        Accumulates ``{t, n}`` in ONE grouped pass and divides at the end —
+        the sum is folded in element order exactly as the eager ``group_mean``
+        folds it, so float accumulation agrees. (Eager reaches the same answer
+        by merging a counts dict, which is a mutation and so has no traced
+        form.)
+        """
+        proj, t2 = self._numeric_projection("group_mean", fn)
+        widen = t2.type == "Integer"
+
+        def as_float(value: Any) -> KernelExpr:
+            lifted = _lift(value)
+            return lifted.to_float() if widen else lifted
+
+        seed = lambda _gk: {"t": 0.0, "n": 0}  # noqa: E731
+        step: Any
+        if self.east_type.type == "Dict":
+            step = lambda acc, k, v: {"t": acc.t + as_float(proj(k, v)), "n": acc.n + 1}  # noqa: E731
+        elif self.east_type.type == "Array":
+            step = lambda acc, el, i: {"t": acc.t + as_float(proj(el, i)), "n": acc.n + 1}  # noqa: E731
+        else:
+            step = lambda acc, el: {"t": acc.t + as_float(proj(el)), "n": acc.n + 1}  # noqa: E731
+        return self._grouped("group_mean", key, seed, step).map(
+            lambda acc: acc.t / acc.n.to_float())
 
     def sorted(self, key: Any = None, *, reverse: bool = False) -> KernelExpr:
         """Traced ArraySort/ArraySortDefault (+ ArrayReverse for ``reverse``),

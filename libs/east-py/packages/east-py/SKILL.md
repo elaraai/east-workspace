@@ -133,15 +133,19 @@ syntax, fastest first:
      `concat` `slice` `reversed` `copy` `get_keys` `size` `has` `get`
      `get_or_default` `try_get` `sum` `mean` `maximum` `minimum`
      `find_first` `find_all` `find_maximum` `find_minimum` `find_sorted_first`
-     `find_sorted_last` `find_sorted_range` `[index_expr]`
+     `find_sorted_last` `find_sorted_range` `group_reduce` `group_size`
+     `group_sum` `group_mean` `group_every` `group_some` `group_maximum`
+     `group_minimum` `[index_expr]`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
      `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
-     `copy` `size` `has` `reduce` `sum` `mean` `every` `some`
+     `copy` `size` `has` `reduce` `sum` `mean` `every` `some` `group_fold`
+     `group_size` `group_sum` `group_mean` `group_every` `group_some`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
      `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
-     `try_get` `reduce` `sum` `mean` `every` `some` `[key_expr]`
+     `try_get` `reduce` `sum` `mean` `every` `some` `group_fold` `group_size`
+     `group_sum` `group_mean` `group_every` `group_some` `[key_expr]`
 
    Mutators and side-effecting methods are deliberately absent (the kernel
    language is pure), so a whole `record → legs → values` descent — or a

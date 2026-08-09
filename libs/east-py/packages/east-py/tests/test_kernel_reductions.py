@@ -39,7 +39,12 @@ from east import (
 )
 from east.kernel import KernelTraceError
 from east.runtime.compiler import eager_stats
-from east.types.values.collections import EastArray, EastDict, EastSet
+from east.types.values.collections import (
+    EastArray,
+    EastDict,
+    EastSet,
+    _kernel_out_type,
+)
 
 ROW = StructType([("g", StringType), ("v", FloatType), ("n", IntegerType)])
 ROWS = [{"g": f"g{i % 3}", "v": float(i) * 1.5, "n": i} for i in range(60)]
@@ -619,3 +624,474 @@ def test_mean_over_a_filtered_projection_is_one_kernel():
     got = _native(lambda a: a.filter(lambda r: r.n % 2 == 0).mean(lambda r: r.v), A_ROW, rows)
     want = rows.filter(lambda r: r["n"] % 2 == 0).mean(lambda r: r["v"])
     _same(got, want)
+
+
+# ── group_* (#525 phase 3) ───────────────────────────────────────────────────
+#
+# The grouped fold is the primitive and everything else composes from it, so a
+# whole aggregate is ONE compiled kernel. Names mirror the eager twins per
+# container: Array spells the general fold `group_reduce`, Set and Dict spell it
+# `group_fold`, and Set/Dict have no group_maximum/group_minimum because their
+# eager surfaces do not either.
+
+_G_SET = SetType(IntegerType)
+
+
+def _set_i():
+    return EastSet(IntegerType, list(range(12)))
+
+
+def _dict_kf():
+    return EastDict(StringType, FloatType, {f"k{i:02d}": float(i) for i in range(12)})
+
+
+def _same_dict(got, want):
+    """Compare two result dicts by TYPE as well as by contents.
+
+    Contents alone pin almost nothing here. Python's ``{0: 4} == {0: 4.0}`` is
+    True, so an Integer-vs-Float divergence in the RESULT TYPE passes a
+    contents-only assertion on non-empty input; and two empty dicts compare
+    equal however they are typed, so on empty input it pins nothing at all.
+    A dict's key/value type is part of a kernel's compiled signature and
+    propagates into whatever consumes it, so it is the thing to assert.
+    """
+    assert (got.key_type, got.value_type) == (want.key_type, want.value_type), (
+        f"result TYPE diverged: traced Dict<{got.key_type.type},{got.value_type.type}> "
+        f"vs eager Dict<{want.key_type.type},{want.value_type.type}>")
+    assert dict(got.items()) == dict(want.items())
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda a: a.group_reduce(lambda r: r.g, lambda _k: 0.0, lambda acc, r: acc + r.v),
+         lambda a: a.group_reduce(lambda r: r["g"], lambda _k: 0.0, lambda acc, r: acc + r["v"])),
+        (lambda a: a.group_size(lambda r: r.g), lambda a: a.group_size(lambda r: r["g"])),
+        (lambda a: a.group_sum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_sum(lambda r: r["g"], lambda r: r["v"])),
+        (lambda a: a.group_sum(lambda r: r.g, lambda r: r.n),
+         lambda a: a.group_sum(lambda r: r["g"], lambda r: r["n"])),
+        (lambda a: a.group_mean(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_mean(lambda r: r["g"], lambda r: r["v"])),
+        (lambda a: a.group_mean(lambda r: r.g, lambda r: r.n),
+         lambda a: a.group_mean(lambda r: r["g"], lambda r: r["n"])),
+        # DISCRIMINATING: true for g0 only, so an implementation that ignored
+        # the predicate (returning the seed per group) would fail here.
+        (lambda a: a.group_every(lambda r: r.g, lambda r: r.n % 3 == 0),
+         lambda a: a.group_every(lambda r: r["g"], lambda r: r["n"] % 3 == 0)),
+        (lambda a: a.group_every(lambda r: r.g, lambda r: r.v >= 0.0),
+         lambda a: a.group_every(lambda r: r["g"], lambda r: r["v"] >= 0.0)),
+        (lambda a: a.group_some(lambda r: r.g, lambda r: r.v > 60.0),
+         lambda a: a.group_some(lambda r: r["g"], lambda r: r["v"] > 60.0)),
+        (lambda a: a.group_maximum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_maximum(lambda r: r["g"], lambda r: r["v"])),
+        (lambda a: a.group_minimum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_minimum(lambda r: r["g"], lambda r: r["v"])),
+    ],
+)
+def test_array_group_matches_eager(traced, eager):
+    rows = _rows()
+    _same_dict(_native(traced, A_ROW, rows), eager(rows))
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda s: s.group_fold(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e),
+         lambda s: s.group_fold(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)),
+        (lambda s: s.group_size(lambda e: e % 3), lambda s: s.group_size(lambda e: e % 3)),
+        (lambda s: s.group_sum(lambda e: e % 3), lambda s: s.group_sum(lambda e: e % 3)),
+        (lambda s: s.group_mean(lambda e: e % 3), lambda s: s.group_mean(lambda e: e % 3)),
+        (lambda s: s.group_every(lambda e: e % 3, lambda e: e < 6),
+         lambda s: s.group_every(lambda e: e % 3, lambda e: e < 6)),
+        (lambda s: s.group_every(lambda e: e % 3, lambda e: e >= 0),
+         lambda s: s.group_every(lambda e: e % 3, lambda e: e >= 0)),
+        (lambda s: s.group_some(lambda e: e % 3, lambda e: e > 9),
+         lambda s: s.group_some(lambda e: e % 3, lambda e: e > 9)),
+    ],
+)
+def test_set_group_matches_eager(traced, eager):
+    s = _set_i()
+    _same_dict(_native(traced, _G_SET, s), eager(s))
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda d: d.group_fold(lambda k, v: k.substring(0, 2), lambda _k: 0.0,
+                                lambda acc, k, v: acc + v),
+         lambda d: d.group_fold(lambda k, v: k[:2], lambda _k: 0.0, lambda acc, k, v: acc + v)),
+        (lambda d: d.group_size(lambda k, v: k.substring(0, 2)),
+         lambda d: d.group_size(lambda k, v: k[:2])),
+        (lambda d: d.group_sum(lambda k, v: k.substring(0, 2)),
+         lambda d: d.group_sum(lambda k, v: k[:2])),
+        (lambda d: d.group_mean(lambda k, v: k.substring(0, 2)),
+         lambda d: d.group_mean(lambda k, v: k[:2])),
+        (lambda d: d.group_every(lambda k, v: k.substring(0, 2), lambda k, v: v < 9.0),
+         lambda d: d.group_every(lambda k, v: k[:2], lambda k, v: v < 9.0)),
+        (lambda d: d.group_every(lambda k, v: k.substring(0, 2), lambda k, v: v >= 0.0),
+         lambda d: d.group_every(lambda k, v: k[:2], lambda k, v: v >= 0.0)),
+        (lambda d: d.group_some(lambda k, v: k.substring(0, 2), lambda k, v: v > 9.0),
+         lambda d: d.group_some(lambda k, v: k[:2], lambda k, v: v > 9.0)),
+    ],
+)
+def test_dict_group_matches_eager(traced, eager):
+    d = _dict_kf()
+    _same_dict(_native(traced, D_SF, d), eager(d))
+
+
+def test_group_fold_and_group_reduce_are_container_specific():
+    """Each container exposes the name its EAGER twin uses — a traced name
+    with no eager counterpart is the divergence #526/#527 were about."""
+    # a Set has no group_reduce — the error points at its own spelling
+    with pytest.raises(KernelTraceError, match="group_fold"):
+        kernel(_G_SET, lambda s: s.group_reduce(lambda e: e, lambda _k: 0, lambda acc, e: acc))
+    # ...and an Array has no group_fold
+    with pytest.raises(KernelTraceError, match="group_reduce"):
+        kernel(A_ROW, lambda a: a.group_fold(lambda r: r.g, lambda _k: 0, lambda acc, r: acc))
+
+
+def test_group_extremes_are_array_only_like_eager():
+    """EastSet/EastDict have no eager group_maximum, so the traced surface
+    must not invent one.
+
+    `match=` matters here: without it the guard could be deleted outright and
+    the test would still pass on the unrelated `KernelTraceError` a later arity
+    failure raises.
+    """
+    with pytest.raises(KernelTraceError, match=r"group_maximum\(\) on Set"):
+        kernel(_G_SET, lambda s: s.group_maximum(lambda e: e % 3))
+    with pytest.raises(KernelTraceError, match=r"group_minimum\(\) on Dict"):
+        kernel(D_SF, lambda d: d.group_minimum(lambda k, v: k))
+
+
+def test_group_mean_accumulates_in_element_order():
+    """group_mean folds `{t, n}` in one pass rather than merging a counts dict
+    (a mutation, so it has no traced form) — the sum must still be accumulated
+    in element order, which catastrophic cancellation makes observable."""
+    Row = StructType([("g", StringType), ("v", FloatType)])
+    rows = array(Row, [{"g": "a", "v": v} for v in (1e16, 1.0, -1e16, 1.0)])
+    got = _native(lambda a: a.group_mean(lambda r: r.g, lambda r: r.v), ArrayType(Row), rows)
+    want = rows.group_mean(lambda r: r["g"], lambda r: r["v"])
+    assert dict(got.items()) == dict(want.items())
+
+
+def test_a_whole_grouped_aggregate_is_one_native_kernel():
+    """The point of the family: filter, group and aggregate in ONE kernel with
+    no crossing back into python."""
+    rows = _rows()
+    got = _native(
+        lambda a: a.filter(lambda r: r.n % 2 == 0).group_sum(lambda r: r.g, lambda r: r.v),
+        A_ROW, rows)
+    want = rows.filter(lambda r: r["n"] % 2 == 0).group_sum(lambda r: r["g"], lambda r: r["v"])
+    assert dict(got.items()) == dict(want.items())
+
+
+def test_group_every_actually_reads_its_predicate():
+    """A guard against a no-op implementation.
+
+    Every group_every case above used to hold for EVERY element, so the seed
+    and the answer coincided and an implementation that ignored the predicate
+    passed the whole suite (proven by mutation). These groups must differ.
+    """
+    rows = _rows()
+    got = _native(lambda a: a.group_every(lambda r: r.g, lambda r: r.n % 3 == 0), A_ROW, rows)
+    assert dict(got.items()) == {"g0": True, "g1": False, "g2": False}
+    assert dict(got.items()) == dict(
+        rows.group_every(lambda r: r["g"], lambda r: r["n"] % 3 == 0).items())
+
+
+# Each case carries the RESULT TYPE it must produce on empty input, chosen so
+# the old degenerate bail (a dict typed from the SOURCE) would be visibly
+# wrong: an Array of structs keyed by String, a Set<String> counted to Integer,
+# a Dict<String,Float> keyed by a BOOLEAN projection. Comparing traced against
+# eager alone is not enough — with a callback the tracer cannot type, BOTH
+# sides take the fallback and agree while both are wrong.
+_EMPTY_ARRAY_CASES = [
+    ("group_reduce", "String", "Float",
+     lambda a: a.group_reduce(lambda r: r.g, lambda _k: 0.0, lambda acc, r: acc + r.v),
+     lambda a: a.group_reduce(lambda r: r["g"], lambda _k: 0.0, lambda acc, r: acc + r["v"])),
+    ("group_size", "String", "Integer",
+     lambda a: a.group_size(lambda r: r.g), lambda a: a.group_size(lambda r: r["g"])),
+    ("group_sum_float", "String", "Float",
+     lambda a: a.group_sum(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_sum(lambda r: r["g"], lambda r: r["v"])),
+    ("group_sum_int", "String", "Integer",
+     lambda a: a.group_sum(lambda r: r.g, lambda r: r.n),
+     lambda a: a.group_sum(lambda r: r["g"], lambda r: r["n"])),
+    # an INTEGER projection still means a FLOAT mean
+    ("group_mean_int_proj", "String", "Float",
+     lambda a: a.group_mean(lambda r: r.g, lambda r: r.n),
+     lambda a: a.group_mean(lambda r: r["g"], lambda r: r["n"])),
+    ("group_every", "String", "Boolean",
+     lambda a: a.group_every(lambda r: r.g, lambda r: r.n > 0),
+     lambda a: a.group_every(lambda r: r["g"], lambda r: r["n"] > 0)),
+    ("group_some", "String", "Boolean",
+     lambda a: a.group_some(lambda r: r.g, lambda r: r.n > 0),
+     lambda a: a.group_some(lambda r: r["g"], lambda r: r["n"] > 0)),
+    # the two names phase 3 newly traced — both compose `_group_extreme`,
+    # whose empty bail the first fix pass missed
+    ("group_maximum", "String", "Float",
+     lambda a: a.group_maximum(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_maximum(lambda r: r["g"], lambda r: r["v"])),
+    ("group_minimum", "String", "Float",
+     lambda a: a.group_minimum(lambda r: r.g, lambda r: r.v),
+     lambda a: a.group_minimum(lambda r: r["g"], lambda r: r["v"])),
+]
+
+_EMPTY_SET_CASES = [
+    ("group_fold", "Integer", "Integer",
+     lambda s: s.group_fold(lambda e: e.length(), lambda _k: 0, lambda acc, e: acc + 1),
+     lambda s: s.group_fold(lambda e: e.length(), lambda _k: 0, lambda acc, e: acc + 1)),
+    # Set<String> counted to Integer: the degenerate bail said Dict<String,String>
+    ("group_size", "String", "Integer",
+     lambda s: s.group_size(lambda e: e), lambda s: s.group_size(lambda e: e)),
+    ("group_mean", "String", "Float",
+     lambda s: s.group_mean(lambda e: e, lambda e: e.length()),
+     lambda s: s.group_mean(lambda e: e, lambda e: e.length())),
+    ("group_every", "String", "Boolean",
+     lambda s: s.group_every(lambda e: e, lambda e: e.length() > 0),
+     lambda s: s.group_every(lambda e: e, lambda e: e.length() > 0)),
+    ("group_some", "String", "Boolean",
+     lambda s: s.group_some(lambda e: e, lambda e: e.length() > 0),
+     lambda s: s.group_some(lambda e: e, lambda e: e.length() > 0)),
+]
+
+_EMPTY_DICT_CASES = [
+    # a BOOLEAN group key over a Dict<String,Float>, so BOTH type parameters
+    # differ from the source — the degenerate bail leaked both
+    ("group_fold", "Boolean", "Float",
+     lambda d: d.group_fold(lambda k, v: v > 5.0, lambda _k: 0.0, lambda acc, k, v: acc + v),
+     lambda d: d.group_fold(lambda k, v: v > 5.0, lambda _k: 0.0, lambda acc, k, v: acc + v)),
+    ("group_size", "Boolean", "Integer",
+     lambda d: d.group_size(lambda k, v: v > 5.0), lambda d: d.group_size(lambda k, v: v > 5.0)),
+    ("group_sum", "Boolean", "Float",
+     lambda d: d.group_sum(lambda k, v: v > 5.0), lambda d: d.group_sum(lambda k, v: v > 5.0)),
+    ("group_mean", "Boolean", "Float",
+     lambda d: d.group_mean(lambda k, v: v > 5.0), lambda d: d.group_mean(lambda k, v: v > 5.0)),
+    ("group_every", "Boolean", "Boolean",
+     lambda d: d.group_every(lambda k, v: v > 5.0, lambda k, v: v > 0.0),
+     lambda d: d.group_every(lambda k, v: v > 5.0, lambda k, v: v > 0.0)),
+    ("group_some", "Boolean", "Boolean",
+     lambda d: d.group_some(lambda k, v: v > 5.0, lambda k, v: v > 0.0),
+     lambda d: d.group_some(lambda k, v: v > 5.0, lambda k, v: v > 0.0)),
+]
+
+
+@pytest.mark.parametrize(
+    ("cases", "param_type", "make_empty"),
+    [
+        (_EMPTY_ARRAY_CASES, A_ROW, lambda: array(ROW, [])),
+        (_EMPTY_SET_CASES, SetType(StringType), lambda: EastSet(StringType)),
+        (_EMPTY_DICT_CASES, D_SF, lambda: EastDict(StringType, FloatType)),
+    ],
+    ids=["array", "set", "dict"],
+)
+def test_empty_group_result_type_matches_eager(cases, param_type, make_empty):
+    """An EMPTY input still has a knowable result type — on ALL THREE containers.
+
+    Eager used to bail out with a degenerate dict typed from the SOURCE
+    (`(element_type, element_type)`, or `(key_type, value_type)`), so traced
+    and eager disagreed about the RESULT TYPE — silently, since two empty
+    dicts compare equal however they are typed.
+
+    That is not a cosmetic divergence. A dict's key/value type is part of a
+    kernel's compiled signature, so it propagates: seeding a per-chunk
+    aggregation from an empty chunk gave `Set.group_mean` an INTEGER
+    accumulator, and folding the real chunk's means into it truncated 2.5 to 2
+    with no error raised. `Array.group_maximum` seeded from an empty partition
+    raised `EastTypeError` on the merge instead. Which behaviour you got
+    depended only on whether the enclosing loop happened to trace.
+
+    Parametrized per container because the first fix pass covered Array alone
+    and left the Set/Dict twins — and `_group_extreme` — untouched.
+
+    Every eager callback here is East-typeable, which is the precondition for
+    the guarantee: on an EMPTY container there is no element to sample, so a
+    callback the tracer cannot type (a python builtin like `len`) leaves eager
+    nothing whatsoever to infer from and it must still fall back. See
+    :func:`test_an_untypeable_callback_on_empty_input_still_falls_back` — that
+    residual case is inherent, not a gap in this fix.
+    """
+    for name, want_k, want_v, traced, eager in cases:
+        empty = make_empty()
+        got, want_d = _native(traced, param_type, empty), eager(empty)
+        _same_dict(got, want_d)
+        # ...and both must be the type a reader would predict, not merely the
+        # same as each other: a callback the tracer cannot type sends BOTH
+        # paths down the fallback, where they agree while both are wrong.
+        assert (got.key_type.type, got.value_type.type) == (want_k, want_v), (
+            f"{name}: expected Dict<{want_k},{want_v}>, "
+            f"got Dict<{got.key_type.type},{got.value_type.type}>")
+
+
+def test_every_eager_group_call_is_accepted_by_its_traced_twin():
+    """Arity parity across the whole family, in the direction that matters.
+
+    `group_size` shipped without eager's `key=None` default, so a working eager
+    call stopped tracing — and that does not raise for the user, it silently
+    drops the enclosing loop to the per-element python path. So the contract is
+    one-directional: traced must require NO MORE arguments than eager, for
+    every name on the surface.
+
+    It cannot be an equality: `KernelExpr` is a single class serving all three
+    tags, so Array's optional `key` is visible on a Set receiver too. Traced
+    being LAXER is safe because the surplus form is rejected at trace time with
+    a named error — pinned by the test below.
+    """
+    import inspect
+
+    from east.kernel import _TRACED_SURFACE, KernelExpr
+    from east.types.values.collections import EastArray, EastDict, EastSet
+
+    eager_cls = {"Array": EastArray, "Set": EastSet, "Dict": EastDict}
+    checked, stricter = 0, []
+    for tag, names in _TRACED_SURFACE.items():
+        for name in names:
+            if not name.startswith("group_"):
+                continue
+            traced_fn = getattr(KernelExpr, name, None)
+            eager_fn = getattr(eager_cls[tag], name, None)
+            assert eager_fn is not None, f"{tag}.{name} has no eager twin"
+
+            def required(fn):
+                return sum(1 for p in inspect.signature(fn).parameters.values()
+                           if p.name != "self" and p.default is inspect.Parameter.empty)
+
+            checked += 1
+            if required(traced_fn) > required(eager_fn):
+                stricter.append(f"{tag}.{name}: traced needs {required(traced_fn)}"
+                                f" but eager accepts {required(eager_fn)}")
+    assert not stricter, stricter
+    assert checked >= 15, f"only {checked} group_* names checked — the sweep missed the surface"
+
+
+def test_group_size_defaults_to_the_identity_key_on_an_array():
+    xs = EastArray(StringType, ["a", "b", "a"])
+    got = _native(lambda a: a.group_size(), ArrayType(StringType), xs)
+    assert dict(got.items()) == dict(xs.group_size().items()) == {"a": 2, "b": 1}
+    # ...and Set/Dict require one, exactly as their eager twins do
+    with pytest.raises(KernelTraceError, match="needs a key function"):
+        kernel(_G_SET, lambda s: s.group_size())
+
+
+def test_an_untypeable_callback_on_empty_input_falls_back_per_parameter():
+    """The one case the empty-input guarantee does NOT cover, stated honestly.
+
+    The rule is "derive from the type system, sample only as a fallback". On an
+    empty container there is nothing to sample, so when the callback ALSO
+    cannot be typed — a python builtin, or an impure lambda the purity scan
+    refuses to trace — there is no information anywhere and eager must keep a
+    source-typed guess. A kernel lambda is traceable by construction, so the
+    traced path never hits this, and the two can then differ.
+
+    The fallback is per TYPE PARAMETER, not all-or-nothing: an underivable key
+    callback does not drag a perfectly derivable value type down with it. That
+    is what the old single `if len(self) == 0` bail did, and why fixing it moved
+    `group_size` from `Dict<String,String>` to `Dict<String,Integer>` even here.
+
+    Pinned so the limit is a known, named boundary rather than a surprise.
+    """
+    empty = EastSet(StringType)
+    # `len` is a python builtin: untraceable, and no element exists to sample
+    assert _kernel_out_type(len, [StringType]) is None
+    partly = empty.group_size(len)
+    # the KEY falls back to the element type; the VALUE is still derived
+    assert (partly.key_type.type, partly.value_type.type) == ("String", "Integer")
+    # ...and the East-typeable spelling derives both
+    typed = empty.group_size(lambda e: e.length())
+    assert (typed.key_type.type, typed.value_type.type) == ("Integer", "Integer")
+
+
+@pytest.mark.parametrize("tag", ["array", "set", "dict"])
+def test_the_group_seed_really_receives_its_group_key(tag):
+    """`init(group_key)` is documented to receive the KEY, and nothing pinned it.
+
+    Every other `group_reduce`/`group_fold` case seeds from a constant
+    (`lambda _k: 0`), so an implementation that passed the wrong thing — or
+    nothing — would leave the whole suite green. Seed each group FROM its key
+    so the result can only be right if the key arrived.
+    """
+    if tag == "array":
+        rows = _rows()
+        got = _native(
+            lambda a: a.group_reduce(lambda r: r.n % 3, lambda k: k * 100,
+                                     lambda acc, r: acc + 1),
+            A_ROW, rows)
+        want = rows.group_reduce(lambda r: r["n"] % 3, lambda k: k * 100,
+                                 lambda acc, r: acc + 1)
+    elif tag == "set":
+        s = _set_i()
+        got = _native(lambda x: x.group_fold(lambda e: e % 3, lambda k: k * 100,
+                                             lambda acc, e: acc + e),
+                      _G_SET, s)
+        want = s.group_fold(lambda e: e % 3, lambda k: k * 100, lambda acc, e: acc + e)
+    else:
+        d = _dict_kf()
+        got = _native(lambda x: x.group_fold(lambda k, v: v, lambda k: k * 1000.0,
+                                             lambda acc, k, v: acc + v),
+                      D_SF, d)
+        want = d.group_fold(lambda k, v: v, lambda k: k * 1000.0,
+                            lambda acc, k, v: acc + v)
+    _same_dict(got, want)
+    # ...and the seed must actually have moved the answer off the constant
+    assert any(v != 0 for v in dict(got.items()).values())
+
+
+# The eager `group_*` names phase 3 does NOT yet trace. Every entry here is a
+# working eager call that silently drops its enclosing loop to the per-element
+# python path, so the list is scope, not policy — #525 phase 3b empties it.
+_UNTRACED_GROUP_NAMES = {
+    "Array": {"group_to_arrays", "group_to_sets", "group_to_dicts",
+              "group_find_all", "group_find_first",
+              "group_find_maximum", "group_find_minimum"},
+    "Set": {"group_to_arrays", "group_to_sets", "group_to_dicts"},
+    "Dict": {"group_to_arrays", "group_to_sets", "group_to_dicts"},
+}
+
+
+def test_the_traced_group_surface_is_pinned_against_the_eager_one():
+    """Every eager `group_*` is traced, or is listed as known-missing.
+
+    The arity sweep above iterates `_TRACED_SURFACE`, so it can only check
+    names that are ALREADY traced — an omission is invisible to it, which is
+    exactly how seven of them survived phase 3. Drive the comparison from the
+    EAGER surface instead.
+
+    This matters more than a normal coverage gap: an untraced name does not
+    raise. `try_push_down` simply fails and east-c trampolines once per
+    element, so the only symptom is that the job takes hours (#524 measured
+    6h02m for 729k rows). The list must only ever SHRINK.
+    """
+    from east.kernel import _TRACED_SURFACE
+    from east.types.values.collections import EastArray, EastDict, EastSet
+
+    regressions, stale = [], []
+    for tag, cls in (("Array", EastArray), ("Set", EastSet), ("Dict", EastDict)):
+        eager = {n for n in dir(cls) if n.startswith("group") and not n.startswith("_")}
+        traced = {n for n in _TRACED_SURFACE[tag] if n.startswith("group")}
+        known = _UNTRACED_GROUP_NAMES[tag]
+        missing = eager - traced
+        for name in sorted(missing - known):
+            regressions.append(f"{tag}.{name} is eager-only and NOT in the known list")
+        for name in sorted(known - missing):
+            stale.append(f"{tag}.{name} is now traced — remove it from _UNTRACED_GROUP_NAMES")
+    assert not regressions, regressions
+    assert not stale, stale
+
+
+def test_a_traced_group_name_always_has_an_eager_twin():
+    """The other direction: the traced surface must not invent a name.
+
+    A traced-only name is the divergence #526/#527 were about — code that
+    works inside a kernel and fails outside it, or vice versa.
+    """
+    from east.kernel import _TRACED_SURFACE
+    from east.types.values.collections import EastArray, EastDict, EastSet
+
+    orphans = []
+    for tag, cls in (("Array", EastArray), ("Set", EastSet), ("Dict", EastDict)):
+        for name in sorted(n for n in _TRACED_SURFACE[tag] if n.startswith("group")):
+            if not hasattr(cls, name):
+                orphans.append(f"{tag}.{name} traces but has no eager twin")
+    assert not orphans, orphans

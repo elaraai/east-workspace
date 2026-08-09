@@ -692,16 +692,21 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import DictType, IntegerType
 
-        if len(self) == 0:
-            k2 = self.element_type
-            t2 = self.element_type
-            return EastDict(k2, t2)
         # Declared type first, sampling only as a fallback — a sampled variant
         # yields a single-case type and breaks on the first other case (#450).
-        k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))
+        # An EMPTY array still has a knowable result type whenever the
+        # callbacks are typeable; only fall back to the degenerate shape when
+        # they are not (#525).
         value_fn = (lambda el: el) if value is None else value
-        t2 = self.element_type if value is None else (
-            _kernel_out_type(value, _elem_in(value, self.element_type)) or _ev.type_of(_call_elem(value, self[0])))
+        k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
+        t2 = self.element_type if value is None else _kernel_out_type(
+            value, _elem_in(value, self.element_type))
+        if len(self) == 0:
+            return EastDict(k2 or self.element_type, t2 or self.element_type)
+        if k2 is None:
+            k2 = _ev.type_of(_call_elem(key, self[0]))
+        if t2 is None:
+            t2 = _ev.type_of(_call_elem(value, self[0]))
         key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
         val_cb = EastFunction(_idx_cb(value_fn), [self.element_type, IntegerType], t2)
         combine_cb = EastFunction(_combine_cb(combine, k2), [t2, t2, k2], t2)
@@ -1252,10 +1257,24 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import DictType, IntegerType
 
+        # An EMPTY input still has a knowable result type when the callbacks
+        # are typeable — returning a degenerate `(element_type, element_type)`
+        # dict made the eager path disagree with the traced one about the
+        # RESULT TYPE, invisibly, because both compare equal while empty
+        # (#450/#525). Infer what the non-empty path would infer; only fall
+        # back to the degenerate shape when a callback cannot be typed at all.
+        k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
+        if k2 is None:
+            if len(self) == 0:
+                return EastDict(self.element_type, self.element_type)
+            k2 = _ev.type_of(_call_elem(key, self[0]))
+        a_t = _kernel_out_type(init, [k2])
+        if a_t is None:
+            if len(self) == 0:
+                return EastDict(k2, self.element_type)
+            a_t = _ev.type_of(init(_call_elem(key, self[0])))
         if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
-        k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))  # declared type first (#450)
-        a_t = _kernel_out_type(init, [k2]) or _ev.type_of(init(_call_elem(key, self[0])))
+            return EastDict(k2, a_t)
         key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
         init_cb = EastFunction(init, [k2], a_t)
         fold_cb = EastFunction(_acc_idx_cb(fold), [a_t, self.element_type, IntegerType], a_t)
@@ -1296,9 +1315,14 @@ class EastArray(MutableSequence, Generic[T]):
         """Float mean per group (sum, count and the division all native)."""
         from east.namespace import East
         from east.types.types import FloatType
+        from east.types.types import FloatType as _FloatT
 
+        k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
         if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
+            # Typeable callbacks still fix the result type on an empty array
+            # (#525); the mean is always Float.
+            return EastDict(k2e or self.element_type,
+                            _FloatT if k2e is not None else self.element_type)
         t2 = self.element_type if fn is None else (
             _kernel_out_type(fn) or _kernel_out_type(fn, _elem_in(fn, self.element_type)) or _ev.type_of(_call_elem(fn, self[0])))
         proj = _float_proj(fn, t2)
@@ -1317,11 +1341,19 @@ class EastArray(MutableSequence, Generic[T]):
         from east.types.construct import some as _some
         from east.types.types import DictType, IntegerType, OptionType
 
-        if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
         proj: Any = by if by is not None else (lambda el: el)
-        k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))  # declared type first (#450)
-        p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type)) or _ev.type_of(_call_elem(proj, self[0]))
+        # Declared type first (#450), and BEFORE the empty check: an empty
+        # array still has a knowable result type whenever the callbacks are
+        # typeable, and the traced twin derives one unconditionally, so bailing
+        # to `(element_type, element_type)` made the two disagree (#525).
+        k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
+        p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type))
+        if len(self) == 0:
+            return EastDict(k2 or self.element_type, p_t or self.element_type)
+        if k2 is None:
+            k2 = _ev.type_of(_call_elem(key, self[0]))
+        if p_t is None:
+            p_t = _ev.type_of(_call_elem(proj, self[0]))
         opt_t = OptionType(p_t)
         key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
         p_wants = _callback_arity(proj, 1) >= 2
@@ -2112,11 +2144,21 @@ class EastSet(Generic[T]):
         """
         from east.types.types import DictType
 
+        # Declared type first (#450), and BEFORE the empty check — an empty set
+        # still has a knowable result type when the callbacks are typeable.
+        # `group_size` delegates here, so the degenerate bail typed its counts
+        # as the ELEMENT type: `Set<String>.group_size()` on an empty set
+        # yielded Dict<String,String> against the traced Dict<String,Integer>,
+        # and folding real counts into it then failed inside east-c (#525).
+        k2 = _kernel_out_type(key, [self.element_type])
+        t2 = _kernel_out_type(value, [self.element_type])
         if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
+            return EastDict(k2 or self.element_type, t2 or self.element_type)
         sample = next(iter(self))
-        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(sample))  # declared type first (#450)
-        t2 = _kernel_out_type(value, [self.element_type]) or _ev.type_of(value(sample))
+        if k2 is None:
+            k2 = _ev.type_of(key(sample))
+        if t2 is None:
+            t2 = _ev.type_of(value(sample))
         key_cb = EastFunction(key, [self.element_type], k2)
         value_cb = EastFunction(value, [self.element_type], t2)
         combine_cb = EastFunction(_combine_cb(combine, k2), [t2, t2, k2], t2)
@@ -2462,8 +2504,14 @@ class EastSet(Generic[T]):
         from east.namespace import East
         from east.types.types import FloatType
 
+        k2e = _kernel_out_type(key, [self.element_type])
         if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
+            # A typeable key still fixes the result type on an empty set
+            # (#525); the mean is ALWAYS Float, so the degenerate bail did not
+            # merely lose precision in the type — folding real means into an
+            # Integer-typed seed truncated them, with no error raised.
+            return EastDict(k2e or self.element_type,
+                            FloatType if k2e is not None else self.element_type)
         t2 = self.element_type if fn is None else (
             _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))))
         proj = _float_proj(fn, t2)
@@ -2509,11 +2557,24 @@ class EastSet(Generic[T]):
         """
         from east.types.types import DictType
 
+        # An EMPTY input still has a knowable result type when the callbacks
+        # are typeable — returning a degenerate `(element_type, element_type)`
+        # dict made the eager path disagree with the traced one about the
+        # RESULT TYPE, invisibly, because both compare equal while empty
+        # (#450/#525). Infer what the non-empty path would infer; only fall
+        # back to the degenerate shape when a callback cannot be typed at all.
+        k2 = _kernel_out_type(key, [self.element_type])
+        if k2 is None:
+            if len(self) == 0:
+                return EastDict(self.element_type, self.element_type)
+            k2 = _ev.type_of(key(next(iter(self))))
+        t2 = _kernel_out_type(initial, [k2])
+        if t2 is None:
+            if len(self) == 0:
+                return EastDict(k2, self.element_type)
+            t2 = _ev.type_of(initial(key(next(iter(self)))))
         if len(self) == 0:
-            return EastDict(self.element_type, self.element_type)
-        sample = next(iter(self))
-        k2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(sample))  # declared type first (#450)
-        t2 = _ev.type_of(initial(key(sample)))
+            return EastDict(k2, t2)
         key_cb = EastFunction(key, [self.element_type], k2)
         init_cb = EastFunction(initial, [k2], t2)
         fold_cb = EastFunction(_mark_kernel(lambda acc, el: fold(acc, el), fold), [t2, self.element_type], t2)
@@ -2938,8 +2999,13 @@ class EastDict(Generic[K, V]):
         from east.namespace import East
         from east.types.types import FloatType
 
+        k2e = _kernel_out_type(key_fn, [self.key_type, self.value_type])
         if len(self) == 0:
-            return EastDict(self.key_type, self.value_type)
+            # Both type parameters were wrong here, not just one: the source
+            # KEY type leaked through even when the group key is a projection,
+            # and the value type was the source's rather than Float (#525).
+            return EastDict(k2e or self.key_type,
+                            FloatType if k2e is not None else self.value_type)
         if fn is None:
             t2 = self.value_type
         else:
@@ -3666,14 +3732,21 @@ class EastDict(Generic[K, V]):
 
         _check_kernel_out(key_fn, key_out, param="key_out")
         _check_kernel_out(value_fn, value_out, param="value_out")
+        # Declared type first (#450), and BEFORE the empty check — `group_size`
+        # delegates here, so falling back to (key_type, value_type) typed an
+        # empty dict's COUNTS as the source value type: silently Float counts
+        # on a Dict<String,Float>, against the traced Integer (#525).
+        k2 = key_out if key_out is not None else _kernel_out_type(
+            key_fn, [self.key_type, self.value_type])
+        v2 = value_out if value_out is not None else _kernel_out_type(
+            value_fn, [self.key_type, self.value_type])
         if len(self) == 0:
-            return EastDict(
-                key_out if key_out is not None else self.key_type,
-                value_out if value_out is not None else self.value_type,
-            )
+            return EastDict(k2 or self.key_type, v2 or self.value_type)
         first_key = next(iter(self))
-        k2 = key_out if key_out is not None else _kernel_out_type(key_fn, [self.key_type, self.value_type]) or _ev.type_of(key_fn(first_key, self[first_key]))
-        v2 = value_out if value_out is not None else _kernel_out_type(value_fn, [self.key_type, self.value_type]) or _ev.type_of(value_fn(first_key, self[first_key]))
+        if k2 is None:
+            k2 = _ev.type_of(key_fn(first_key, self[first_key]))
+        if v2 is None:
+            v2 = _ev.type_of(value_fn(first_key, self[first_key]))
         key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
         value_cb = EastFunction(lambda v, k: value_fn(k, v), [self.value_type, self.key_type], v2)
         combine_cb = EastFunction(combine, [v2, v2, k2], v2)
@@ -3778,14 +3851,25 @@ class EastDict(Generic[K, V]):
         _check_kernel_out(key_fn, key_out, param="key_out")
         _check_kernel_out(init_fn, acc_out, param="acc_out")
         _check_kernel_out(fold_fn, acc_out, param="acc_out")
+        # An EMPTY dict still has a knowable result type when the callbacks are
+        # typeable — falling back to (key_type, value_type) made the eager path
+        # disagree with the traced one about the RESULT TYPE, invisibly,
+        # because both compare equal while empty (#450/#525).
+        k2 = key_out if key_out is not None else _kernel_out_type(
+            key_fn, [self.key_type, self.value_type])
+        if k2 is None:
+            if len(self) == 0:
+                return EastDict(self.key_type, acc_out or self.value_type)
+            first_key = next(iter(self))
+            k2 = _ev.type_of(key_fn(first_key, self[first_key]))
+        t2 = acc_out if acc_out is not None else _kernel_out_type(init_fn, [k2])
+        if t2 is None:
+            if len(self) == 0:
+                return EastDict(k2, self.value_type)
+            first_key = next(iter(self))
+            t2 = _ev.type_of(init_fn(key_fn(first_key, self[first_key])))
         if len(self) == 0:
-            return EastDict(
-                key_out if key_out is not None else self.key_type,
-                acc_out if acc_out is not None else self.value_type,
-            )
-        first_key = next(iter(self))
-        k2 = key_out if key_out is not None else _kernel_out_type(key_fn, [self.key_type, self.value_type]) or _ev.type_of(key_fn(first_key, self[first_key]))
-        t2 = acc_out if acc_out is not None else _ev.type_of(init_fn(key_fn(first_key, self[first_key])))
+            return EastDict(k2, t2)
         key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
         init_cb = EastFunction(init_fn, [k2], t2)
         fold_cb = EastFunction(lambda acc, v, k: fold_fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
