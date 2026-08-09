@@ -214,6 +214,56 @@ export const dictUnionInPlace = example({
     returns: new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]]),
 });
 
+export const dictGroupToArrays = example({
+    keywords: ["dict", "DictType", "groupToArrays", "group", "collect", "arrays", "#521"],
+    description: "Group a dict's entries into arrays of values, keyed by a derived key",
+    fn: East.function([], DictType(IntegerType, ArrayType(IntegerType)), ($) => {
+        const d = $.const(new Map([["a", 1n], ["ab", 2n], ["b", 3n]]), DictType(StringType, IntegerType));
+        // callbacks take (value, key) — the key/value types are inferred, so
+        // this compiles under `strict` without annotations (#521)
+        return d.groupToArrays((_$, _v, k) => k.length(), (_$, v, _k) => v);
+    }),
+    inputs: [],
+    returns: new Map([[1n, [1n, 3n]], [2n, [2n]]]),
+});
+
+export const dictGroupToSets = example({
+    keywords: ["dict", "DictType", "groupToSets", "group", "collect", "sets", "distinct", "#521"],
+    description: "Group a dict's entries into sets of values, collapsing duplicates",
+    fn: East.function([], DictType(IntegerType, SetType(IntegerType)), ($) => {
+        const d = $.const(new Map([["a", 1n], ["ab", 2n], ["b", 1n]]), DictType(StringType, IntegerType));
+        return d.groupToSets((_$, _v, k) => k.length(), (_$, v, _k) => v);
+    }),
+    inputs: [],
+    returns: new Map([[1n, new Set([1n])], [2n, new Set([2n])]]),
+});
+
+export const dictGroupToDicts = example({
+    keywords: ["dict", "DictType", "groupToDicts", "group", "nested", "#521"],
+    description: "Group a dict's entries into nested dicts keyed by a second projection",
+    fn: East.function([], DictType(IntegerType, DictType(StringType, IntegerType)), ($) => {
+        const d = $.const(new Map([["a", 1n], ["ab", 2n], ["b", 3n]]), DictType(StringType, IntegerType));
+        return d.groupToDicts((_$, _v, k) => k.length(), (_$, _v, k) => k, (_$, v, _k) => v);
+    }),
+    inputs: [],
+    returns: new Map([
+        [1n, new Map([["a", 1n], ["b", 3n]])],
+        [2n, new Map([["ab", 2n]])],
+    ]),
+});
+
+export const dictUnion = example({
+    keywords: ["dict", "DictType", "union", "merge", "pure", "combine", "copy", "#527"],
+    description: "Union two dicts into a NEW dict, leaving both inputs unchanged",
+    fn: East.function([], DictType(IntegerType, StringType), ($) => {
+        const d1 = $.const(new Map([[1n, "a"], [2n, "b"]]), DictType(IntegerType, StringType));
+        const d2 = $.const(new Map([[2n, "B"], [3n, "C"]]), DictType(IntegerType, StringType));
+        return d1.union(d2, ($, v1, v2) => v1.concat("+").concat(v2));
+    }),
+    inputs: [],
+    returns: new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]]),
+});
+
 export const dictMergeAll = example({
     keywords: ["dict", "DictType", "mergeAll", "combine", "missing"],
     description: "Merge all entries from another dict with conflict and missing handlers",
@@ -351,6 +401,17 @@ export const dictReduce = example({
     }),
     inputs: [],
     returns: "1:a;2:b;3:c;",
+});
+
+export const dictScan = example({
+    keywords: ["dict", "DictType", "scan", "running-fold", "prefix-sum", "cumulative", "running-total"],
+    description: "Scan dict values into running totals in key order",
+    fn: East.function([], ArrayType(IntegerType), ($) => {
+        const d = $.const(new Map([["a", 1n], ["b", 2n], ["c", 3n]]), DictType(StringType, IntegerType));
+        return d.scan((_$, acc, value, _key) => acc.add(value), 0n);
+    }),
+    inputs: [],
+    returns: [1n, 3n, 6n],
 });
 
 // ---------------------------------------------------------------------------

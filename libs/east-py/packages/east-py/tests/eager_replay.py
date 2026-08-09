@@ -853,6 +853,8 @@ _ROWS: dict[str, Any] = {
     "ArrayFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
     "ArrayFold": lambda ev, n, a: a[0].fold(a[1], _cb(ev, a[2])),
+    # scan IS the running fold, so it takes fold's argument order (#524).
+    "ArrayScan": lambda ev, n, a: a[0].scan(a[1], _cb(ev, a[2])),
     "ArrayMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]))
     if isinstance(a[0], KernelExpr) else a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]), out=_out(n)),
     "ArraySize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
@@ -924,6 +926,8 @@ _ROWS: dict[str, Any] = {
     if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
     "SetMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
     "SetReduce": lambda ev, n, a: a[0].reduce(a[2], _cb(ev, a[1])),
+    # SetScan mirrors SetReduce's (set, fn, init) argument order (#524).
+    "SetScan": lambda ev, n, a: a[0].scan(a[2], _cb(ev, a[1])),
     "SetGroupFold": lambda ev, n, a: a[0].group_fold(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
@@ -965,6 +969,9 @@ _ROWS: dict[str, Any] = {
     if not isinstance(a[0], KernelExpr) else a[0].first_map(_dict_kv(ev, a[1])),
     "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_dict_kv(ev, a[1]), _cb(ev, a[2])),
     "DictReduce": lambda ev, n, a: a[0].reduce(a[2], _acc_kv(ev, a[1])),
+    # DictScan mirrors DictReduce: builtin (acc, value, key) -> user
+    # fn(acc, key, value), and the seed is the trailing argument (#524).
+    "DictScan": lambda ev, n, a: a[0].scan(a[2], _acc_kv(ev, a[1])),
     "DictToArray": lambda ev, n, a: a[0].to_array(_dict_kv(ev, a[1])),
     "DictToSet": lambda ev, n, a: a[0].to_set(_dict_kv(ev, a[1])),
     "DictToDict": lambda ev, n, a: a[0].to_dict(_dict_kv(ev, a[1]), _dict_kv(ev, a[2]), _cb(ev, a[3])),
@@ -976,11 +983,15 @@ _ROWS: dict[str, Any] = {
     # in-place union with a combine: the user spelling is update_many (#255).
     # update_many's combine contract is (existing, incoming) — a corpus
     # merger that reads the KEY has no user spelling here → funnel (counted).
-    "DictUnionInPlace": lambda ev, n, a: (a[0].update_many(
-        list(a[1].keys()), list(a[1].values()),
-        combine=_two_arg_combine(ev, a[2])), east_null)[1]
-    if not (isinstance(a[2], Closure) and len(a[2].payload["parameters"]) > 2)
-    else _unsup("DictUnionInPlace merger reads the key: no update_many spelling"),
+    # #527 gave this builtin a direct user spelling — `union_in_place` takes the
+    # (existing, incoming, key) combine, so the key-reading merger that had no
+    # `update_many` spelling is now expressible and no longer funnels.
+    "DictUnionInPlace": lambda ev, n, a: (
+        a[0].union_in_place(a[1], _cb(ev, a[2])), east_null)[1],
+    # #527 also added `merge_key`, the single-key upsert that IS DictMerge
+    # (dict, key, value, updateFn, initialFn) — argument-for-argument.
+    "DictMerge": lambda ev, n, a: (
+        a[0].merge_key(a[1], a[2], _cb(ev, a[3]), _cb(ev, a[4])), east_null)[1],
     "DictMergeAll": lambda ev, n, a: a[0].merge_all(a[1], _cb(ev, a[2]), _cb(ev, a[3])),
     "DictForEach": lambda ev, n, a: a[0].for_each(_dict_kv(ev, a[1])),
     "DictGenerate": lambda ev, n, a: EastDict.generate(

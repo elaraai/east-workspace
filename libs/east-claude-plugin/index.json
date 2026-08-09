@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1067,
+    "totalEntries": 1075,
     "totalFiles": 192,
     "packages": {
-      "east": 490,
+      "east": 498,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -759,6 +759,50 @@
         "import type { option } from \"@elaraai/east\";"
       ],
       "source": "// Map then reduce without an initial value\n// inputs: []  returns: 12n\nEast.function([], IntegerType, ($) => {\n        const a = $.const([1n, 2n, 3n], ArrayType(IntegerType));\n        return a.mapReduce((_$, x, _i) => x.multiply(2n), ($, acc, x) => acc.add(x));\n    })"
+    },
+    {
+      "id": "east:array.examples.ts:arrayScan",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/array.examples.ts",
+      "suite": "Aggregation",
+      "test": "Scan an array into its running totals (every intermediate accumulator)",
+      "keywords": [
+        "array",
+        "ArrayType",
+        "scan",
+        "running-fold",
+        "prefix-sum",
+        "cumulative",
+        "running-total"
+      ],
+      "imports": [
+        "import { East, Expr, ArrayType, IntegerType, FloatType, StringType, BooleanType, some, none, SetType, DictType, StructType, example } from \"@elaraai/east\";",
+        "import type { option } from \"@elaraai/east\";"
+      ],
+      "source": "// Scan an array into its running totals (every intermediate accumulator)\n// inputs: []  returns: [1n, 3n, 6n, 10n]\nEast.function([], ArrayType(IntegerType), ($) => {\n        const a = $.const([1n, 2n, 3n, 4n], ArrayType(IntegerType));\n        return a.scan(($, acc, x) => acc.add(x), 0n);\n    })"
+    },
+    {
+      "id": "east:array.examples.ts:arrayScanForwardFill",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/array.examples.ts",
+      "suite": "Aggregation",
+      "test": "Forward-fill empty cells with the last stated value using scan",
+      "keywords": [
+        "array",
+        "ArrayType",
+        "scan",
+        "forward-fill",
+        "ditto",
+        "carry-forward",
+        "state-machine"
+      ],
+      "imports": [
+        "import { East, Expr, ArrayType, IntegerType, FloatType, StringType, BooleanType, some, none, SetType, DictType, StructType, example } from \"@elaraai/east\";",
+        "import type { option } from \"@elaraai/east\";"
+      ],
+      "source": "// Forward-fill empty cells with the last stated value using scan\n// inputs: []  returns: [\"a\", \"a\", \"a\", \"b\", \"b\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const cells = $.const([\"a\", \"\", \"\", \"b\", \"\"], ArrayType(StringType));\n        return cells.scan(($, acc, cell) => East.equal(cell, \"\").ifElse(() => acc, () => cell), \"\");\n    })"
     },
     {
       "id": "east:array.examples.ts:arraySum",
@@ -3726,6 +3770,91 @@
       "source": "// Union two dicts in place with a conflict handler\n// inputs: []  returns: new Map([[1n, \"a\"], [2n, \"b+B\"], [3n, \"C\"]])\nEast.function([], DictType(IntegerType, StringType), ($) => {\n        const d1 = $.let(new Map([[1n, \"a\"], [2n, \"b\"]]), DictType(IntegerType, StringType));\n        const d2 = $.const(new Map([[2n, \"B\"], [3n, \"C\"]]), DictType(IntegerType, StringType));\n        $(d1.unionInPlace(d2, ($, v1, v2) => v1.concat(\"+\").concat(v2)));\n        return d1;\n    })"
     },
     {
+      "id": "east:dict.examples.ts:dictGroupToArrays",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Group a dict",
+      "keywords": [
+        "dict",
+        "DictType",
+        "groupToArrays",
+        "group",
+        "collect",
+        "arrays",
+        "#521"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Group a dict\n// inputs: []  returns: new Map([[1n, [1n, 3n]], [2n, [2n]]])\nEast.function([], DictType(IntegerType, ArrayType(IntegerType)), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"ab\", 2n], [\"b\", 3n]]), DictType(StringType, IntegerType));\n        // callbacks take (value, key) — the key/value types are inferred, so\n        // this compiles under `strict` without annotations (#521)\n        return d.groupToArrays((_$, _v, k) => k.length(), (_$, v, _k) => v);\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictGroupToSets",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Group a dict",
+      "keywords": [
+        "dict",
+        "DictType",
+        "groupToSets",
+        "group",
+        "collect",
+        "sets",
+        "distinct",
+        "#521"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Group a dict\n// inputs: []  returns: new Map([[1n, new Set([1n])], [2n, new Set([2n])]])\nEast.function([], DictType(IntegerType, SetType(IntegerType)), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"ab\", 2n], [\"b\", 1n]]), DictType(StringType, IntegerType));\n        return d.groupToSets((_$, _v, k) => k.length(), (_$, v, _k) => v);\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictGroupToDicts",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Group a dict",
+      "keywords": [
+        "dict",
+        "DictType",
+        "groupToDicts",
+        "group",
+        "nested",
+        "#521"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Group a dict\n// inputs: []  returns: new Map([\n        [1n, new Map([[\"a\", 1n], [\"b\", 3n]])],\n        [2n, new Map([[\"ab\", 2n]])],\n    ])\nEast.function([], DictType(IntegerType, DictType(StringType, IntegerType)), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"ab\", 2n], [\"b\", 3n]]), DictType(StringType, IntegerType));\n        return d.groupToDicts((_$, _v, k) => k.length(), (_$, _v, k) => k, (_$, v, _k) => v);\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictUnion",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Union two dicts into a NEW dict, leaving both inputs unchanged",
+      "keywords": [
+        "dict",
+        "DictType",
+        "union",
+        "merge",
+        "pure",
+        "combine",
+        "copy",
+        "#527"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Union two dicts into a NEW dict, leaving both inputs unchanged\n// inputs: []  returns: new Map([[1n, \"a\"], [2n, \"b+B\"], [3n, \"C\"]])\nEast.function([], DictType(IntegerType, StringType), ($) => {\n        const d1 = $.const(new Map([[1n, \"a\"], [2n, \"b\"]]), DictType(IntegerType, StringType));\n        const d2 = $.const(new Map([[2n, \"B\"], [3n, \"C\"]]), DictType(IntegerType, StringType));\n        return d1.union(d2, ($, v1, v2) => v1.concat(\"+\").concat(v2));\n    })"
+    },
+    {
       "id": "east:dict.examples.ts:dictMergeAll",
       "skill": "east",
       "package": "east",
@@ -3932,6 +4061,27 @@
         "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
       ],
       "source": "// Reduce dict entries to a single value\n// inputs: []  returns: \"1:a;2:b;3:c;\"\nEast.function([], StringType, ($) => {\n        const d = $.const(new Map([[1n, \"a\"], [2n, \"b\"], [3n, \"c\"]]), DictType(IntegerType, StringType));\n        return d.reduce((_$, acc, value, key) => acc.concat(str`${key}:${value};`), \"\");\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictScan",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Map, Filter, FilterMap, Reduce",
+      "test": "Scan dict values into running totals in key order",
+      "keywords": [
+        "dict",
+        "DictType",
+        "scan",
+        "running-fold",
+        "prefix-sum",
+        "cumulative",
+        "running-total"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Scan dict values into running totals in key order\n// inputs: []  returns: [1n, 3n, 6n]\nEast.function([], ArrayType(IntegerType), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"b\", 2n], [\"c\", 3n]]), DictType(StringType, IntegerType));\n        return d.scan((_$, acc, value, _key) => acc.add(value), 0n);\n    })"
     },
     {
       "id": "east:dict.examples.ts:dictSum",
@@ -7924,6 +8074,27 @@
         "import { East, IntegerType, FloatType, SetType, StringType, BooleanType, DictType, some, none, example } from \"@elaraai/east\";"
       ],
       "source": "// Reduce a set to a single value with an accumulator\n// inputs: []  returns: 6n\nEast.function([], IntegerType, ($) => {\n        const s = $.const(new Set([1n, 2n, 3n]), SetType(IntegerType));\n        return s.reduce(($, acc, x) => acc.add(x), 0n);\n    })"
+    },
+    {
+      "id": "east:set.examples.ts:setScan",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/set.examples.ts",
+      "suite": "Map, Filter, Reduce, ForEach, Copy",
+      "test": "Scan a set into its running totals in East order",
+      "keywords": [
+        "set",
+        "SetType",
+        "scan",
+        "running-fold",
+        "prefix-sum",
+        "cumulative",
+        "running-total"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, SetType, StringType, BooleanType, DictType, some, none, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Scan a set into its running totals in East order\n// inputs: []  returns: [1n, 3n, 6n]\nEast.function([], undefined, ($) => {\n        const s = $.const(new Set([3n, 1n, 2n]), SetType(IntegerType));\n        return s.scan(($, acc, x) => acc.add(x), 0n);\n    })"
     },
     {
       "id": "east:set.examples.ts:setSum",

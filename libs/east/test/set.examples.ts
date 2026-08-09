@@ -300,6 +300,17 @@ export const setReduce = example({
     returns: 6n,
 });
 
+export const setScan = example({
+    keywords: ["set", "SetType", "scan", "running-fold", "prefix-sum", "cumulative", "running-total"],
+    description: "Scan a set into its running totals in East order",
+    fn: East.function([], undefined, ($) => {
+        const s = $.const(new Set([3n, 1n, 2n]), SetType(IntegerType));
+        return s.scan(($, acc, x) => acc.add(x), 0n);
+    }),
+    inputs: [],
+    returns: [1n, 3n, 6n],
+});
+
 export const setSum = example({
     keywords: ["set", "SetType", "sum", "total", "aggregate"],
     description: "Sum all elements in a set",

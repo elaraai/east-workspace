@@ -384,6 +384,36 @@ await describe("Array", (test) => {
         $(assert.equal(East.value([1n, 2n, 3n]).mapReduce((_$, x, _i) => x.multiply(2n), ($, a, b) => a.add(b)), 12n))
     })
 
+    assert.examples(test, { arrayScan: ex.arrayScan, arrayScanForwardFill: ex.arrayScanForwardFill });
+
+    test("Scan", $ => {
+        // Empty input scans to empty output
+        $(assert.equal(East.value([], ArrayType(IntegerType)).scan(($, a, b) => a.add(b), 10n), []))
+
+        // Cumulative sum: element i is the accumulator AFTER folding element i
+        $(assert.equal(East.value([1n, 2n, 3n, 4n]).scan(($, a, b) => a.add(b), 0n), [1n, 3n, 6n, 10n]))
+        $(assert.equal(East.value([1n, 2n, 3n]).scan(($, a, b) => a.add(b), 10n), [11n, 13n, 16n]))
+
+        // Alignment: result length equals input length (n, not n+1 — the seed is not emitted)
+        $(assert.equal(East.value([1n, 2n, 3n]).scan(($, a, b) => a.add(b), 0n).size(), 3n))
+
+        // Algebra: scan(f, init).get(n-1) == reduce(f, init) for non-empty input
+        const xs = $.const([5n, 2n, 8n, 1n], ArrayType(IntegerType));
+        $(assert.equal(xs.scan(($, a, b) => a.add(b), 100n).get(3n), xs.reduce(($, a, b) => a.add(b), 100n)))
+
+        // Running maximum (peak-to-date series)
+        $(assert.equal(East.value([3n, 1n, 4n, 1n, 5n]).scan(($, acc, x) => East.max(acc, x), 0n), [3n, 3n, 4n, 4n, 5n]))
+
+        // Accumulator type may differ from element type (index-aware step)
+        $(assert.equal(East.value([10.0, -3.0, 5.0]).scan(($, acc, x, _i) => acc.add(x), 0.0), [10.0, 7.0, 12.0]))
+
+        // Forward-fill a ditto encoding; a sequence OPENING with a marker takes the seed
+        $(assert.equal(
+            East.value(["", "a", "", "b", ""]).scan(($, acc, c) => East.equal(c, "").ifElse(() => acc, () => c), "seed"),
+            ["seed", "a", "a", "b", "b"]
+        ))
+    })
+
     assert.examples(test, { arrayEquals: ex.arrayEquals, arrayNotEquals: ex.arrayNotEquals });
 
     test("Comparisons", $ => {

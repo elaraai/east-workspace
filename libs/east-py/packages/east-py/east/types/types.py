@@ -385,9 +385,11 @@ def SetType(element_type: EastType) -> EastVariant[EastType]:
         TypeError: If element_type is not immutable
     """
     if not is_immutable_type(element_type):
-        from east.serialization.east_printer import print_type
-
-        raise TypeError(f"Set key type must be an immutable type, got {print_type(element_type)}")
+        # "Set key type", not "element type": the TypeScript runtime raises
+        # exactly this phrase (libs/east/src/types.ts) and pins it in its spec.
+        # Improving the wording on one runtime only would be a cross-runtime
+        # divergence — the class of defect this epic exists to remove.
+        raise _immutable_key_error("Set", "key type", element_type)
     return _intern_type(EastVariant("Set", element_type))
 
 
@@ -405,9 +407,7 @@ def DictType(key_type: EastType, value_type: EastType) -> EastVariant[DictValueT
         TypeError: If key_type is not immutable
     """
     if not is_immutable_type(key_type):
-        from east.serialization.east_printer import print_type
-
-        raise TypeError(f"Dict key type must be an immutable type, got {print_type(key_type)}")
+        raise _immutable_key_error("Dict", "key type", key_type)
     return _intern_type(EastVariant("Dict", {"key": key_type, "value": value_type}))
 
 
@@ -840,11 +840,72 @@ def is_data_type(typ: EastType, recursive_type: EastType | None = None) -> bool:
     return True
 
 
+# The kinds the immutability rule rejects outright. Vector and Matrix are
+# deliberately NOT here — East treats them as immutable numeric value types, so
+# they may legally key a Set or Dict.
+_MUTABLE_KINDS = ("Array", "Set", "Dict", "Ref", "Function", "AsyncFunction")
+
+
+def _find_mutable(
+    typ: EastType, recursive_type: EastType | None = None
+) -> tuple[list[tuple[str, str]], EastType] | None:
+    """The single traversal behind both the predicate and the diagnostic.
+
+    One walk, two callers: :func:`is_immutable_type` asks only whether this
+    returned ``None``, and :func:`first_mutable_path` renders the location it
+    found. Deriving both from one function is the point — a second walk over
+    the same rule could drift from the one that actually gates the constructors,
+    and the failure mode is a message naming a field for a type that was
+    accepted, or a rejection the message cannot explain.
+
+    Returns ``None`` when ``typ`` is immutable, otherwise
+    ``(segments, offending type)``. ``segments`` is the path from the offender
+    back up to ``typ`` — REVERSED, because each frame appends on the way OUT of
+    the recursion. Each is ``(kind, name)`` with kind ``"field"`` or ``"case"``.
+
+    Accumulating on the way out rather than threading a path down means the
+    success path — the one every accepted ``SetType``/``DictType`` construction
+    takes — allocates nothing at all, and a failure pays only O(depth).
+
+    Args:
+        typ: Type to inspect.
+        recursive_type: Internal parameter for cycle detection.
+
+    Returns:
+        ``None``, or ``(reversed path segments, the mutable sub-type)``.
+    """
+    # Avoid infinite loops in recursive types
+    if recursive_type is not None and typ == recursive_type:
+        return None
+    if typ.type in _MUTABLE_KINDS:
+        return [], typ
+    # Vectors and Matrices are immutable value types (fall through to None).
+    if is_struct_type(typ):
+        for field in typ.value:
+            found = _find_mutable(field["type"], recursive_type)
+            if found is not None:
+                found[0].append(("field", field["name"]))
+                return found
+        return None
+    if is_variant_type(typ):
+        for case in typ.value:
+            found = _find_mutable(case["type"], recursive_type)
+            if found is not None:
+                found[0].append(("case", case["name"]))
+                return found
+        return None
+    # Primitives and recursive back-references are immutable
+    return None
+
+
 def is_immutable_type(typ: EastType, recursive_type: EastType | None = None) -> bool:
     """Check if a type is immutable.
 
-    Immutable types exclude mutable collections (Array, Set, Dict) and functions.
-    Used to validate key types for Set and Dict.
+    Immutable types exclude mutable collections (Array, Set, Dict), Refs and
+    functions. Used to validate key types for Set and Dict.
+
+    Delegates to :func:`_find_mutable` so the predicate and the diagnostic that
+    explains it are the same traversal and cannot disagree (#522).
 
     Args:
         typ: Type to check
@@ -853,28 +914,87 @@ def is_immutable_type(typ: EastType, recursive_type: EastType | None = None) -> 
     Returns:
         True if the type is immutable, False otherwise
     """
-    # Avoid infinite loops in recursive types
-    if recursive_type is not None and typ == recursive_type:
-        return True
+    return _find_mutable(typ, recursive_type) is None
 
-    if (
-        is_array_type(typ)
-        or is_set_type(typ)
-        or is_dict_type(typ)
-        or is_ref_type(typ)
-        or is_function_type(typ)
-        or is_async_function_type(typ)
-    ):
-        return False
-    # Vectors and Matrices are immutable value types (fall through to True).
-    if is_struct_type(typ):
-        return all(is_immutable_type(field["type"], recursive_type) for field in typ.value)
-    if is_variant_type(typ):
-        return all(is_immutable_type(case["type"], recursive_type) for case in typ.value)
-    if is_recursive_type(typ):
-        return True
-    # Primitive types are immutable
-    return True
+
+def _render_path(segments: list[tuple[str, str]]) -> str:
+    """Render :func:`_find_mutable` segments as ``record.readings``.
+
+    ``segments`` arrives offender-first, so it is reversed here. Struct fields
+    join with ``.`` and variant cases with ``|``, which keeps a case visibly
+    distinct from a field of the same name.
+
+    The OUTERMOST segment carries a separator only when it is a case: a leading
+    ``.`` would be noise on the common all-struct path, but leaving a leading
+    case bare made ``Option<Struct{x: Array}>`` render ``some.x`` — identical to
+    a struct with a field named ``some``, which defeats one level up the exact
+    field-vs-case distinction this function exists to draw.
+    """
+    parts = []
+    for i, (kind, name) in enumerate(reversed(segments)):
+        if kind == "case":
+            parts.append(f"|{name}")
+        else:
+            parts.append(name if i == 0 else f".{name}")
+    return "".join(parts)
+
+
+def first_mutable_path(
+    typ: EastType, recursive_type: EastType | None = None
+) -> tuple[str, EastType] | None:
+    """Locate the first sub-type that makes ``typ`` mutable.
+
+    The diagnostic view of :func:`is_immutable_type`: both are
+    :func:`_find_mutable`, so this returns ``None`` for exactly the types that
+    predicate accepts, by construction rather than by agreement.
+
+    Without it ``SetType``/``DictType`` could only print the whole offending
+    type and leave the reader to hunt for the mutable part — a wall of text on a
+    wide struct, and a recursive hunt on a nested one (#522).
+
+    Args:
+        typ: Type to inspect.
+        recursive_type: Internal parameter for cycle detection.
+
+    Returns:
+        ``(path, offending type)`` for the first mutable position, in East's own
+        field/case order, or ``None`` when ``typ`` is immutable. ``path`` is
+        empty when ``typ`` ITSELF is the mutable one; otherwise it reads like
+        ``record.readings``, with variant cases separated by ``|``.
+    """
+    found = _find_mutable(typ, recursive_type)
+    if found is None:
+        return None
+    segments, offender = found
+    return _render_path(segments), offender
+
+
+def _immutable_key_error(container: str, slot: str, typ: EastType) -> TypeError:
+    """The shared "must be immutable" error, naming the offending field (#522).
+
+    Keeps the full printed type on a following line rather than inline: in a
+    traceback the inlined form drowned the sentence that explains the problem.
+    """
+    from east.serialization.east_printer import print_type
+
+    found = _find_mutable(typ)
+    if found is None:
+        # Unreachable via the constructors (they only build this after the
+        # check has already failed), but a wrong answer here would be worse
+        # than a plain message.
+        return TypeError(
+            f"{container} {slot} must be an immutable type, got {print_type(typ)}"
+        )
+    segments, offender = found
+    # Name the position the way East names it — `field` and `case` are
+    # different things, and calling a variant case a field would send the
+    # reader looking for something that is not there.
+    where = f"{segments[0][0]} '{_render_path(segments)}' is" if segments else "it is"
+    return TypeError(
+        f"{container} {slot} must be an immutable type, but {where} "
+        f"{offender.type} (mutable). Mutable kinds: {', '.join(_MUTABLE_KINDS)}.\n"
+        f"  full type: {print_type(typ)}"
+    )
 
 
 # =============================================================================
@@ -2006,6 +2126,7 @@ __all__ = [
     # Type predicates
     "is_data_type",
     "is_immutable_type",
+    "first_mutable_path",
     # Recursive type utilities
     "RecursiveTypeMarker",
     "recursive_type",

@@ -27,22 +27,37 @@ import { none, some } from "../containers/variant.js";
  *
  * @example
  * ```ts
- * // Creating and manipulating dictionaries
- * const updateCounts = East.function([DictType(StringType, IntegerType), StringType], DictType(StringType, IntegerType), ($, counts, word) => {
+ * // `merge` combines a value into ONE key, IN PLACE, and returns null —
+ * // the sibling of ArrayExpr.merge (one index) and RefExpr.merge (the cell).
+ * const updateCounts = East.function([DictType(StringType, IntegerType), StringType], NullType, ($, counts, word) => {
  *   // Increment count for a word, initializing to 0 if missing
- *   $.return(counts.merge(word, 1n, ($, existing, increment) => existing.add(increment), () => 0n));
+ *   $(counts.merge(word, 1n, ($, existing, increment) => existing.add(increment), () => 0n));
+ *   $.return(null);
  * });
  * const compiled = East.compile(updateCounts.toIR(), []);
  * const counts = new Map([["hello", 5n], ["world", 3n]]);
- * compiled(counts, "hello");  // Map([["hello", 6n], ["world", 3n]])
- * compiled(counts, "new");    // Map([["hello", 6n], ["new", 1n], ["world", 3n]])
+ * compiled(counts, "hello");  // counts is now Map([["hello", 6n], ["world", 3n]])
+ * compiled(counts, "new");    // counts is now Map([["hello", 6n], ["new", 1n], ["world", 3n]])
+ * ```
+ *
+ * @example
+ * ```ts
+ * // `union` is the whole-dictionary operation, and it is PURE — contrast the
+ * // single-key `merge` above. (east-py spells this `EastDict.union` too; its
+ * // `merge` is the deprecated alias for THIS operation, not the one above.)
+ * const combine = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, a, b) => {
+ *   $.return(a.union(b, ($, existing, incoming) => existing.add(incoming)));
+ * });
+ * const compiled = East.compile(combine.toIR(), []);
+ * compiled(new Map([["a", 1n], ["b", 2n]]), new Map([["b", 3n], ["c", 4n]]));
+ * // Map([["a", 1n], ["b", 5n], ["c", 4n]]) — both inputs unchanged
  * ```
  *
  * @example
  * ```ts
  * // Filtering and mapping
  * const filterHighScores = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, scores) => {
- *   $.return(scores.filter(($, score, name) => score.greaterOrEqual(100n)));
+ *   $.return(scores.filter(($, score, name) => score.greaterEqual(100n)));
  * });
  * const compiled = East.compile(filterHighScores.toIR(), []);
  * const scores = new Map([["alice", 150n], ["bob", 75n], ["charlie", 200n]]);
@@ -348,6 +363,14 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * This is useful for patterns where you want to update an entry based on its current value, e.g. incrementing a number,
    * appending to a string, updating fields in a struct, or pushing to an array.
    *
+   * Operates on ONE key and mutates the receiver, matching `ArrayExpr.merge`
+   * (one index) and `RefExpr.merge` (the cell) — `merge` means "combine a
+   * value into this slot" across the whole expression API. It is therefore
+   * **not** the whole-dictionary operation east-py's `EastDict.merge`
+   * historically named; that one is pure and is spelled {@link union} here
+   * (and `EastDict.union` there). Porting `merge` by name between the two
+   * runtimes was silently wrong in both directions — see issue #527.
+   *
    * @param key - The key to update
    * @param value - The value to merge with the existing value
    * @param updateFn - Function accepting (existing, new, key) and returning the merged value
@@ -356,6 +379,8 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *
    * @throws East runtime error if key is not found and initialFn is not provided
    *
+   * @see {@link union} for the pure whole-dictionary union
+   * @see {@link mergeAll} to merge every entry of another dictionary
    * @see {@link insertOrUpdate} and {@link update} for simply replacing the value
    *
    * @example
@@ -669,6 +694,52 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
   }
 
   /**
+   * Unions another dictionary with this one, returning a NEW dictionary.
+   *
+   * The pure counterpart of {@link unionInPlace}: neither input is modified,
+   * exactly as {@link SetExpr.union} is the pure counterpart of
+   * `SetExpr.unionInPlace`. Both dictionaries must have the same key and
+   * value types; use {@link mergeAll} when the other dictionary's values have
+   * a different type.
+   *
+   * This is the operation east-py spells `EastDict.union` (and, until it is
+   * retired, `EastDict.merge`). Note that it is NOT what {@link merge} does
+   * here — `merge` updates a SINGLE key in place, matching `ArrayExpr.merge`
+   * and `RefExpr.merge`. See issue #527.
+   *
+   * @param dict2 - The dictionary to union with this one
+   * @param mergeFn - Optional function to combine values when a key is present in both; accepts (existing, new, key) and returns the merged value
+   * @returns A new DictExpr holding the entries of both dictionaries
+   *
+   * @throws East runtime error if a key is present in both and mergeFn is not provided
+   *
+   * @see {@link unionInPlace} for the in-place form
+   * @see {@link mergeAll} to merge a dictionary whose values have a different type
+   * @see {@link merge} to combine a value into one key
+   *
+   * @example
+   * ```ts
+   * const combine = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict1, dict2) => {
+   *   $.return(dict1.union(dict2, ($, existing, newVal) => existing.add(newVal)));
+   * });
+   * const compiled = East.compile(combine.toIR(), []);
+   * const dict1 = new Map([["a", 1n], ["b", 2n]]);
+   * const dict2 = new Map([["b", 3n], ["c", 4n]]);
+   * compiled(dict1, dict2);  // Map([["a", 1n], ["b", 5n], ["c", 4n]]) — dict1 is unchanged
+   * ```
+   */
+  union(dict2: SubtypeExprOrValue<DictType<K, T>>, mergeFn?: SubtypeExprOrValue<FunctionType<[T, T, K], T>>): DictExpr<K, T> {
+    // A copy plus an in-place union: the same two builtins east-py's eager
+    // implementation uses, so every runtime performs one bulk native merge
+    // rather than a per-entry insert loop.
+    return Expr.block(($: any) => {
+      const result = $.let(this.copy()) as DictExpr<K, T>;
+      $(result.unionInPlace(dict2, mergeFn));
+      return result;
+    }) as DictExpr<K, T>;
+  }
+
+  /**
    * Merges all values from another dictionary into this one using a merge function.
    *
    * The type of the other dictionary can be different from this one, so long as the merge function can combine
@@ -933,7 +1004,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * @example
    * ```ts
    * const filterLargeValues = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
-   *   $.return(dict.filter(($, value, key) => value.greaterOrEqual(10n)));
+   *   $.return(dict.filter(($, value, key) => value.greaterEqual(10n)));
    * });
    * const compiled = East.compile(filterLargeValues.toIR(), []);
    * const dict = new Map([["a", 5n], ["b", 15n], ["c", 20n], ["d", 8n]]);
@@ -1146,7 +1217,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * ```ts
    * // Transform keys to uppercase, keep values
    * const uppercaseKeys = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
-   *   $.return(dict.toDict(($, value, key) => key.toUpper()));
+   *   $.return(dict.toDict(($, value, key) => key.upperCase()));
    * });
    * const compiled = East.compile(uppercaseKeys.toIR(), []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
@@ -1158,7 +1229,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Group by key length, sum values for duplicate lengths
    * const groupByLength = East.function([DictType(StringType, IntegerType)], DictType(IntegerType, IntegerType), ($, dict) => {
    *   $.return(dict.toDict(
-   *     ($, value, key) => key.size(),
+   *     ($, value, key) => key.length(),
    *     ($, value, key) => value,
    *     ($, existing, newVal, len) => existing.add(newVal)
    *   ));
@@ -1417,6 +1488,12 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Result: { 0n: [2n, 4n], 1n: [1n, 3n] }
    * ```
    */
+  groupToArrays<K2, T2>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<K2, ArrayType<T2>>
+  groupToArrays<K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn): DictExpr<K2, ArrayType<TypeOf<ReturnType<ValueFn>>>>
+  groupToArrays<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: KeyFn, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, ArrayType<T2>>
+  groupToArrays<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, valueFn: ValueFn): DictExpr<TypeOf<ReturnType<KeyFn>>, ArrayType<TypeOf<ReturnType<ValueFn>>>>
+  groupToArrays<K2>(keyFn: Expr<FunctionType<[T, K], K2>>): DictExpr<K2, ArrayType<T>>
+  groupToArrays<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn): DictExpr<TypeOf<ReturnType<KeyFn>>, ArrayType<T>>
   groupToArrays(keyFn: any, valueFn?: any): DictExpr<any, ArrayType<any>> {
     const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, this.key_type], undefined));
     const valueFnAst = valueOrExprToAstTyped(valueFn ?? ((_$: any, v: any) => v), FunctionType([this.value_type, this.key_type], undefined));
@@ -1447,6 +1524,12 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Result: { 0n: Set([2n]), 1n: Set([1n]) }
    * ```
    */
+  groupToSets<K2, T2>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<K2, SetType<T2>>
+  groupToSets<K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn): DictExpr<K2, SetType<TypeOf<ReturnType<ValueFn>>>>
+  groupToSets<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: KeyFn, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, SetType<T2>>
+  groupToSets<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, valueFn: ValueFn): DictExpr<TypeOf<ReturnType<KeyFn>>, SetType<TypeOf<ReturnType<ValueFn>>>>
+  groupToSets<K2>(keyFn: Expr<FunctionType<[T, K], K2>>): DictExpr<K2, SetType<T>>
+  groupToSets<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn): DictExpr<TypeOf<ReturnType<KeyFn>>, SetType<T>>
   groupToSets(keyFn: any, valueFn?: any): DictExpr<any, SetType<any>> {
     const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, this.key_type], undefined));
     const valueFnAst = valueOrExprToAstTyped(valueFn ?? ((_$: any, v: any) => v), FunctionType([this.value_type, this.key_type], undefined));
@@ -1492,6 +1575,19 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Sums quantities for same customer+product
    * ```
    */
+  groupToDicts<K1, K2, T2>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<K1, DictType<K2, T2>>
+  groupToDicts<K1, K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<K1, DictType<K2, TypeOf<ReturnType<ValueFn>>>>
+  groupToDicts<K1, KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: KeyFn2, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<K1, DictType<TypeOf<ReturnType<KeyFn2>>, T2>>
+  groupToDicts<K1, KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: KeyFn2, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<K1, DictType<TypeOf<ReturnType<KeyFn2>>, TypeOf<ReturnType<ValueFn>>>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), K2, T2>(keyFn: KeyFn, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<K2, T2>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<K2, TypeOf<ReturnType<ValueFn>>>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: KeyFn, keyFn2: KeyFn2, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<TypeOf<ReturnType<KeyFn2>>, T2>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, keyFn2: KeyFn2, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<TypeOf<ReturnType<KeyFn2>>, TypeOf<ReturnType<ValueFn>>>>
+  // …and the two-argument forms, where the values default to this dict's own
+  groupToDicts<K1, K2>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: Expr<FunctionType<[T, K], K2>>): DictExpr<K1, DictType<K2, T>>
+  groupToDicts<K1, KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: KeyFn2): DictExpr<K1, DictType<TypeOf<ReturnType<KeyFn2>>, T>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), K2>(keyFn: KeyFn, keyFn2: Expr<FunctionType<[T, K], K2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<K2, T>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, keyFn2: KeyFn2): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<TypeOf<ReturnType<KeyFn2>>, T>>
   groupToDicts(keyFn: any, keyFn2: any, valueFn?: any, combineFn?: any): DictExpr<any, DictType<any, any>> {
     const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, this.key_type], undefined));
     const keyFn2Ast = valueOrExprToAstTyped(keyFn2, FunctionType([this.value_type, this.key_type], undefined));
@@ -1755,6 +1851,47 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
       type_parameters: [this.key_type as EastType, this.value_type as EastType, returnType as EastType],
       arguments: [this[AstSymbol], fnAst, initAst],
     }) as ExprType<TypeOf<T2>>;
+  }
+
+  /**
+   * Computes the running fold (prefix scan) over entries in key order, returning every intermediate accumulator.
+   *
+   * Element `i` of the result is the accumulator after folding the `i`-th entry (entries are
+   * visited in ascending key order under East's total ordering), so the result has one element
+   * per entry and its last element equals `reduce(fn, init)` for a non-empty dictionary. The
+   * seed itself is not emitted, and an empty dictionary scans to an empty array.
+   *
+   * @param fn - Function accepting (accumulator, value, key) and returning the new accumulator value
+   * @param init - Initial value for the scan (determines the result element type); not emitted
+   * @returns An ArrayExpr of the successive accumulator values, one per entry in key order
+   *
+   * @example
+   * ```ts
+   * // Running total of values in key order
+   * const runningTotal = East.function([DictType(StringType, IntegerType)], ArrayType(IntegerType), ($, dict) => {
+   *   $.return(dict.scan(($, acc, value, key) => acc.add(value), 0n));
+   * });
+   * const compiled = East.compile(runningTotal.toIR(), []);
+   * compiled(new Map([["a", 1n], ["b", 2n], ["c", 3n]]));  // [1n, 3n, 6n]
+   * compiled(new Map());                                    // []
+   * ```
+   *
+   * @see {@link reduce} for the final accumulator only.
+   */
+  scan<T2>(fn: SubtypeExprOrValue<FunctionType<[previous: TypeOf<NoInfer<T2>>, value: T, key: K], TypeOf<NoInfer<T2>>>>, init: T2): ArrayExpr<TypeOf<T2>> {
+    const initAst = valueOrExprToAst(init);
+    const accType = initAst.type;
+
+    const fnAst = valueOrExprToAstTyped(fn, FunctionType([accType, this.value_type, this.key_type], accType));
+
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: ArrayType(accType as EastType),
+      loc_id: get_location_id(),
+      builtin: "DictScan",
+      type_parameters: [this.key_type as EastType, this.value_type as EastType, accType as EastType],
+      arguments: [this[AstSymbol], fnAst, initAst],
+    }) as ArrayExpr<TypeOf<T2>>;
   }
 
   /**
@@ -2048,7 +2185,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
      * ```ts
      * // With mapping function
      * const sumLengths = East.function([DictType(StringType, StringType)], IntegerType, ($, dict) => {
-     *   $.return(dict.sum(($, value, key) => value.size()));
+     *   $.return(dict.sum(($, value, key) => value.length()));
      * });
      * const compiled = East.compile(sumLengths.toIR(), []);
      * const dict2 = new Map([["a", "hello"], ["b", "world"]]);
@@ -2103,11 +2240,11 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * ```ts
    * // With mapping function
    * const avgLength = East.function([DictType(StringType, StringType)], FloatType, ($, dict) => {
-   *   $.return(dict.mean(($, value, key) => value.size()));
+   *   $.return(dict.mean(($, value, key) => value.length()));
    * });
    * const compiled = East.compile(avgLength.toIR(), []);
    * const dict2 = new Map([["a", "hi"], ["b", "hello"], ["c", "hey"]]);
-   * compiled(dict2);  // 3.6666... (average of 2, 5, 3)
+   * compiled(dict2);  // 3.3333333333333335 (average of 2, 5, 3)
    * ```
    */
   mean(fn: Expr<FunctionType<[T, K], IntegerType>>): FloatExpr

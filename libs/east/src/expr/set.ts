@@ -805,6 +805,53 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
   }
 
   /**
+   * Computes the running fold (prefix scan) over elements in East order, returning every intermediate accumulator.
+   *
+   * Element `i` of the result is the accumulator after folding the `i`-th element (elements are
+   * visited in ascending East total order), so the result has one element per set member and its
+   * last element equals `reduce(fn, init)` for a non-empty set. The seed itself is not emitted,
+   * and an empty set scans to an empty array.
+   *
+   * @param fn - Function accepting (accumulator, element) and returning the new accumulator value
+   * @param init - Initial value for the scan (determines the result element type); not emitted
+   * @returns An ArrayExpr of the successive accumulator values, one per element in East order
+   *
+   * @example
+   * ```ts
+   * // Running total of elements in East order
+   * const runningTotal = East.function([SetType(IntegerType)], ArrayType(IntegerType), ($, set) => {
+   *   $.return(set.scan(($, acc, element) => acc.add(element), 0n));
+   * });
+   * const compiled = East.compile(runningTotal.toIR(), []);
+   * compiled(new Set([1n, 2n, 3n]));  // [1n, 3n, 6n]
+   * compiled(new Set());              // []
+   * ```
+   *
+   * The scan visits elements in East total order. Note that a plain JS `Set`
+   * passed as a runtime INPUT is read in its own insertion order — there is no
+   * re-ordering at the input boundary — so `new Set([3n, 1n, 2n])` scans to
+   * `[3n, 4n, 6n]`. Build the set with `East.value(...)` (or any East-native
+   * source) for the sorted-order guarantee.
+   *
+   * @see {@link reduce} for the final accumulator only.
+   */
+  scan<T2>(fn: SubtypeExprOrValue<FunctionType<[TypeOf<NoInfer<T2>>, K], TypeOf<NoInfer<T2>>>>, init: T2): ArrayExpr<TypeOf<T2>> {
+    const initAst = valueOrExprToAst(init);
+    const accType = initAst.type;
+
+    const fnExpr = Expr.from(fn as any, FunctionType([accType, this.key_type], accType));
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: ArrayType(accType as EastType),
+      loc_id: get_location_id(),
+      builtin: "SetScan",
+      type_parameters: [this.key_type as EastType, accType as EastType],
+      arguments: [this[AstSymbol], Expr.ast(fnExpr as any), initAst],
+    }) as unknown as ArrayExpr<TypeOf<T2>>;
+  }
+
+  /**
    * Creates an array from the set by mapping each element through a function.
    *
    * If no function is provided, the set elements are copied as-is.
@@ -818,8 +865,13 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $.return(set.toArray());
    * });
    * const compiled = East.compile(setToArray.toIR(), []);
-   * compiled(new Set([3n, 1n, 2n]));  // [1n, 2n, 3n] (sorted order)
+   * compiled(new Set([1n, 2n, 3n]));  // [1n, 2n, 3n]
    * ```
+   *
+   * Elements come out in East total order. As with {@link scan}, a plain JS
+   * `Set` passed as a runtime INPUT is read in its own insertion order, so
+   * `new Set([3n, 1n, 2n])` yields `[3n, 1n, 2n]`; use `East.value(...)` for
+   * the sorted-order guarantee.
    *
    * @example
    * ```ts

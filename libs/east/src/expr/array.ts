@@ -1552,6 +1552,62 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
   }
 
   /**
+   * Computes the running fold (prefix scan) of the array, returning every intermediate accumulator.
+   *
+   * Element `i` of the result is the accumulator after folding element `i`, so the result is
+   * element-aligned with the input: it has the same length as the array, and for a non-empty
+   * array its last element equals `reduce(combineFn, init)`. The seed itself is not emitted,
+   * and an empty array scans to an empty array.
+   *
+   * @param combineFn - Function taking (accumulator, element, index) and returning the new accumulator value
+   * @param init - Initial value for the scan (determines the result element type); not emitted
+   * @returns An ArrayExpr of the successive accumulator values, one per input element
+   *
+   * @remarks
+   * This is the operation for any computation that carries state left-to-right — running
+   * totals, forward-fill of missing-value encodings, state machines over an ordered
+   * sequence — in a single pass.
+   *
+   * @example
+   * ```ts
+   * // Running total (cumulative sum)
+   * const runningTotal = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr) => {
+   *   $.return(arr.scan(($, acc, x, i) => acc.add(x), 0n));
+   * });
+   * const compiled = East.compile(runningTotal.toIR(), []);
+   * compiled([1n, 2n, 3n, 4n]);  // [1n, 3n, 6n, 10n]
+   * compiled([]);                // []
+   * ```
+   *
+   * @example
+   * ```ts
+   * // Forward-fill a "same as above" encoding: empty cells inherit the last stated value
+   * const forwardFill = East.function([ArrayType(StringType)], ArrayType(StringType), ($, cells) => {
+   *   $.return(cells.scan(($, acc, cell, i) => cell.equal("").ifElse(() => acc, () => cell), ""));
+   * });
+   * const compiled = East.compile(forwardFill.toIR(), []);
+   * compiled(["a", "", "", "b", ""]);  // ["a", "a", "a", "b", "b"]
+   * ```
+   *
+   * @see {@link reduce} for the final accumulator only.
+   */
+  scan<T2>(combineFn: SubtypeExprOrValue<FunctionType<[previous: TypeOf<NoInfer<T2>>, value: T, key: IntegerType], TypeOf<NoInfer<T2>>>>, init: T2): ArrayExpr<TypeOf<T2>> {
+    const initAst = valueOrExprToAst(init);
+    const accType = initAst.type;
+
+    const combineAst = valueOrExprToAstTyped(combineFn, FunctionType([accType, this.value_type, IntegerType], accType));
+
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: ArrayType(accType as EastType),
+      loc_id: get_location_id(),
+      builtin: "ArrayScan",
+      type_parameters: [this.value_type as EastType, accType as EastType],
+      arguments: [this[AstSymbol], initAst, combineAst],
+    }) as ArrayExpr<TypeOf<T2>>;
+  }
+
+  /**
    * Reduce array to single value using projection and accumulator functions.
    *
    * The first element of the array is used as initial value and reduction starts from the second element.

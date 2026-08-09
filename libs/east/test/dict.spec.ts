@@ -228,6 +228,7 @@ await describe("Dict", (test) => {
 
     assert.examples(test, {
         dictUnionInPlace: ex.dictUnionInPlace,
+        dictUnion: ex.dictUnion,
         dictMergeAll: ex.dictMergeAll,
     });
 
@@ -241,6 +242,19 @@ await describe("Dict", (test) => {
 
         $(d1b.unionInPlace(d2, ($, v1, v2) => v1.concat("+").concat(v2)))
         $(assert.equal(d1b, new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]])))
+
+        // `union` is the PURE counterpart: same answer, both inputs untouched (#527)
+        const u1 = $.let(new Map([[1n, "a"], [2n, "b"]]), DictType(IntegerType, StringType))
+        const u2 = $.let(new Map([[2n, "B"], [3n, "C"]]), DictType(IntegerType, StringType))
+        $(assert.equal(u1.union(u2, ($, v1, v2) => v1.concat("+").concat(v2)),
+            new Map([[1n, "a"], [2n, "b+B"], [3n, "C"]])))
+        $(assert.equal(u1, new Map([[1n, "a"], [2n, "b"]])))       // receiver unchanged
+        $(assert.equal(u2, new Map([[2n, "B"], [3n, "C"]])))       // argument unchanged
+        // and, like unionInPlace, an overlapping key without a handler errors
+        $(assert.throws(u1.union(u2), /Key .* exists in both dictionaries/))
+        // disjoint dicts need no handler at all
+        const u3 = $.let(new Map([[9n, "z"]]), DictType(IntegerType, StringType))
+        $(assert.equal(u1.union(u3), new Map([[1n, "a"], [2n, "b"], [9n, "z"]])))
 
         const d3 = $.let(new Map([[1n, "a"], [2n, "b"]]), DictType(IntegerType, StringType))
         const d4 = $.let(new Map([[2n, "B"], [3n, "C"]]), DictType(IntegerType, StringType))
@@ -298,6 +312,7 @@ await describe("Dict", (test) => {
         dictFilter: ex.dictFilter,
         dictFilterMap: ex.dictFilterMap,
         dictReduce: ex.dictReduce,
+        dictScan: ex.dictScan,
         dictSum: ex.dictSum,
         dictEvery: ex.dictEvery,
         dictSome: ex.dictSome,
@@ -353,6 +368,18 @@ await describe("Dict", (test) => {
         $(assert.equal(
             East.value(new Map([[1n, "a"], [2n, "b"], [3n, "c"]])).reduce((_$, previous, value, key) => previous.concat(str`${key}:${value};`), ""),
             "1:a;2:b;3:c;"
+        ))
+
+        // scan: running accumulators in key order, seed not emitted
+        $(assert.equal(East.value(new Map(), DictType(IntegerType, IntegerType)).scan((_$, acc, v, _k) => acc.add(v), 10n), []))
+        $(assert.equal(
+            East.value(new Map([["a", 1n], ["b", 2n], ["c", 3n]])).scan((_$, acc, v, _k) => acc.add(v), 0n),
+            [1n, 3n, 6n]
+        ))
+        // last scanned value equals reduce over the same seed; steps see (acc, value, key)
+        $(assert.equal(
+            East.value(new Map([[1n, "a"], [2n, "b"], [3n, "c"]])).scan((_$, acc, value, key) => acc.concat(str`${key}:${value};`), ""),
+            ["1:a;", "1:a;2:b;", "1:a;2:b;3:c;"]
         ))
 
         // common reductions
@@ -625,6 +652,50 @@ await describe("Dict", (test) => {
 
     assert.examples(test, {
         dictGroupReduce: ex.dictGroupReduce,
+        dictGroupToArrays: ex.dictGroupToArrays,
+        dictGroupToSets: ex.dictGroupToSets,
+        dictGroupToDicts: ex.dictGroupToDicts,
+    });
+
+    test("groupTo* collect into arrays, sets and nested dicts", $ => {
+        // These three had no spec coverage at all, which is why the `any`
+        // typings in #521 went unnoticed — the callbacks below are written
+        // WITHOUT annotations on purpose, so the file would fail to compile
+        // under the project's noImplicitAny if the overloads regressed.
+        const d = $.let(new Map([["a", 1n], ["ab", 2n], ["b", 3n]]), DictType(StringType, IntegerType))
+
+        $(assert.equal(d.groupToArrays((_$, _v, k) => k.length(), (_$, v, _k) => v),
+            new Map([[1n, [1n, 3n]], [2n, [2n]]])))
+        // without a valueFn the dict's own values are collected
+        $(assert.equal(d.groupToArrays((_$, _v, k) => k.length()),
+            new Map([[1n, [1n, 3n]], [2n, [2n]]])))
+
+        const dupes = $.let(new Map([["a", 1n], ["ab", 2n], ["b", 1n]]), DictType(StringType, IntegerType))
+        $(assert.equal(dupes.groupToSets((_$, _v, k) => k.length(), (_$, v, _k) => v),
+            new Map([[1n, new Set([1n])], [2n, new Set([2n])]])))
+
+        $(assert.equal(d.groupToDicts((_$, _v, k) => k.length(), (_$, _v, k) => k, (_$, v, _k) => v),
+            new Map([
+                [1n, new Map([["a", 1n], ["b", 3n]])],
+                [2n, new Map([["ab", 2n]])],
+            ])))
+
+        // A colliding INNER key takes a different branch of the implementation
+        // (tryGet + match, rather than a plain insert), so it needs its own
+        // coverage in both shapes: without a combineFn it must error...
+        const collide = $.let(new Map([["a", 1n], ["b", 2n], ["c", 3n]]), DictType(StringType, IntegerType))
+        $(assert.throws(
+            collide.groupToDicts((_$, _v, k) => k.length(), (_$, _v, _k) => "same", (_$, v, _k) => v),
+            /Dict already contains key/))
+        // ...and with one, the collisions resolve
+        $(assert.equal(
+            collide.groupToDicts((_$, _v, k) => k.length(), (_$, _v, _k) => "same",
+                (_$, v, _k) => v, (_$, a, b) => a.add(b)),
+            new Map([[1n, new Map([["same", 6n]])]])))
+
+        // an empty dict groups to an empty dict
+        const empty = $.let(new Map<string, bigint>(), DictType(StringType, IntegerType))
+        $(assert.equal(empty.groupToArrays((_$, _v, k) => k.length()), new Map()))
     });
 
     test("groupReduce", $ => {
