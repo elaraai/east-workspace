@@ -238,6 +238,58 @@ def _check_kernel_out(fn, expected, param="out"):
         )
 
 
+def _typed_or_none(value):
+    """``type_of(value)``, or None when it is traced or not an East value."""
+    if _is_traced(value):
+        return None
+    try:
+        return _ev.type_of(value)
+    except Exception:
+        return None
+
+
+def _require_operand_type(other, expected, op: str) -> None:
+    """Reject a second operand whose FULL East type is not ``expected`` (#529).
+
+    These builtins take ONE set of type parameters and two collections, so
+    ``other``'s slots are decoded as the receiver's type. That is not a
+    downstream type error — it is a raw reinterpretation of a foreign payload.
+    Measured: a ``Set<String>`` receiver with a ``Set<Integer>`` argument makes
+    ``union``/``sym_diff`` SEGFAULT (the integer dereferenced as a string
+    pointer) and ``union_in_place`` corrupt the receiver into a ``MemoryError``
+    out of ``PyUnicode_DecodeUTF8``, while ``intersect``/``diff`` quietly
+    return wrong answers. east-c cannot catch it: the types it is handed say
+    the operands agree.
+
+    Comparing the WHOLE type matters, not just the element type — ``EastArray``,
+    ``EastSet`` and ``EastVector`` all expose ``element_type``, so an Array
+    passed where a Set is expected compares equal on that attribute and east-c
+    then decodes an array header as a b-tree (also exit 139). This is the rule
+    the traced twin ``KernelExpr._same_typed`` has always applied; the eager
+    path now matches it.
+
+    ``type_of`` is O(1) on a C-backed collection. Operands it cannot type — a
+    plain python ``set``/``list``, a traced expression — pass through to the
+    existing coercion, which already rejects them.
+    """
+    if _is_traced(other):
+        return
+    try:
+        actual = _ev.type_of(other)
+    except Exception:
+        return
+    if actual == expected:
+        return
+    from east.serialization.east_printer import print_east
+    from east.types.coercion import EastTypeError
+    from east.types.type_of_type import EastTypeType
+
+    raise EastTypeError(
+        f"{op}: other is {print_east(actual, EastTypeType)} but this operation "
+        f"needs {print_east(expected, EastTypeType)} — the operand types must match"
+    )
+
+
 def _numeric_zero_for(t):
     """The additive identity for a numeric East type, or a named TypeError.
 
@@ -497,6 +549,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import ArrayType
 
+        _require_operand_type(other, ArrayType(self.element_type), "concat")
         return _call_builtin("ArrayConcat", [self.element_type], [self, other], ArrayType(self.element_type))
 
     def slice(self, start: int, end: int) -> EastArray:
@@ -1889,29 +1942,32 @@ class EastSet(Generic[T]):
 
     def union(self, other: EastSet) -> EastSet:
         """Set union as a new set (east-c SetUnion)."""
-        return self._set_op("SetUnion", other)
+        return self._set_op("SetUnion", other, "union")
 
     def intersect(self, other: EastSet) -> EastSet:
         """Set intersection as a new set (east-c SetIntersect)."""
-        return self._set_op("SetIntersect", other)
+        return self._set_op("SetIntersect", other, "intersect")
 
     def diff(self, other: EastSet) -> EastSet:
         """Set difference (elements in self but not ``other``) as a new set (east-c SetDiff)."""
-        return self._set_op("SetDiff", other)
+        return self._set_op("SetDiff", other, "diff")
 
     def sym_diff(self, other: EastSet) -> EastSet:
         """Symmetric difference (elements in exactly one set) as a new set (east-c SetSymDiff)."""
-        return self._set_op("SetSymDiff", other)
+        return self._set_op("SetSymDiff", other, "sym_diff")
 
-    def _set_op(self, name: str, other: EastSet) -> EastSet:
+    def _set_op(self, name: str, other: EastSet, op: str) -> EastSet:
         from east.types.types import SetType
 
+        _require_operand_type(other, SetType(self.element_type), op)
         return _call_builtin(name, [self.element_type], [self, other], SetType(self.element_type))
 
     def union_in_place(self, other: EastSet) -> None:
         """Add every element of ``other`` to self in place (east-c SetUnionInPlace)."""
         from east.types.types import NullType
+        from east.types.types import SetType as _SetT
 
+        _require_operand_type(other, _SetT(self.element_type), "union_in_place")
         self._check_not_iterating()
         _call_builtin("SetUnionInPlace", [self.element_type], [self, other], NullType)
 
@@ -1946,7 +2002,9 @@ class EastSet(Generic[T]):
     def is_subset(self, other: EastSet) -> bool:
         """Whether every element of self is also in ``other`` (east-c SetIsSubset)."""
         from east.types.types import BooleanType
+        from east.types.types import SetType as _SetT
 
+        _require_operand_type(other, _SetT(self.element_type), "is_subset")
         return _call_builtin("SetIsSubset", [self.element_type], [self, other], BooleanType)
 
     def is_superset_of(self, other: EastSet) -> bool:
@@ -1954,13 +2012,17 @@ class EastSet(Generic[T]):
         SetIsSubset with the operands swapped — the same spelling TS's
         ``SetExpr.isSupersetOf`` uses)."""
         from east.types.types import BooleanType
+        from east.types.types import SetType as _SetT
 
+        _require_operand_type(other, _SetT(self.element_type), "is_superset_of")
         return _call_builtin("SetIsSubset", [self.element_type], [other, self], BooleanType)
 
     def is_disjoint(self, other: EastSet) -> bool:
         """Whether self and ``other`` share no elements (east-c SetIsDisjoint)."""
         from east.types.types import BooleanType
+        from east.types.types import SetType as _SetT
 
+        _require_operand_type(other, _SetT(self.element_type), "is_disjoint")
         return _call_builtin("SetIsDisjoint", [self.element_type], [self, other], BooleanType)
 
     def copy(self) -> EastSet:
@@ -3028,21 +3090,56 @@ class EastDict(Generic[K, V]):
         )
         del keep_alive
 
+    def _dict_type_mismatch(self, other: Any, op: str, detail: str) -> Any:
+        """The shared EastTypeError for a wrongly-typed ``other``."""
+        from east.serialization.east_printer import print_east
+        from east.types.coercion import EastTypeError
+        from east.types.type_of_type import EastTypeType
+
+        def show(d: Any) -> str:
+            return (f"Dict<{print_east(d.key_type, EastTypeType)}, "
+                    f"{print_east(d.value_type, EastTypeType)}>")
+
+        return EastTypeError(f"{op}: other is {show(other)} but this dict is "
+                             f"{show(self)} — {detail}")
+
+    def _require_same_key_type(self, other: Any, op: str) -> None:
+        """``other`` must be keyed the same way; its VALUES may differ.
+
+        The relaxed check, for the builtins that carry a ``V2`` type parameter
+        (``DictMergeAll``). Keys are still read as this dict's key type, so a
+        key mismatch remains an unsafe decode.
+        """
+        from east.types.types import DictType as _DictT
+
+        # Derive V2 from `other`'s OWN type, then require the WHOLE type to
+        # match — so a Set/Array cannot slip past on a matching element type
+        # (#529). Only V2 is free to differ.
+        actual = _typed_or_none(other)
+        if actual is None:
+            return  # traced, or not an East value — existing coercion applies
+        v2 = actual.value["value"] if actual.type == "Dict" else self.value_type
+        _require_operand_type(other, _DictT(self.key_type, v2), op)
+
     def _require_same_dict_type(self, other: Any, op: str) -> None:
         """Reject a differently-typed ``other`` before east-c reads it.
 
-        ``DictUnionInPlace``/``DictMergeAll`` take ONE pair of type parameters,
-        so ``other``'s slots are decoded as THIS dict's types. A mismatch is
-        not a type error downstream — it is a raw reinterpretation of a foreign
-        payload (a heap pointer surfaced as an Integer, or arbitrary bytes fed
-        to the UTF-8 decoder), and #529 has it segfaulting. Fail here instead,
+        ``DictUnionInPlace`` takes ONE pair of type parameters, so ``other``'s
+        slots are decoded as THIS dict's types. A mismatch is not a type error
+        downstream — it is a raw reinterpretation of a foreign payload (a heap
+        pointer surfaced as an Integer, or arbitrary bytes fed to the UTF-8
+        decoder), and #529 had exactly that segfaulting. Fail here instead,
         naming both types, as ``update_many`` already does for its arrays.
+
+        ``merge_all`` uses the relaxed :meth:`_require_same_key_type` — the
+        ``DictMergeAll`` builtin is generic in the incoming value type.
         """
-        o_k = getattr(other, "key_type", None)
-        o_v = getattr(other, "value_type", None)
-        if o_k is None or o_v is None:
-            return  # not a dict value (e.g. a traced expression) — let the builtin type-check
-        if not len(other):
+        from east.types.types import DictType as _DictT
+
+        actual = _typed_or_none(other)
+        if actual is None:
+            return  # traced, or not an East value — existing coercion applies
+        if actual.type == "Dict" and not len(other):
             # No slots to misread, so no unsafe decode is possible. This is not
             # a loophole but a necessity: the group_* sugar folds an empty
             # placeholder-typed accumulator (group_reduce types an empty result
@@ -3050,19 +3147,7 @@ class EastDict(Generic[K, V]):
             # dict, and that composition is sound precisely because it copies
             # nothing.
             return
-        if o_k != self.key_type or o_v != self.value_type:
-            from east.serialization.east_printer import print_east
-            from east.types.coercion import EastTypeError
-            from east.types.type_of_type import EastTypeType
-
-            raise EastTypeError(
-                f"{op}: other is Dict<{print_east(o_k, EastTypeType)}, "
-                f"{print_east(o_v, EastTypeType)}> but this dict is "
-                f"Dict<{print_east(self.key_type, EastTypeType)}, "
-                f"{print_east(self.value_type, EastTypeType)}> — both key and "
-                "value types must match (use merge_key for a differently-typed "
-                "incoming value)"
-            )
+        _require_operand_type(other, _DictT(self.key_type, self.value_type), op)
 
     def _union_combine(self, combine: Any) -> EastFunction:
         """The shared overlap handler for :meth:`union` / :meth:`union_in_place`.
@@ -3094,11 +3179,12 @@ class EastDict(Generic[K, V]):
         :meth:`EastSet.union` is of ``EastSet.union_in_place``, and the same
         operation TypeScript spells ``DictExpr.union``.
 
-        ``other`` must have the SAME key and value types. Unlike TypeScript's
-        ``DictExpr.mergeAll``, east-py's :meth:`merge_all` is homogeneous too —
-        it decodes ``other``'s values as THIS dict's value type, so a
-        differently-typed ``other`` is a memory-unsafe read rather than an
-        error. Use :meth:`merge_key` for a differently-typed incoming value.
+        ``other`` must have the SAME key and value types — ``DictUnionInPlace``
+        carries one value type parameter, so a mismatch is refused rather than
+        decoded (#529). Use :meth:`merge_all` when ``other``'s values have a
+        different type (it is generic in them, like TypeScript's
+        ``mergeAll<V2>``), or :meth:`merge_key` for a single differently-typed
+        incoming value.
 
         Args:
             other: The dict whose entries are merged in. Its key/value types
@@ -3217,21 +3303,44 @@ class EastDict(Generic[K, V]):
         value for ``key`` if present, otherwise ``default(key)``; the stored
         result is ``merge(base, value, key)``.
 
+        ``other``'s values may have a DIFFERENT East type from this dict's —
+        ``merge`` is what bridges the two — matching TypeScript's generic
+        ``DictExpr.mergeAll<V2>``. Only the KEY types must agree. This is the
+        method to reach for when folding counts into totals, pushing into
+        nested arrays, or partially updating a dict of structs.
+
         Args:
-            other: The dict whose entries are folded in. Its key/value types
-                must match this dict's.
-            merge: Called as ``merge(existing, incoming, key) -> value`` to
-                combine the base with ``other``'s value.
+            other: The dict whose entries are folded in. Its key type must
+                match this dict's; its value type need not.
+            merge: Called as ``merge(existing, incoming)`` — or
+                ``merge(existing, incoming, key)`` when it accepts three
+                arguments — where ``existing`` is this dict's value type and
+                ``incoming`` is ``other``'s. Its result is stored, so it must
+                return this dict's value type.
             default: Called as ``default(key) -> value`` to synthesise a base
                 for keys absent from this dict.
         """
         from east.types.types import NullType
 
-        self._require_same_dict_type(other, "merge_all")
+        # Read `other`'s OWN value type and pass it as the third type
+        # parameter. Declaring it as `self.value_type` — as this did until
+        # #529 — makes east-c decode `other`'s slots as this dict's type: a
+        # raw reinterpretation of a foreign payload, which segfaults when a
+        # primitive is read as a pointer. The builtin has always been
+        # `[K, V, V2]`; east-py simply was not using V2.
+        self._require_same_key_type(other, "merge_all")
+        v2: EastType = getattr(other, "value_type", None) or self.value_type
         self._check_not_iterating()
+        # 2-arg or 3-arg, like every sibling (`merge_key`, and `union` via
+        # `_combine_cb`) and like TypeScript's `mergeAll`. A 2-arg KERNEL was
+        # already accepted — `_native_kernel_for` prefix-adapts arity — so
+        # rejecting the identical plain lambda was an inconsistency inside one
+        # method, on the path this change makes the recommended one.
+        merge_fn = merge if _callback_arity(merge, 2) >= 3 else (
+            lambda existing, incoming, _key: merge(existing, incoming))
         merge_cb = EastFunction(
-            _mark_kernel(lambda existing, incoming, key: merge(existing, incoming, key), merge),
-            [self.value_type, self.value_type, self.key_type],
+            _mark_kernel(merge_fn, merge),
+            [self.value_type, v2, self.key_type],
             self.value_type,
         )
         default_cb = EastFunction(
@@ -3241,7 +3350,7 @@ class EastDict(Generic[K, V]):
         )
         _call_builtin(
             "DictMergeAll",
-            [self.key_type, self.value_type],
+            [self.key_type, self.value_type, v2],
             [self, other, merge_cb, default_cb],
             NullType,
         )
@@ -3280,7 +3389,9 @@ class EastDict(Generic[K, V]):
             present, ``fill(key)`` otherwise.
         """
         from east.types.types import DictType
+        from east.types.types import SetType as _SetT
 
+        _require_operand_type(keys, _SetT(self.key_type), "get_keys")
         callback = EastFunction(fill, [self.key_type], self.value_type)
         return _call_builtin("DictGetKeys", [self.key_type, self.value_type], [self, keys, callback], DictType(self.key_type, self.value_type))
 

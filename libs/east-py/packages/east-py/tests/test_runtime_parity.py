@@ -412,22 +412,71 @@ def test_group_sum_rejects_a_non_numeric_projection_on_every_container():
 
 # ── a differently-typed `other` is refused, not reinterpreted ────────────────
 
-def test_union_family_rejects_a_mismatched_other():
-    """east-c decodes `other`'s slots as THIS dict's types, so a mismatch is a
-    raw reinterpretation of a foreign payload — #529 has `merge_all`
-    segfaulting on it. Fail with a named type error instead."""
+def test_union_rejects_a_mismatched_other():
+    """`DictUnionInPlace` carries ONE value type parameter, so `other`'s slots
+    are decoded as THIS dict's — a raw reinterpretation of a foreign payload
+    (#529). `merge_all` is the generic one; see the test below."""
     from east.types.coercion import EastTypeError
 
     words = EastDict(StringType, StringType, {"a": "hello"})
     nums = EastDict(StringType, IntegerType, {"a": 12345})
-    for call in (lambda: words.union(nums),
-                 lambda: words.union_in_place(nums),
-                 lambda: words.merge_all(nums, lambda a, b, k: a, lambda k: "")):
-        with pytest.raises(EastTypeError, match="both key and value types must match"):
+    for call in (lambda: words.union(nums), lambda: words.union_in_place(nums)):
+        with pytest.raises(EastTypeError, match="operand types must match"):
             call()
-    # the same-typed call is untouched
     ints = EastDict(StringType, IntegerType, {"a": 1})
     assert dict(ints.union(EastDict(StringType, IntegerType, {"b": 2})).items()) == {"a": 1, "b": 2}
+
+
+def test_merge_all_is_generic_in_the_incoming_value_type():
+    """#529: `DictMergeAll` has always been `[K, V, V2]`; east-py declared V2
+    as its OWN value type, so a differently-typed `other` segfaulted. It is
+    now generic like TypeScript's `mergeAll<V2>` — only the KEYS must agree.
+    """
+    from east.types.coercion import EastTypeError
+
+    # the exact case that used to crash the interpreter (exit 139)
+    words = EastDict(StringType, StringType, {"a": "hello", "b": "hi"})
+    nums = EastDict(StringType, IntegerType, {"a": 12345, "c": 7})
+    words.merge_all(nums, lambda cur, n, _k: cur + "/" + str(n), lambda _k: "<new>")
+    assert dict(words.items()) == {"a": "hello/12345", "b": "hi", "c": "<new>/7"}
+
+    # the TS doc's own worked example: fold Integer counts into Float totals
+    totals = EastDict(StringType, FloatType, {"apple": 1.5})
+    counts = EastDict(StringType, IntegerType, {"apple": 3, "pear": 2})
+    totals.merge_all(counts, lambda t, n, _k: t + float(n), lambda _k: 0.0)
+    assert dict(totals.items()) == {"apple": 4.5, "pear": 2.0}
+
+    # a KEY mismatch is still a decode hazard, so it is still refused
+    with pytest.raises(EastTypeError, match="operand types must match"):
+        EastDict(StringType, IntegerType, {"a": 1}).merge_all(
+            EastDict(IntegerType, IntegerType, {1: 1}), lambda a, b, _k: a, lambda _k: 0)
+
+
+def test_two_collection_ops_reject_a_mismatched_operand():
+    """The same defect ran through the whole family, not just merge_all: every
+    one of these passes a single type parameter with two collections, so
+    `other`'s slots decode as this collection's type. Measured before the
+    guard: Set.union and Set.sym_diff SEGFAULTED (exit 139),
+    Set.union_in_place corrupted the receiver into a MemoryError on read, and
+    intersect/diff returned silently wrong answers."""
+    from east.types.coercion import EastTypeError
+    from east.types.values.collections import EastArray, EastSet
+
+    s_str, s_int = EastSet(StringType, ["hello"]), EastSet(IntegerType, [12345])
+    for op in ("union", "intersect", "diff", "sym_diff",
+               "is_subset", "is_superset_of", "is_disjoint", "union_in_place"):
+        with pytest.raises(EastTypeError, match="operand types must match"):
+            getattr(EastSet(StringType, ["hello"]), op)(s_int)
+    with pytest.raises(EastTypeError, match="operand types must match"):
+        EastArray(StringType, ["a"]).concat(EastArray(IntegerType, [1]))
+    with pytest.raises(EastTypeError, match="operand types must match"):
+        EastDict(StringType, IntegerType, {"a": 1}).get_keys(s_int, lambda _k: 0)
+
+    # every same-typed call is untouched
+    assert EastSet(StringType, ["a"]).union(EastSet(StringType, ["b"])) == \
+        EastSet(StringType, ["a", "b"])
+    assert list(EastArray(StringType, ["a"]).concat(EastArray(StringType, ["b"]))) == ["a", "b"]
+    assert s_str.is_subset(EastSet(StringType, ["hello", "x"])) is True
 
 
 def test_union_family_allows_an_empty_other_of_any_type():

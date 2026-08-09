@@ -758,14 +758,14 @@ and the predicates/projections of `every`/`some`/`sum`/`mean` take `fn(key, valu
 `reduce` takes `fn(acc, key, value)`; collision `combine` is
 `combine(existing, incoming, key)` — for `union`/`union_in_place`/`merge` a 2-arg
 `combine(existing, incoming)` is also accepted (a 3-arg one still receives the key).
-⚠️ `union`/`merge_all` require `other` to have the SAME value type — a mismatched
-`other` is a memory-unsafe read, not an error; use `merge_key` for a
-differently-typed incoming value.
+`union`/`union_in_place` require `other` to have the same key AND value type (a
+mismatch is refused, #529); `merge_all` needs only the same KEYS and is generic
+in `other`'s values; `merge_key` takes a single differently-typed value.
 
 | Group | Methods |
 |-------|---------|
 | Access | `d[k]` · `k in d` · `has(k)` · `len(d)`/`size()` · `get(k, default=None)` · `get_or_default(k, default)` · `try_get(k) -> some/none` · `keys()`/`values()`/`items()` |
-| Combine | `union(other, combine=None) -> Dict` (NEW dict, both inputs untouched; a shared key errors without `combine`) · `union_in_place(other, combine=None) -> None` · `merge_all(other, merge(existing, incoming, key), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys) · `merge_key(key, value, update(existing, incoming[, key]), initial=None) -> None` (ONE key, in place; `value` may be a different type — TS's `DictExpr.merge`) · `get_keys(keys: Set, fill(k)) -> Dict` · ⚠️ `merge(other, combine=None)` is the DEPRECATED alias of `union` (#527) |
+| Combine | `union(other, combine=None) -> Dict` (NEW dict, both inputs untouched; a shared key errors without `combine`) · `union_in_place(other, combine=None) -> None` · `merge_all(other, merge(existing, incoming[, key]), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys; **generic in `other`'s value type** — only the KEYS must match) · `merge_key(key, value, update(existing, incoming[, key]), initial=None) -> None` (ONE key, in place; `value` may be a different type — TS's `DictExpr.merge`) · `get_keys(keys: Set, fill(k)) -> Dict` · ⚠️ `merge(other, combine=None)` is the DEPRECATED alias of `union` (#527) |
 | Per-entry | `map(fn(value), out=None)` (a two-arg `fn(value, key)` also accepted) · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
 | Reduce | `reduce(initial, fn(acc, key, value))` · `scan(initial, fn(acc, key, value)) -> Array` (running fold in key order) · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) · `sum(fn(key, value)=None)` · `mean(fn(key, value)=None) -> float` · `every(pred(key, value)=None) -> bool` · `some(pred(key, value)=None) -> bool` (native short-circuit) |
 | Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` |
