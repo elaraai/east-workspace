@@ -132,7 +132,8 @@ syntax, fastest first:
      `unique` `group_by` `sorted` `is_sorted` `some` `every` `string_join`
      `concat` `slice` `reversed` `copy` `get_keys` `size` `has` `get`
      `get_or_default` `try_get` `sum` `mean` `maximum` `minimum`
-     `[index_expr]`
+     `find_first` `find_all` `find_maximum` `find_minimum` `find_sorted_first`
+     `find_sorted_last` `find_sorted_range` `[index_expr]`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
      `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`

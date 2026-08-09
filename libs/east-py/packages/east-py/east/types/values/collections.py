@@ -437,6 +437,33 @@ class EastArray(MutableSequence, Generic[T]):
             callback = EastFunction(key, [self.element_type], t2)
         return _call_builtin("ArrayIsSorted", [self.element_type, t2], [self, callback], BooleanType)
 
+    def _search_key(self, target: Any, key: Any) -> tuple:
+        """``(target, projection type, callback)`` for the ArrayFind* family.
+
+        The comparison type comes from the PROJECTION — the key's declared or
+        traced output, or the element type when there is no key — and the
+        target is coerced into it. Deriving it from the TARGET instead (as this
+        family did until #525) is wrong twice over, and `find_all` never did
+        it: `Array<Float>.find_first(2)` compared an Integer against Floats
+        under East's cross-type total order and answered `none` while
+        `find_all(2)` on the same array answered `[1, 2]`; and with a key it
+        declared a Float projection as Integer, silently TRUNCATING 2.7 to 2
+        and reporting a match that does not exist. Deriving from the key also
+        keeps Option/variant targets sound, where `type_of(some(3))` would
+        yield an unusable single-case type.
+        """
+        from east.types.coercion import coerce_to
+
+        if key is None:
+            t2 = self.element_type
+            callback = EastFunction(lambda el: el, [self.element_type], t2)
+        else:
+            t2 = _kernel_out_type(key, [self.element_type])
+            if t2 is None:
+                t2 = _ev.type_of(_call_elem(key, self[0])) if len(self) else self.element_type
+            callback = EastFunction(key, [self.element_type], t2)
+        return coerce_to(target, t2), t2, callback
+
     def find_sorted_first(self, target: Any, key: Any = None) -> int:
         """Leftmost insertion index for ``target`` in a sorted array (east-c ArrayFindSortedFirst).
 
@@ -454,12 +481,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType
 
-        if key is None:
-            t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
-        else:
-            t2 = _ev.type_of(target)
-            callback = EastFunction(key, [self.element_type], t2)
+        target, t2, callback = self._search_key(target, key)
         return _call_builtin("ArrayFindSortedFirst", [self.element_type, t2], [self, target, callback], IntegerType)
 
     def find_sorted_last(self, target: Any, key: Any = None) -> int:
@@ -479,12 +501,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType
 
-        if key is None:
-            t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
-        else:
-            t2 = _ev.type_of(target)
-            callback = EastFunction(key, [self.element_type], t2)
+        target, t2, callback = self._search_key(target, key)
         return _call_builtin("ArrayFindSortedLast", [self.element_type, t2], [self, target, callback], IntegerType)
 
     def find_sorted_range(self, target: Any, key: Any = None) -> EastStruct:
@@ -504,12 +521,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType, StructType
 
-        if key is None:
-            t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
-        else:
-            t2 = _ev.type_of(target)
-            callback = EastFunction(key, [self.element_type], t2)
+        target, t2, callback = self._search_key(target, key)
         out_type = StructType([("start", IntegerType), ("end", IntegerType)])
         return _call_builtin("ArrayFindSortedRange", [self.element_type, t2], [self, target, callback], out_type)
 
@@ -529,12 +541,7 @@ class EastArray(MutableSequence, Generic[T]):
         """
         from east.types.types import IntegerType, NullType, VariantType
 
-        if key is None:
-            t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
-        else:
-            t2 = _ev.type_of(target)
-            callback = EastFunction(key, [self.element_type], t2)
+        target, t2, callback = self._search_key(target, key)
         out_type = VariantType([("none", NullType), ("some", IntegerType)])
         return _call_builtin("ArrayFindFirst", [self.element_type, t2], [self, target, callback], out_type)
 

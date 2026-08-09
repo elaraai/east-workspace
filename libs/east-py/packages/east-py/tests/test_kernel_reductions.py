@@ -34,6 +34,8 @@ from east import (
     StructType,
     array,
     kernel,
+    none,
+    some,
 )
 from east.kernel import KernelTraceError
 from east.runtime.compiler import eager_stats
@@ -448,6 +450,153 @@ def test_is_superset_of_traces_like_its_mirror():
     assert _native(lambda s: s.is_superset_of(a), t, b) is b.is_superset_of(a) is False
     # it is is_subset with the operands swapped, in both paths
     assert _native(lambda s: s.is_superset_of(b), t, a) is _native(lambda s: s.is_subset(a), t, b)
+
+
+# ── find_* (#525 phase 2) ────────────────────────────────────────────────────
+
+_SORTED = [1, 2, 2, 2, 5, 8]
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda a: a.find_first(2), lambda a: a.find_first(2)),
+        (lambda a: a.find_first(99), lambda a: a.find_first(99)),
+        (lambda a: a.find_all(2), lambda a: a.find_all(2)),
+        (lambda a: a.find_all(99), lambda a: a.find_all(99)),
+        (lambda a: a.find_sorted_first(2), lambda a: a.find_sorted_first(2)),
+        (lambda a: a.find_sorted_last(2), lambda a: a.find_sorted_last(2)),
+        (lambda a: a.find_sorted_range(2), lambda a: a.find_sorted_range(2)),
+        (lambda a: a.find_sorted_range(3), lambda a: a.find_sorted_range(3)),  # absent
+        (lambda a: a.find_maximum(), lambda a: a.find_maximum()),
+        (lambda a: a.find_minimum(), lambda a: a.find_minimum()),
+    ],
+)
+def test_find_family_matches_eager(traced, eager):
+    xs = EastArray(IntegerType, _SORTED)
+    got, want = _native(traced, ArrayType(IntegerType), xs), eager(xs)
+    assert got == want
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda a: a.find_first(4.5, lambda r: r.v), lambda a: a.find_first(4.5, key=lambda r: r["v"])),
+        (lambda a: a.find_all("g1", lambda r: r.g), lambda a: a.find_all("g1", by=lambda r: r["g"])),
+        (lambda a: a.find_maximum(lambda r: r.v), lambda a: a.find_maximum(by=lambda r: r["v"])),
+        (lambda a: a.find_minimum(lambda r: r.v), lambda a: a.find_minimum(by=lambda r: r["v"])),
+    ],
+)
+def test_find_family_with_a_projection_matches_eager(traced, eager):
+    rows = _rows()
+    assert _native(traced, A_ROW, rows) == eager(rows)
+
+
+def test_find_extremes_on_empty_are_none_like_eager():
+    """`find_maximum` returns `none` for an empty array while `maximum` itself
+    RAISES, and a kernel cannot test the length at trace time — so the guard
+    is a `where`, which compiles to IfElse and evaluates one branch."""
+    empty = EastArray(ROW, [])
+    for traced, eager in (
+        (lambda a: a.find_maximum(lambda r: r.v), lambda a: a.find_maximum(by=lambda r: r["v"])),
+        (lambda a: a.find_minimum(lambda r: r.v), lambda a: a.find_minimum(by=lambda r: r["v"])),
+    ):
+        assert _native(traced, A_ROW, empty) == eager(empty)
+
+
+def test_find_uses_east_total_order_not_python_order():
+    words = EastArray(StringType, ["pear", "apple", "fig"])
+    t = ArrayType(StringType)
+    assert _native(lambda a: a.find_maximum(), t, words) == words.find_maximum()
+    assert _native(lambda a: a.find_minimum(), t, words) == words.find_minimum()
+
+
+def test_find_target_type_mismatch_is_named():
+    with pytest.raises(KernelTraceError, match="same East type"):
+        kernel(A_ROW, lambda a: a.find_first("nope", lambda r: r.v))
+    with pytest.raises(KernelTraceError, match="same East type"):
+        kernel(A_ROW, lambda a: a.find_all(1, lambda r: r.g))
+
+
+@pytest.mark.parametrize(
+    ("stage", "builtin"),
+    [("sorted", "ArraySort"), ("filter", "ArrayFilter")],
+)
+@pytest.mark.parametrize("method", ["find_maximum", "find_minimum", "find_all"])
+def test_find_does_not_duplicate_a_computed_receiver(stage, builtin, method):
+    """`find_maximum`/`find_minimum` read the receiver three times (size, the
+    extreme, the search) and `find_all` twice — the same trap `mean` fell
+    into. Count IR nodes; a value assertion cannot see duplicated work."""
+    step = (lambda b: b.sorted(lambda r: r.n)) if stage == "sorted" \
+        else (lambda b: b.filter(lambda r: r.n > 0))
+    call = (lambda b: step(b).find_all(1.5, lambda r: r.v)) if method == "find_all" \
+        else (lambda b: getattr(step(b), method)(lambda r: r.v))
+    nested = lambda a: a.group_by(lambda r: r.g).map(call)  # noqa: E731
+    assert _builtin_count(nested, A_ROW, builtin) == 1
+
+
+def test_find_compares_in_the_projection_type_not_the_target_type():
+    """The comparison type comes from the PROJECTION, so an `int` target
+    against Float data means what a reader expects — in BOTH paths.
+
+    Deriving it from the target (as the eager search family did until #525)
+    was wrong twice: `Array<Float>.find_first(2)` compared an Integer against
+    Floats under East's cross-type total order and answered `none`, while
+    `find_all(2)` on the same array answered `[1, 2]`; and with a key it
+    declared a Float projection as Integer, silently TRUNCATING 2.7 to 2 and
+    reporting a match that does not exist.
+    """
+    xs = EastArray(FloatType, [1.0, 2.0, 2.0, 5.0])
+    t = ArrayType(FloatType)
+    # eager is now self-consistent...
+    assert list(xs.find_all(2)) == [1, 2]
+    assert xs.find_first(2) == some(1)
+    # ...and traced agrees with it
+    assert _native(lambda a: a.find_first(2), t, xs) == xs.find_first(2) == some(1)
+    assert _native(lambda a: a.find_sorted_first(2), t, xs) == xs.find_sorted_first(2) == 1
+    assert _native(lambda a: a.find_sorted_last(2), t, xs) == xs.find_sorted_last(2) == 3
+
+    # no silent truncation of a Float projection to the target's Integer type
+    Row = StructType([("v", FloatType)])
+    rows = array(Row, [{"v": 1.2}, {"v": 2.7}, {"v": 3.9}])
+    assert rows.find_first(2, key=lambda r: r["v"]) == none
+    assert _native(lambda a: a.find_first(2, lambda r: r.v), ArrayType(Row), rows) == none
+
+
+def test_find_all_evaluates_an_expression_target_once():
+    """The probe lives INSIDE the per-element callback, so an expression
+    target spliced into it would be recomputed per element — measured O(N^2),
+    3.7s at N=4000 against 1.3ms for the same search via `find_first`. The
+    target binds to a Let, so the search-side builtin sits at the kernel body,
+    not in the callback."""
+    rows = _rows()
+    nested = lambda a: a.find_all(a.maximum(lambda r: r.v), lambda r: r.v)  # noqa: E731
+    # ArrayMapReduce is the target (`maximum`); it must be emitted exactly once
+    assert _builtin_count(nested, A_ROW, "ArrayMapReduce") == 1
+    got = _native(nested, A_ROW, rows)
+    want = rows.find_all(rows.maximum(lambda r: r["v"]), by=lambda r: r["v"])
+    assert list(got) == list(want)
+
+
+@pytest.mark.parametrize(
+    ("build", "builtin"),
+    [
+        (lambda a: a.find_maximum(lambda r: r.v), "ArrayMapReduce"),
+        (lambda a: a.find_minimum(lambda r: r.v), "ArrayMapReduce"),
+        (lambda a: a.mean(lambda r: r.v), "ArrayFold"),
+    ],
+)
+def test_a_reused_composed_expression_binds_once(build, builtin):
+    """Binding the receiver must not cost the CSE.
+
+    `_finalize_ir`'s `free_vars` had no Block/Let case, so a Block's OWN
+    Let-bound name looked free, `fv <= param_names` failed, and every
+    receiver-binding expression became un-hoistable — reusing one re-emitted
+    and RE-EXECUTED it per use site. Reuse the SAME object twice: identity is
+    what the CSE keys on.
+    """
+    reuse = lambda a: (lambda m: {"x": m, "y": m})(build(a))  # noqa: E731
+    assert _builtin_count(reuse, A_ROW, builtin) == 1
 
 
 # ── composition: a whole aggregate is one compiled kernel ────────────────────

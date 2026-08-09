@@ -39,7 +39,9 @@ What traces (#393 expanded this to the whole builtin surface):
   ``some`` / ``every`` / ``first_map`` / ``string_join`` / ``concat`` /
   ``slice`` / ``reversed`` / ``copy`` / ``get_keys`` / ``get`` /
   ``get_or_default`` / ``try_get`` / ``size`` / ``has`` / ``sum`` /
-  ``mean`` / ``maximum`` / ``minimum`` / ``[index_expr]``;
+  ``mean`` / ``maximum`` / ``minimum`` / ``find_first`` / ``find_all`` /
+  ``find_maximum`` / ``find_minimum`` / ``find_sorted_first`` /
+  ``find_sorted_last`` / ``find_sorted_range`` / ``[index_expr]``;
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
@@ -434,6 +436,9 @@ _TRACED_SURFACE = {
         "size", "has", "get", "get_or_default", "try_get",
         # reductions (#525 phase 1)
         "sum", "mean", "maximum", "minimum",
+        # find_* (#525 phase 2)
+        "find_first", "find_all", "find_maximum", "find_minimum",
+        "find_sorted_first", "find_sorted_last", "find_sorted_range",
     })),
     "Set": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -1554,6 +1559,29 @@ class KernelExpr:
             )
         return proj, t2
 
+    def _with_bound_receiver(self, build: Any) -> KernelExpr:
+        """Evaluate the receiver ONCE and hand the binding to ``build``.
+
+        Any composed method that reads the receiver more than a single time
+        needs this. ``_finalize_ir``'s CSE only hoists a shared subtree whose
+        free variables are the kernel's own parameters, so at the top level a
+        repeated receiver is bound for free — but inside an inner lambda it
+        closes over that lambda's parameter, the hoist is refused, and the
+        subtree is emitted AND EXECUTED once per use, squaring with nesting
+        depth. That is the group-then-aggregate shape this surface exists for,
+        so the binding is explicit rather than left to the optimiser (#525).
+        """
+        name = _fresh_name()
+        recv = KernelExpr(_var(name, self.east_type), self.east_type)
+        body = build(recv)
+        return KernelExpr(
+            _k_block(
+                body.east_type,
+                [ir_let(self.east_type, _var(name, self.east_type), self.ir), body.ir],
+            ),
+            body.east_type,
+        )
+
     def _reduce_numeric(self, zero: Any, proj: Any, wrap: Any) -> KernelExpr:
         """Fold ``wrap(proj(...))`` from ``zero`` with the container's own
         callback shape (Array folds with the index in scope)."""
@@ -1594,24 +1622,11 @@ class KernelExpr:
             lifted = _lift(value)
             return lifted.to_float() if widen else lifted
 
-        # Bind the receiver to a Let FIRST. mean touches it twice — the fold
-        # and size() — and _finalize_ir's CSE can only hoist a shared subtree
-        # whose free variables are the kernel's own parameters. Inside an inner
-        # lambda (`group_by(...).map(b => b.sorted(...).mean())`, the shape
-        # this surface exists for) the receiver closes over the inner
-        # parameter, the hoist is refused, and an unbound receiver would be
-        # emitted AND EXECUTED twice — squaring with each nesting level.
-        name = _fresh_name()
-        recv = KernelExpr(_var(name, self.east_type), self.east_type)
-        total = recv._reduce_numeric(0.0, proj, as_float)
-        body = total / recv.size().to_float()
-        return KernelExpr(
-            _k_block(
-                FloatType,
-                [ir_let(self.east_type, _var(name, self.east_type), self.ir), body.ir],
-            ),
-            FloatType,
-        )
+        # mean touches the receiver twice — the fold and size() — so bind it
+        # once (see _with_bound_receiver for why the CSE cannot be relied on
+        # inside an inner lambda).
+        return self._with_bound_receiver(
+            lambda recv: recv._reduce_numeric(0.0, proj, as_float) / recv.size().to_float())
 
     def maximum(self, by: Any = None) -> KernelExpr:
         """Traced ArrayMapReduce under ``greatest`` (East total order).
@@ -1629,6 +1644,129 @@ class KernelExpr:
         self._array_elem("minimum")
         return self.map_reduce(by if by is not None else (lambda el: el),
                                lambda a, b: least(a, b))
+
+    # ── find_* (#525 phase 2) ───────────────────────────────────────────
+    # Array-only, mirroring the eager methods: every one of these compares
+    # under East's TOTAL ORDER via the builtin, so a traced search agrees with
+    # the eager one on floats, strings, variants and structs alike.
+
+    def _find_keyed(self, builtin: str, op: str, target: Any, key: Any,
+                    out_t: EastType) -> KernelExpr:
+        """The shared ``(array, target, key)`` shape of the ArrayFind* family.
+
+        The key projects each element into the target's type; without one the
+        elements are compared directly, exactly as eagerly.
+        """
+        elem_t = self._array_elem(op)
+        if key is None:
+            v = _var(_fresh_name(), elem_t)
+            node = _k_function(FunctionType([elem_t], elem_t), [], [v], v)
+            t2 = elem_t
+        else:
+            node, t2 = _trace_inner_fn(key, [elem_t], declared=1)
+        tgt = _lift(target, hint=t2)
+        if tgt.east_type != t2:
+            raise KernelTraceError(
+                f".{op}() target is {tgt.east_type.type} but the key projects "
+                f"to {t2.type} — they must be the same East type"
+            )
+        return KernelExpr(
+            _builtin(builtin, out_t, [elem_t, t2], [self.ir, tgt.ir, node]), out_t
+        )
+
+    def find_first(self, target: Any, key: Any = None) -> KernelExpr:
+        """Traced ArrayFindFirst: ``some(index)`` of the first element whose
+        ``key`` equals ``target`` under East equality, else ``none``. Linear
+        scan — the array need not be sorted."""
+        return self._find_keyed("ArrayFindFirst", "find_first", target, key,
+                                _option_type(IntegerType))
+
+    def find_sorted_first(self, target: Any, key: Any = None) -> KernelExpr:
+        """Traced ArrayFindSortedFirst: the leftmost insertion index for
+        ``target``. Assumes the array is already sorted in East order, like
+        the eager method."""
+        return self._find_keyed("ArrayFindSortedFirst", "find_sorted_first",
+                                target, key, IntegerType)
+
+    def find_sorted_last(self, target: Any, key: Any = None) -> KernelExpr:
+        """Traced ArrayFindSortedLast: the rightmost insertion index."""
+        return self._find_keyed("ArrayFindSortedLast", "find_sorted_last",
+                                target, key, IntegerType)
+
+    def find_sorted_range(self, target: Any, key: Any = None) -> KernelExpr:
+        """Traced ArrayFindSortedRange: the half-open ``{start, end}`` span of
+        elements equal to ``target``; ``start == end`` when absent."""
+        from east.types.types import StructType as _StructType
+
+        out = _StructType([("start", IntegerType), ("end", IntegerType)])
+        return self._find_keyed("ArrayFindSortedRange", "find_sorted_range",
+                                target, key, out)
+
+    def find_all(self, value: Any, by: Any = None) -> KernelExpr:
+        """Traced ArrayFilterMap: the indices whose element (or ``by``
+        projection) equals ``value``, in row order."""
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import ArrayType as _ArrayType
+
+        elem_t = self._array_elem("find_all")
+        proj = _with_index(by if by is not None else (lambda el: el))
+        _probe, p_t = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
+        target = _lift(value, hint=p_t)
+        if target.east_type != p_t:
+            raise KernelTraceError(
+                f".find_all() value is {target.east_type.type} but the "
+                f"projection yields {p_t.type} — they must be the same East type"
+            )
+        # Bind the target to a Let before the builtin. Unlike the ArrayFind*
+        # family — where the target is a builtin ARGUMENT and so evaluated once
+        # — this probe lives inside the per-element callback, and the trace-time
+        # CSE cannot rescue it: the target node occurs exactly once, and only
+        # nodes seen twice are hoisted. An EXPRESSION target (`a.maximum(...)`,
+        # `a.mean(...)`) would therefore be recomputed per element: measured
+        # O(N^2), 3.7s at N=4000 against 1.3ms for the same search via
+        # find_first. Eager does not have this shape — it receives an
+        # already-evaluated value — so leaving it would be a traced-vs-eager
+        # divergence in COMPLEXITY, the exact failure #524/#525 exist to remove.
+        tname = _fresh_name()
+        bound = KernelExpr(_var(tname, p_t), p_t)
+        node, _out_t = _trace_inner_fn(
+            lambda el, i: where(_lift(proj(el, i)) == bound, _some(i), _none),
+            [elem_t, IntegerType], declared=2,
+        )
+        out = _ArrayType(IntegerType)
+        scan = _builtin("ArrayFilterMap", out, [elem_t, IntegerType], [self.ir, node])
+        return KernelExpr(
+            _k_block(out, [ir_let(p_t, _var(tname, p_t), target.ir), scan]), out
+        )
+
+    def _find_extreme(self, op: str, by: Any, pick: Any) -> KernelExpr:
+        """``some(index)`` of the first extreme, ``none`` when empty.
+
+        The eager methods return ``none`` for an empty array rather than
+        raising (unlike ``maximum``/``minimum`` themselves), and a kernel
+        cannot test the length at trace time — so the emptiness check is a
+        ``where``, which compiles to IfElse and evaluates exactly one branch
+        at run time. The receiver is bound once: it is read three times here.
+        """
+        from east.types.construct import none as _none
+
+        self._array_elem(op)
+        return self._with_bound_receiver(lambda recv: where(
+            recv.size() == 0,
+            _none,
+            recv.find_first(pick(recv, by), key=by),
+        ))
+
+    def find_maximum(self, by: Any = None) -> KernelExpr:
+        """Traced index of the first maximum as ``some(index)``; ``none`` for
+        an empty array, like the eager ``find_maximum``."""
+        return self._find_extreme("find_maximum", by, lambda r, b: r.maximum(b))
+
+    def find_minimum(self, by: Any = None) -> KernelExpr:
+        """Traced index of the first minimum as ``some(index)``; ``none`` when
+        empty."""
+        return self._find_extreme("find_minimum", by, lambda r, b: r.minimum(b))
 
     def first_map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
         """Traced early-exit scan: the first ``some(value)`` that ``fn``
@@ -2703,6 +2841,23 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         if node.type == "Variable":
             name = node.value["name"]
             return set() if name in bound else {name}
+        if node.type == "Block":
+            # A Let scopes over the statements that FOLLOW it, so walk in order
+            # and widen as we go — the same rule the module-level `_free_vars`
+            # already applies. Without this a Block's OWN binding is reported
+            # free, `fv <= param_names` fails, and every composed expression
+            # that binds its receiver (mean, find_maximum, find_minimum,
+            # find_all) becomes un-hoistable: reusing one such expression
+            # re-emits and RE-EXECUTES it per use site (#525).
+            scope = set(bound)
+            block_out: set = set()
+            for stmt in node.value["statements"]:
+                if getattr(stmt, "type", None) == "Let":
+                    block_out |= free_vars(stmt.value["value"], scope)
+                    scope.add(stmt.value["variable"].value["name"])
+                else:
+                    block_out |= free_vars(stmt, scope)
+            return block_out
         inner = bound
         if node.type == "Function":
             inner = bound | {p.value["name"] for p in node.value["parameters"]}
