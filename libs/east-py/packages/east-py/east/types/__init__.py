@@ -65,6 +65,7 @@ from east.types.types import (
     field_index,
     field_names,
     field_types,
+    first_mutable_path,
     get_option_inner_type,
     # Type guards
     is_array_type,
@@ -253,6 +254,7 @@ __all__ = [
     "is_option_type",
     # --- type predicates / comparison ---
     "is_data_type",
+    "first_mutable_path",
     "is_immutable_type",
     "recursive_type",
     "type_equal",
