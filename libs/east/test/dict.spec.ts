@@ -652,6 +652,50 @@ await describe("Dict", (test) => {
 
     assert.examples(test, {
         dictGroupReduce: ex.dictGroupReduce,
+        dictGroupToArrays: ex.dictGroupToArrays,
+        dictGroupToSets: ex.dictGroupToSets,
+        dictGroupToDicts: ex.dictGroupToDicts,
+    });
+
+    test("groupTo* collect into arrays, sets and nested dicts", $ => {
+        // These three had no spec coverage at all, which is why the `any`
+        // typings in #521 went unnoticed — the callbacks below are written
+        // WITHOUT annotations on purpose, so the file would fail to compile
+        // under the project's noImplicitAny if the overloads regressed.
+        const d = $.let(new Map([["a", 1n], ["ab", 2n], ["b", 3n]]), DictType(StringType, IntegerType))
+
+        $(assert.equal(d.groupToArrays((_$, _v, k) => k.length(), (_$, v, _k) => v),
+            new Map([[1n, [1n, 3n]], [2n, [2n]]])))
+        // without a valueFn the dict's own values are collected
+        $(assert.equal(d.groupToArrays((_$, _v, k) => k.length()),
+            new Map([[1n, [1n, 3n]], [2n, [2n]]])))
+
+        const dupes = $.let(new Map([["a", 1n], ["ab", 2n], ["b", 1n]]), DictType(StringType, IntegerType))
+        $(assert.equal(dupes.groupToSets((_$, _v, k) => k.length(), (_$, v, _k) => v),
+            new Map([[1n, new Set([1n])], [2n, new Set([2n])]])))
+
+        $(assert.equal(d.groupToDicts((_$, _v, k) => k.length(), (_$, _v, k) => k, (_$, v, _k) => v),
+            new Map([
+                [1n, new Map([["a", 1n], ["b", 3n]])],
+                [2n, new Map([["ab", 2n]])],
+            ])))
+
+        // A colliding INNER key takes a different branch of the implementation
+        // (tryGet + match, rather than a plain insert), so it needs its own
+        // coverage in both shapes: without a combineFn it must error...
+        const collide = $.let(new Map([["a", 1n], ["b", 2n], ["c", 3n]]), DictType(StringType, IntegerType))
+        $(assert.throws(
+            collide.groupToDicts((_$, _v, k) => k.length(), (_$, _v, _k) => "same", (_$, v, _k) => v),
+            /Dict already contains key/))
+        // ...and with one, the collisions resolve
+        $(assert.equal(
+            collide.groupToDicts((_$, _v, k) => k.length(), (_$, _v, _k) => "same",
+                (_$, v, _k) => v, (_$, a, b) => a.add(b)),
+            new Map([[1n, new Map([["same", 6n]])]])))
+
+        // an empty dict groups to an empty dict
+        const empty = $.let(new Map<string, bigint>(), DictType(StringType, IntegerType))
+        $(assert.equal(empty.groupToArrays((_$, _v, k) => k.length()), new Map()))
     });
 
     test("groupReduce", $ => {

@@ -57,7 +57,7 @@ import { none, some } from "../containers/variant.js";
  * ```ts
  * // Filtering and mapping
  * const filterHighScores = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, scores) => {
- *   $.return(scores.filter(($, score, name) => score.greaterOrEqual(100n)));
+ *   $.return(scores.filter(($, score, name) => score.greaterEqual(100n)));
  * });
  * const compiled = East.compile(filterHighScores.toIR(), []);
  * const scores = new Map([["alice", 150n], ["bob", 75n], ["charlie", 200n]]);
@@ -1004,7 +1004,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * @example
    * ```ts
    * const filterLargeValues = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
-   *   $.return(dict.filter(($, value, key) => value.greaterOrEqual(10n)));
+   *   $.return(dict.filter(($, value, key) => value.greaterEqual(10n)));
    * });
    * const compiled = East.compile(filterLargeValues.toIR(), []);
    * const dict = new Map([["a", 5n], ["b", 15n], ["c", 20n], ["d", 8n]]);
@@ -1217,7 +1217,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * ```ts
    * // Transform keys to uppercase, keep values
    * const uppercaseKeys = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
-   *   $.return(dict.toDict(($, value, key) => key.toUpper()));
+   *   $.return(dict.toDict(($, value, key) => key.upperCase()));
    * });
    * const compiled = East.compile(uppercaseKeys.toIR(), []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
@@ -1229,7 +1229,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Group by key length, sum values for duplicate lengths
    * const groupByLength = East.function([DictType(StringType, IntegerType)], DictType(IntegerType, IntegerType), ($, dict) => {
    *   $.return(dict.toDict(
-   *     ($, value, key) => key.size(),
+   *     ($, value, key) => key.length(),
    *     ($, value, key) => value,
    *     ($, existing, newVal, len) => existing.add(newVal)
    *   ));
@@ -1488,6 +1488,12 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Result: { 0n: [2n, 4n], 1n: [1n, 3n] }
    * ```
    */
+  groupToArrays<K2, T2>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<K2, ArrayType<T2>>
+  groupToArrays<K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn): DictExpr<K2, ArrayType<TypeOf<ReturnType<ValueFn>>>>
+  groupToArrays<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: KeyFn, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, ArrayType<T2>>
+  groupToArrays<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, valueFn: ValueFn): DictExpr<TypeOf<ReturnType<KeyFn>>, ArrayType<TypeOf<ReturnType<ValueFn>>>>
+  groupToArrays<K2>(keyFn: Expr<FunctionType<[T, K], K2>>): DictExpr<K2, ArrayType<T>>
+  groupToArrays<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn): DictExpr<TypeOf<ReturnType<KeyFn>>, ArrayType<T>>
   groupToArrays(keyFn: any, valueFn?: any): DictExpr<any, ArrayType<any>> {
     const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, this.key_type], undefined));
     const valueFnAst = valueOrExprToAstTyped(valueFn ?? ((_$: any, v: any) => v), FunctionType([this.value_type, this.key_type], undefined));
@@ -1518,6 +1524,12 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Result: { 0n: Set([2n]), 1n: Set([1n]) }
    * ```
    */
+  groupToSets<K2, T2>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<K2, SetType<T2>>
+  groupToSets<K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn): DictExpr<K2, SetType<TypeOf<ReturnType<ValueFn>>>>
+  groupToSets<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: KeyFn, valueFn: Expr<FunctionType<[T, K], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, SetType<T2>>
+  groupToSets<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, valueFn: ValueFn): DictExpr<TypeOf<ReturnType<KeyFn>>, SetType<TypeOf<ReturnType<ValueFn>>>>
+  groupToSets<K2>(keyFn: Expr<FunctionType<[T, K], K2>>): DictExpr<K2, SetType<T>>
+  groupToSets<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn): DictExpr<TypeOf<ReturnType<KeyFn>>, SetType<T>>
   groupToSets(keyFn: any, valueFn?: any): DictExpr<any, SetType<any>> {
     const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, this.key_type], undefined));
     const valueFnAst = valueOrExprToAstTyped(valueFn ?? ((_$: any, v: any) => v), FunctionType([this.value_type, this.key_type], undefined));
@@ -1563,6 +1575,19 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * // Sums quantities for same customer+product
    * ```
    */
+  groupToDicts<K1, K2, T2>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<K1, DictType<K2, T2>>
+  groupToDicts<K1, K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<K1, DictType<K2, TypeOf<ReturnType<ValueFn>>>>
+  groupToDicts<K1, KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: KeyFn2, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<K1, DictType<TypeOf<ReturnType<KeyFn2>>, T2>>
+  groupToDicts<K1, KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: KeyFn2, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<K1, DictType<TypeOf<ReturnType<KeyFn2>>, TypeOf<ReturnType<ValueFn>>>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), K2, T2>(keyFn: KeyFn, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<K2, T2>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), K2, ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, keyFn2: Expr<FunctionType<[T, K], K2>>, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<K2, TypeOf<ReturnType<ValueFn>>>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), T2>(keyFn: KeyFn, keyFn2: KeyFn2, valueFn: Expr<FunctionType<[T, K], T2>>, combineFn?: SubtypeExprOrValue<FunctionType<[T2, T2], T2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<TypeOf<ReturnType<KeyFn2>>, T2>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), ValueFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, keyFn2: KeyFn2, valueFn: ValueFn, combineFn?: SubtypeExprOrValue<FunctionType<[TypeOf<ReturnType<NoInfer<ValueFn>>>, TypeOf<ReturnType<NoInfer<ValueFn>>>], TypeOf<ReturnType<NoInfer<ValueFn>>>>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<TypeOf<ReturnType<KeyFn2>>, TypeOf<ReturnType<ValueFn>>>>
+  // …and the two-argument forms, where the values default to this dict's own
+  groupToDicts<K1, K2>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: Expr<FunctionType<[T, K], K2>>): DictExpr<K1, DictType<K2, T>>
+  groupToDicts<K1, KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: Expr<FunctionType<[T, K], K1>>, keyFn2: KeyFn2): DictExpr<K1, DictType<TypeOf<ReturnType<KeyFn2>>, T>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), K2>(keyFn: KeyFn, keyFn2: Expr<FunctionType<[T, K], K2>>): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<K2, T>>
+  groupToDicts<KeyFn extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any), KeyFn2 extends (($: BlockBuilder<NeverType>, value: ExprType<T>, key: ExprType<K>) => any)>(keyFn: KeyFn, keyFn2: KeyFn2): DictExpr<TypeOf<ReturnType<KeyFn>>, DictType<TypeOf<ReturnType<KeyFn2>>, T>>
   groupToDicts(keyFn: any, keyFn2: any, valueFn?: any, combineFn?: any): DictExpr<any, DictType<any, any>> {
     const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, this.key_type], undefined));
     const keyFn2Ast = valueOrExprToAstTyped(keyFn2, FunctionType([this.value_type, this.key_type], undefined));
@@ -2160,7 +2185,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
      * ```ts
      * // With mapping function
      * const sumLengths = East.function([DictType(StringType, StringType)], IntegerType, ($, dict) => {
-     *   $.return(dict.sum(($, value, key) => value.size()));
+     *   $.return(dict.sum(($, value, key) => value.length()));
      * });
      * const compiled = East.compile(sumLengths.toIR(), []);
      * const dict2 = new Map([["a", "hello"], ["b", "world"]]);
@@ -2215,11 +2240,11 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * ```ts
    * // With mapping function
    * const avgLength = East.function([DictType(StringType, StringType)], FloatType, ($, dict) => {
-   *   $.return(dict.mean(($, value, key) => value.size()));
+   *   $.return(dict.mean(($, value, key) => value.length()));
    * });
    * const compiled = East.compile(avgLength.toIR(), []);
    * const dict2 = new Map([["a", "hi"], ["b", "hello"], ["c", "hey"]]);
-   * compiled(dict2);  // 3.6666... (average of 2, 5, 3)
+   * compiled(dict2);  // 3.3333333333333335 (average of 2, 5, 3)
    * ```
    */
   mean(fn: Expr<FunctionType<[T, K], IntegerType>>): FloatExpr

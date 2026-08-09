@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1072,
+    "totalEntries": 1075,
     "totalFiles": 192,
     "packages": {
-      "east": 495,
+      "east": 498,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -3768,6 +3768,69 @@
         "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
       ],
       "source": "// Union two dicts in place with a conflict handler\n// inputs: []  returns: new Map([[1n, \"a\"], [2n, \"b+B\"], [3n, \"C\"]])\nEast.function([], DictType(IntegerType, StringType), ($) => {\n        const d1 = $.let(new Map([[1n, \"a\"], [2n, \"b\"]]), DictType(IntegerType, StringType));\n        const d2 = $.const(new Map([[2n, \"B\"], [3n, \"C\"]]), DictType(IntegerType, StringType));\n        $(d1.unionInPlace(d2, ($, v1, v2) => v1.concat(\"+\").concat(v2)));\n        return d1;\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictGroupToArrays",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Group a dict",
+      "keywords": [
+        "dict",
+        "DictType",
+        "groupToArrays",
+        "group",
+        "collect",
+        "arrays",
+        "#521"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Group a dict\n// inputs: []  returns: new Map([[1n, [1n, 3n]], [2n, [2n]]])\nEast.function([], DictType(IntegerType, ArrayType(IntegerType)), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"ab\", 2n], [\"b\", 3n]]), DictType(StringType, IntegerType));\n        // callbacks take (value, key) — the key/value types are inferred, so\n        // this compiles under `strict` without annotations (#521)\n        return d.groupToArrays((_$, _v, k) => k.length(), (_$, v, _k) => v);\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictGroupToSets",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Group a dict",
+      "keywords": [
+        "dict",
+        "DictType",
+        "groupToSets",
+        "group",
+        "collect",
+        "sets",
+        "distinct",
+        "#521"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Group a dict\n// inputs: []  returns: new Map([[1n, new Set([1n])], [2n, new Set([2n])]])\nEast.function([], DictType(IntegerType, SetType(IntegerType)), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"ab\", 2n], [\"b\", 1n]]), DictType(StringType, IntegerType));\n        return d.groupToSets((_$, _v, k) => k.length(), (_$, v, _k) => v);\n    })"
+    },
+    {
+      "id": "east:dict.examples.ts:dictGroupToDicts",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/dict.examples.ts",
+      "suite": "Union and MergeAll",
+      "test": "Group a dict",
+      "keywords": [
+        "dict",
+        "DictType",
+        "groupToDicts",
+        "group",
+        "nested",
+        "#521"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from \"@elaraai/east\";"
+      ],
+      "source": "// Group a dict\n// inputs: []  returns: new Map([\n        [1n, new Map([[\"a\", 1n], [\"b\", 3n]])],\n        [2n, new Map([[\"ab\", 2n]])],\n    ])\nEast.function([], DictType(IntegerType, DictType(StringType, IntegerType)), ($) => {\n        const d = $.const(new Map([[\"a\", 1n], [\"ab\", 2n], [\"b\", 3n]]), DictType(StringType, IntegerType));\n        return d.groupToDicts((_$, _v, k) => k.length(), (_$, _v, k) => k, (_$, v, _k) => v);\n    })"
     },
     {
       "id": "east:dict.examples.ts:dictUnion",
