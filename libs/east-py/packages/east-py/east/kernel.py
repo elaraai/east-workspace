@@ -43,7 +43,10 @@ What traces (#393 expanded this to the whole builtin surface):
   ``find_maximum`` / ``find_minimum`` / ``find_sorted_first`` /
   ``find_sorted_last`` / ``find_sorted_range`` / ``group_reduce`` /
   ``group_size`` / ``group_sum`` / ``group_mean`` / ``group_every`` /
-  ``group_some`` / ``group_maximum`` / ``group_minimum`` / ``[index_expr]``;
+  ``group_some`` / ``group_maximum`` / ``group_minimum`` /
+  ``group_to_arrays`` / ``group_to_sets`` / ``group_to_dicts`` /
+  ``group_find_all`` / ``group_find_first`` / ``group_find_maximum`` /
+  ``group_find_minimum`` / ``[index_expr]``;
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
@@ -51,14 +54,16 @@ What traces (#393 expanded this to the whole builtin surface):
   ``is_disjoint``) / ``copy`` /
   ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
   ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
-  ``group_every`` / ``group_some``;
+  ``group_every`` / ``group_some`` / ``group_to_arrays`` /
+  ``group_to_sets`` / ``group_to_dicts``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_set`` / ``to_dict`` / ``keys_set`` / ``get_keys`` /
   ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` /
   ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
   ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
-  ``group_every`` / ``group_some``.
+  ``group_every`` / ``group_some`` / ``group_to_arrays`` /
+  ``group_to_sets`` / ``group_to_dicts``.
   The reductions (``sum`` / ``mean`` / ``maximum`` / ``minimum`` /
   ``reduce``) run the same builtin the eager methods do, so traced and eager
   agree including float accumulation order (#525).
@@ -460,6 +465,10 @@ _TRACED_SURFACE = {
         # group_* (#525 phase 3)
         "group_reduce", "group_size", "group_sum", "group_mean",
         "group_every", "group_some", "group_maximum", "group_minimum",
+        # group_to_* / group_find_* (#525 phase 3b)
+        "group_to_arrays", "group_to_sets", "group_to_dicts",
+        "group_find_all", "group_find_first",
+        "group_find_maximum", "group_find_minimum",
     })),
     "Set": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -471,6 +480,8 @@ _TRACED_SURFACE = {
         # group_* (#525 phase 3)
         "group_fold", "group_size", "group_sum", "group_mean",
         "group_every", "group_some",
+        # group_to_* (#525 phase 3b)
+        "group_to_arrays", "group_to_sets", "group_to_dicts",
     })),
     "Dict": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -482,6 +493,8 @@ _TRACED_SURFACE = {
         # group_* (#525 phase 3)
         "group_fold", "group_size", "group_sum", "group_mean",
         "group_every", "group_some",
+        # group_to_* (#525 phase 3b)
+        "group_to_arrays", "group_to_sets", "group_to_dicts",
     })),
 }
 
@@ -2381,6 +2394,241 @@ class KernelExpr:
         return self._grouped("group_mean", key, seed, step).map(
             lambda acc: acc.t / acc.n.to_float())
 
+    # ── group_to_* / group_find_* (#525 phase 3b) ───────────────────────
+    # The collect-into-a-collection and per-group search families — the last
+    # seven eager `group_*` names that did not trace. An untraced name does not
+    # raise: `try_push_down` simply fails and east-c trampolines once per
+    # element, so the only symptom is that the job takes hours (#524).
+
+    def _group_value_projection(self, op: str, fn: Any) -> tuple:
+        """``(projection, its traced type)`` in the container's callback shape.
+
+        Array ``(el, idx)``, Set ``(el)``, Dict ``(key, value)`` — the same
+        normalisation :meth:`_numeric_projection` applies, so an index-taking
+        projection (a supported EAGER call) traces here too.
+        """
+        tag = self.east_type.type
+        proj: Any
+        if tag == "Array":
+            elem_t = self.east_type.value
+            proj = _with_index(fn if fn is not None else (lambda el: el))
+            _n, t2 = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
+        elif tag == "Set":
+            elem_t = self.east_type.value
+            proj = fn if fn is not None else (lambda el: el)
+            _n, t2 = _trace_inner_fn(proj, [elem_t], declared=1)
+        elif tag == "Dict":
+            kv = self.east_type.value
+            proj = fn if fn is not None else (lambda _k, v: v)
+            _n, t2 = _trace_inner_fn(
+                lambda v, k: proj(k, v), [kv["value"], kv["key"]], declared=2)
+        else:
+            raise KernelTraceError(f".{op}() on {tag}")
+        return proj, t2
+
+    def _group_collect(self, op: str, key: Any, value: Any, into: str) -> KernelExpr:
+        """group_to_arrays / group_to_sets: a grouped fold into a COLLECTION.
+
+        The accumulator is mutated per element, so the step body is hand-built
+        IR rather than a traced lambda — the traced surface exposes no mutators
+        on purpose (the kernel language is pure), but a grouped collect IS pure:
+        each group's accumulator is created fresh by ``init`` and never escapes.
+        This is the shape traced :meth:`group_by` already builds inline, and the
+        one the eager ``_append_field_kernel`` / ``_set_insert_field_kernel``
+        helpers compile.
+        """
+        from east.types.types import ArrayType as _ArrayType
+        from east.types.types import SetType as _SetType
+
+        proj, v_t = self._group_value_projection(op, value)
+        acc_t: EastType
+        if into == "Array":
+            acc_t = _ArrayType(v_t)
+            empty: Any = _k_new_array
+            add_name, add_out = "ArrayPushLast", NullType
+        else:
+            acc_t = _SetType(v_t)
+            empty = _k_new_set
+            # TRY-insert: duplicates within a group collapse, which is the
+            # entire point of collecting into a set. The plain SetInsert errors
+            # on an existing element — the defect the eager helper carried.
+            add_name, add_out = "SetTryInsert", BooleanType
+
+        def init(_gk: Any) -> KernelExpr:
+            return KernelExpr(empty(acc_t, []), acc_t)
+
+        def step(acc: Any, *rest: Any) -> KernelExpr:
+            v = _lift(proj(*rest))
+            add = _builtin(add_name, add_out, [v_t], [acc.ir, v.ir])
+            return KernelExpr(_k_block(acc_t, [add, acc.ir]), acc_t)
+
+        return self._group_fold(op, key, init, step)
+
+    def group_to_arrays(self, key: Any, value: Any = None) -> KernelExpr:
+        """Traced arrays of ``value(...)`` per group key.
+
+        Without ``value`` the elements themselves — a Dict's VALUES — are
+        collected, which on an Array is exactly :meth:`group_by`.
+        """
+        return self._group_collect("group_to_arrays", key, value, "Array")
+
+    def group_to_sets(self, key: Any, value: Any = None) -> KernelExpr:
+        """Traced sets of ``value(...)`` per group key; duplicates within a
+        group collapse."""
+        return self._group_collect("group_to_sets", key, value, "Set")
+
+    def group_to_dicts(self, key: Any, key2: Any, value: Any = None,
+                       combine: Any = None) -> KernelExpr:
+        """Traced nested dicts — ``key2(...) -> value(...)`` per group key.
+
+        Without ``combine`` a duplicate INNER key errors at run time, matching
+        the eager method and TS; with one, collisions resolve as
+        ``combine(existing, incoming)``.
+        """
+        from east.types.types import DictType as _DictType
+
+        proj, v_t = self._group_value_projection("group_to_dicts", value)
+        k2proj, k2_t = self._group_value_projection("group_to_dicts", key2)
+        acc_t = _DictType(k2_t, v_t)
+        add_args: list = []
+        if combine is None:
+            add_name = "DictInsert"
+        else:
+            node, c_out = _trace_inner_fn(
+                lambda a, b, _k: combine(a, b), [v_t, v_t, k2_t], declared=3)
+            if c_out != v_t:
+                raise KernelTraceError(
+                    f".group_to_dicts() combine returns {c_out.type}, "
+                    f"values are {v_t.type}")
+            add_name, add_args = "DictInsertOrUpdate", [node]
+
+        def init(_gk: Any) -> KernelExpr:
+            return KernelExpr(_k_new_dict(acc_t, []), acc_t)
+
+        def step(acc: Any, *rest: Any) -> KernelExpr:
+            ik = _lift(k2proj(*rest))
+            v = _lift(proj(*rest))
+            add = _builtin(add_name, NullType, [k2_t, v_t],
+                           [acc.ir, ik.ir, v.ir, *add_args])
+            return KernelExpr(_k_block(acc_t, [add, acc.ir]), acc_t)
+
+        return self._group_fold("group_to_dicts", key, init, step)
+
+    def _find_index_pairs(self, op: str, key: Any, value: Any, by: Any) -> tuple:
+        """``(Array<{i, k}> of matches, Set<K> of EVERY group, K, pair type)``.
+
+        One native scan emits ``(index, group key)`` for the matching elements;
+        the group set comes from a second native pass, so a group whose members
+        all failed still appears in the result — the guarantee the eager method
+        and TS ``groupFindAll`` both make.
+        """
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import ArrayType as _ArrayType
+        from east.types.types import SetType as _SetType
+        from east.types.types import StructType as _StructType
+
+        elem_t = self._array_elem(op)
+        kf = _with_index(key)
+        key_node, k2 = _trace_inner_fn(kf, [elem_t, IntegerType], declared=2)
+        proj = _with_index(by if by is not None else (lambda el: el))
+        _n, p_t = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
+        target = _lift(value, hint=p_t)
+        if target.east_type != p_t:
+            raise KernelTraceError(
+                f".{op}() value is {target.east_type.type} but the projection "
+                f"yields {p_t.type} — they must be the same East type")
+        pair_t = _StructType([("i", IntegerType), ("k", k2)])
+        # Bind the target to a Let first: the probe lives INSIDE the per-element
+        # callback, so an expression target spliced in would be recomputed per
+        # element — the same O(N^2) trap `find_all` documents.
+        tname = _fresh_name()
+        bound = KernelExpr(_var(tname, p_t), p_t)
+        node, _o = _trace_inner_fn(
+            lambda el, i: where(_lift(proj(el, i)) == bound,
+                                _some({"i": i, "k": kf(el, i)}), _none),
+            [elem_t, IntegerType], declared=2)
+        pairs_t = _ArrayType(pair_t)
+        scan = _builtin("ArrayFilterMap", pairs_t, [elem_t, pair_t], [self.ir, node])
+        pairs = KernelExpr(
+            _k_block(pairs_t, [ir_let(p_t, _var(tname, p_t), target.ir), scan]), pairs_t)
+        groups = KernelExpr(
+            _builtin("ArrayToSet", _SetType(k2), [elem_t, k2], [self.ir, key_node]),
+            _SetType(k2))
+        return pairs, groups, k2, pair_t
+
+    def group_find_all(self, key: Any, value: Any, by: Any = None) -> KernelExpr:
+        """Traced indices of every element equal to ``value``, per group.
+
+        Every group the array has appears: one with no match maps to an EMPTY
+        array, not a missing key (eager and TS ``groupFindAll`` parity).
+        """
+        from east.types.types import ArrayType as _ArrayType
+
+        self._array_elem("group_find_all")
+        idx_t = _ArrayType(IntegerType)
+
+        def build(recv: KernelExpr) -> KernelExpr:
+            pairs, groups, _k2, _pair_t = recv._find_index_pairs(
+                "group_find_all", key, value, by)
+            found = pairs.group_to_arrays(lambda p: p.k, lambda p: p.i)
+            return found.get_keys(
+                groups, lambda _k: KernelExpr(_k_new_array(idx_t, []), idx_t))
+
+        # the receiver is scanned twice (matches, and the group set), so bind it
+        return self._with_bound_receiver(build)
+
+    def group_find_first(self, key: Any, value: Any, by: Any = None) -> KernelExpr:
+        """Traced ``some(first matching index)`` per group, ``none`` for a group
+        with no match (TS parity).
+
+        ``group_find_all`` already yields matches in row order within a group,
+        so the first is element 0.
+        """
+        return self.group_find_all(key, value, by).map(lambda idxs: idxs.try_get(0))
+
+    def _group_find_extreme(self, op: str, key: Any, by: Any, want_max: bool) -> KernelExpr:
+        """Index of each group's extreme, via ArrayToDict over ``{by, index}``.
+
+        The collision handler compares NON-STRICTLY, so the incumbent (earlier)
+        pair wins a tie and the reported index is the EARLIEST extreme —
+        matching the eager ``_group_extreme_combine`` and TS.
+        """
+        from east.types.types import DictType as _DictType
+
+        elem_t = self._array_elem(op)
+        kf = _with_index(key)
+        key_node, k2 = _trace_inner_fn(kf, [elem_t, IntegerType], declared=2)
+        proj = _with_index(by if by is not None else (lambda el: el))
+        # Take the pair type from the TRACE rather than declaring it, so the
+        # struct's field order cannot drift from what the lambda builds.
+        val_node, pair_t = _trace_inner_fn(
+            lambda el, i: {"by": proj(el, i), "index": i},
+            [elem_t, IntegerType], declared=2)
+        keep = (lambda a, b: where(a.by >= b.by, a, b)) if want_max \
+            else (lambda a, b: where(a.by <= b.by, a, b))
+        comb_node, c_out = _trace_inner_fn(
+            lambda a, b, _k: keep(a, b), [pair_t, pair_t, k2], declared=3)
+        if c_out != pair_t:
+            raise KernelTraceError(
+                f".{op}() collision handler returns {c_out.type}, pairs are Struct")
+        out = _DictType(k2, pair_t)
+        pairs = KernelExpr(
+            _builtin("ArrayToDict", out, [elem_t, k2, pair_t],
+                     [self.ir, key_node, val_node, comb_node]),
+            out,
+        )
+        return pairs.map(lambda v: v.index)
+
+    def group_find_maximum(self, key: Any, by: Any = None) -> KernelExpr:
+        """Traced index of the largest element/projection per group (East total
+        order; a tie keeps the earliest index)."""
+        return self._group_find_extreme("group_find_maximum", key, by, want_max=True)
+
+    def group_find_minimum(self, key: Any, by: Any = None) -> KernelExpr:
+        """Traced index of the smallest element/projection per group."""
+        return self._group_find_extreme("group_find_minimum", key, by, want_max=False)
+
     def sorted(self, key: Any = None, *, reverse: bool = False) -> KernelExpr:
         """Traced ArraySort/ArraySortDefault (+ ArrayReverse for ``reverse``),
         ordering by East's total order like the eager method."""
@@ -3610,7 +3858,16 @@ def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
 
 
 def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
-    """Compiled (acc: Set<V>, p: pair_t, i) -> acc with p.<value_field> inserted."""
+    """Compiled (acc: Set<V>, p: pair_t, i) -> acc with p.<value_field> inserted.
+
+    ``SetTryInsert``, not ``SetInsert``: this backs ``group_to_sets``, whose
+    entire purpose is that duplicates within a group COLLAPSE. ``SetInsert``
+    errors on an existing element, so every one of ``EastArray``/``EastSet``/
+    ``EastDict``.``group_to_sets`` raised ``Set already contains key …`` the
+    moment two members of a group shared a value — the normal case, not an edge
+    one. TypeScript's ``groupToSets`` uses ``tryInsert`` for exactly this
+    reason; east-py simply used the erroring spelling (#525).
+    """
     from east.runtime.compiler import compile_from_value
     from east.types.types import SetType as _SetType
 
@@ -3622,7 +3879,9 @@ def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
     field_ir, v_t = _pair_field(pair_t, el, value_field)
     set_t = _SetType(v_t)
     acc = _var("__k0", set_t)
-    ins = _builtin("SetInsert", NullType, [v_t], [acc, field_ir])
+    # SetTryInsert yields a Boolean "was it new"; the block discards it and
+    # returns the accumulator, exactly as the SetInsert form did with Null.
+    ins = _builtin("SetTryInsert", BooleanType, [v_t], [acc, field_ir])
     block = _k_block(set_t, [ins, acc])
     k = compile_from_value(_function_ir([set_t, pair_t], [acc, el], KernelExpr(block, set_t)))
     _helper_memo[key] = k

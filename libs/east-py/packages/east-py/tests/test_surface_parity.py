@@ -194,6 +194,36 @@ def test_array_group_family():
     assert {k: dict(v.items()) for k, v in dicts.items()} == {"A": {2: 10.0, 4: 2.5}, "B": {1: 150.0, 5: 3.0}}
 
 
+def test_group_to_sets_collapses_duplicates_within_a_group():
+    """A set collapses duplicates — that is the entire reason to collect into one.
+
+    Every `group_to_sets` case above projects a value that happens to be
+    DISTINCT within each group (`{"A": [2, 4], "B": [1, 5]}`), so none of them
+    ever inserted the same element twice. They could not: the shared
+    `_set_insert_field_kernel` emitted `SetInsert`, which ERRORS on an existing
+    element, so any real duplicate raised `Set already contains key …` — on all
+    three containers, for the ordinary case. TypeScript's `groupToSets` uses
+    `tryInsert`; east-py used the erroring spelling (#525).
+
+    Project onto a coarser value so each group genuinely repeats.
+    """
+    rows = _rows()
+    sets = rows.group_to_sets(lambda r: r.sku, lambda r: r.qty % 2)
+    # A: qty 4, 2 -> 0, 0    B: qty 1, 5 -> 1, 1
+    assert {k: sorted(v.to_array()) for k, v in sets.items()} == {"A": [0], "B": [1]}
+
+    # ...and the same for the Set and Dict spellings, which share the helper
+    s = rows.to_set(lambda r: r.qty)                       # {1, 2, 4, 5}
+    assert {k: sorted(v) for k, v in s.group_to_sets(lambda x: x % 2, lambda x: x % 2).items()} \
+        == {0: [0], 1: [1]}
+    d = rows.to_dict(lambda r: r.sku, lambda r: r.price, combine=lambda a, b: a + b)
+    assert {k: sorted(v) for k, v in
+            d.group_to_dicts(lambda _k, _v: "g", lambda k, _v: k, lambda _k, v: v).items()} \
+        == {"g": ["A", "B"]}
+    grouped = d.group_to_sets(lambda _k, _v: "g", lambda _k, _v: 1)
+    assert {k: sorted(v) for k, v in grouped.items()} == {"g": [1]}
+
+
 def test_array_group_reduce():
     rows = _rows()
     joined = rows.group_reduce(

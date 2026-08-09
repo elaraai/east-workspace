@@ -1038,16 +1038,12 @@ def test_the_group_seed_really_receives_its_group_key(tag):
     assert any(v != 0 for v in dict(got.items()).values())
 
 
-# The eager `group_*` names phase 3 does NOT yet trace. Every entry here is a
-# working eager call that silently drops its enclosing loop to the per-element
-# python path, so the list is scope, not policy — #525 phase 3b empties it.
-_UNTRACED_GROUP_NAMES = {
-    "Array": {"group_to_arrays", "group_to_sets", "group_to_dicts",
-              "group_find_all", "group_find_first",
-              "group_find_maximum", "group_find_minimum"},
-    "Set": {"group_to_arrays", "group_to_sets", "group_to_dicts"},
-    "Dict": {"group_to_arrays", "group_to_sets", "group_to_dicts"},
-}
+# Eager `group_*` names with no traced twin. EMPTY as of #525 phase 3b, which
+# closed the last seven (`group_to_*` on all three containers plus the Array
+# `group_find_*` family). Every entry would be a working eager call that
+# silently drops its enclosing loop to the per-element python path, so this
+# stays as a ratchet: it may only ever shrink.
+_UNTRACED_GROUP_NAMES: dict[str, set[str]] = {"Array": set(), "Set": set(), "Dict": set()}
 
 
 def test_the_traced_group_surface_is_pinned_against_the_eager_one():
@@ -1095,3 +1091,179 @@ def test_a_traced_group_name_always_has_an_eager_twin():
             if not hasattr(cls, name):
                 orphans.append(f"{tag}.{name} traces but has no eager twin")
     assert not orphans, orphans
+
+
+# ── group_to_* / group_find_* (#525 phase 3b) ────────────────────────────────
+#
+# The last seven eager `group_*` names to gain traced twins. `group_to_*`
+# accumulate into a COLLECTION, so their step mutates a per-group accumulator —
+# hand-built IR, since the traced surface exposes no mutators. `group_find_*`
+# are Array-only, like their eager twins.
+
+_G_ROWS = [{"g": f"g{i % 3}", "v": float(i % 4), "n": i} for i in range(12)]
+
+
+def _g_rows():
+    return array(ROW, _G_ROWS)
+
+
+def _norm(x):
+    """Compare nested results structurally (Set/Array/Dict/Option alike)."""
+    if hasattr(x, "items"):
+        return {k: _norm(v) for k, v in x.items()}
+    if hasattr(x, "element_type"):
+        out = [_norm(e) for e in x]
+        try:
+            return sorted(out)
+        except TypeError:
+            return out
+    if hasattr(x, "type") and hasattr(x, "value"):
+        return (x.type, x.value)
+    return x
+
+
+@pytest.mark.parametrize(
+    ("name", "traced", "eager"),
+    [
+        ("to_arrays", lambda a: a.group_to_arrays(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_to_arrays(lambda r: r["g"], lambda r: r["v"])),
+        # no value fn: the elements themselves, which on an Array is group_by
+        ("to_arrays_bare", lambda a: a.group_to_arrays(lambda r: r.g),
+         lambda a: a.group_to_arrays(lambda r: r["g"])),
+        ("to_sets", lambda a: a.group_to_sets(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_to_sets(lambda r: r["g"], lambda r: r["v"])),
+        ("to_dicts", lambda a: a.group_to_dicts(lambda r: r.g, lambda r: r.n, lambda r: r.v),
+         lambda a: a.group_to_dicts(lambda r: r["g"], lambda r: r["n"], lambda r: r["v"])),
+        ("to_dicts_combine",
+         lambda a: a.group_to_dicts(lambda r: r.g, lambda r: r.v, lambda r: r.v,
+                                    lambda x, y: x + y),
+         lambda a: a.group_to_dicts(lambda r: r["g"], lambda r: r["v"], lambda r: r["v"],
+                                    lambda x, y: x + y)),
+        ("find_all", lambda a: a.group_find_all(lambda r: r.g, 2.0, lambda r: r.v),
+         lambda a: a.group_find_all(lambda r: r["g"], 2.0, lambda r: r["v"])),
+        ("find_first", lambda a: a.group_find_first(lambda r: r.g, 2.0, lambda r: r.v),
+         lambda a: a.group_find_first(lambda r: r["g"], 2.0, lambda r: r["v"])),
+        ("find_maximum", lambda a: a.group_find_maximum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_find_maximum(lambda r: r["g"], lambda r: r["v"])),
+        ("find_minimum", lambda a: a.group_find_minimum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_find_minimum(lambda r: r["g"], lambda r: r["v"])),
+    ],
+)
+def test_array_group_to_and_find_match_eager(name, traced, eager):
+    rows = _g_rows()
+    assert _norm(_native(traced, A_ROW, rows)) == _norm(eager(rows))
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda s: s.group_to_arrays(lambda e: e % 3, lambda e: e % 2),
+         lambda s: s.group_to_arrays(lambda e: e % 3, lambda e: e % 2)),
+        (lambda s: s.group_to_sets(lambda e: e % 3, lambda e: e % 2),
+         lambda s: s.group_to_sets(lambda e: e % 3, lambda e: e % 2)),
+        (lambda s: s.group_to_dicts(lambda e: e % 3, lambda e: e, lambda e: e % 2),
+         lambda s: s.group_to_dicts(lambda e: e % 3, lambda e: e, lambda e: e % 2)),
+    ],
+)
+def test_set_group_to_match_eager(traced, eager):
+    s = EastSet(IntegerType, list(range(12)))
+    assert _norm(_native(traced, _G_SET, s)) == _norm(eager(s))
+
+
+@pytest.mark.parametrize(
+    ("traced", "eager"),
+    [
+        (lambda d: d.group_to_arrays(lambda k, v: v > 1.0, lambda k, v: v),
+         lambda d: d.group_to_arrays(lambda k, v: v > 1.0, lambda k, v: v)),
+        (lambda d: d.group_to_sets(lambda k, v: v > 1.0, lambda k, v: v),
+         lambda d: d.group_to_sets(lambda k, v: v > 1.0, lambda k, v: v)),
+        (lambda d: d.group_to_dicts(lambda k, v: v > 1.0, lambda k, v: k, lambda k, v: v),
+         lambda d: d.group_to_dicts(lambda k, v: v > 1.0, lambda k, v: k, lambda k, v: v)),
+    ],
+)
+def test_dict_group_to_match_eager(traced, eager):
+    d = EastDict(StringType, FloatType, {f"k{i:02d}": float(i % 4) for i in range(12)})
+    assert _norm(_native(traced, D_SF, d)) == _norm(eager(d))
+
+
+def test_group_to_sets_collapses_duplicates():
+    """The point of collecting into a set — and the defect the eager helper had.
+
+    `_set_insert_field_kernel` emitted `SetInsert`, which ERRORS on an existing
+    element, so eager `group_to_sets` raised `Set already contains key …` the
+    moment two members of a group shared a value. The traced twin must collapse
+    them, and so must eager (fixed to `SetTryInsert`).
+    """
+    rows = _g_rows()          # v cycles 0..3, so every group repeats values
+    got = _native(lambda a: a.group_to_sets(lambda r: r.g, lambda r: r.v), A_ROW, rows)
+    want = rows.group_to_sets(lambda r: r["g"], lambda r: r["v"])
+    assert _norm(got) == _norm(want)
+    # each group SAW 4 elements and kept 4 distinct values here...
+    assert _norm(got) == {"g0": [0.0, 1.0, 2.0, 3.0], "g1": [0.0, 1.0, 2.0, 3.0],
+                          "g2": [0.0, 1.0, 2.0, 3.0]}
+    # ...so pin the collapse itself on data where it is the ONLY difference:
+    # two identical values in one group must yield a one-element set, and under
+    # the old SetInsert spelling this raised rather than collapsing.
+    dupes = array(ROW, [{"g": "a", "v": 1.0, "n": 0}, {"g": "a", "v": 1.0, "n": 1}])
+    assert _norm(_native(lambda a: a.group_to_sets(lambda r: r.g, lambda r: r.v),
+                         A_ROW, dupes)) == {"a": [1.0]}
+
+
+def test_group_find_all_keeps_groups_with_no_match():
+    """A group whose members ALL failed still appears, with an empty array.
+
+    That is the contract eager and TS `groupFindAll` both make, and it is why
+    the traced form needs a second pass for the group set rather than just
+    grouping the matches.
+    """
+    rows = _g_rows()
+    got = _native(lambda a: a.group_find_all(lambda r: r.g, 3.0, lambda r: r.v), A_ROW, rows)
+    want = rows.group_find_all(lambda r: r["g"], 3.0, lambda r: r["v"])
+    assert _norm(got) == _norm(want)
+    # a value present in NO group: every group still listed, all empty
+    none_match = _native(lambda a: a.group_find_all(lambda r: r.g, 99.0, lambda r: r.v),
+                         A_ROW, rows)
+    assert _norm(none_match) == {"g0": [], "g1": [], "g2": []}
+    assert set(none_match.keys()) == {"g0", "g1", "g2"}
+
+
+def test_group_find_extremes_keep_the_earliest_index_on_a_tie():
+    """A tie must report the FIRST index — the non-strict comparison in the
+    collision handler is what makes that true, and a strict one would silently
+    report the last."""
+    tied = array(ROW, [{"g": "a", "v": 5.0, "n": 0}, {"g": "a", "v": 5.0, "n": 1},
+                       {"g": "a", "v": 1.0, "n": 2}])
+    for traced, eager in (
+        (lambda a: a.group_find_maximum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_find_maximum(lambda r: r["g"], lambda r: r["v"])),
+        (lambda a: a.group_find_minimum(lambda r: r.g, lambda r: r.v),
+         lambda a: a.group_find_minimum(lambda r: r["g"], lambda r: r["v"])),
+    ):
+        assert _norm(_native(traced, A_ROW, tied)) == _norm(eager(tied))
+    assert _norm(_native(lambda a: a.group_find_maximum(lambda r: r.g, lambda r: r.v),
+                         A_ROW, tied)) == {"a": 0}
+
+
+def test_group_find_all_evaluates_an_expression_target_once():
+    """The probe sits inside the per-element callback, so a spliced expression
+    target would be recomputed per element — the O(N^2) trap `find_all`
+    documents. The target binds to a Let instead."""
+    nested = lambda a: a.group_find_all(  # noqa: E731
+        lambda r: r.g, a.maximum(lambda r: r.v), lambda r: r.v)
+    assert _builtin_count(nested, A_ROW, "ArrayMapReduce") == 1
+    rows = _g_rows()
+    got = _native(nested, A_ROW, rows)
+    want = rows.group_find_all(lambda r: r["g"], rows.maximum(lambda r: r["v"]),
+                               lambda r: r["v"])
+    assert _norm(got) == _norm(want)
+
+
+def test_the_group_to_family_is_one_native_kernel():
+    """filter → group → collect, with no crossing back into python."""
+    rows = _g_rows()
+    got = _native(
+        lambda a: a.filter(lambda r: r.n % 2 == 0).group_to_sets(lambda r: r.g, lambda r: r.v),
+        A_ROW, rows)
+    want = rows.filter(lambda r: r["n"] % 2 == 0).group_to_sets(
+        lambda r: r["g"], lambda r: r["v"])
+    assert _norm(got) == _norm(want)
