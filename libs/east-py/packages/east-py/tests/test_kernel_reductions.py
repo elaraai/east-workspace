@@ -388,6 +388,68 @@ def test_nested_group_mean_matches_eager():
     assert dict(got.items()) == dict(want.items())
 
 
+# ── struct fields win over same-named methods ────────────────────────────────
+
+@pytest.mark.parametrize("field", ["sum", "mean", "maximum", "minimum", "reduce", "map", "size"])
+def test_a_struct_field_is_not_shadowed_by_a_method_of_the_same_name(field):
+    """`sum`, `mean` and `count` are ordinary column names.
+
+    `__getattr__` only fires when normal lookup FAILS, so every method on
+    KernelExpr shadows a struct field of the same name — and the failure is
+    opaque ("cannot lift python value of type method"). A Struct-typed
+    expression has no collection methods at all, so the field must win.
+    """
+    from east.types.types import BooleanType
+
+    Row = StructType([(field, IntegerType), ("other", BooleanType)])
+    rows = EastArray(Row, [{field: 7, "other": True}])
+    got = _native(lambda a: a.map(lambda r: getattr(r, field)), ArrayType(Row), rows)
+    assert list(got) == [7]
+    # the item-access spelling keeps working too
+    assert list(_native(lambda a: a.map(lambda r: r[field]), ArrayType(Row), rows)) == [7]
+
+
+def test_the_methods_still_work_on_real_collections():
+    xs = EastArray(FloatType, [1.0, 2.0, 3.0])
+    _same(_native(lambda a: a.sum(), A_F, xs), xs.sum())
+    _same(_native(lambda a: a.mean(), A_F, xs), xs.mean())
+
+
+# ── the arity oracle is the eager one ────────────────────────────────────────
+
+def test_a_bound_method_projection_traces_like_it_runs_eagerly():
+    """A bound method's `__code__.co_argcount` counts `self`, so a hand-rolled
+    arity probe calls it with an extra argument. Deferring to the eager
+    `_callback_arity` (inspect.signature) keeps the two paths in step —
+    `map_reduce` with a bound-method projection worked before #525 and must
+    keep working."""
+    class Proj:
+        def value(self, r):          # one REAL parameter; co_argcount says 2
+            return r["n"]
+
+    p = Proj()
+    rows = _rows()
+    _same(_native(lambda a: a.sum(p.value), A_ROW, rows), rows.sum(p.value))
+    _same(_native(lambda a: a.maximum(p.value), A_ROW, rows), rows.maximum(p.value))
+    got = _native(lambda a: a.map_reduce(p.value, lambda x, y: x + y), A_ROW, rows)
+    _same(got, rows.map_reduce(p.value, lambda x, y: x + y))
+
+
+# ── the set algebra is complete on the traced surface ────────────────────────
+
+def test_is_superset_of_traces_like_its_mirror():
+    """#526 added the eager method; without the traced twin the whole set
+    algebra traced except this one member, silently dropping an enclosing
+    loop to the per-element path."""
+    a = EastSet(IntegerType, [1, 2, 3])
+    b = EastSet(IntegerType, [1, 2])
+    t = SetType(IntegerType)
+    assert _native(lambda s: s.is_superset_of(b), t, a) is a.is_superset_of(b) is True
+    assert _native(lambda s: s.is_superset_of(a), t, b) is b.is_superset_of(a) is False
+    # it is is_subset with the operands swapped, in both paths
+    assert _native(lambda s: s.is_superset_of(b), t, a) is _native(lambda s: s.is_subset(a), t, b)
+
+
 # ── composition: a whole aggregate is one compiled kernel ────────────────────
 
 def test_group_then_reduce_is_one_native_kernel():

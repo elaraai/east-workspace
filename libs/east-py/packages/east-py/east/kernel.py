@@ -43,7 +43,8 @@ What traces (#393 expanded this to the whole builtin surface):
   Set: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
   ``to_array`` / ``to_dict`` / the set algebra (``union`` / ``intersect`` /
-  ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_disjoint``) / ``copy`` /
+  ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_superset_of`` /
+  ``is_disjoint``) / ``copy`` /
   ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
   ``map_reduce`` / ``scan`` / ``flatten_to_array`` / ``flatten_to_set`` /
@@ -393,36 +394,22 @@ def _option_inner(t: EastType) -> EastType:
     return t.value[1]["type"]
 
 
-def _wants_index(fn: Any) -> bool:
-    """Whether an element callback takes the builtin's optional trailing index.
-
-    The eager methods all normalise this (``_callback_arity`` in
-    ``types/values/collections.py``), so ``a.sum(lambda el, i: …)`` is a
-    supported eager call; the traced twins must accept it too or a working
-    lambda simply fails to trace (#525). A precompiled kernel answers from its
-    declared signature, a plain lambda from its positional count, and a
-    ``*args`` callable takes everything the builtin offers.
-    """
-    handle = getattr(fn, "_eastc_handle", None)
-    if handle is None:
-        inner = getattr(fn, "_east_kernel", None)
-        handle = getattr(inner, "_eastc_handle", None) if inner is not None else None
-    if handle is not None:
-        try:
-            return len(handle.get_input_types()) >= 2
-        except Exception:
-            return False
-    code = getattr(fn, "__code__", None)
-    if code is None:
-        return False
-    if code.co_flags & 0x04:  # CO_VARARGS — accepts the index too
-        return True
-    return code.co_argcount >= 2
-
-
 def _with_index(fn: Any) -> Any:
-    """Normalise an element callback to the two-argument ``(el, idx)`` shape."""
-    return fn if _wants_index(fn) else (lambda el, _i: fn(el))
+    """Normalise an element callback to the two-argument ``(el, idx)`` shape.
+
+    The eager methods all decide this with ``_callback_arity``, so
+    ``a.sum(lambda el, i: …)`` is a supported eager call and the traced twins
+    must accept it too or a working lambda stops working inside a kernel
+    (#525). Delegating to that same oracle rather than re-deriving from
+    ``__code__.co_argcount`` matters: a bound method's ``co_argcount`` counts
+    ``self`` and a ``functools.partial`` has no ``__code__`` at all, so a
+    hand-rolled probe disagrees with eager on exactly the callables that are
+    not plain lambdas. The lazy import mirrors collections.py, which already
+    imports from this module lazily.
+    """
+    from east.types.values.collections import _callback_arity
+
+    return fn if _callback_arity(fn, 1) >= 2 else (lambda el, _i: fn(el))
 
 
 def _trace_bail(op: str) -> KernelTraceError:
@@ -451,8 +438,8 @@ _TRACED_SURFACE = {
     "Set": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
         "flatten_to_array", "flatten_to_set", "to_array", "to_dict",
-        "union", "intersect", "diff", "sym_diff", "is_subset", "is_disjoint",
-        "copy", "size", "has",
+        "union", "intersect", "diff", "sym_diff", "is_subset", "is_superset_of",
+        "is_disjoint", "copy", "size", "has",
         # reductions (#525 phase 1)
         "reduce", "sum", "mean", "every", "some",
     })),
@@ -465,6 +452,24 @@ _TRACED_SURFACE = {
         "reduce", "sum", "mean", "every", "some",
     })),
 }
+
+
+_SHADOWABLE: frozenset[str] | None = None
+
+
+def _shadowable_names() -> frozenset[str]:
+    """Public ``KernelExpr`` method names — the ones a struct field can shadow.
+
+    Computed once from the class itself, so a method added later is covered
+    without anyone remembering to list it here.
+    """
+    global _SHADOWABLE
+    if _SHADOWABLE is None:
+        _SHADOWABLE = frozenset(
+            n for n in dir(KernelExpr)
+            if not n.startswith("_") and callable(getattr(KernelExpr, n, None))
+        )
+    return _SHADOWABLE
 
 
 class KernelExpr:
@@ -497,6 +502,30 @@ class KernelExpr:
                 )
         available = ", ".join(f["name"] for f in self.east_type.value)
         raise KernelTraceError(f"struct has no field '{name}' (available: {available})")
+
+    def __getattribute__(self, name: str) -> Any:
+        """Struct FIELDS win over same-named collection methods.
+
+        ``__getattr__`` only fires when normal lookup fails, so every method on
+        this class shadows a struct field of the same name — and the failure is
+        opaque (``cannot lift python value of type method``) rather than a
+        missing-field error. Harmless while the surface was ``map``/``filter``/
+        ``size``; not once #525 added ``sum``, ``mean``, ``maximum``,
+        ``minimum`` and ``reduce``, which are ordinary column names in real
+        data. A Struct-typed expression has NO collection methods (they all
+        raise), so the two namespaces are disjoint and the field always wins.
+
+        The name-set test runs first and is a single frozenset hit, so the hot
+        internal accesses (``self.ir``, ``self.east_type``) skip the type probe
+        entirely; the whole check is trace-time only.
+        """
+        if name in _shadowable_names():
+            east_type = object.__getattribute__(self, "east_type")
+            if east_type.type == "Struct":
+                for f in east_type.value:
+                    if f["name"] == name:
+                        return object.__getattribute__(self, "field")(name)
+        return object.__getattribute__(self, name)
 
     def __getattr__(self, name: str) -> KernelExpr:
         if name.startswith("__") and name.endswith("__"):
@@ -2141,6 +2170,22 @@ class KernelExpr:
     def is_subset(self, other: Any) -> KernelExpr:
         """Traced SetIsSubset."""
         return self._set_algebra("SetIsSubset", "is_subset", other, BooleanType)
+
+    def is_superset_of(self, other: Any) -> KernelExpr:
+        """Traced SetIsSubset with the operands swapped — the traced twin of
+        the eager ``EastSet.is_superset_of`` added in #526.
+
+        Without this the whole set algebra traced except this one member, so a
+        lambda that works eagerly silently dropped off the kernel surface and
+        degraded its enclosing loop to the per-element python path.
+        """
+        if self.east_type.type != "Set":
+            raise KernelTraceError(f".is_superset_of() on {self.east_type.type} (needs Set)")
+        o = self._same_typed("is_superset_of", other)
+        return KernelExpr(
+            _builtin("SetIsSubset", BooleanType, [self.east_type.value], [o.ir, self.ir]),
+            BooleanType,
+        )
 
     def is_disjoint(self, other: Any) -> KernelExpr:
         """Traced SetIsDisjoint."""

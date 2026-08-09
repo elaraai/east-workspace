@@ -135,8 +135,8 @@ syntax, fastest first:
      `[index_expr]`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_dict` `union`
-     `intersect` `diff` `sym_diff` `is_subset` `is_disjoint` `copy` `size`
-     `has` `reduce` `sum` `mean` `every` `some`
+     `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
+     `copy` `size` `has` `reduce` `sum` `mean` `every` `some`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `to_array` `to_set` `to_dict`
      `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
@@ -520,8 +520,10 @@ Task → What do you need?
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) under a typed context
     │   │   ├─ Collections → the FULL closed surface enumerated in [Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)
-    │   │   │                 (#452): map · filter · filter_map · fold · map_reduce · flatten_to_array/set ·
+    │   │   │                 (#452) — that list is the ONE registry, pinned against `_TRACED_SURFACE`; highlights:
+    │   │   │                 map · filter · filter_map · fold · scan · map_reduce · flatten_to_array/set ·
     │   │   │                 to_dict · to_set · unique · group_by · sorted · is_sorted · some · every ·
+    │   │   │                 sum · mean · maximum/minimum (Array) · reduce (Set/Dict) ·
     │   │   │                 string_join · concat · slice · reversed · copy · get_keys · the Set algebra ·
     │   │   │                 keys_set · to_array · size · has · get ❗ · [i|k expr] ❗ · get_or_default · try_get ·
     │   │   │                 first_map(fn, out=) → Option (early exit: Array/Set fn(el), Dict fn(k,v))

@@ -379,6 +379,68 @@ def test_dict_merge_key_is_the_ts_single_key_merge():
     assert dict(tagged.items()) == {"k": "v!"} and seen == ["k"]
 
 
+# ── the sum/group_sum family agrees about an empty collection ────────────────
+
+def test_group_sum_types_its_zero_like_sum_does():
+    """`sum` and `group_sum` must not disagree about an empty collection.
+
+    Fixing the `len()`-gated zero for `sum` alone left `Array.group_sum`
+    RAISING where `sum` returned the projection's zero — a half-corrected
+    family is worse than an evenly wrong one (#450/#525).
+    """
+    Row = StructType([("g", StringType), ("n", IntegerType)])
+    empty = array(Row, [])
+    assert empty.sum(lambda r: r["n"]) == 0
+    assert dict(empty.group_sum(lambda r: r["g"], lambda r: r["n"]).items()) == {}
+
+    empty_set = EastSet(IntegerType)
+    assert empty_set.sum() == 0
+    assert dict(empty_set.group_sum(lambda e: e).items()) == {}
+
+    empty_dict = EastDict(StringType, IntegerType)
+    assert empty_dict.sum() == 0
+    assert dict(empty_dict.group_sum(lambda k, _v: k).items()) == {}
+
+
+def test_group_sum_rejects_a_non_numeric_projection_on_every_container():
+    """Set/Dict used to fall back to a Float zero and sum non-numeric data."""
+    with pytest.raises(TypeError, match="numeric"):
+        EastSet(StringType, ["a"]).group_sum(lambda e: e)
+    with pytest.raises(TypeError, match="numeric"):
+        EastDict(StringType, StringType, {"a": "x"}).group_sum(lambda k, _v: k)
+
+
+# ── a differently-typed `other` is refused, not reinterpreted ────────────────
+
+def test_union_family_rejects_a_mismatched_other():
+    """east-c decodes `other`'s slots as THIS dict's types, so a mismatch is a
+    raw reinterpretation of a foreign payload — #529 has `merge_all`
+    segfaulting on it. Fail with a named type error instead."""
+    from east.types.coercion import EastTypeError
+
+    words = EastDict(StringType, StringType, {"a": "hello"})
+    nums = EastDict(StringType, IntegerType, {"a": 12345})
+    for call in (lambda: words.union(nums),
+                 lambda: words.union_in_place(nums),
+                 lambda: words.merge_all(nums, lambda a, b, k: a, lambda k: "")):
+        with pytest.raises(EastTypeError, match="both key and value types must match"):
+            call()
+    # the same-typed call is untouched
+    ints = EastDict(StringType, IntegerType, {"a": 1})
+    assert dict(ints.union(EastDict(StringType, IntegerType, {"b": 2})).items()) == {"a": 1, "b": 2}
+
+
+def test_union_family_allows_an_empty_other_of_any_type():
+    """An empty `other` has no slots to misread, and the group_* sugar relies
+    on it: `group_reduce` types an empty result (element_type, element_type)
+    and folds it into a correctly-typed counts dict."""
+    words = EastDict(StringType, StringType, {"a": "hello"})
+    assert dict(words.union(EastDict(StringType, IntegerType)).items()) == {"a": "hello"}
+    # ...which is exactly what makes group_mean work on an empty input
+    Row = StructType([("g", StringType), ("n", IntegerType)])
+    assert dict(array(Row, []).group_mean(lambda r: r["g"], lambda r: r["n"]).items()) == {}
+
+
 # ── keys(): the python view, not the East-value spelling ─────────────────────
 
 def test_dict_keys_is_the_python_view_and_keys_set_is_the_east_value():

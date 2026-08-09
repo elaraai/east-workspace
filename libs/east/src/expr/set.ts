@@ -823,9 +823,15 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $.return(set.scan(($, acc, element) => acc.add(element), 0n));
    * });
    * const compiled = East.compile(runningTotal.toIR(), []);
-   * compiled(new Set([3n, 1n, 2n]));  // [1n, 3n, 6n] (elements visited as 1, 2, 3)
+   * compiled(new Set([1n, 2n, 3n]));  // [1n, 3n, 6n]
    * compiled(new Set());              // []
    * ```
+   *
+   * The scan visits elements in East total order. Note that a plain JS `Set`
+   * passed as a runtime INPUT is read in its own insertion order — there is no
+   * re-ordering at the input boundary — so `new Set([3n, 1n, 2n])` scans to
+   * `[3n, 4n, 6n]`. Build the set with `East.value(...)` (or any East-native
+   * source) for the sorted-order guarantee.
    *
    * @see {@link reduce} for the final accumulator only.
    */
@@ -859,8 +865,13 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $.return(set.toArray());
    * });
    * const compiled = East.compile(setToArray.toIR(), []);
-   * compiled(new Set([3n, 1n, 2n]));  // [1n, 2n, 3n] (sorted order)
+   * compiled(new Set([1n, 2n, 3n]));  // [1n, 2n, 3n]
    * ```
+   *
+   * Elements come out in East total order. As with {@link scan}, a plain JS
+   * `Set` passed as a runtime INPUT is read in its own insertion order, so
+   * `new Set([3n, 1n, 2n])` yields `[3n, 1n, 2n]`; use `East.value(...)` for
+   * the sorted-order guarantee.
    *
    * @example
    * ```ts

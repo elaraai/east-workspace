@@ -1369,14 +1369,14 @@ class Beast2ArrayFile(Beast2File):
             # kernel handle first, then trace/sample only on a NON-empty
             # collection — an empty one falls back to the element type (and
             # its zero raises for non-numeric elements, exactly like eager).
-            t2 = _kernel_out_type(fn)
+            # Declared type first and unconditionally, matching the eager
+            # EastArray.group_sum — only the SAMPLE needs a row, so an empty
+            # file must not fall back to the element type (#450/#525).
+            t2 = _kernel_out_type(fn) or _kernel_out_type(fn, _elem_in(fn, self.element_type))
             if t2 is None:
                 first = next(iter(self.segments()), None)
-                if first is not None and len(first):
-                    t2 = _kernel_out_type(fn, _elem_in(fn, self.element_type)) \
-                        or _ev.type_of(_call_elem(fn, first[0]))
-                else:
-                    t2 = self.element_type
+                t2 = _ev.type_of(_call_elem(fn, first[0])) \
+                    if first is not None and len(first) else self.element_type
         if t2.type == "Integer":
             zero: Any = 0
         elif t2.type == "Float":

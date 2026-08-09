@@ -238,6 +238,25 @@ def _check_kernel_out(fn, expected, param="out"):
         )
 
 
+def _numeric_zero_for(t):
+    """The additive identity for a numeric East type, or a named TypeError.
+
+    Shared by every ``sum``/``group_sum`` so the whole family agrees — Set and
+    Dict used to fall back to ``0.0`` for a non-numeric projection, silently
+    producing Float sums over data that is not numeric at all (#525).
+    """
+    if t.type == "Integer":
+        return 0
+    if t.type == "Float":
+        return 0.0
+    raise TypeError(
+        f"expected a numeric (Integer/Float) type, got {t.type} — on an EMPTY "
+        "collection the zero is typed from the projection, so a projection the "
+        "tracer cannot type (an impure lambda) leaves nothing to infer from: "
+        "pass a kernel() or a traceable lambda"
+    )
+
+
 def _float_proj(fn, t):
     """A Float-typed projection decided from the TYPE SYSTEM, not per value.
 
@@ -972,11 +991,8 @@ class EastArray(MutableSequence, Generic[T]):
     # with traced/hand-built native kernels — no python loops) ---------------
 
     def _numeric_zero(self, t: EastType) -> Any:
-        if t.type == "Integer":
-            return 0
-        if t.type == "Float":
-            return 0.0
-        raise TypeError(f"expected a numeric (Integer/Float) type, got {t.type}")
+        """The additive identity for ``t`` — one rule for the whole family."""
+        return _numeric_zero_for(t)
 
     def sum(self, fn: Any = None) -> Any:
         """Sum of elements, or of ``fn(element)`` (native ArrayFold).
@@ -1199,13 +1215,17 @@ class EastArray(MutableSequence, Generic[T]):
         )
 
     def group_sum(self, key: Any, fn: Any = None) -> EastDict:
-        """Sum per group (of elements, or of ``fn(element)``)."""
+        """Sum per group (of elements, or of ``fn(element)``).
+
+        The zero is typed from the projection, exactly as :meth:`sum` types it
+        — the two must not disagree about an empty array (#450/#525).
+        """
         if fn is None:
             t2 = self.element_type
         else:
-            t2 = _kernel_out_type(fn) or (
-                _kernel_out_type(fn, _elem_in(fn, self.element_type)) or _ev.type_of(_call_elem(fn, self[0]))
-                if len(self) else self.element_type)
+            t2 = _kernel_out_type(fn) or _kernel_out_type(fn, _elem_in(fn, self.element_type))
+            if t2 is None:
+                t2 = _ev.type_of(_call_elem(fn, self[0])) if len(self) else self.element_type
         zero = self._numeric_zero(t2)
         proj: Any = fn if fn is not None else (lambda el: el)
         wants_idx = _callback_arity(proj, 1) >= 2
@@ -2355,10 +2375,17 @@ class EastSet(Generic[T]):
         return self.to_dict(key, lambda _el: 1, combine=lambda a, b, _k: a + b)
 
     def group_sum(self, key: Any, fn: Any = None) -> EastDict:
-        """Sum per group (native SetGroupFold)."""
+        """Sum per group (native SetGroupFold).
+
+        The zero is typed from the projection, as :meth:`sum` types it, and a
+        non-numeric projection raises rather than silently picking ``0.0``
+        (#450/#525).
+        """
         proj = fn if fn is not None else (lambda el: el)
-        t2 = _kernel_out_type(proj, [self.element_type]) or _ev.type_of(proj(next(iter(self)))) if len(self) else self.element_type
-        zero: Any = 0 if t2.type == "Integer" else 0.0
+        t2 = _kernel_out_type(proj) or _kernel_out_type(proj, [self.element_type])
+        if t2 is None:
+            t2 = _ev.type_of(proj(next(iter(self)))) if len(self) else self.element_type
+        zero = _numeric_zero_for(t2)
         return self.group_fold(key, lambda _k: zero, lambda acc, el: acc + proj(el))
 
     def group_mean(self, key: Any, fn: Any = None) -> EastDict:
@@ -2820,14 +2847,21 @@ class EastDict(Generic[K, V]):
         return self.to_dict(key_fn, lambda _k, _v: 1, combine=lambda a, b, _key: a + b)
 
     def group_sum(self, key_fn: Any, fn: Any = None) -> EastDict:
-        """Sum per group of ``fn(key, value)`` (values when omitted; native)."""
+        """Sum per group of ``fn(key, value)`` (values when omitted; native).
+
+        The zero is typed from the projection, as :meth:`sum` types it, and a
+        non-numeric projection raises rather than silently picking ``0.0``
+        (#450/#525).
+        """
         proj = fn if fn is not None else (lambda _k, v: v)
-        if len(self):
-            k0, v0 = next(iter(self.items()))
-            t2 = _ev.type_of(proj(k0, v0))
-        else:
-            t2 = self.value_type
-        zero: Any = 0 if t2.type == "Integer" else 0.0
+        t2 = _kernel_out_type(proj) or _kernel_out_type(proj, [self.key_type, self.value_type])
+        if t2 is None:
+            if len(self):
+                k0, v0 = next(iter(self.items()))
+                t2 = _ev.type_of(proj(k0, v0))
+            else:
+                t2 = self.value_type
+        zero = _numeric_zero_for(t2)
         return self.group_fold(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
 
     def group_mean(self, key_fn: Any, fn: Any = None) -> EastDict:
@@ -2994,6 +3028,42 @@ class EastDict(Generic[K, V]):
         )
         del keep_alive
 
+    def _require_same_dict_type(self, other: Any, op: str) -> None:
+        """Reject a differently-typed ``other`` before east-c reads it.
+
+        ``DictUnionInPlace``/``DictMergeAll`` take ONE pair of type parameters,
+        so ``other``'s slots are decoded as THIS dict's types. A mismatch is
+        not a type error downstream — it is a raw reinterpretation of a foreign
+        payload (a heap pointer surfaced as an Integer, or arbitrary bytes fed
+        to the UTF-8 decoder), and #529 has it segfaulting. Fail here instead,
+        naming both types, as ``update_many`` already does for its arrays.
+        """
+        o_k = getattr(other, "key_type", None)
+        o_v = getattr(other, "value_type", None)
+        if o_k is None or o_v is None:
+            return  # not a dict value (e.g. a traced expression) — let the builtin type-check
+        if not len(other):
+            # No slots to misread, so no unsafe decode is possible. This is not
+            # a loophole but a necessity: the group_* sugar folds an empty
+            # placeholder-typed accumulator (group_reduce types an empty result
+            # `(element_type, element_type)`) into a correctly-typed counts
+            # dict, and that composition is sound precisely because it copies
+            # nothing.
+            return
+        if o_k != self.key_type or o_v != self.value_type:
+            from east.serialization.east_printer import print_east
+            from east.types.coercion import EastTypeError
+            from east.types.type_of_type import EastTypeType
+
+            raise EastTypeError(
+                f"{op}: other is Dict<{print_east(o_k, EastTypeType)}, "
+                f"{print_east(o_v, EastTypeType)}> but this dict is "
+                f"Dict<{print_east(self.key_type, EastTypeType)}, "
+                f"{print_east(self.value_type, EastTypeType)}> — both key and "
+                "value types must match (use merge_key for a differently-typed "
+                "incoming value)"
+            )
+
     def _union_combine(self, combine: Any) -> EastFunction:
         """The shared overlap handler for :meth:`union` / :meth:`union_in_place`.
 
@@ -3044,6 +3114,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import DictType, NullType
 
+        self._require_same_dict_type(other, "union")
         result = _call_builtin("DictCopy", [self.key_type, self.value_type], [self], DictType(self.key_type, self.value_type))
         _call_builtin("DictUnionInPlace", [self.key_type, self.value_type],
                       [result, other, self._union_combine(combine)], NullType)
@@ -3065,6 +3136,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import NullType
 
+        self._require_same_dict_type(other, "union_in_place")
         self._check_not_iterating()
         _call_builtin("DictUnionInPlace", [self.key_type, self.value_type],
                       [self, other, self._union_combine(combine)], NullType)
@@ -3155,6 +3227,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import NullType
 
+        self._require_same_dict_type(other, "merge_all")
         self._check_not_iterating()
         merge_cb = EastFunction(
             _mark_kernel(lambda existing, incoming, key: merge(existing, incoming, key), merge),
