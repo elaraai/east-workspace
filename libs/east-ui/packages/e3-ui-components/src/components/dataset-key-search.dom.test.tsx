@@ -79,6 +79,10 @@ describe("DatasetKeySearch", () => {
         fireEvent.click(screen.getByText("key-100"));
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(100));
         await waitFor(() => expect(screen.getByText("1 of 3")).toBeTruthy());
+        // Committing preserves the typed query — the label must not replace
+        // it (the controlled empty selection re-syncing would then wipe the
+        // input, the range and the held highlight).
+        expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("key");
 
         fireEvent.click(screen.getByLabelText("Next match"));
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(101));

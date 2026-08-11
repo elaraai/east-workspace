@@ -397,8 +397,11 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const canStep = range !== null && range.found && range.count > 1;
     return (
         <Flex gap={1} align="center" minW="0" onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
-            <Flex minW="10rem" maxW="18rem">
-                <EastChakraCombobox key={resetSeq} value={payload} />
+            {/* Sized to the key signature (inputs have a fixed intrinsic
+              * width, so the placeholder cannot size the box itself), capped
+              * and shrinkable — past the cap the input ellipsizes. */}
+            <Flex width={`min(${placeholder.length + 10}ch, 40rem)`} minW="12rem" flexShrink={1}>
+                <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" />
             </Flex>
             {status !== null && (
                 <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">{status}</Text>
