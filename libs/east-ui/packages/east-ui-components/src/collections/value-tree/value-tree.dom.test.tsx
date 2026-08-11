@@ -59,7 +59,7 @@ interface Cbs {
     onTag?: (path: unknown[], tag: string) => void;
 }
 
-function rootValue(root: ValueTreeNodeValue, cbs: Cbs = {}, style?: { openDepth?: bigint; toolbar?: boolean }): ValueTreeValue {
+function rootValue(root: ValueTreeNodeValue, cbs: Cbs = {}, style?: { openDepth?: bigint; toolbar?: boolean; height?: string }): ValueTreeValue {
     return {
         root,
         onEdit: cbs.onEdit !== undefined ? some(cbs.onEdit) : none,
@@ -68,7 +68,8 @@ function rootValue(root: ValueTreeNodeValue, cbs: Cbs = {}, style?: { openDepth?
         onTag: cbs.onTag !== undefined ? some(cbs.onTag) : none,
         style: style !== undefined
             ? some({
-                height: none, maxHeight: none,
+                height: style.height !== undefined ? some(style.height) : none,
+                maxHeight: none,
                 openDepth: style.openDepth !== undefined ? some(style.openDepth) : none,
                 toolbar: style.toolbar !== undefined ? some(style.toolbar) : none,
             })
@@ -77,11 +78,11 @@ function rootValue(root: ValueTreeNodeValue, cbs: Cbs = {}, style?: { openDepth?
 }
 
 let keyCounter = 0;
-function renderTree(value: ValueTreeValue) {
+function renderTree(value: ValueTreeValue, scrollToRow?: number) {
     keyCounter += 1;
     return render(
         <ChakraProvider value={system}>
-            <EastChakraValueTree value={value} storageKey={`vt-test-${keyCounter}`} />
+            <EastChakraValueTree value={value} storageKey={`vt-test-${keyCounter}`} scrollToRow={scrollToRow} />
         </ChakraProvider>,
     );
 }
@@ -354,6 +355,18 @@ describe("EastChakraValueTree", () => {
         expect(screen.getByText("42")).toBeTruthy();
     });
 
+    test("inline scrollToRow highlights the Nth root row (#520)", () => {
+        renderTree(rootValue(dictN([
+            ["alpha", str("a")],
+            ["beta", str("b")],
+            ["gamma", str("c")],
+        ], false)), 1);
+        const beta = screen.getByText("beta").closest("[data-part=row]")!;
+        expect(beta.hasAttribute("data-match")).toBe(true);
+        expect(screen.getByText("alpha").closest("[data-part=row]")!.hasAttribute("data-match")).toBe(false);
+        expect(document.querySelectorAll("[data-match]").length).toBe(1);
+    });
+
     test("rows carry aria tree semantics", () => {
         renderTree(rootValue(structN([
             ["first", flt(1.0)],
@@ -405,9 +418,9 @@ describe("EastChakraValueTree — remote paging", () => {
         step: variant("index", BigInt(i)),
     });
 
-    function renderPaged(paging: ValueTreePaging) {
+    function renderPaged(paging: ValueTreePaging, style?: { height?: string }) {
         keyCounter += 1;
-        const value = rootValue(arrN([]));
+        const value = rootValue(arrN([]), {}, style);
         const view = render(
             <ChakraProvider value={system}>
                 <EastChakraValueTree value={value} storageKey={`vt-paged-${keyCounter}`} paging={paging} />
@@ -473,6 +486,58 @@ describe("EastChakraValueTree — remote paging", () => {
         const press = screen.getAllByText("Press")[0]!.closest("[data-part=row]")!;
         fireEvent.click(press.querySelector("button[aria-label=Collapse]")!);
         expect(screen.getAllByText("Name").length).toBe(1);
+    });
+
+    // Controlled jump (#520): scrollToRow scrolls the target root row into
+    // view, transiently highlights it, and requests its window so an
+    // unloaded target self-loads.
+    test("scrollToRow highlights the target root row, not its neighbours or children", () => {
+        renderPaged({
+            totalRows: 6,
+            pageSize: 2,
+            pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
+            onNeedRows: () => { /* not exercised */ },
+            scrollToRow: 1,
+        });
+        const mill = screen.getAllByText("Mill")[0]!.closest("[data-part=row]")!;
+        expect(mill.hasAttribute("data-match")).toBe(true);
+        const press = screen.getAllByText("Press")[0]!.closest("[data-part=row]")!;
+        expect(press.hasAttribute("data-match")).toBe(false);
+        // Children of the matched row carry no highlight of their own.
+        expect(document.querySelectorAll("[data-match]").length).toBe(1);
+    });
+
+    test("a jump to an unloaded row highlights its placeholder", () => {
+        const view = renderPaged({
+            totalRows: 6,
+            pageSize: 2,
+            pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
+            onNeedRows: () => { /* not exercised */ },
+            scrollToRow: 3,
+        });
+        const target = view.container.querySelector('[data-placeholder-row="3"]')!;
+        expect(target.hasAttribute("data-match")).toBe(true);
+        expect(view.container.querySelector('[data-placeholder-row="2"]')!.hasAttribute("data-match")).toBe(false);
+    });
+
+    test("scrollToRow scrolls a bounded tree to the target and requests its window", () => {
+        const onNeedRows = vi.fn();
+        const view = renderPaged({
+            totalRows: 1000,
+            pageSize: 2,
+            pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
+            onNeedRows,
+            scrollToRow: 500,
+        }, { height: "300px" });
+        // Page 0's two loaded roots flatten to 6 rows (struct children start
+        // expanded); rows 2..499 are one placeholder each — flat 504 — and
+        // the jump leaves two context rows above.
+        const scrollEl = view.container.querySelector('[role="tree"]')!.firstElementChild as HTMLElement;
+        expect(scrollEl.scrollTop).toBe((504 - 2) * 32);
+        expect(
+            onNeedRows.mock.calls.some(([start, end]) => (start as number) <= 500 && 500 < (end as number)),
+            "the destination window was requested",
+        ).toBe(true);
     });
 });
 

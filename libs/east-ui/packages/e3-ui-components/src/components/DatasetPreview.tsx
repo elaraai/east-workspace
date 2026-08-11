@@ -17,13 +17,13 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Button, Flex, Text } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
 import { useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { RequestOptions } from '@elaraai/e3-api-client';
-import { variant, some, none, encodeBeast2For, type EastTypeValue } from '@elaraai/east';
+import { variant, some, none, compareFor, encodeBeast2For, parseFor, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
 import {
     EastChakraValueTree,
@@ -35,6 +35,7 @@ import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue, useDatasetDownload } from '../hooks/useDatasetValue.js';
 import { useDatasetSet } from '../hooks/datasets.js';
 import { StatusDisplay } from './StatusDisplay.js';
+import { DatasetKeySearch, type DatasetKeyMatchRange } from './DatasetKeySearch.js';
 import { PagedDatasetPreview } from './PagedDatasetPreview.js';
 import { formatApiError, formatError } from '../errors.js';
 
@@ -146,6 +147,51 @@ export const DatasetPreview = memo(function DatasetPreview({
         await queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
     }, [apiUrl, repo, workspace, path, type, setMutation, queryClient]);
 
+    // Inline key search (#520): the same control as the paged preview, with
+    // a client-side jump over the already-decoded keys (decoded Set/Dict
+    // values iterate in canonical East key order, so index = row).
+    const keyType = useMemo<EastTypeValue | null>(() => (
+        type === undefined ? null
+        : type.type === 'Dict' ? (type.value as { key: EastTypeValue; value: EastTypeValue }).key
+        : type.type === 'Set' ? type.value as EastTypeValue
+        : null
+    ), [type]);
+    const inlineKeys = useMemo<unknown[] | null>(() => (
+        decoded === undefined || type === undefined ? null
+        : type.type === 'Dict' ? [...(decoded as Map<unknown, unknown>).keys()]
+        : type.type === 'Set' ? [...(decoded as Set<unknown>).values()]
+        : null
+    ), [type, decoded]);
+    const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
+    useEffect(() => { setJumpRow(undefined); }, [decoded]);
+    const onFindInline = useCallback(async (query: { prefix: string } | { key: string }): Promise<DatasetKeyMatchRange> => {
+        if (inlineKeys === null || keyType === null) return { found: false, row: 0, count: 0 };
+        if ('prefix' in query) {
+            const cmp = compareFor(keyType);
+            const keys = inlineKeys as string[];
+            let row = keys.findIndex((k) => cmp(k, query.prefix) >= 0);
+            if (row === -1) row = keys.length;
+            let count = 0;
+            while (row + count < keys.length && keys[row + count]!.startsWith(query.prefix)) count++;
+            return { found: count > 0, row, count };
+        }
+        const parsed = parseFor(keyType)(query.key);
+        if (!parsed.success) return { found: false, row: 0, count: 0 };
+        const cmp = compareFor(keyType);
+        for (let i = 0; i < inlineKeys.length; i++) {
+            const order = cmp(inlineKeys[i], parsed.value);
+            if (order === 0) return { found: true, row: i, count: 1 };
+            if (order > 0) return { found: false, row: i, count: 0 };
+        }
+        return { found: false, row: inlineKeys.length, count: 0 };
+    }, [inlineKeys, keyType]);
+    const onListInline = useCallback(async (row: number, limit: number): Promise<string[]> => {
+        if (inlineKeys === null || keyType === null) return [];
+        const stringKeys = keyType.type === 'String';
+        return inlineKeys.slice(row, row + limit)
+            .map((k) => (stringKeys ? k as string : ValueTree.keyLabel(keyType as never, k)));
+    }, [inlineKeys, keyType]);
+
     const treeValue = useMemo<ValueTreeValue | null>(() => {
         if (type === undefined || decoded === undefined) return null;
         const root = ValueTree.materialize(type, decoded);
@@ -213,12 +259,17 @@ export const DatasetPreview = memo(function DatasetPreview({
 
     return (
         <Flex direction="column" height="100%" overflow="hidden">
-            <Flex px={4} py={2} justify="flex-end" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
-                <Text fontSize="xs" color="fg.muted" mr={2} alignSelf="center">{countText}{formatSize(sizeBytes)}</Text>
-                <DownloadButton onClick={download} />
+            <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
+                {keyType !== null && inlineKeys !== null && (
+                    <DatasetKeySearch keyType={keyType} onFind={onFindInline} onListRange={onListInline} onJump={setJumpRow} />
+                )}
+                <Flex flex={1} justify="flex-end" align="center" gap={2}>
+                    <Text fontSize="xs" color="fg.muted">{countText}{formatSize(sizeBytes)}</Text>
+                    <DownloadButton onClick={download} />
+                </Flex>
             </Flex>
             <Box flex={1} minHeight={0} overflow="hidden">
-                {treeValue !== null && <EastChakraValueTree value={treeValue} storageKey={path ?? 'value'} />}
+                {treeValue !== null && <EastChakraValueTree value={treeValue} storageKey={path ?? 'value'} scrollToRow={jumpRow} />}
             </Box>
         </Flex>
     );

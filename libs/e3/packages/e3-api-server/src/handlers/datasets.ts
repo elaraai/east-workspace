@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, decodeBeast2, encodeBeast2For, openBeast2PagesFor, readBeast2ExtentsRanged, carveBeast2Ranged, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type Beast2RangedExtents, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, compareFor, decodeBeast2, encodeBeast2For, openBeast2PagesFor, parseFor, readBeast2ExtentsRanged, carveBeast2Ranged, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type Beast2RangedExtents, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -143,6 +143,11 @@ interface CachedRangedExtents {
   extents: Beast2RangedExtents;
   /** Prefix sums of `extents.counts`, for offset→segment addressing. */
   cumulative: number[];
+  /** Segment fences (first key of segment) probed so far by key search —
+   *  filled lazily, O(log segments) per query, so repeated type-ahead
+   *  queries stop re-reading segment frames. Keys are small scalars, so
+   *  their bytes are left out of the entry's `bytes` estimate. */
+  fences: Map<number, unknown>;
   /** Approximate retained bytes (index arrays + header bytes). */
   bytes: number;
 }
@@ -190,7 +195,7 @@ async function cachedRangedExtents(
   }
   // offsets + counts + cumulative at 8 bytes per element, plus the header.
   const bytes = extents.head.byteLength + 24 * extents.counts.length;
-  const entry: CachedRangedExtents = { extents, cumulative, bytes };
+  const entry: CachedRangedExtents = { extents, cumulative, fences: new Map(), bytes };
   extentsCache.set(hash, entry);
   extentsCacheBytes += bytes;
   evictExtents();
@@ -498,6 +503,240 @@ export async function getDatasetPage(
       headers: {
         ...pageHeaders(totalElements, pages ? pages.segmentCount : 0, pageOffset, pageCount),
         'Content-Length': String(body.byteLength),
+      },
+    });
+  } catch (err) {
+    return sendJsonError(err);
+  }
+}
+
+/** Query for {@link findDatasetKey}: exactly one of `key` (an `.east`
+ *  literal of the dataset's key type) or `prefix` (String-keyed datasets
+ *  only), optionally pinned to a content hash with the same semantics as
+ *  {@link DatasetPageWindow.hash}. */
+export interface DatasetFindQuery {
+  key?: string;
+  prefix?: string;
+  hash?: string;
+}
+
+/** Server-side limits for {@link findDatasetKey}. */
+export interface DatasetFindLimits {
+  /** Blob-buffering cap applied only on the whole-read fallback, as for
+   *  {@link DatasetPageLimits.readMaxBytes}. */
+  readMaxBytes?: number;
+}
+
+/**
+ * Locate a key (or string-prefix range) in a Set/Dict dataset by global
+ * element row, without decoding the collection.
+ *
+ * Rows address the canonical East key order — the same row space
+ * {@link getDatasetPage} element windows serve — so the result plugs
+ * straight into the paged preview's scroll position. The search
+ * binary-searches the blob's segment fences (each segment's first key,
+ * probed and cached per content hash) with the key type's East comparator,
+ * then decodes at most the one owning segment (exact key) or the two edge
+ * segments (prefix range).
+ *
+ * Responds with JSON `{ found, row, count }`: `row` is the match's global
+ * element index (for a prefix, the range's first row; for a miss, the
+ * key's insertion row), `count` the number of matched rows. Hash-pinned
+ * queries are immutable-cacheable exactly like page windows.
+ */
+export async function findDatasetKey(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  treePath: TreePath,
+  query: DatasetFindQuery,
+  limits?: DatasetFindLimits,
+): Promise<Response> {
+  const readMaxBytes = limits?.readMaxBytes ?? PAGE_READ_MAX_BYTES_DEFAULT;
+  try {
+    if (treePath.length === 0) {
+      return pageError('bad_request', 'Path required for key search');
+    }
+
+    const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath);
+    if (status.refType === 'unassigned') {
+      return pageError('dataset_unassigned', 'Dataset is unassigned (pending task output)', 404);
+    }
+    if (status.refType === 'null' || !status.hash) {
+      return pageError('dataset_null', 'Dataset is null', 404);
+    }
+    if (query.hash !== undefined && query.hash !== status.hash) {
+      return pageError('dataset_hash_mismatch',
+        `Dataset content is ${status.hash}, not ${query.hash} — refetch status and retry`,
+        409, { 'X-Content-SHA256': status.hash });
+    }
+
+    const typeValue: EastTypeValue = isVariant(status.datasetType)
+      ? status.datasetType
+      : toEastTypeValue(status.datasetType as never);
+    const kind = typeValue.type;
+    if (kind !== 'Set' && kind !== 'Dict') {
+      return pageError('dataset_not_searchable', `Key search addresses Set or Dict datasets; this dataset holds ${kind}`);
+    }
+    const keyTypeValue: EastTypeValue = kind === 'Dict'
+      ? (typeValue.value as { key: EastTypeValue; value: EastTypeValue }).key
+      : typeValue.value as EastTypeValue;
+
+    if ((query.key === undefined) === (query.prefix === undefined)) {
+      return pageError('bad_request', 'Pass exactly one of key or prefix');
+    }
+    if (query.prefix !== undefined && keyTypeValue.type !== 'String') {
+      return pageError('bad_request', `prefix search needs String keys; this dataset's keys are ${keyTypeValue.type}`);
+    }
+    let keyValue: unknown;
+    if (query.key !== undefined) {
+      const parsed = parseFor(keyTypeValue)(query.key);
+      if (!parsed.success) {
+        return pageError('key_parse_error', parsed.error);
+      }
+      keyValue = parsed.value;
+    }
+    const cmp = compareFor(keyTypeValue);
+
+    const statSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
+    const notIndexed = (): Response => pageError('dataset_not_indexed',
+      'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
+
+    // Both data paths resolve to the same fence-search surface: the segment
+    // geometry plus a fence probe and a one-segment key iterator.
+    let segmentCount: number;
+    let elementCount: number;
+    let cumulative: readonly number[];
+    let fenceAt: (i: number) => Promise<unknown>;
+    let keysAt: (i: number) => Promise<Iterable<unknown>>;
+
+    const readRange = storage.objects.readRange?.bind(storage.objects);
+    if (readRange) {
+      // Ranged path: extents (and previously probed fences) are cached per
+      // content hash; each probe reads exactly one segment's frame bytes.
+      let cached: CachedRangedExtents;
+      try {
+        cached = await cachedRangedExtents(status.hash, statSize,
+          (offset, length) => readRange(repoPath, status.hash!, offset, length));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/^(beast2 v5:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
+          throw err;
+        }
+        return notIndexed();
+      }
+      const { extents } = cached;
+      if (!extents.selfContained) {
+        return notIndexed();
+      }
+      segmentCount = extents.offsets.length;
+      elementCount = extents.elementCount;
+      cumulative = cached.cumulative;
+      const segmentBlob = async (i: number): Promise<Uint8Array> => {
+        const start = extents.offsets[i]!;
+        const end = i + 1 < segmentCount ? extents.offsets[i + 1]! : extents.segmentsEnd;
+        const frames = await readRange(repoPath, status.hash!, start, end - start);
+        return carveBeast2Ranged(extents, frames, i, i + 1);
+      };
+      fenceAt = async (i) => {
+        if (cached.fences.has(i)) return cached.fences.get(i);
+        const fence = openBeast2PagesFor(typeValue)(await segmentBlob(i)).fence(0);
+        cached.fences.set(i, fence);
+        return fence;
+      };
+      keysAt = async (i) => {
+        const segment = openBeast2PagesFor(typeValue)(await segmentBlob(i)).segment(0);
+        return kind === 'Set' ? segment as Set<unknown> : (segment as Map<unknown, unknown>).keys();
+      };
+    } else {
+      // Fallback path (no ranged reads): buffer the blob whole under the
+      // same cap as paging; fences are then bounded in-memory probes.
+      if (statSize > readMaxBytes) {
+        return pageError('dataset_too_large',
+          `Dataset is ${Math.round(statSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
+      }
+      const data = await storage.objects.read(repoPath, status.hash);
+      let pages: Beast2Pages;
+      try {
+        pages = openBeast2PagesFor(typeValue)(data);
+      } catch {
+        return notIndexed();
+      }
+      if (!pages.selfContained) {
+        return notIndexed();
+      }
+      segmentCount = pages.segmentCount;
+      elementCount = pages.elementCount;
+      const sums: number[] = new Array(pages.counts.length);
+      let running = 0;
+      for (let i = 0; i < pages.counts.length; i++) {
+        running += pages.counts[i]!;
+        sums[i] = running;
+      }
+      cumulative = sums;
+      fenceAt = (i) => Promise.resolve(pages.fence(i));
+      keysAt = (i) => {
+        const segment = pages.segment(i);
+        return Promise.resolve(kind === 'Set' ? segment as Set<unknown> : (segment as Map<unknown, unknown>).keys());
+      };
+    }
+
+    // First row whose key satisfies a monotone predicate (false… then
+    // true… over the canonical key order), plus that row's key. Fences
+    // bound the candidate segment, so at most ONE segment decodes: when the
+    // boundary is the first row of a later segment, its fence already IS
+    // the boundary key.
+    const locate = async (pred: (k: unknown) => boolean): Promise<{ row: number; key: unknown; hasKey: boolean }> => {
+      if (segmentCount === 0) return { row: 0, key: undefined, hasKey: false };
+      const first = await fenceAt(0);
+      if (pred(first)) return { row: 0, key: first, hasKey: true };
+      // Greatest segment whose fence is before the boundary.
+      let lo = 0, hi = segmentCount - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (!pred(await fenceAt(mid))) lo = mid;
+        else hi = mid - 1;
+      }
+      const base = lo === 0 ? 0 : cumulative[lo - 1]!;
+      let idx = 0;
+      for (const k of await keysAt(lo)) {
+        if (pred(k)) return { row: base + idx, key: k, hasKey: true };
+        idx++;
+      }
+      if (lo + 1 < segmentCount) {
+        const next = await fenceAt(lo + 1);
+        return { row: cumulative[lo]!, key: next, hasKey: true };
+      }
+      return { row: elementCount, key: undefined, hasKey: false };
+    };
+
+    let found: boolean;
+    let row: number;
+    let count: number;
+    if (query.prefix !== undefined) {
+      const prefix = query.prefix;
+      const lower = await locate((k) => cmp(k, prefix) >= 0);
+      // Strings above the prefix that do not extend it are past the range —
+      // prefix-extending strings form one contiguous interval in East
+      // (code-unit) order, so this predicate is monotone.
+      const upper = await locate((k) => cmp(k, prefix) > 0 && !(k as string).startsWith(prefix));
+      row = lower.row;
+      count = upper.row - lower.row;
+      found = count > 0;
+    } else {
+      const at = await locate((k) => cmp(k, keyValue) >= 0);
+      found = at.hasKey && cmp(at.key, keyValue) === 0;
+      row = at.row;
+      count = found ? 1 : 0;
+    }
+    return new Response(JSON.stringify({ found, row, count }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        // Hash-pinned queries are content-addressed: same URL ⇒ same
+        // answer, forever — as for page windows.
+        'Cache-Control': query.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+        'X-Content-SHA256': status.hash,
       },
     });
   } catch (err) {

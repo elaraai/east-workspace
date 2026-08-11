@@ -29,7 +29,7 @@
  * expand/collapse, Enter/Space toggle) with roving tab index.
  */
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -91,6 +91,11 @@ export interface ValueTreePaging {
     pages: ReadonlyMap<number, readonly ValueTreePagedRow[]>;
     /** Requests loading of the pages covering rows `[startRow, endRow)`. */
     onNeedRows: (startRow: number, endRow: number) => void;
+    /** Controlled jump: on each change to a defined value, the tree scrolls
+     *  this global root row into view, transiently highlights it, and
+     *  requests the destination window through {@link onNeedRows} — so an
+     *  unloaded target self-loads (#520). */
+    scrollToRow?: number | undefined;
 }
 
 export interface EastChakraValueTreeProps {
@@ -98,18 +103,29 @@ export interface EastChakraValueTreeProps {
     storageKey: string;
     /** Remote paging for a collection root — see {@link ValueTreePaging}. */
     paging?: ValueTreePaging | undefined;
+    /** Controlled jump for an inline (non-paged) collection root: on each
+     *  change to a defined value, scrolls the given root row (index among
+     *  the root's children) into view and transiently highlights it. Paged
+     *  trees take the jump through {@link ValueTreePaging.scrollToRow}
+     *  instead (#520). */
+    scrollToRow?: number | undefined;
 }
 
 type SlotStyles = Record<string, SystemStyleObject>;
 
-/** Estimated row height (px) — sm editors measure a little taller; the
- *  virtualizer corrects per row, this also scales scroll persistence. */
+/** Exact row height (px) — rows are fixed-height lines (the recipe pins
+ *  `height`), so the virtualizer positions rows at exact multiples without
+ *  per-row measurement (#533) and scroll math is exact. */
 const ROW_H = 32;
 /** Rows at depth < this start expanded when the payload sets no
  *  `style.openDepth` (per-row toggles and the toolbar override it). */
 const DEFAULT_OPEN_DEPTH = 1;
 /** Indent per depth level (px). */
 const INDENT = 18;
+/** How long a jumped-to row keeps its match highlight (ms). */
+const MATCH_HIGHLIGHT_MS = 1600;
+/** Context rows kept above a jumped-to row. */
+const JUMP_CONTEXT_ROWS = 2;
 /** Leaf preview parts a struct row surfaces. */
 const PREVIEW_PARTS = 3;
 
@@ -561,6 +577,40 @@ function pageOfFlat(prefix: number[], flatIdx: number): number {
     return lo;
 }
 
+/** Flat index of global root row `globalRow`: through the loaded page's
+ *  flattened models when present (expanded children shift later rows),
+ *  else the one-placeholder-per-root arithmetic. */
+function pagedFlatIndexOfRoot(flat: PagedFlat, paging: ValueTreePaging, globalRow: number): number | undefined {
+    if (paging.totalRows === 0) return undefined;
+    const clamped = Math.max(0, Math.min(paging.totalRows - 1, globalRow));
+    const p = Math.floor(clamped / paging.pageSize);
+    const base = flat.prefix[p];
+    if (base === undefined) return undefined;
+    const offsetInPage = clamped - p * paging.pageSize;
+    const models = flat.pageModels.get(p);
+    if (models === undefined) return base + offsetInPage;
+    let roots = 0;
+    for (let i = 0; i < models.length; i++) {
+        if (models[i]!.depth === 0) {
+            if (roots === offsetInPage) return base + i;
+            roots++;
+        }
+    }
+    return undefined;
+}
+
+/** Flat index of the `rootRow`-th depth-0 row of an inline tree. */
+function flatIndexOfRoot(rows: RowModel[], rootRow: number): number | undefined {
+    let roots = 0;
+    for (let i = 0; i < rows.length; i++) {
+        if (rows[i]!.depth === 0) {
+            if (roots === rootRow) return i;
+            roots++;
+        }
+    }
+    return undefined;
+}
+
 /** Resolves a paged virtual row: a loaded model, or the global root index
  *  of a placeholder. */
 function pagedRowAt(flat: PagedFlat, paging: ValueTreePaging, flatIdx: number):
@@ -672,11 +722,13 @@ function DictAdd({ path, styles, onInsert }: {
     );
 }
 
-function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
+function Row({ row, styles, cbs, tabbable, matched, onToggle, onKeyNav, onFocusRow }: {
     row: RowModel;
     styles: SlotStyles;
     cbs: TreeCallbacks;
     tabbable: boolean;
+    /** Transient jump-target highlight (#520). */
+    matched: boolean;
     onToggle: (id: string, expanded: boolean, deep?: boolean) => void;
     onKeyNav: (rowId: string, key: string) => boolean;
     onFocusRow: (rowId: string) => void;
@@ -749,6 +801,7 @@ function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
             css={styles["row"]}
             data-part="row"
             data-row-id={row.id}
+            {...(matched && { "data-match": "" })}
             role="treeitem"
             aria-level={row.depth + 1}
             aria-posinset={row.posinset}
@@ -812,7 +865,7 @@ function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
  * @returns the ValueTree element
  */
 export const EastChakraValueTree = memo(function EastChakraValueTree(
-    { value, storageKey, paging }: EastChakraValueTreeProps,
+    { value, storageKey, paging, scrollToRow }: EastChakraValueTreeProps,
 ): ReactNode {
     const recipe = useSlotRecipe({ key: "valueTree" });
     const styles = recipe() as SlotStyles;
@@ -969,6 +1022,33 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         requestVisibleRows();
     }, [setPersisted, requestVisibleRows]);
 
+    // Controlled jump (#520): on each change of the target root row, scroll
+    // it into view (with a couple of context rows above), transiently
+    // highlight it, and request the destination window — an unloaded target
+    // self-loads through the ordinary paging path. The highlight timer lives
+    // in a ref so page loads re-running the effect (which no-op on the
+    // jumpedRef guard) cannot cancel the pending fade.
+    const jumpTarget = paging !== undefined ? paging.scrollToRow : scrollToRow;
+    const [matchRow, setMatchRow] = useState<number | undefined>(undefined);
+    const jumpedRef = useRef<number | undefined>(undefined);
+    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => clearTimeout(highlightTimerRef.current), []);
+    useEffect(() => {
+        if (jumpTarget === undefined || jumpTarget === jumpedRef.current) return;
+        jumpedRef.current = jumpTarget;
+        const flatIdx = pagedFlat !== undefined && paging !== undefined
+            ? pagedFlatIndexOfRoot(pagedFlat, paging, jumpTarget)
+            : flatIndexOfRoot(rows, jumpTarget);
+        const el = scrollElRef.current;
+        if (el !== null && flatIdx !== undefined) {
+            el.scrollTop = Math.max(0, (flatIdx - JUMP_CONTEXT_ROWS) * ROW_H);
+        }
+        requestVisibleRows();
+        setMatchRow(jumpTarget);
+        clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => setMatchRow(undefined), MATCH_HIGHLIGHT_MS);
+    }, [jumpTarget, pagedFlat, paging, rows, requestVisibleRows]);
+
     const height = style !== undefined ? getSomeorUndefined(style.height) : undefined;
     const maxHeight = style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined;
 
@@ -1024,6 +1104,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                 header={toolbar}
                 count={rowCount}
                 estimateSize={() => ROW_H}
+                measureRows={false}
                 overscan={8}
                 rootCss={styles["root"] as Record<string, unknown>}
                 scrollElRef={scrollElRef}
@@ -1037,6 +1118,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                             // the same loading language as the Table.
                             return (
                                 <Box css={styles["row"]} data-part="row" data-placeholder-row={at.globalRow}
+                                    {...(at.globalRow === matchRow && { "data-match": "" })}
                                     role="treeitem" aria-level={1} aria-posinset={at.globalRow + 1}
                                     aria-setsize={paging.totalRows} aria-busy="true"
                                     style={{ paddingLeft: "12px" }}>
@@ -1054,10 +1136,11 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                     return (
                         <Row key={row.id} row={row} styles={styles} cbs={cbs}
                             tabbable={row.id === tabbableId}
+                            matched={matchRow !== undefined && row.depth === 0 && row.posinset - 1 === matchRow}
                             onToggle={onToggle} onKeyNav={onKeyNav} onFocusRow={onFocusRow} />
                     );
                 }}
             />
         </Box>
     );
-}, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.paging === next.paging);
+}, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.paging === next.paging && prev.scrollToRow === next.scrollToRow);

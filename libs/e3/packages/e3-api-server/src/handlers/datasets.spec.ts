@@ -7,7 +7,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ArrayType,
+  DictType,
   IntegerType,
+  SetType,
   StringType,
   StructType,
   decodeBeast2For,
@@ -17,11 +19,12 @@ import {
   none,
   toEastTypeValue,
   variant,
+  type EastType,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, computeHash, InMemoryTransferBackend } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { PackageObjectType, WorkspaceStateType } from '@elaraai/e3-types';
-import { getDataset, getDatasetPage } from './datasets.js';
+import { findDatasetKey, getDataset, getDatasetPage } from './datasets.js';
 
 /**
  * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
@@ -236,34 +239,45 @@ function makeRows(n: number): { id: bigint; name: string }[] {
   return Array.from({ length: n }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
 }
 
-/** Seeds a deployed workspace whose `.inputs.rows` dataset holds `blob`. */
-async function seedRowsDataset(storage: InMemoryStorage, blob: Uint8Array): Promise<string> {
-  await storage.repos.create(REPO);
+/** Seeds a deployed workspace whose `.inputs.<name>` dataset holds `blob`.
+ *  Reseeding the same storage replaces the workspace's package wholesale. */
+async function seedDataset(storage: InMemoryStorage, blob: Uint8Array, name: string, type: EastType): Promise<string> {
+  try {
+    await storage.repos.create(REPO);
+  } catch {
+    // Already created by an earlier seed into this storage.
+  }
   const hash = await storage.objects.write(REPO, blob);
   const structure = variant('struct', new Map([
     ['inputs', variant('struct', new Map([
-      ['rows', variant('value', { type: toEastTypeValue(RowsType), writable: true })],
+      [name, variant('value', { type: toEastTypeValue(type), writable: true })],
     ]))],
   ]));
   const pkgHash = await storage.objects.write(REPO, encodeBeast2For(PackageObjectType)({
     tasks: new Map(),
-    data: { structure, refs: new Map([['inputs/rows', variant('value', { hash, versions: new Map() })]]) },
+    data: { structure, refs: new Map([[`inputs/${name}`, variant('value', { hash, versions: new Map() })]]) },
     functions: new Map(),
     records: new Map(),
   }));
   await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
     packageName: 'pages', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,
   }));
-  await storage.datasets.write(REPO, WS, 'inputs/rows', variant('value', { hash, versions: new Map() }));
+  await storage.datasets.write(REPO, WS, `inputs/${name}`, variant('value', { hash, versions: new Map() }));
   return hash;
+}
+
+/** Seeds a deployed workspace whose `.inputs.rows` dataset holds `blob`. */
+async function seedRowsDataset(storage: InMemoryStorage, blob: Uint8Array): Promise<string> {
+  return seedDataset(storage, blob, 'rows', RowsType);
 }
 
 /** Counts whole-object and ranged reads of `watchedHash` (the dataset blob —
  *  workspace/package object reads are expected and not counted). */
-function spyObjectReads(storage: InMemoryStorage, watchedHash: string): { wholeReads: () => number; rangedBytes: () => number } {
+function spyObjectReads(storage: InMemoryStorage, watchedHash: string): { wholeReads: () => number; rangedBytes: () => number; rangedCalls: () => number } {
   const objects = storage.objects;
   let whole = 0;
   let ranged = 0;
+  let calls = 0;
   const origRead = objects.read.bind(objects);
   const origRange = objects.readRange.bind(objects);
   objects.read = (repo: string, hash: string) => {
@@ -271,10 +285,13 @@ function spyObjectReads(storage: InMemoryStorage, watchedHash: string): { wholeR
     return origRead(repo, hash);
   };
   objects.readRange = (repo: string, hash: string, offset: number, length: number) => {
-    if (hash === watchedHash) ranged += length;
+    if (hash === watchedHash) {
+      ranged += length;
+      calls++;
+    }
     return origRange(repo, hash, offset, length);
   };
-  return { wholeReads: () => whole, rangedBytes: () => ranged };
+  return { wholeReads: () => whole, rangedBytes: () => ranged, rangedCalls: () => calls };
 }
 
 describe('getDatasetPage (ranged reads)', () => {
@@ -405,5 +422,183 @@ describe('getDatasetPage (ranged reads)', () => {
     assert.equal(served.status, 200);
     const page = decodeBeast2For(RowsType)(new Uint8Array(await served.arrayBuffer()));
     assert.ok(equalFor(RowsType)(page, rows.slice(90, 110)), 'the fallback still pages correctly');
+  });
+});
+
+const LookupType = DictType(StringType, IntegerType);
+const IntLookupType = DictType(IntegerType, StringType);
+const TagsType = SetType(StringType);
+const lookupPath = [variant('field', 'inputs'), variant('field', 'lookup')];
+const tagsPath = [variant('field', 'inputs'), variant('field', 'tags')];
+
+function lookupOf(n: number): Map<string, bigint> {
+  return new Map(Array.from({ length: n }, (_, i) => [`k${String(i).padStart(4, '0')}`, BigInt(i)] as const));
+}
+
+async function findJson(response: Response): Promise<{ found: boolean; row: number; count: number }> {
+  assert.equal(response.status, 200, `find failed: ${await response.clone().text()}`);
+  return await response.json() as { found: boolean; row: number; count: number };
+}
+
+describe('findDatasetKey', () => {
+  // batchSize 97 puts segment boundaries at 97, 194, … — deliberately off
+  // the decimal key grid, so prefix ranges span segment boundaries.
+  it('locates exact keys by fence bisect, including segment-fence rows and misses', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(LookupType, { batchSize: 97 })(lookupOf(2500));
+    await seedDataset(storage, blob, 'lookup', LookupType);
+
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150"' })),
+      { found: true, row: 150, count: 1 });
+    // A key that IS a segment fence — row 97 opens segment 1.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0097"' })),
+      { found: true, row: 97, count: 1 });
+    // Misses report the insertion row: between keys, below the minimum,
+    // and past the end.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150x"' })),
+      { found: false, row: 151, count: 0 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"a"' })),
+      { found: false, row: 0, count: 0 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"z"' })),
+      { found: false, row: 2500, count: 0 });
+  });
+
+  it('prefix ranges are contiguous rows, spanning segment boundaries', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(LookupType, { batchSize: 97 })(lookupOf(2500));
+    await seedDataset(storage, blob, 'lookup', LookupType);
+
+    // k01__ covers rows 100..199 — across the boundary at row 194.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k01' })),
+      { found: true, row: 100, count: 100 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k0150' })),
+      { found: true, row: 150, count: 1 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k9' })),
+      { found: false, row: 2500, count: 0 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: '' })),
+      { found: true, row: 0, count: 2500 });
+  });
+
+  it('decodes at most the touched segments: one for exact, two for a spanning prefix', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(LookupType, { batchSize: 97 })(lookupOf(2500));
+    const hash = await seedDataset(storage, blob, 'lookup', LookupType);
+    // Warm the per-hash extents + fence caches, then count reads: each
+    // segment decode is exactly one ranged read of that segment's frames.
+    await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150"' });
+    await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k01' });
+    const spy = spyObjectReads(storage, hash);
+
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150"' })),
+      { found: true, row: 150, count: 1 });
+    assert.equal(spy.wholeReads(), 0, 'the ranged path must never read the blob whole');
+    assert.equal(spy.rangedCalls(), 1, 'an exact find decodes exactly one segment');
+
+    const before = spy.rangedCalls();
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k01' })),
+      { found: true, row: 100, count: 100 });
+    assert.equal(spy.rangedCalls() - before, 2, 'a boundary-spanning prefix decodes exactly the two edge segments');
+    assert.equal(spy.wholeReads(), 0);
+  });
+
+  it('scalar keys parse as .east literals; bad literals are key_parse_error', async () => {
+    const storage = new InMemoryStorage();
+    const entries = new Map(Array.from({ length: 500 }, (_, i) => [BigInt(i), `v${i}`] as const));
+    const blob = encodeBeast2PagedFor(IntLookupType, { batchSize: 97 })(entries);
+    await seedDataset(storage, blob, 'lookup', IntLookupType);
+
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '42' })),
+      { found: true, row: 42, count: 1 });
+
+    const bad = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"abc"' });
+    assert.equal(bad.status, 400);
+    const badBody = await bad.json() as { error: { type: string; message: string } };
+    assert.equal(badBody.error.type, 'key_parse_error');
+    assert.match(badBody.error.message, /Integer/);
+
+    const prefixErr = await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: '4' });
+    assert.equal(prefixErr.status, 400);
+    const prefixBody = await prefixErr.json() as { error: { type: string; message: string } };
+    assert.match(prefixBody.error.message, /String keys/);
+  });
+
+  it('Set datasets search elements like dict keys', async () => {
+    const storage = new InMemoryStorage();
+    const tags = new Set(Array.from({ length: 300 }, (_, i) => `k${String(i).padStart(4, '0')}`));
+    const blob = encodeBeast2PagedFor(TagsType, { batchSize: 97 })(tags);
+    await seedDataset(storage, blob, 'tags', TagsType);
+
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, tagsPath, { key: '"k0123"' })),
+      { found: true, row: 123, count: 1 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, tagsPath, { prefix: 'k00' })),
+      { found: true, row: 0, count: 100 });
+  });
+
+  it('refuses non-keyed datasets and malformed queries', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(RowsType, { batchSize: 100 })(makeRows(50));
+    await seedDataset(storage, blob, 'rows', RowsType);
+
+    const arr = await findDatasetKey(storage, REPO, WS, rowsPath, { key: '(id=1, name="x")' });
+    assert.equal(arr.status, 400);
+    assert.equal(((await arr.json()) as { error: { type: string } }).error.type, 'dataset_not_searchable');
+
+    const lookupBlob = encodeBeast2PagedFor(LookupType)(lookupOf(10));
+    await seedDataset(storage, lookupBlob, 'lookup', LookupType);
+    const neither = await findDatasetKey(storage, REPO, WS, lookupPath, {});
+    assert.equal(neither.status, 400);
+    const both = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"a"', prefix: 'a' });
+    assert.equal(both.status, 400);
+  });
+
+  it('hash pins mirror the page endpoint: immutable when matching, 409 when stale', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(LookupType)(lookupOf(50));
+    const hash = await seedDataset(storage, blob, 'lookup', LookupType);
+
+    const pinned = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0007"', hash });
+    assert.equal(pinned.status, 200);
+    assert.match(pinned.headers.get('Cache-Control') ?? '', /immutable/);
+    assert.equal(pinned.headers.get('X-Content-SHA256'), hash);
+
+    const unpinned = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0007"' });
+    assert.equal(unpinned.headers.get('Cache-Control'), 'no-store');
+
+    const stale = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0007"', hash: '0'.repeat(64) });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.headers.get('X-Content-SHA256'), hash);
+  });
+
+  it('refuses index-less blobs; the whole-read fallback still searches under its cap', async () => {
+    const storage = new InMemoryStorage();
+    // Whole-value v5 encode: no index — predates the stored-segmented contract.
+    const raw = encodeBeast2For(LookupType)(lookupOf(60));
+    const hash = await seedDataset(storage, raw, 'lookup', LookupType);
+    const spy = spyObjectReads(storage, hash);
+    const refused = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0001"' });
+    assert.equal(refused.status, 400);
+    assert.equal(((await refused.json()) as { error: { type: string } }).error.type, 'dataset_not_indexed');
+    assert.equal(spy.wholeReads(), 0, 'the refusal must come from the tail probe, not a whole read');
+
+    const fallback = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(LookupType, { batchSize: 97 })(lookupOf(400));
+    await seedDataset(fallback, blob, 'lookup', LookupType);
+    (fallback.objects as { readRange?: unknown }).readRange = undefined;
+    assert.deepEqual(await findJson(await findDatasetKey(fallback, REPO, WS, lookupPath, { key: '"k0123"' })),
+      { found: true, row: 123, count: 1 });
+    const capped = await findDatasetKey(fallback, REPO, WS, lookupPath, { key: '"k0123"' }, { readMaxBytes: 64 });
+    assert.equal(capped.status, 400);
+    assert.equal(((await capped.json()) as { error: { type: string } }).error.type, 'dataset_too_large');
+  });
+
+  it('an empty collection reports no match at row 0', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(LookupType)(new Map<string, bigint>());
+    await seedDataset(storage, blob, 'lookup', LookupType);
+
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"a"' })),
+      { found: false, row: 0, count: 0 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'a' })),
+      { found: false, row: 0, count: 0 });
   });
 });
