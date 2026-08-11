@@ -246,12 +246,16 @@ export async function datasetGetPage(
   };
 }
 
-/** Query for {@link datasetFindKey}: exactly one of `key` (an `.east`
- *  literal of the dataset's key type) or `prefix` (String-keyed datasets
- *  only), optionally pinned to a content hash. Pinned queries are
- *  immutable-cacheable (same URL ⇒ same answer); a stale pin is refused
- *  with an error rather than answered against different content. */
-export type DatasetFindQuery = ({ key: string } | { prefix: string }) & { hash?: string };
+/** Query for {@link datasetFindKey}, optionally pinned to a content hash:
+ *  `key` (a whole-key `.east` literal, any key type), `prefix` (String
+ *  keys — or, for Struct keys, a prefix on the FIRST field when it is a
+ *  String), or `fields` (Struct keys: `.east` literals of exact leading
+ *  fields in declaration order, optionally with `prefix` continuing into
+ *  the next String field). Every form addresses one contiguous row range
+ *  in the canonical key order. Pinned queries are immutable-cacheable
+ *  (same URL ⇒ same answer); a stale pin is refused with an error rather
+ *  than answered against different content. */
+export type DatasetFindQuery = ({ key: string } | { prefix: string } | { fields: string[]; prefix?: string }) & { hash?: string };
 
 /** A key-search result over a Set/Dict dataset. */
 export interface DatasetFindResult {
@@ -300,7 +304,14 @@ export async function datasetFindKey(
 ): Promise<DatasetFindResult> {
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
   const params = new URLSearchParams({ find: 'true' });
-  if ('key' in query) {
+  if ('fields' in query) {
+    for (const field of query.fields) {
+      params.append('field', field);
+    }
+    if (query.prefix !== undefined) {
+      params.set('prefix', query.prefix);
+    }
+  } else if ('key' in query) {
     params.set('key', query.key);
   } else {
     params.set('prefix', query.prefix);

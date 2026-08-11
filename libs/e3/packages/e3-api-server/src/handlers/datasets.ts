@@ -510,13 +510,18 @@ export async function getDatasetPage(
   }
 }
 
-/** Query for {@link findDatasetKey}: exactly one of `key` (an `.east`
- *  literal of the dataset's key type) or `prefix` (String-keyed datasets
- *  only), optionally pinned to a content hash with the same semantics as
- *  {@link DatasetPageWindow.hash}. */
+/** Query for {@link findDatasetKey}, optionally pinned to a content hash
+ *  with the same semantics as {@link DatasetPageWindow.hash}. Exactly one
+ *  form: `key` (a whole-key `.east` literal, any key type), `prefix`
+ *  (String keys — or Struct keys, as a prefix on the FIRST field when it
+ *  is a String), or `fields` (Struct keys: `.east` literals of exact
+ *  leading fields in declaration order) optionally combined with `prefix`
+ *  continuing into the next (String) field. Every form addresses one
+ *  contiguous row range in the canonical key order. */
 export interface DatasetFindQuery {
   key?: string;
   prefix?: string;
+  fields?: string[];
   hash?: string;
 }
 
@@ -582,11 +587,44 @@ export async function findDatasetKey(
       ? (typeValue.value as { key: EastTypeValue; value: EastTypeValue }).key
       : typeValue.value as EastTypeValue;
 
-    if ((query.key === undefined) === (query.prefix === undefined)) {
-      return pageError('bad_request', 'Pass exactly one of key or prefix');
+    const fields = query.fields !== undefined && query.fields.length > 0 ? query.fields : undefined;
+    if ((query.key === undefined) === (query.prefix === undefined && fields === undefined)) {
+      return pageError('bad_request', 'Pass a key literal, or a prefix and/or leading fields');
     }
-    if (query.prefix !== undefined && keyTypeValue.type !== 'String') {
-      return pageError('bad_request', `prefix search needs String keys; this dataset's keys are ${keyTypeValue.type}`);
+    const structMeta = keyTypeValue.type === 'Struct'
+      ? keyTypeValue.value as { name: string; type: EastTypeValue }[]
+      : null;
+    if (fields !== undefined) {
+      if (structMeta === null) {
+        return pageError('bad_request', `Leading-field search addresses Struct keys; this dataset's keys are ${keyTypeValue.type}`);
+      }
+      if (fields.length > structMeta.length) {
+        return pageError('bad_request', `Key has ${structMeta.length} fields, got ${fields.length}`);
+      }
+    }
+    const fieldValues: unknown[] = [];
+    if (fields !== undefined && structMeta !== null) {
+      for (let j = 0; j < fields.length; j++) {
+        const parsed = parseFor(structMeta[j]!.type)(fields[j]!);
+        if (!parsed.success) {
+          return pageError('key_parse_error', `field '${structMeta[j]!.name}': ${parsed.error}`);
+        }
+        fieldValues.push(parsed.value);
+      }
+    }
+    if (query.prefix !== undefined) {
+      const prefixIdx = fieldValues.length;
+      const prefixFieldType = structMeta !== null
+        ? (prefixIdx < structMeta.length ? structMeta[prefixIdx]!.type : undefined)
+        : keyTypeValue;
+      if (prefixFieldType === undefined) {
+        return pageError('bad_request', `All ${structMeta!.length} key fields are exact — nothing left for a prefix`);
+      }
+      if (prefixFieldType.type !== 'String') {
+        return pageError('bad_request', structMeta !== null
+          ? `prefix continues key field '${structMeta[prefixIdx]!.name}', which is ${prefixFieldType.type}, not String`
+          : `prefix search needs String keys; this dataset's keys are ${keyTypeValue.type}`);
+      }
     }
     let keyValue: unknown;
     if (query.key !== undefined) {
@@ -713,21 +751,59 @@ export async function findDatasetKey(
     let found: boolean;
     let row: number;
     let count: number;
-    if (query.prefix !== undefined) {
-      const prefix = query.prefix;
-      const lower = await locate((k) => cmp(k, prefix) >= 0);
-      // Strings above the prefix that do not extend it are past the range —
-      // prefix-extending strings form one contiguous interval in East
-      // (code-unit) order, so this predicate is monotone.
-      const upper = await locate((k) => cmp(k, prefix) > 0 && !(k as string).startsWith(prefix));
-      row = lower.row;
-      count = upper.row - lower.row;
-      found = count > 0;
-    } else {
+    if (query.key !== undefined) {
       const at = await locate((k) => cmp(k, keyValue) >= 0);
       found = at.hasKey && cmp(at.key, keyValue) === 0;
       row = at.row;
       count = found ? 1 : 0;
+    } else {
+      // Range query — a String prefix, or a struct key's exact leading
+      // fields with an optional prefix on the next field. Both predicates
+      // depend only on the leading field tuple, and struct keys compare
+      // field-by-field in declaration order, so they are monotone over the
+      // canonical key order; prefix-extending strings form one contiguous
+      // interval in East (code-unit) order.
+      let lowerPred: (k: unknown) => boolean;
+      let upperPred: (k: unknown) => boolean;
+      const prefix = query.prefix;
+      if (structMeta !== null) {
+        const fieldCmps = structMeta.map((f) => compareFor(f.type));
+        const lead = (k: unknown): number => {
+          for (let j = 0; j < fieldValues.length; j++) {
+            const c = fieldCmps[j]!((k as Record<string, unknown>)[structMeta[j]!.name], fieldValues[j]);
+            if (c !== 0) return c;
+          }
+          return 0;
+        };
+        if (prefix === undefined) {
+          lowerPred = (k) => lead(k) >= 0;
+          upperPred = (k) => lead(k) > 0;
+        } else {
+          const prefixIdx = fieldValues.length;
+          const prefixName = structMeta[prefixIdx]!.name;
+          const prefixCmp = fieldCmps[prefixIdx]!;
+          lowerPred = (k) => {
+            const c = lead(k);
+            return c !== 0 ? c > 0 : prefixCmp((k as Record<string, unknown>)[prefixName], prefix) >= 0;
+          };
+          upperPred = (k) => {
+            const c = lead(k);
+            if (c !== 0) return c > 0;
+            const field = (k as Record<string, unknown>)[prefixName] as string;
+            return prefixCmp(field, prefix) > 0 && !field.startsWith(prefix);
+          };
+        }
+      } else {
+        // Scalar String keys — validation guarantees the prefix is set here.
+        const scalarPrefix = prefix!;
+        lowerPred = (k) => cmp(k, scalarPrefix) >= 0;
+        upperPred = (k) => cmp(k, scalarPrefix) > 0 && !(k as string).startsWith(scalarPrefix);
+      }
+      const lower = await locate(lowerPred);
+      const upper = await locate(upperPred);
+      row = lower.row;
+      count = upper.row - lower.row;
+      found = count > 0;
     }
     return new Response(JSON.stringify({ found, row, count }), {
       status: 200,

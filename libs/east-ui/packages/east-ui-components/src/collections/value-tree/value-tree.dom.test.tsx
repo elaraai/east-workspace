@@ -520,6 +520,24 @@ describe("EastChakraValueTree — remote paging", () => {
         expect(view.container.querySelector('[data-placeholder-row="2"]')!.hasAttribute("data-match")).toBe(false);
     });
 
+    test("the highlight holds until scrollToRow clears, and the same row can re-jump after", () => {
+        const base = {
+            totalRows: 6,
+            pageSize: 2,
+            pages: new Map([[0, [pagedItem("Press", 0), pagedItem("Mill", 1)]]]),
+            onNeedRows: () => { /* not exercised */ },
+        };
+        const view = renderPaged({ ...base, scrollToRow: 1 });
+        expect(document.querySelectorAll("[data-match]").length).toBe(1);
+        // No fade: the highlight is held while the target stays set, and
+        // drops the moment the host clears it (search cleared).
+        view.rerenderPaging({ ...base, scrollToRow: undefined });
+        expect(document.querySelectorAll("[data-match]").length).toBe(0);
+        view.rerenderPaging({ ...base, scrollToRow: 1 });
+        const mill = screen.getAllByText("Mill")[0]!.closest("[data-part=row]")!;
+        expect(mill.hasAttribute("data-match")).toBe(true);
+    });
+
     test("scrollToRow scrolls a bounded tree to the target and requests its window", () => {
         const onNeedRows = vi.fn();
         const view = renderPaged({

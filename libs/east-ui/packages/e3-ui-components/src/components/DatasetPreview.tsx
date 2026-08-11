@@ -35,7 +35,7 @@ import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue, useDatasetDownload } from '../hooks/useDatasetValue.js';
 import { useDatasetSet } from '../hooks/datasets.js';
 import { StatusDisplay } from './StatusDisplay.js';
-import { DatasetKeySearch, type DatasetKeyMatchRange } from './DatasetKeySearch.js';
+import { DatasetKeySearch, keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery } from './DatasetKeySearch.js';
 import { PagedDatasetPreview } from './PagedDatasetPreview.js';
 import { formatApiError, formatError } from '../errors.js';
 
@@ -164,26 +164,26 @@ export const DatasetPreview = memo(function DatasetPreview({
     ), [type, decoded]);
     const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
     useEffect(() => { setJumpRow(undefined); }, [decoded]);
-    const onFindInline = useCallback(async (query: { prefix: string } | { key: string }): Promise<DatasetKeyMatchRange> => {
+    const onFindInline = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
         if (inlineKeys === null || keyType === null) return { found: false, row: 0, count: 0 };
-        if ('prefix' in query) {
+        const range = keyRangePredicates(keyType, query);
+        if (range === null) {
+            // Whole-key literal: an exact lookup in the sorted keys.
+            const parsed = parseFor(keyType)((query as { key: string }).key);
+            if (!parsed.success) return { found: false, row: 0, count: 0 };
             const cmp = compareFor(keyType);
-            const keys = inlineKeys as string[];
-            let row = keys.findIndex((k) => cmp(k, query.prefix) >= 0);
-            if (row === -1) row = keys.length;
-            let count = 0;
-            while (row + count < keys.length && keys[row + count]!.startsWith(query.prefix)) count++;
-            return { found: count > 0, row, count };
+            for (let i = 0; i < inlineKeys.length; i++) {
+                const order = cmp(inlineKeys[i], parsed.value);
+                if (order === 0) return { found: true, row: i, count: 1 };
+                if (order > 0) return { found: false, row: i, count: 0 };
+            }
+            return { found: false, row: inlineKeys.length, count: 0 };
         }
-        const parsed = parseFor(keyType)(query.key);
-        if (!parsed.success) return { found: false, row: 0, count: 0 };
-        const cmp = compareFor(keyType);
-        for (let i = 0; i < inlineKeys.length; i++) {
-            const order = cmp(inlineKeys[i], parsed.value);
-            if (order === 0) return { found: true, row: i, count: 1 };
-            if (order > 0) return { found: false, row: i, count: 0 };
-        }
-        return { found: false, row: inlineKeys.length, count: 0 };
+        let row = inlineKeys.findIndex(range.lower);
+        if (row === -1) row = inlineKeys.length;
+        let count = 0;
+        while (row + count < inlineKeys.length && !range.upper(inlineKeys[row + count])) count++;
+        return { found: count > 0, row, count };
     }, [inlineKeys, keyType]);
     const onListInline = useCallback(async (row: number, limit: number): Promise<string[]> => {
         if (inlineKeys === null || keyType === null) return [];
@@ -261,7 +261,8 @@ export const DatasetPreview = memo(function DatasetPreview({
         <Flex direction="column" height="100%" overflow="hidden">
             <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
                 {keyType !== null && inlineKeys !== null && (
-                    <DatasetKeySearch keyType={keyType} onFind={onFindInline} onListRange={onListInline} onJump={setJumpRow} />
+                    <DatasetKeySearch keyType={keyType} onFind={onFindInline} onListRange={onListInline}
+                        onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
                 )}
                 <Flex flex={1} justify="flex-end" align="center" gap={2}>
                     <Text fontSize="xs" color="fg.muted">{countText}{formatSize(sizeBytes)}</Text>

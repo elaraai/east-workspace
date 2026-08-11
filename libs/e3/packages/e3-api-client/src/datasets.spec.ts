@@ -70,6 +70,20 @@ describe('datasetFindKey', () => {
     assert.equal(url.searchParams.get('hash'), null, 'unpinned queries carry no hash');
   });
 
+  it('sends struct leading-field literals as repeated field params, with an optional prefix', async () => {
+    const m = mockFetch(() => new Response(JSON.stringify({ found: true, row: 120, count: 10 }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'X-Content-SHA256': HASH },
+    }));
+    const result = await datasetFindKey(BASE, 'r', 'ws', lookupPath, { fields: ['"press"', '"L2"'], prefix: 'x' }, { token: null });
+    assert.equal(result.row, 120);
+
+    const url = new URL(m.urls[0]!);
+    assert.deepEqual(url.searchParams.getAll('field'), ['"press"', '"L2"']);
+    assert.equal(url.searchParams.get('prefix'), 'x');
+    assert.equal(url.searchParams.get('key'), null);
+  });
+
   it('maps server refusals to ApiError with the server type and detail', async () => {
     mockFetch(() => new Response(JSON.stringify({ error: { type: 'key_parse_error', message: 'bad literal' } }), {
       status: 400,

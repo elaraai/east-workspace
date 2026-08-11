@@ -32,7 +32,7 @@ import {
     type ValueTreePaging,
 } from '@elaraai/east-ui-components';
 import { StatusDisplay } from './StatusDisplay.js';
-import { DatasetKeySearch, type DatasetKeyMatchRange } from './DatasetKeySearch.js';
+import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from './DatasetKeySearch.js';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
 import { pagingDebug } from '../debug.js';
 
@@ -186,9 +186,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         : null
     ), [type]);
     const pathParts = useMemo(() => path.split('.').filter(Boolean).map((v) => variant('field', v)), [path]);
-    const onFindKey = useCallback(async (query: { prefix: string } | { key: string }): Promise<DatasetKeyMatchRange> => {
+    const onFindKey = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
         const reqOpts = requestOptions ?? { token: null };
-        const queryTag = 'prefix' in query ? `p:${query.prefix}` : `k:${query.key}`;
+        const queryTag = JSON.stringify(query);
         const result = await queryClient.fetchQuery({
             queryKey: ['datasetFind', apiUrl, repo, workspace, path, hash, queryTag],
             queryFn: () => datasetFindKey(apiUrl, repo, workspace, pathParts, { ...query, hash }, reqOpts),
@@ -260,7 +260,8 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
                 </Text>
                 {loadingCount > 0 && <Text fontSize="xs" color="fg.muted">Loading…</Text>}
                 {keyType !== null && (
-                    <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange} onJump={setJumpRow} />
+                    <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange}
+                        onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
                 )}
                 <Flex flex={1} justify="flex-end">
                     <DownloadButton onClick={onDownload} />

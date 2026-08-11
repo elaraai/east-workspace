@@ -602,3 +602,82 @@ describe('findDatasetKey', () => {
       { found: false, row: 0, count: 0 });
   });
 });
+
+const MachineKeyType = StructType({ machine: StringType, line: StringType, shift: IntegerType });
+const MachinesType = DictType(MachineKeyType, IntegerType);
+const machinesPath = [variant('field', 'inputs'), variant('field', 'machines')];
+
+/** 4 machines × 5 lines × 10 shifts = 200 keys, ascending in the canonical
+ *  (machine, line, shift) order: `press` spans rows 100..149, `press`/`L2`
+ *  rows 120..129. */
+function machinesOf(): Map<{ machine: string; line: string; shift: bigint }, bigint> {
+  const entries: [{ machine: string; line: string; shift: bigint }, bigint][] = [];
+  let i = 0;
+  for (const machine of ['mill', 'oven', 'press', 'wrap']) {
+    for (let line = 0; line < 5; line++) {
+      for (let shift = 0; shift < 10; shift++) {
+        entries.push([{ machine, line: `L${line}`, shift: BigInt(shift) }, BigInt(i++)]);
+      }
+    }
+  }
+  return new Map(entries);
+}
+
+describe('findDatasetKey — struct keys', () => {
+  it('leading fields and field prefixes address contiguous tuple ranges', async () => {
+    const storage = new InMemoryStorage();
+    // batchSize 23 puts segment boundaries all over the tuple ranges.
+    const blob = encodeBeast2PagedFor(MachinesType, { batchSize: 23 })(machinesOf());
+    await seedDataset(storage, blob, 'machines', MachinesType);
+
+    // A prefix alone types ahead on the FIRST field.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { prefix: 'p' })),
+      { found: true, row: 100, count: 50 });
+    // Exact leading fields narrow the tuple range field by field.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"press"'] })),
+      { found: true, row: 100, count: 50 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"press"', '"L2"'] })),
+      { found: true, row: 120, count: 10 });
+    // Leading exact + a prefix continuing into the next String field.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"press"'], prefix: 'L2' })),
+      { found: true, row: 120, count: 10 });
+    // Every field exact pins one row; the whole-key literal agrees.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"press"', '"L2"', '7'] })),
+      { found: true, row: 127, count: 1 });
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { key: '(machine="press", line="L2", shift=7)' })),
+      { found: true, row: 127, count: 1 });
+    // Misses report the insertion row.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, machinesPath, { prefix: 'q' })),
+      { found: false, row: 150, count: 0 });
+  });
+
+  it('refuses malformed struct queries with typed errors', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeBeast2PagedFor(MachinesType, { batchSize: 23 })(machinesOf());
+    await seedDataset(storage, blob, 'machines', MachinesType);
+
+    const intPrefix = await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"press"', '"L2"'], prefix: '7' });
+    assert.equal(intPrefix.status, 400);
+    assert.match(((await intPrefix.json()) as { error: { message: string } }).error.message, /shift.*Integer.*not String/);
+
+    const exhausted = await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"press"', '"L2"', '7'], prefix: 'x' });
+    assert.equal(exhausted.status, 400);
+    assert.match(((await exhausted.json()) as { error: { message: string } }).error.message, /nothing left for a prefix/);
+
+    const tooMany = await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['"a"', '"b"', '1', '2'] });
+    assert.equal(tooMany.status, 400);
+    assert.match(((await tooMany.json()) as { error: { message: string } }).error.message, /has 3 fields/);
+
+    const badLiteral = await findDatasetKey(storage, REPO, WS, machinesPath, { fields: ['press'] });
+    assert.equal(badLiteral.status, 400);
+    const badBody = await badLiteral.json() as { error: { type: string; message: string } };
+    assert.equal(badBody.error.type, 'key_parse_error');
+    assert.match(badBody.error.message, /machine/);
+
+    const scalar = new InMemoryStorage();
+    await seedDataset(scalar, encodeBeast2PagedFor(LookupType)(lookupOf(10)), 'lookup', LookupType);
+    const fieldsOnScalar = await findDatasetKey(scalar, REPO, WS, lookupPath, { fields: ['"a"'] });
+    assert.equal(fieldsOnScalar.status, 400);
+    assert.match(((await fieldsOnScalar.json()) as { error: { message: string } }).error.message, /Struct keys/);
+  });
+});

@@ -96,9 +96,11 @@ export function createDatasetRoutes(
       const hash = c.req.query('hash');
       const key = c.req.query('key');
       const prefix = c.req.query('prefix');
+      const fields = c.req.queries('field');
       return findDatasetKey(storage, repoPath, ws, treePath, {
         ...(key !== undefined && { key }),
         ...(prefix !== undefined && { prefix }),
+        ...(fields !== undefined && fields.length > 0 && { fields }),
         ...(hash !== undefined && hash !== '' && { hash }),
       }, {
         ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),

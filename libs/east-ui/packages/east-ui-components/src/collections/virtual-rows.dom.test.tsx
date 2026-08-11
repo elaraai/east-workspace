@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 describe("VirtualRows fixed-row geometry", () => {
-    test("measureRows: false keeps rows at exact fixed-height multiples despite fractional measurements", () => {
+    test("measureRows: false stacks the window's rows in one normal-flow column", () => {
         const { container } = render(
             <ChakraProvider value={system}>
                 <VirtualRows
@@ -74,14 +74,18 @@ describe("VirtualRows fixed-row geometry", () => {
         );
         const wrappers = [...container.querySelectorAll<HTMLElement>("[data-index]")];
         expect(wrappers.length).toBeGreaterThan(1);
-        let sawNonZero = false;
+        // Rows are plain flow siblings inside ONE translated column — no
+        // per-row transforms or absolute positioning whose device-pixel
+        // rounding could paint seams between rows. Fractional measurements
+        // never enter: nothing is measured in fixed-row mode.
+        const column = wrappers[0]!.parentElement as HTMLElement;
         for (const el of wrappers) {
-            const match = /translateY\((-?[\d.]+)px\)/.exec(el.style.transform);
-            expect(match, `row ${el.dataset["index"]} has a translateY transform`).toBeTruthy();
-            const cssPx = Number(match![1]);
-            if (cssPx > 0) sawNonZero = true;
-            expect(cssPx % ROW_H, `row ${el.dataset["index"]} sits at an exact ${ROW_H}px multiple`).toBe(0);
+            expect(el.parentElement, `row ${el.dataset["index"]} sits in the shared window column`).toBe(column);
+            expect(el.style.transform, `row ${el.dataset["index"]} has no per-row transform`).toBe("");
+            expect(el.style.position).not.toBe("absolute");
         }
-        expect(sawNonZero, "at least one row sits below the first").toBe(true);
+        const match = /translateY\((-?[\d.]+)px\)/.exec(column.style.transform);
+        expect(match, "the window column carries the one translateY").toBeTruthy();
+        expect(Number(match![1]) % ROW_H, "the window offset is an exact row multiple").toBe(0);
     });
 });

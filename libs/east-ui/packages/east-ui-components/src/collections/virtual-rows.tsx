@@ -171,20 +171,43 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 </Box>
             )}
             <Box ref={itemsRef} position="relative" height={`${virtualizer.getTotalSize()}px`} minWidth={minWidth}>
-                {items.map((item) => (
+                {measureRows ? (
+                    items.map((item) => (
+                        <Box
+                            key={item.key}
+                            data-index={item.index}
+                            ref={virtualizer.measureElement}
+                            position="absolute"
+                            top="0"
+                            left="0"
+                            width="100%"
+                            style={{ transform: `translateY(${item.start - itemsOffset}px)` }}
+                        >
+                            {renderRow(item.index)}
+                        </Box>
+                    ))
+                ) : items.length > 0 && (
+                    // Fixed-row window: ONE translated normal-flow column.
+                    // Adjacent rows share edges inside a single layer, so row
+                    // backgrounds (hover, match highlight) cannot rasterize
+                    // hairline seams between rows — per-row transformed
+                    // layers can, whenever fractional zoom / devicePixelRatio
+                    // puts some rows' offsets on fractional device pixels
+                    // (#533).
                     <Box
-                        key={item.key}
-                        data-index={item.index}
-                        ref={measureRows ? virtualizer.measureElement : undefined}
                         position="absolute"
                         top="0"
                         left="0"
                         width="100%"
-                        style={{ transform: `translateY(${item.start - itemsOffset}px)` }}
+                        style={{ transform: `translateY(${items[0]!.start - itemsOffset}px)` }}
                     >
-                        {renderRow(item.index)}
+                        {items.map((item) => (
+                            <Box key={item.key} data-index={item.index}>
+                                {renderRow(item.index)}
+                            </Box>
+                        ))}
                     </Box>
-                ))}
+                )}
             </Box>
             {footer}
         </Box>

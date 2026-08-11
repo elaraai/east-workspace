@@ -92,9 +92,10 @@ export interface ValueTreePaging {
     /** Requests loading of the pages covering rows `[startRow, endRow)`. */
     onNeedRows: (startRow: number, endRow: number) => void;
     /** Controlled jump: on each change to a defined value, the tree scrolls
-     *  this global root row into view, transiently highlights it, and
-     *  requests the destination window through {@link onNeedRows} — so an
-     *  unloaded target self-loads (#520). */
+     *  this global root row into view, highlights it, and requests the
+     *  destination window through {@link onNeedRows} — so an unloaded
+     *  target self-loads. The highlight holds until this clears back to
+     *  `undefined` (#520). */
     scrollToRow?: number | undefined;
 }
 
@@ -105,9 +106,9 @@ export interface EastChakraValueTreeProps {
     paging?: ValueTreePaging | undefined;
     /** Controlled jump for an inline (non-paged) collection root: on each
      *  change to a defined value, scrolls the given root row (index among
-     *  the root's children) into view and transiently highlights it. Paged
-     *  trees take the jump through {@link ValueTreePaging.scrollToRow}
-     *  instead (#520). */
+     *  the root's children) into view and highlights it until the value
+     *  clears back to `undefined`. Paged trees take the jump through
+     *  {@link ValueTreePaging.scrollToRow} instead (#520). */
     scrollToRow?: number | undefined;
 }
 
@@ -122,8 +123,6 @@ const ROW_H = 32;
 const DEFAULT_OPEN_DEPTH = 1;
 /** Indent per depth level (px). */
 const INDENT = 18;
-/** How long a jumped-to row keeps its match highlight (ms). */
-const MATCH_HIGHLIGHT_MS = 1600;
 /** Context rows kept above a jumped-to row. */
 const JUMP_CONTEXT_ROWS = 2;
 /** Leaf preview parts a struct row surfaces. */
@@ -1023,18 +1022,24 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     }, [setPersisted, requestVisibleRows]);
 
     // Controlled jump (#520): on each change of the target root row, scroll
-    // it into view (with a couple of context rows above), transiently
-    // highlight it, and request the destination window — an unloaded target
-    // self-loads through the ordinary paging path. The highlight timer lives
-    // in a ref so page loads re-running the effect (which no-op on the
-    // jumpedRef guard) cannot cancel the pending fade.
+    // it into view (with a couple of context rows above), highlight it, and
+    // request the destination window — an unloaded target self-loads
+    // through the ordinary paging path. The highlight HOLDS until the host
+    // clears the target (search cleared, dataset changed); page loads
+    // re-running the effect no-op on the jumpedRef guard, and clearing
+    // resets the guard so re-jumping the same row works.
     const jumpTarget = paging !== undefined ? paging.scrollToRow : scrollToRow;
     const [matchRow, setMatchRow] = useState<number | undefined>(undefined);
     const jumpedRef = useRef<number | undefined>(undefined);
-    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    useEffect(() => () => clearTimeout(highlightTimerRef.current), []);
     useEffect(() => {
-        if (jumpTarget === undefined || jumpTarget === jumpedRef.current) return;
+        if (jumpTarget === undefined) {
+            if (jumpedRef.current !== undefined) {
+                jumpedRef.current = undefined;
+                setMatchRow(undefined);
+            }
+            return;
+        }
+        if (jumpTarget === jumpedRef.current) return;
         jumpedRef.current = jumpTarget;
         const flatIdx = pagedFlat !== undefined && paging !== undefined
             ? pagedFlatIndexOfRoot(pagedFlat, paging, jumpTarget)
@@ -1045,8 +1050,6 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         }
         requestVisibleRows();
         setMatchRow(jumpTarget);
-        clearTimeout(highlightTimerRef.current);
-        highlightTimerRef.current = setTimeout(() => setMatchRow(undefined), MATCH_HIGHLIGHT_MS);
     }, [jumpTarget, pagedFlat, paging, rows, requestVisibleRows]);
 
     const height = style !== undefined ? getSomeorUndefined(style.height) : undefined;
