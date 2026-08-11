@@ -39,6 +39,33 @@ import { pagingDebug } from '../debug.js';
 /** Elements fetched per page — one remote window per scroll-ahead page. */
 const PAGE_SIZE = 500;
 
+/** Loaded pages retained around the current window. Materialized rows are
+ *  heavy (each row's whole value becomes ValueTree node IR — wide rows run
+ *  to tens of KB apiece), so unbounded retention OOMs the webview on
+ *  GB-scale datasets, and re-flattening every retained page on each page
+ *  arrival is what made scrolling degrade over time. Evicted pages fall
+ *  back to placeholders and reload on return (raw page bytes stay in the
+ *  hash-pinned query cache, so a return pays decode + materialize only). */
+const MAX_RETAINED_PAGES = 8;
+
+/** Drops loaded pages far from the window `[firstPage, lastPage]`, keeping
+ *  the window itself and then the nearest pages up to the retention cap. */
+export function pruneRetainedPages<T>(
+    pages: ReadonlyMap<number, T>,
+    firstPage: number,
+    lastPage: number,
+    max: number,
+): ReadonlyMap<number, T> {
+    if (pages.size <= max) return pages;
+    const distance = (p: number): number => (p < firstPage ? firstPage - p : p > lastPage ? p - lastPage : 0);
+    const keep = [...pages.keys()].sort((a, b) => distance(a) - distance(b) || a - b).slice(0, max);
+    const kept = new Map<number, T>();
+    for (const p of keep.sort((a, b) => a - b)) {
+        kept.set(p, pages.get(p)!);
+    }
+    return kept;
+}
+
 export interface PagedDatasetPreviewProps {
     apiUrl: string;
     repo: string;
@@ -174,6 +201,10 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             if (!pages.has(p)) missing.push(p);
         }
         pagingDebug(`need rows [${startRow}, ${endRow}) → pages ${first}..${last}, missing=[${missing.join(',')}], inflight=[${[...inflightRef.current].join(',')}]`);
+        // Retention: drop pages far from this window (same reference back —
+        // and no re-render — while under the cap), so heap and per-arrival
+        // re-flatten stay bounded however far the user roams.
+        setPages((prev) => pruneRetainedPages(prev, first, last, MAX_RETAINED_PAGES));
         for (const p of missing) loadPage(p);
     }, [pages, loadPage]);
 
