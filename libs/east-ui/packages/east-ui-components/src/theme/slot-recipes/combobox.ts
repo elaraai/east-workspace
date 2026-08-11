@@ -105,4 +105,19 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         itemGroupLabel: { textStyle: "caption.eyebrow", paddingX: "{spacing.3}", paddingY: "{spacing.2}" },
         label: { textStyle: "caption.eyebrow", marginBottom: "{spacing.1}" },
     },
+    variants: {
+        variant: {
+            /* The merged Chakra default styles the INNER input per variant —
+             * a 1px border and an inside focus ring — and default variant
+             * styles beat custom base. The control shell wears the one field
+             * ring (`_focusWithin` above), so the input stays chromeless. */
+            outline: {
+                input: {
+                    borderWidth: "0",
+                    focusVisibleRing: "none",
+                    _focusVisible: { outline: "none", boxShadow: "none" },
+                },
+            },
+        },
+    },
 });
