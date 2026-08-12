@@ -1047,6 +1047,12 @@ class EastArray(MutableSequence, Generic[T]):
             acc.append(el)
             return acc
 
+        # Only reached when the KEY already fell back to python — this
+        # companion is the deliberate python accumulation for that path
+        # (`append` is a mutator with no traced spelling), declared so the
+        # push-down's loud contract skips it (#543).
+        _append._east_trace_fallback = True
+
         init_cb = EastFunction(lambda _gk: EastArray(self.element_type, []), [k2], bucket_type)
         fold_cb = EastFunction(_append, [bucket_type, self.element_type, IntegerType], bucket_type)
         return _call_builtin(
@@ -1708,6 +1714,12 @@ class EastArray(MutableSequence, Generic[T]):
         def _fold(acc: EastDict, p: Any, _i: Any) -> EastDict:
             acc.insert_or_update(p["k2"], p["v"], inner)
             return acc
+
+        # A DELIBERATE per-element python path: the collision handling runs
+        # per inner insert (docstring above), and `insert_or_update` is a
+        # mutator with no traced spelling. Declared so the push-down's loud
+        # contract skips it — nativising this path is tracked on #543.
+        _fold._east_trace_fallback = True
 
         init_cb = _empty_dict_kernel(k1, k2t, v_t)
         fold_cb = EastFunction(_fold, [DictType(k2t, v_t), pair_t, IntegerType], DictType(k2t, v_t))

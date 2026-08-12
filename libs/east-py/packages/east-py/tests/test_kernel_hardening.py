@@ -3,10 +3,12 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 """Kernel-tracer hardening (#543): the proxy bail for f-strings (#530), the
-``EAST_KERNEL_STRICT`` observable fallback, and the #536 keyword sweep —
-``out=``-family pins accepted by the traced twins AND threaded into the
-callback's trace as its expected type (so a pinned callback can build a
-general variant, #541).
+one-mode loud-fallback contract (a pure-looking callback that fails to
+trace RAISES; genuinely-python lambdas keep their fallback; deliberate
+implementation python paths declare ``_east_trace_fallback``), and the
+#536 keyword sweep — ``out=``-family pins accepted by the traced twins AND
+threaded into the callback's trace as its expected type (so a pinned
+callback can build a general variant, #541).
 """
 
 import pytest
@@ -47,13 +49,6 @@ def test_str_call_in_an_explicit_kernel_raises():
         kernel(StringType, lambda s: "<" + str(s) + ">")
 
 
-def test_fstring_on_the_eager_path_falls_back_to_a_CORRECT_python_result():
-    # The issue's silent-garbage case: before the bail, the traced constant
-    # '<KernelExpr String>' was returned for every element.
-    arr = EastArray(StringType, ["p", "q"])
-    assert list(arr.map(lambda s: f"<{s}>", out=StringType)) == ["<p>", "<q>"]
-
-
 def test_repr_still_works_for_diagnostics():
     got = kernel(StringType, lambda s: _probe_repr(s))("x")
     assert got == "x"
@@ -66,30 +61,25 @@ def _probe_repr(s):
     return s
 
 
-# ── EAST_KERNEL_STRICT: eligible-but-untraceable raises ────────────────────
+# ── eligible-but-untraceable RAISES; the purity gate keeps python python ───
 
-def test_strict_mode_raises_for_an_eligible_lambda_that_cannot_trace(monkeypatch):
-    monkeypatch.setenv("EAST_KERNEL_STRICT", "1")
+def test_an_eligible_untraceable_callback_raises_on_the_eager_path():
     arr = EastArray(StringType, ["p", "q"])
-    # An f-string lambda passes the purity gate but fails to trace — strict
-    # surfaces the silent per-element fallback as the underlying trace error.
+    # An f-string lambda passes the purity gate — it LOOKS native — so its
+    # trace failure surfaces loudly instead of silently trampolining per
+    # element (the hours-not-errors failure mode, #524). One behavior, no
+    # opt-in flag: the error names the traced spelling.
     with pytest.raises(KernelTraceError, match="constant-fold"):
         arr.map(lambda s: f"<{s}>", out=StringType)
 
 
-def test_strict_mode_keeps_the_python_fallback_for_impure_lambdas(monkeypatch):
-    monkeypatch.setenv("EAST_KERNEL_STRICT", "1")
+def test_impure_callbacks_keep_the_python_fallback():
     log: list = []
     arr = EastArray(IntegerType, [1, 2])
-    # Mutating a closure fails the PURITY gate — not eligible, so the silent
-    # python path is still the contract, strict or not.
+    # Mutating a closure fails the PURITY gate — not eligible, so the
+    # per-element python path is its contract and stays silent.
     assert list(arr.map(lambda x: (log.append(x) or x + 1), out=IntegerType)) == [2, 3]
     assert log == [1, 2]
-
-
-def test_without_strict_the_fallback_stays_silent_and_correct():
-    arr = EastArray(StringType, ["p"])
-    assert list(arr.map(lambda s: f"<{s}>", out=StringType)) == ["<p>"]
 
 
 # ── #536: the out= sweep, threading the hint into the callback ─────────────

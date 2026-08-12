@@ -800,9 +800,11 @@ def test_quantifiers_short_circuit_like_eager():
         [ArrayType(IntegerType)], lambda arr: arr.every(lambda v: (10 // v) > 100)
     )
     assert k_every([2, 0]) is False  # v=2 is the counterexample; v=0 never evaluates
-    # eager path agrees on the same data
+    # eager path agrees on the same data — the guard is spelled with the
+    # dual-mode `where` (a python-`if` lambda would raise: a pure callback
+    # that cannot trace surfaces loudly rather than silently trampolining)
     eager = EastArray(IntegerType, [2, 0])
-    assert eager.some(lambda v: (10 // v) > 0 if v != 0 else False) is True
+    assert eager.some(lambda v: where(v != 0, (10 // v) > 0, False)) is True
     del IROW
 
 

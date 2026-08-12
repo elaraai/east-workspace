@@ -36,6 +36,7 @@ from east import (
     kernel,
     none,
     some,
+    where,
 )
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
@@ -808,7 +809,10 @@ def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Beast2ArrayFile, "segments", counting)
     with open_beast2_file(path, W4_AT) as f:
-        hit = f.first_map(lambda r: some(r["qty"]) if r["qty"] >= 2 else none, out=IntegerType)
+        # The dual-mode `where` spelling: a python-`if` lambda would raise
+        # (a pure callback that cannot trace surfaces loudly).
+        hit = f.first_map(lambda r: where(r["qty"] >= 2, some(r["qty"]), none),
+                          out=IntegerType)
         assert hit.value == 2
         assert consumed == 1
         consumed = 0

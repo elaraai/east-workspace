@@ -660,6 +660,14 @@ class KernelExpr:
     def __getattr__(self, name: str) -> KernelExpr:
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
+        if name.startswith("_east_"):
+            # Internal capability probes (`getattr(x, "_east_c_paged", None)`
+            # and friends) must see a missing attribute, not a trace error.
+            raise AttributeError(name)
+        if name == "type" and self.east_type.type == "Variant":
+            # The eager EastVariant's `.type` tag attribute — the traced twin
+            # is get_tag(), so the one spelling works on both paths.
+            return self.get_tag()
         if self.east_type.type in _TRACED_SURFACE:
             # A method miss on a collection-typed expression: name the traced
             # surface instead of the misleading "field access on a non-struct
@@ -672,6 +680,25 @@ class KernelExpr:
         return self.field(name)
 
     def __getitem__(self, name: Any) -> KernelExpr:
+        if isinstance(name, slice) and self.east_type.type in ("Array", "String"):
+            # `arr[a:b]` / `s[a:b]` — the eager slicing spellings, traced as
+            # ArraySlice / StringSubstring. Python's from-the-end negatives
+            # and steps have no East twin.
+            if name.step is not None:
+                raise _trace_bail("stepped slice")
+            start = name.start if name.start is not None else 0
+            if (isinstance(start, int) and start < 0) or \
+                    (isinstance(name.stop, int) and name.stop < 0):
+                raise _trace_bail("negative slice bound")
+            if self.east_type.type == "String":
+                if name.stop is None:
+                    return self._with_bound_receiver(
+                        lambda recv: recv.substring(start, recv.length()))
+                return self.substring(start, name.stop)
+            if name.stop is None:
+                return self._with_bound_receiver(
+                    lambda recv: recv.slice(start, recv.size()))
+            return self.slice(start, name.stop)
         if self.east_type.type in ("Array", "Dict") and not isinstance(name, str):
             # `split(data, FM)[n]` / `table[key_expr]` — same as .get() (#393).
             return self.get(name)
@@ -4021,31 +4048,22 @@ def _type_traceable(fn: Any) -> bool:
     return _eligible(fn, extra_allowed=_east_value_capture)
 
 
-def _kernel_strict() -> bool:
-    """Whether an ELIGIBLE callback that fails to trace should raise instead
-    of silently falling back to the per-element python path
-    (``EAST_KERNEL_STRICT=1``).
-
-    The purity gate still decides eligibility either way — a lambda doing
-    genuine python work keeps its silent fallback; strict mode surfaces
-    exactly the lambdas that LOOK native but drop to the trampoline, whose
-    only symptom is otherwise that the job takes hours (#524, #536).
-    """
-    import os
-
-    return os.environ.get("EAST_KERNEL_STRICT", "") == "1"
-
-
 def try_push_down(east_fn: Any) -> Any | None:
     """Compile an eager-method callback into a native kernel when safe.
 
     ``east_fn`` is an ``EastFunction`` (python callable + declared East
     signature). Returns a native callable (carrying ``_eastc_handle``), or
-    ``None`` to use the per-element python path. Never raises — except under
-    ``EAST_KERNEL_STRICT=1``, where an ELIGIBLE callback that fails to trace
-    (or traces to a type other than its declared output) raises the
-    underlying ``KernelTraceError`` so the silent performance cliff becomes
-    a loud error (see :func:`_kernel_strict`).
+    ``None`` to use the per-element python path.
+
+    An ELIGIBLE callback — one that passes the purity gate and so LOOKS
+    native — that then fails to trace RAISES the ``KernelTraceError``
+    instead of silently trampolining: the fallback's only symptom is that
+    the job takes hours (#524), and every named trace failure has a traced
+    spelling the error message points at. A lambda doing genuine python
+    work fails the purity gate and keeps the silent fallback — that path is
+    its contract. A callback that traces to a type other than its declared
+    output still falls back silently: the declared type may be SAMPLED (the
+    #450 family), so a disagreement there is not proof of a mistake.
 
     A callback that already IS a precompiled kernel — directly, or recorded
     on its wrapper by ``_mark_kernel`` — resolves through the bridge's
@@ -4064,27 +4082,48 @@ def try_push_down(east_fn: Any) -> Any | None:
             return native
     except Exception:
         pass
-    eligible = False
+    # A callable declared `_east_trace_fallback = True` keeps the OLD
+    # silent-fallback contract: its trace is attempted (a pure body still
+    # goes native), and a failure falls back to the per-element python path
+    # instead of raising — the eager implementation's own accumulation
+    # helpers/adapters and test-harness wrappers, whose python paths are
+    # deliberate. The declaration is transitive through closure cells
+    # (bounded): a probe or argument-reorder adapter wrapping a declared
+    # callable inherits it. Tracked for nativisation on #543; not a user
+    # surface.
+    def _trace_fallback(fn: Any, depth: int = 3) -> bool:
+        if getattr(fn, "_east_trace_fallback", False):
+            return True
+        if depth == 0:
+            return False
+        for cell in getattr(fn, "__closure__", None) or ():
+            try:
+                c = cell.cell_contents
+            except ValueError:  # an unassigned cell
+                continue
+            if callable(c) and _trace_fallback(c, depth - 1):
+                return True
+        return False
+
     try:
         if not _eligible(east_fn.fn):
             return None
-        eligible = True
         ir_value, out_type = trace(east_fn.fn, list(east_fn.input_types),
                                    out_hint=east_fn.output_type)
         if out_type != east_fn.output_type:
-            if _kernel_strict():
-                raise KernelTraceError(
-                    f"kernel push-down: callback traces to {out_type.type} but "
-                    f"declares {east_fn.output_type.type} — the loop would "
-                    "silently fall back to the per-element python path"
-                )
             return None
         from east.runtime.compiler import compile_from_value
 
         return compile_from_value(ir_value)
+    except KernelTraceError:
+        # The loud contract: a pure-looking callback that fails to trace
+        # raises — its silent fallback's only symptom is that the job takes
+        # hours (#524). Genuinely-python lambdas fail the purity gate above
+        # and keep their fallback; deliberate python paths carry the marker.
+        if _trace_fallback(east_fn.fn):
+            return None
+        raise
     except Exception:
-        if eligible and _kernel_strict():
-            raise
         return None
 
 

@@ -1420,7 +1420,11 @@ class Beast2ArrayFile(Beast2File):
             else (lambda acc, el: acc + proj(el))
         sums = self.group_reduce(key, lambda _k: 0.0, step)
         counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
-        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        # Nothing to divide on the empty path — and its degenerate inferred
+        # types would make the (never-run) combine fail to trace, which the
+        # push-down's loud contract surfaces (#543).
+        if len(sums) or len(counts):
+            sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
         return sums
 
     def group_maximum(self, key: Any, by: Any = None):
@@ -2121,7 +2125,11 @@ class Beast2DictFile(Beast2File):
             raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
         sums = self.group_fold(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
         counts = self.group_size(key_fn).map(lambda c: East.Integer.to_float(c), out=FloatType)
-        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        # Nothing to divide on the empty path — and its degenerate inferred
+        # types would make the (never-run) combine fail to trace, which the
+        # push-down's loud contract surfaces (#543).
+        if len(sums) or len(counts):
+            sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
         return sums
 
     def group_every(self, key_fn: Any, pred: Any):
@@ -2545,7 +2553,11 @@ class Beast2SetFile(Beast2File):
         proj = _float_proj(fn, t2)
         sums = self.group_fold(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
         counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
-        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        # Nothing to divide on the empty path — and its degenerate inferred
+        # types would make the (never-run) combine fail to trace, which the
+        # push-down's loud contract surfaces (#543).
+        if len(sums) or len(counts):
+            sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
         return sums
 
     def group_every(self, key: Any, pred: Any):
