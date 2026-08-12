@@ -129,18 +129,21 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             { verbose: options.verbose ?? false, ...streamingOptions(options) }
         );
     } catch (err) {
-        if (err instanceof EastError) {
-            console.error(`Error: ${err.toString()}`);
-        } else {
-            // A plain (non-East) error — e.g. one thrown by a custom platform
-            // function. Print the STACK, not just the message: East runtime and
-            // platform errors carry source-mapped frames (the platform code that
-            // threw + the East call site), and the message alone drops them. The
-            // stack already begins with `Error: <message>`, so don't re-prefix.
-            const e = err as Error;
-            console.error(e.stack ?? `Error: ${e.message ?? String(err)}`);
-        }
-        process.exit(1);
+        // A plain (non-East) error — e.g. one thrown by a custom platform
+        // function — prints its STACK, not just the message: East runtime and
+        // platform errors carry source-mapped frames (the platform code that
+        // threw + the East call site), and the message alone drops them. The
+        // stack already begins with `Error: <message>`, so don't re-prefix.
+        const e = err as Error;
+        const message = err instanceof EastError
+            ? `Error: ${err.toString()}`
+            : (e.stack ?? `Error: ${e.message ?? String(err)}`);
+        // Piped stdio is asynchronous on Windows, so process.exit(1) straight
+        // after console.error can truncate the message before the parent ever
+        // reads it (e3 spawns this CLI with stdio pipes and surfaces the
+        // stderr tail on failure). Exit only once the write has flushed.
+        process.exitCode = 1;
+        process.stderr.write(`${message}\n`, () => process.exit(1));
     }
 }
 
