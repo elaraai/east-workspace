@@ -62,6 +62,17 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
         }                                                                                          \
     } while (0)
 
+/* Frozen task inputs (#539): a frozen value refuses every mutating builtin
+ * with the uniform cross-runtime message. Checked BEFORE the iteration guard
+ * so a frozen paged value refuses without hydrating. */
+#define FROZEN_GUARD(v)                                                                            \
+    do {                                                                                           \
+        if (east_value_frozen(v)) {                                                                \
+            east_builtin_error(EAST_FROZEN_MUTATION_MSG);                                          \
+            return NULL;                                                                           \
+        }                                                                                          \
+    } while (0)
+
 /* --- implementations --- */
 
 /* A paged arg that still answers from its pager (pre-hydration). The
@@ -155,6 +166,7 @@ static EastValue *dict_try_get_impl(EastValue **args, size_t n)
 static EastValue *dict_insert_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     if (east_dict_has(args[0], args[1])) {
         dict_key_already_exists_error(args[1]);
@@ -167,6 +179,7 @@ static EastValue *dict_insert_impl(EastValue **args, size_t n)
 static EastValue *dict_get_or_insert_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     if (east_dict_has(args[0], args[1])) {
         EastValue *v = east_dict_get(args[0], args[1]);
@@ -183,6 +196,7 @@ static EastValue *dict_get_or_insert_impl(EastValue **args, size_t n)
 static EastValue *dict_insert_or_update_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     EastValue *d = args[0];
     EastValue *key = args[1];
@@ -204,6 +218,7 @@ static EastValue *dict_insert_or_update_impl(EastValue **args, size_t n)
 static EastValue *dict_update_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     if (!east_dict_has(args[0], args[1])) {
         dict_key_not_found_error(args[1]);
         return NULL;
@@ -215,6 +230,7 @@ static EastValue *dict_update_impl(EastValue **args, size_t n)
 static EastValue *dict_swap_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     if (!east_dict_has(args[0], args[1])) {
         dict_key_not_found_error(args[1]);
         return NULL;
@@ -228,6 +244,7 @@ static EastValue *dict_swap_impl(EastValue **args, size_t n)
 static EastValue *dict_merge_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     /* args: d, key, value, merge_fn, initial_fn */
     EastValue *d = args[0];
@@ -257,6 +274,7 @@ static EastValue *dict_merge_impl(EastValue **args, size_t n)
 static EastValue *dict_delete_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     EastValue *d = args[0];
     EastValue *key = args[1];
@@ -268,6 +286,7 @@ static EastValue *dict_delete_impl(EastValue **args, size_t n)
 static EastValue *dict_try_delete_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     EastValue *d = args[0];
     EastValue *key = args[1];
@@ -277,6 +296,7 @@ static EastValue *dict_try_delete_impl(EastValue **args, size_t n)
 static EastValue *dict_pop_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     EastValue *d = args[0];
     EastValue *key = args[1];
@@ -289,6 +309,7 @@ static EastValue *dict_pop_impl(EastValue **args, size_t n)
 static EastValue *dict_clear_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     east_dict_clear(args[0]);
     return east_null();
@@ -297,6 +318,7 @@ static EastValue *dict_clear_impl(EastValue **args, size_t n)
 static EastValue *dict_union_in_place_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     EastValue *d = args[0];
     EastValue *other = args[1];
@@ -321,6 +343,7 @@ static EastValue *dict_union_in_place_impl(EastValue **args, size_t n)
 static EastValue *dict_merge_all_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
     EastValue *d = args[0];
     EastValue *other = args[1];

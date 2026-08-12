@@ -12,10 +12,12 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, variant } from '@elaraai/east';
+import { fileURLToPath } from 'node:url';
+import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, openBeast2PagesFor, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { Structure, TreePath } from '@elaraai/e3-types';
 import { recordMutate, recordHistory, recordCompact, recordDescribe } from './records.js';
+import { runDetached } from './execution/runDetached.js';
 import { repoGc } from './storage/local/gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
@@ -499,5 +501,127 @@ describe('records', () => {
 
     // An unknown/garbage cursor terminates the walk rather than throwing.
     assert.deepStrictEqual(await recordHistory(storage, repo, ws, 'counter', { from: 'cafef00d'.padEnd(64, '0') }), []);
+  });
+});
+
+// Reducer state is a task-input-like decode (issue #539): recordMutate hands
+// it to the runner as input-0 of a detached run, and every runner decodes
+// its inputs frozen — so a reducer cannot mutate its state in place (copy
+// first) and the state can be served lazily for any nested element shape.
+// These tests pin that composition end-to-end against the real east-node
+// runner; the machinery itself (collapsed shape gate, per-segment frozen
+// service, refuse-before-hydrate) is pinned by libs/east test/frozen.spec.ts
+// and the east-node runner spec.
+describe('frozen reducer state (#539)', () => {
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+  const ws = 'main';
+
+  const StateT = DictType(StringType, StructType({ n: IntegerType, xs: ArrayType(IntegerType) }));
+  const kvPath: TreePath = [variant('field', 'records'), variant('field', 'kv')];
+  const encodeStr = encodeBeast2For(StringType);
+  const FROZEN = /cannot mutate a frozen value \(task inputs are immutable\) — copy first/;
+
+  // The real runDetached, spawning the workspace's actual east-node CLI
+  // (resolved by the node_modules/.bin walk up from this package).
+  const realRunner = {
+    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
+      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
+  } as unknown as TaskRunner;
+
+  /** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
+  async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+    const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
+    for (const [k, v] of Object.entries(vars)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    try {
+      return await fn();
+    } finally {
+      for (const [k, v] of prev) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  }
+
+  beforeEach(async () => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+
+    const kv = e3.record('kv', StateT, new Map());
+    const seed = e3.mutation('seed', kv, East.function([StateT], StateT, ($, _state) => {
+      const out = $.let(new Map(), StateT);
+      $.for(East.Array.range(0n, 2500n), ($, i) => {
+        $(out.insert(East.str`k-${i}`, { n: i, xs: [] }));
+      });
+      return out;
+    }));
+    const touch = e3.mutation('touch', kv, East.function([StateT, StringType], StateT, ($, state, k) => {
+      const row = $.let(state.get(k));
+      const out = $.let(new Map(), StateT);
+      $(out.insert(k, row));
+      return out;
+    }));
+    const bump = e3.mutation('bump', kv, East.function([StateT], StateT, ($, state) => {
+      $(state.insert('zzz', { n: 0n, xs: [] }));
+      return state;
+    }));
+    const bumpCopy = e3.mutation('bumpCopy', kv, East.function([StateT], StateT, ($, state) => {
+      const next = $.let(state.copy());
+      $(next.insert('zzz', { n: 0n, xs: [] }));
+      return next;
+    }));
+    const pkg = e3.package('kvrecords', '1.0.0', kv, seed, touch, bump, bumpCopy);
+    const zip = join(tempDir, 'kvrecords.zip');
+    await e3.export(pkg, zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, ws);
+    await workspaceDeploy(storage, repo, ws, 'kvrecords', '1.0.0');
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  it('reducer state is frozen: in-place mutation reports the uniform error, copy-first commits', async () => {
+    const inPlace = await recordMutate(storage, realRunner, repo, ws, 'kv', 'bump', [], { actor: 'cli:test' });
+    assert.strictEqual(inPlace.kind, 'failed');
+    assert.match((inPlace as { stderr: string }).stderr, FROZEN);
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'kv')).length, 1, 'nothing committed');
+
+    const copied = await recordMutate(storage, realRunner, repo, ws, 'kv', 'bumpCopy', [], { actor: 'cli:test' });
+    assert.strictEqual(copied.kind, 'committed', `copy-first reducer commits: ${JSON.stringify(copied)}`);
+    const after = await workspaceGetDataset(storage, repo, ws, kvPath) as ValueTypeOf<typeof StateT>;
+    assert.strictEqual(after.size, 1);
+    assert.ok(after.has('zzz'));
+  });
+
+  it('a keyed-touch reducer over lazily-served frozen state commits (addendum fixture)', async () => {
+    // Seed a 2500-row state through the real runner: collection outputs are
+    // written segmented + indexed, so the committed state object is pageable.
+    const seeded = await recordMutate(storage, realRunner, repo, ws, 'kv', 'seed', [], { actor: 'cli:test' });
+    assert.strictEqual(seeded.kind, 'committed', `seed committed: ${JSON.stringify(seeded)}`);
+    const ref = await storage.datasets.read(repo, ws, 'records/kv');
+    assert.ok(ref && ref.type === 'value');
+    const pages = openBeast2PagesFor(StateT)(await storage.objects.read(repo, ref.value.hash));
+    assert.ok(pages.segmentCount >= 2, `state is multi-segment (${pages.segmentCount})`);
+    assert.strictEqual(pages.elementCount, 2500);
+
+    // The nested-container element shape is exactly what the frozen gate
+    // admits (unfrozen it would force a whole decode) — so with a 1-byte
+    // threshold the reducer's state is pager-served, and its keyed touch
+    // pays O(touched), not a whole decode.
+    const outcome = await withEnv({ EAST_LAZY_INPUT_BYTES: '1' }, () =>
+      recordMutate(storage, realRunner, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test' }));
+    assert.strictEqual(outcome.kind, 'committed', `touch committed: ${JSON.stringify(outcome)}`);
+
+    const after = await workspaceGetDataset(storage, repo, ws, kvPath) as ValueTypeOf<typeof StateT>;
+    assert.strictEqual(after.size, 1, 'the touched row is the whole new state');
+    assert.strictEqual(after.get('k-0')!.n, 0n);
   });
 });

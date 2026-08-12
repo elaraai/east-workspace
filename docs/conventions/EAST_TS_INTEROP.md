@@ -177,7 +177,27 @@ interactive-state renderer pattern.
 
 ---
 
-## 6. Quick reference
+## 6. Frozen values: value-`Is`, copy-first mutation
+
+Task inputs always decode **deeply frozen** (and any code can produce a
+frozen value via the `frozen` decode option). Two semantics change for
+frozen values, nothing else:
+
+- **East `Is` compares frozen collections by value.** `isFor(T)` on two
+  frozen Array/Set/Dict/Vector/Matrix values is deep value equality (the
+  Blob precedent — a frozen collection is a value, not a mutable cell). A
+  frozen `Ref` remains an identity cell. `equalFor` / `compareFor` / print /
+  encode are unchanged.
+- **Mutation throws** `cannot mutate a frozen value (task inputs are
+  immutable) — copy first`. `.copy()` is the escape hatch.
+
+Check frozenness with `isFrozenValue(v)` — never `Object.isFrozen`, which
+misses typed arrays (they cannot be frozen and carry a WeakSet brand
+instead) and pager-backed lazy values.
+
+---
+
+## 7. Quick reference
 
 | Operation | Correct API | Don't |
 |---|---|---|
@@ -188,3 +208,4 @@ interactive-state renderer pattern.
 | Construct variant | `variant("Tag", data)` | `{ tag, data }` |
 | Construct option | `some(x)` / `none` | `{ tag: "some", data: x }` |
 | Declare expr var | `$.let(v, T)` / `$.const(v, T)` | `East.value(v)` |
+| Frozen check | `isFrozenValue(v)` | `Object.isFrozen(v)` (misses typed arrays, lazy values) |

@@ -12,6 +12,7 @@ import { invertFor } from "./patch/invert.js";
 import { ConflictError } from "./patch/index.js";
 import { printFor, parseFor } from "./serialization/east.js";
 import { variant, type option } from "./containers/variant.js";
+import { isFrozenValue } from "./frozen.js";
 import { EastError, InternalError } from "./error.js";
 import type { Location } from "./location.js";
 import { get_current_source_map, type SourceMap } from "./location.js";
@@ -80,6 +81,11 @@ function getContextValue(ctx: RuntimeContext, name: string): ContextValue {
 }
 
 // =============================================================================
+
+/** @internal The frozen-mutation error message — identical across the TS, C
+ * and Python runtimes (compliance-tested), so a body that mutates a frozen
+ * task input fails the same way everywhere. */
+const FROZEN_MESSAGE = "cannot mutate a frozen value (task inputs are immutable) — copy first";
 
 /** @internal Track iteration locks to prevent concurrent modification */
 const iterationLocks = new WeakMap<any, number>();
@@ -1751,15 +1757,15 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return ref.value;
   },
   RefUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any) => {
-    if (Object.isFrozen(ref)) {
-      throw new EastError("Cannot modify frozen Ref", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(ref)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     ref.value = value;
     return null;
   },
   RefMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any, merger: (existing: any, value: any) => any) => {
-    if (Object.isFrozen(ref)) {
-      throw new EastError("Cannot modify frozen Ref", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(ref)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const new_value = call_function(loc_id, source_map,merger, ref.value, value);
     ref.value = new_value;
@@ -1833,8 +1839,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   ArrayUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const i = Number(key);
     if (i < 0 || i >= array.length) {
@@ -1845,8 +1851,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   ArrayMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any, merger: (existing: any, value: any, key: bigint) => any) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const i = Number(key);
     if (i < 0 || i >= array.length) {
@@ -1858,8 +1864,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   ArrayPushLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1868,8 +1874,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArrayPopLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1881,8 +1887,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   ArrayPushFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1891,8 +1897,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArrayPopFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1904,8 +1910,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   ArrayAppend: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1914,8 +1920,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArrayPrepend: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1924,8 +1930,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArrayMergeAll: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], other: any[], merger: (v1: any, v2: any, key: bigint) => any) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     lockForIteration(array);
     lockForIteration(other);
@@ -1946,8 +1952,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArrayClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1956,8 +1962,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArraySortInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => (array: any[], by: (a: any) => any) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -1976,8 +1982,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   ArrayReverseInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
-    if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(array)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
       throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2406,8 +2412,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   SetInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const print = printFor(K);
     return (s: Set<any>, key: any) => {
-      if (Object.isFrozen(s)) {
-        throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(s)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(s) || 0) > 0) {
         throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2421,8 +2427,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   SetTryInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
-    if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(s)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
       throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2434,8 +2440,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   SetDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const print = printFor(K);
     return (s: Set<any>, key: any) => {
-      if (Object.isFrozen(s)) {
-        throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(s)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(s) || 0) > 0) {
         throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2447,8 +2453,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   SetTryDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
-    if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(s)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
       throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2456,8 +2462,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return s.delete(key);
   },
   SetClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>) => {
-    if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(s)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
       throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2466,8 +2472,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null
   },
   SetUnionInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => {
-    if (Object.isFrozen(s1)) {
-      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(s1)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s1) || 0) > 0) {
       throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2787,8 +2793,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   DictInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
-      if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(d)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
         throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2803,8 +2809,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   DictGetOrInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, onMissing: (key: any) => any) => {
-    if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2819,8 +2825,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   DictInsertOrUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, onConflictFn: (existing: any, newValue: any, key: any) => any) => {
-    if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2837,8 +2843,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   DictUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
-      if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(d)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if (d.has(key)) {
         d.set(key, value);
@@ -2851,8 +2857,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   DictSwap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
-      if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(d)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       let existing = d.get(key);
       if (existing === undefined) {
@@ -2863,8 +2869,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     };
   },
   DictMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, mergeFn: (existing: any, value: any, key: any) => any, initialFn: (key: any) => any) => {
-    if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2880,8 +2886,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   DictDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
-      if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(d)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
         throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2894,8 +2900,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     }
   },
   DictTryDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => {
-    if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2905,8 +2911,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   DictPop: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
-      if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      if (isFrozenValue(d)) {
+        throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
         throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2921,8 +2927,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     };
   },
   DictClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>) => {
-    if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2931,8 +2937,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   DictUnionInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: Map<any, any>, d2: Map<any, any>, onConflict: (v1: any, v2: any, key: any) => any) => {
-    if (Object.isFrozen(d1)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d1)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d1) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
@@ -2949,8 +2955,8 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return null;
   },
   DictMergeAll: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: SortedMap<any, any>, d2: SortedMap<any, any>, mergeFn: (v1: any, v2: any, key: any) => any, initialFn: (key: any) => any) => {
-    if (Object.isFrozen(d1)) {
-      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (isFrozenValue(d1)) {
+      throw new EastError(FROZEN_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d1) || 0) > 0) {
       throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });

@@ -198,7 +198,16 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
         if result is None:
             c_result = _eastc.east_null()
         else:
-            c_result = py_value_to_c(result, output_type)
+            # A frozen hold (freeze_value / load_frozen_value, #539) passes
+            # its branded C value straight through — re-converting via python
+            # would construct a fresh mutable value and drop the frozen
+            # contract.
+            raw = getattr(result, "_east_c_value", None)
+            if raw is not None:
+                c_result = <_eastc.EastValue*><uintptr_t>raw
+                _eastc.east_value_retain(c_result)
+            else:
+                c_result = py_value_to_c(result, output_type)
 
         return _eastc.eval_ok(c_result)
 

@@ -133,6 +133,16 @@ const count = e3.input('count', IntegerType);
 
 Define a task that runs an East function.
 
+Task inputs (every task kind) decode **deeply frozen** on every runtime —
+mutating one raises `cannot mutate a frozen value (task inputs are
+immutable) — copy first`; derive changed values from `.copy()`. Indexed
+beast2 collection inputs open **lazily** once they reach 64 MiB on the wire
+(`EAST_LAZY_INPUT_BYTES` tunes; a streamTask's `stream` input opens lazily
+at any size): size, iteration and keyed gets are then served per segment
+with no whole decode. The only element shapes that still decode whole are
+those carrying a `Ref` or a function; any operation the pager cannot serve
+hydrates once, transparently. Full mechanics under e3.streamTask below.
+
 ```typescript
 // Default runner is east-node + @elaraai/east-node-std — every e3 project
 // already has Node, so this resolves with no extra setup.
@@ -280,8 +290,9 @@ const totals = e3.partitionTask('totals', {
   by: (_$, key) => key.sku,              // rows with equal by(key) never split
   output: DictType(StringType, IntegerType),
   combine: ($, a, b) => {
-    $(a.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
-    $.return(a);
+    const acc = $.let(a.copy());         // partials are frozen inputs — fold into a copy
+    $(acc.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
+    $.return(acc);
   },
 }, ($, slice) => /* per-partition aggregation of `slice` */ ...);
 
@@ -332,10 +343,13 @@ on it decodes the whole value once). Ordinary indexed collection inputs of
 any task open the same way by default once they reach 64 MiB on the wire —
 `EAST_LAZY_INPUT_BYTES` overrides the threshold, `0` forces eager decodes —
 and semantics are identical either way, so the threshold is a memory knob,
-not a behavior toggle. Only value-semantic element shapes (scalars, structs,
-variants) open lazily: an element type that transitively contains an
-Array/Set/Dict/Ref (East mutates those in place through read-out elements),
-a Vector/Matrix, or a function always decodes whole, on every runtime.
+not a behavior toggle. Every input — including a mutation reducer's state —
+decodes deeply frozen: task inputs are immutable, so mutating one raises
+`cannot mutate a frozen value (task inputs are immutable) — copy first`
+(`.copy()` first to derive a changed value), and frozen collections
+compare by value under `East.is`. Frozen is also what makes lazy serving
+safe for any element shape — only element types carrying a `Ref` or a
+function decode whole, on every runtime.
 
 ```typescript
 const events = e3.input('events', ArrayType(EventType));
@@ -435,7 +449,9 @@ in a task.
 A **record** is audited, mutable root state — e3's system of record. Unlike a
 value (blind replace), a record is `writable: false` and changes only through
 typed **mutations**: pure East reducers `(State, ...Args) => State` run
-server-side under compare-and-swap. Every mutation appends a commit
+server-side under compare-and-swap. The state parameter is a frozen task
+input — derive the new state from `state.copy()` (or build it fresh) rather
+than mutating in place. Every mutation appends a commit
 (parent, state, mutation, args, actor, at); deploy mints a `$init` genesis from
 `initialValue`, and a redeploy preserves committed state + history (a type
 change is rejected before any write). A record is a dataset (mounted at

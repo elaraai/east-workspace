@@ -42,6 +42,7 @@
 
 import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType } from "../../../types.js";
+import { markFrozen } from "../../../frozen.js";
 import { variant } from "../../../containers/variant.js";
 import { ref } from "../../../containers/ref.js";
 import { SortedSet } from "../../../containers/sortedset.js";
@@ -122,6 +123,11 @@ export interface V5DecodeContext extends PlatformDecodeContext {
   /** The stream's source map, accumulated from the header section and inline
    *  deltas. Attached to every decoded function. */
   sourceMap: SourceMap;
+  /** Freeze every decoded value at construction (task-input decodes). Lives
+   *  on the context, not the decoder closures, so the shared decoder caches
+   *  serve frozen and mutable decodes alike. Cleared around Function capture
+   *  decoding — a closure owns its own state. */
+  frozen: boolean;
 }
 
 // =============================================================================
@@ -478,10 +484,19 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       return (reader) => reader.readStringUtf8Varint();
 
     case "DateTime":
-      return (reader) => new Date(Number(reader.readZigzag()));
+      return (reader, ctx) => {
+        const date = new Date(Number(reader.readZigzag()));
+        if (ctx.frozen) Object.freeze(date);
+        return date;
+      };
 
     case "Blob":
-      return (reader) => reader.readBytes(reader.readVarint());
+      return (reader, ctx) => {
+        const bytes = reader.readBytes(reader.readVarint());
+        // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+        if (ctx.frozen) markFrozen(bytes);
+        return bytes;
+      };
 
     case "Array": {
       let elem: V5Decoder;
@@ -495,6 +510,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
           if (n === 0) break;
           for (let i = 0; i < n; i++) arr.push(elem(reader, ctx));
         }
+        if (ctx.frozen) Object.freeze(arr);
         return arr;
       };
       elem = buildV5Decoder(type.value, typeCtx);
@@ -527,6 +543,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
             set.add(item);
           }
         }
+        if (ctx.frozen) Object.freeze(set);
         return set;
       };
       elem = buildV5Decoder(type.value, typeCtx);
@@ -560,6 +577,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
             map.set(k, v);
           }
         }
+        if (ctx.frozen) Object.freeze(map);
         return map;
       };
       key = buildV5Decoder(type.value.key, typeCtx);
@@ -575,6 +593,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
         const cell = ref(undefined as any);
         ctx.containers.push(cell);
         cell.value = inner(reader, ctx);
+        if (ctx.frozen) Object.freeze(cell);
         return cell;
       };
       inner = buildV5Decoder(type.value, typeCtx);
@@ -588,6 +607,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       const ret: V5Decoder = (reader, ctx) => {
         const result: Record<string, any> = {};
         for (let i = 0; i < names.length; i++) result[names[i]!] = decoders[i]!(reader, ctx);
+        if (ctx.frozen) Object.freeze(result);
         return result;
       };
       for (const { name, type: fieldType } of fields) {
@@ -603,7 +623,9 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
         const tagIndex = reader.readVarint();
         if (tagIndex >= caseDecoders.length) throw new Error(`Invalid variant tag ${tagIndex}`);
         const [caseName, caseDec] = caseDecoders[tagIndex]!;
-        return variant(caseName, caseDec(reader, ctx));
+        const v = variant(caseName, caseDec(reader, ctx));
+        if (ctx.frozen) Object.freeze(v);
+        return v;
       };
       for (const { name, type: caseType } of type.value) {
         caseDecoders.push([name, buildV5Decoder(caseType, typeCtx)]);
@@ -638,62 +660,80 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
           ctx.sourceMap.intern_stack(readStack(reader));
         }
 
-        const ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
-        if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
-          throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
-        }
-
-        const captureCount = reader.readVarint();
-        if (captureCount !== ir.value.captures.length) {
-          throw new Error(`Capture count mismatch: IR has ${ir.value.captures.length}, data has ${captureCount}`);
-        }
-
-        const captureContext: RuntimeContext = {};
-        const typeContext: Record<string, EastTypeValue> = {};
-
-        for (const captureVar of ir.value.captures) {
-          const name = captureVar.value.name;
-          const captureType = captureVar.value.type as EastTypeValue;
-
-          let dec = captureDecoderCache.get(captureType);
-          if (!dec) {
-            dec = buildV5Decoder(captureType, typeCtx);
-            captureDecoderCache.set(captureType, dec);
+        // The IR itself must never decode frozen — finishDecodedFunction
+        // stamps it in place before compiling — and captured values stay
+        // mutable (a closure owns its own state). Containers a capture merely
+        // aliases from the frozen graph resolve by REF and keep their brand.
+        const wasFrozen = ctx.frozen;
+        ctx.frozen = false;
+        try {
+          const ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+          if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
+            throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
           }
-          const captureValue = dec(reader, ctx);
 
-          captureContext[name] = captureVar.value.mutable
-            ? variant("boxed", captureValue)
-            : variant("value", captureValue);
-          typeContext[name] = captureType;
+          const captureCount = reader.readVarint();
+          if (captureCount !== ir.value.captures.length) {
+            throw new Error(`Capture count mismatch: IR has ${ir.value.captures.length}, data has ${captureCount}`);
+          }
+
+          const captureContext: RuntimeContext = {};
+          const typeContext: Record<string, EastTypeValue> = {};
+
+          for (const captureVar of ir.value.captures) {
+            const name = captureVar.value.name;
+            const captureType = captureVar.value.type as EastTypeValue;
+
+            let dec = captureDecoderCache.get(captureType);
+            if (!dec) {
+              dec = buildV5Decoder(captureType, typeCtx);
+              captureDecoderCache.set(captureType, dec);
+            }
+            const captureValue = dec(reader, ctx);
+
+            captureContext[name] = captureVar.value.mutable
+              ? variant("boxed", captureValue)
+              : variant("value", captureValue);
+            typeContext[name] = captureType;
+          }
+
+          return finishDecodedFunction(ir, isAsync, captureContext, typeContext, ctx, ctx.sourceMap);
+        } finally {
+          ctx.frozen = wasFrozen;
         }
-
-        return finishDecodedFunction(ir, isAsync, captureContext, typeContext, ctx, ctx.sourceMap);
       };
     }
 
     case "Vector": {
       const elemType = type.value.type;
       const bpe = elemType === "Float" ? 8 : elemType === "Integer" ? 8 : 1;
-      return (reader) => {
+      return (reader, ctx) => {
         const len = reader.readVarint();
         const raw = new Uint8Array(reader.readBytesView(len * bpe));
-        if (elemType === "Float") return new Float64Array(raw.buffer, 0, len);
-        if (elemType === "Integer") return new BigInt64Array(raw.buffer, 0, len);
-        return new Uint8ClampedArray(raw.buffer, 0, len);
+        const vec = elemType === "Float" ? new Float64Array(raw.buffer, 0, len)
+          : elemType === "Integer" ? new BigInt64Array(raw.buffer, 0, len)
+          : new Uint8ClampedArray(raw.buffer, 0, len);
+        // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+        if (ctx.frozen) markFrozen(vec);
+        return vec;
       };
     }
 
     case "Matrix": {
       const elemType = type.value.type;
       const bpe = elemType === "Float" ? 8 : elemType === "Integer" ? 8 : 1;
-      return (reader) => {
+      return (reader, ctx) => {
         const rows = reader.readVarint();
         const cols = reader.readVarint();
         const raw = new Uint8Array(reader.readBytesView(rows * cols * bpe));
-        if (elemType === "Float") return matrix(new Float64Array(raw.buffer, 0, rows * cols), rows, cols);
-        if (elemType === "Integer") return matrix(new BigInt64Array(raw.buffer, 0, rows * cols), rows, cols);
-        return matrix(new Uint8ClampedArray(raw.buffer, 0, rows * cols), rows, cols);
+        const m = elemType === "Float" ? matrix(new Float64Array(raw.buffer, 0, rows * cols), rows, cols)
+          : elemType === "Integer" ? matrix(new BigInt64Array(raw.buffer, 0, rows * cols), rows, cols)
+          : matrix(new Uint8ClampedArray(raw.buffer, 0, rows * cols), rows, cols);
+        if (ctx.frozen) {
+          markFrozen(m.data);
+          Object.freeze(m);
+        }
+        return m;
       };
     }
 
@@ -952,6 +992,7 @@ function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: B
   const ctx: V5DecodeContext = {
     containers: [],
     sourceMap,
+    frozen: options?.frozen ?? false,
     ...buildPlatformContext(options),
   };
   const cursor = new FrameReader(data, frameOffset, inflate);
@@ -1063,6 +1104,7 @@ function decodeSegmentedRoot(typeValue: EastTypeValue, cursor: FrameReader, ctx:
     throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after the root terminator`);
   }
 
+  if (ctx.frozen) Object.freeze(container);
   return container;
 }
 

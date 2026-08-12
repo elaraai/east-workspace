@@ -158,3 +158,20 @@ EastMatrix(FloatType, model_output.numpy())               # no manual astype —
 ```python
 EastVector(FloatType, np.array([1, 2], dtype=np.int64))   # int storage for a Float vector — rejected
 ```
+
+---
+
+## 7. Frozen values: value-`Is`, copy-first mutation
+
+Task inputs always decode **deeply frozen** (and `load_frozen_value` /
+`freeze_value` produce frozen values directly). The frozen flag lives on
+the east-c value and is enforced by the native builtins the eager methods
+delegate to — two semantics change, nothing else:
+
+- **East `Is` compares frozen collections by value.** `Is` on two frozen
+  Array/Set/Dict/Vector/Matrix values is deep value equality (the Blob
+  precedent — a frozen collection is a value, not a mutable cell). A frozen
+  `Ref` remains an identity cell. `equal_for` / `compare_for` / print /
+  encode are unchanged.
+- **Mutation raises** `cannot mutate a frozen value (task inputs are
+  immutable) — copy first`. `.copy()` is the escape hatch.

@@ -636,10 +636,11 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
  * strictness. On success returns the value and leaves the accumulated
  * source map in h->sm (inline deltas included). */
 static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header *h,
-                                     EastType *decode_type)
+                                     EastType *decode_type, bool frozen)
 {
     B2V5DecodeCtx ctx;
     b2v5_dec_ctx_init(&ctx, &h->sm);
+    ctx.frozen = frozen;
     B2V5Frames frames;
     b2v5_frames_init(&frames, data, len, h->frame_offset);
 
@@ -687,6 +688,7 @@ static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header
             container = east_dict_new(decode_type->data.dict.key, decode_type->data.dict.value);
         }
         if (!container) goto done;
+        if (ctx.frozen) east_value_set_frozen(container);
         if (!b2v5_dec_ctx_push(&ctx, container)) {
             east_value_release(container);
             goto done;
@@ -779,12 +781,12 @@ done:
     return result;
 }
 
-EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType *type)
+EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType *type, bool frozen)
 {
     if (!data || !type) return NULL;
     B2V5Header h;
     if (!b2v5_read_header(data, len, &h)) return NULL;
-    EastValue *result = b2v5_decode_stream(data, len, &h, type);
+    EastValue *result = b2v5_decode_stream(data, len, &h, type, frozen);
     b2v5_header_dispose(&h);
     return result;
 }
@@ -793,7 +795,7 @@ EastValue *east_beast2_v5_decode_auto(const uint8_t *data, size_t len)
 {
     B2V5Header h;
     if (!b2v5_read_header(data, len, &h)) return NULL;
-    EastValue *result = b2v5_decode_stream(data, len, &h, h.root_type);
+    EastValue *result = b2v5_decode_stream(data, len, &h, h.root_type, false);
     b2v5_header_dispose(&h);
     return result;
 }
@@ -807,7 +809,7 @@ IRNode *east_beast2_v5_decode_ir(const uint8_t *data, size_t len, EastValue **ir
     if (!b2v5_read_header(data, len, &h)) return NULL;
     if (!east_ir_type) east_type_of_type_init();
 
-    EastValue *ir_value = b2v5_decode_stream(data, len, &h, east_ir_type);
+    EastValue *ir_value = b2v5_decode_stream(data, len, &h, east_ir_type, false);
     if (!ir_value) {
         b2v5_header_dispose(&h);
         return NULL;

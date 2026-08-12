@@ -643,6 +643,12 @@ that still run python, so you can reason about cost and semantics:
 - **Genuinely-Python loops cross the boundary once** —
   `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
   call or a decode per element.
+- **Task inputs arrive frozen.** Runner-decoded values reaching a
+  `@platform_function` are zero-copy proxies over the frozen C value:
+  mutating one raises `cannot mutate a frozen value (task inputs are
+  immutable) — copy first` — call `.copy()` to derive a mutable value.
+  Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
+  through the proxy; frozen collections compare by value under `Is`.
 
 ## Core Concepts
 

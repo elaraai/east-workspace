@@ -51,9 +51,21 @@ EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *ty
 {
     switch (beast2_detect_version(data, len)) {
     case 4:
-        return east_beast2_v4_decode_full(data, len, type);
+        return east_beast2_v4_decode_full(data, len, type, false);
     case 5:
-        return east_beast2_v5_decode_full(data, len, type);
+        return east_beast2_v5_decode_full(data, len, type, false);
+    default:
+        return NULL;
+    }
+}
+
+EastValue *east_beast2_decode_full_frozen(const uint8_t *data, size_t len, EastType *type)
+{
+    switch (beast2_detect_version(data, len)) {
+    case 4:
+        return east_beast2_v4_decode_full(data, len, type, true);
+    case 5:
+        return east_beast2_v5_decode_full(data, len, type, true);
     default:
         return NULL;
     }

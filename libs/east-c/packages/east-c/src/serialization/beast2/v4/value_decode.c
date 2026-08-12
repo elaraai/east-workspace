@@ -11,7 +11,14 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
 {
     if (ctx->depth >= BEAST2_MAX_DEPTH) return NULL;
     ctx->depth++;
+    /* Function subtrees never decode frozen: the IR is stamped in place
+     * before compiling, and captured values stay mutable (a closure owns its
+     * own state). */
+    bool was_frozen = ctx->frozen;
+    if (type && (type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION))
+        ctx->frozen = false;
     EastValue *result = beast2_decode_value_inner(data, len, offset, type, ctx);
+    ctx->frozen = was_frozen;
     ctx->depth--;
     return result;
 }
@@ -230,6 +237,7 @@ static EastValue *beast2_decode_value_inner(const uint8_t *data, size_t len, siz
 
         EastValue *vec = east_vector_new(elem_type, (size_t)vlen);
         if (!vec) return NULL;
+        if (ctx->frozen) east_value_set_frozen(vec);
 
         size_t byte_count = (size_t)vlen * elem_size;
         memcpy(vec->data.vector.data, data + *offset, byte_count);
@@ -261,6 +269,7 @@ static EastValue *beast2_decode_value_inner(const uint8_t *data, size_t len, siz
 
         EastValue *mat = east_matrix_new(elem_type, (size_t)rows, (size_t)cols);
         if (!mat) return NULL;
+        if (ctx->frozen) east_value_set_frozen(mat);
 
         size_t byte_count = (size_t)rows * (size_t)cols * elem_size;
         memcpy(mat->data.matrix.data, data + *offset, byte_count);

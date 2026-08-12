@@ -40,7 +40,9 @@ const sameEastType = (a: EastType, b: EastType): boolean =>
  * The body must be a pure, synchronous East function (no platform IO): purity
  * is what lets the compare-and-swap loop re-run the reducer against fresher
  * state safely. Async reducers and any platform call are rejected at definition
- * time.
+ * time. The state parameter is a frozen task input — derive the new state
+ * from a `.copy()` (or build it fresh) rather than mutating in place, which
+ * raises the uniform copy-first runtime error.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -56,11 +58,12 @@ const sameEastType = (a: EastType, b: EastType): boolean =>
  * const orders = e3.record('orders', OrdersType, new Map());
  *
  * const placeOrder = e3.mutation('place_order', orders,
- *   East.function([OrdersType, OrderType], OrdersType, ($, state, order) =>
- *     state.has(order.id).ifElse(
- *       $ => $.error(East.str`duplicate order ${order.id}`),
- *       $ => state.insert(order.id, order),
- *     )));
+ *   East.function([OrdersType, OrderType], OrdersType, ($, state, order) => {
+ *     $.if(state.has(order.id), $ => $.error(East.str`duplicate order ${order.id}`));
+ *     const next = $.let(state.copy());
+ *     $(next.insert(order.id, order));
+ *     return next;
+ *   }));
  *
  * const pkg = e3.package('planning', '1.0.0', orders, placeOrder);
  * ```

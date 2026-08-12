@@ -37,6 +37,17 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
         }                                                                                          \
     } while (0)
 
+/* Frozen task inputs (#539): a frozen value refuses every mutating builtin
+ * with the uniform cross-runtime message. Checked BEFORE the iteration guard
+ * so a frozen paged value refuses without hydrating. */
+#define FROZEN_GUARD(v)                                                                            \
+    do {                                                                                           \
+        if (east_value_frozen(v)) {                                                                \
+            east_builtin_error(EAST_FROZEN_MUTATION_MSG);                                          \
+            return NULL;                                                                           \
+        }                                                                                          \
+    } while (0)
+
 /* --- implementations --- */
 
 /* A paged arg that still answers from its pager (pre-hydration). The
@@ -69,6 +80,7 @@ static EastValue *set_has_impl(EastValue **args, size_t n)
 static EastValue *set_insert_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_SET(args[0]);
     if (east_set_has(args[0], args[1])) {
         char *printed = east_print_value(args[1], s_set_elem_type);
@@ -85,6 +97,7 @@ static EastValue *set_insert_impl(EastValue **args, size_t n)
 static EastValue *set_try_insert_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_SET(args[0]);
     bool was_new = !east_set_has(args[0], args[1]);
     east_set_insert(args[0], args[1]);
@@ -94,6 +107,7 @@ static EastValue *set_try_insert_impl(EastValue **args, size_t n)
 static EastValue *set_delete_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_SET(args[0]);
     EastValue *s = args[0];
     EastValue *val = args[1];
@@ -109,6 +123,7 @@ static EastValue *set_delete_impl(EastValue **args, size_t n)
 static EastValue *set_try_delete_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_SET(args[0]);
     return east_boolean(east_set_delete(args[0], args[1]));
 }
@@ -116,6 +131,7 @@ static EastValue *set_try_delete_impl(EastValue **args, size_t n)
 static EastValue *set_clear_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_SET(args[0]);
     east_set_clear(args[0]);
     return east_null();
@@ -124,6 +140,7 @@ static EastValue *set_clear_impl(EastValue **args, size_t n)
 static EastValue *set_union_in_place_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_SET(args[0]);
     EastValue *a = args[0];
     EastValue *b = args[1];

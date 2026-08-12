@@ -77,8 +77,10 @@ static void test_size_classes(void)
         check_size(EAST_VAL_BOOLEAN, 16, "Boolean node");
         check_size(EAST_VAL_DATETIME, 16, "DateTime node");
         check_size(EAST_VAL_BLOB, 24, "Blob node");
-        check_size(EAST_VAL_VECTOR, 32, "Vector node");
-        check_size(EAST_VAL_MATRIX, 40, "Matrix node");
+        /* Vector/Matrix carry the per-arm frozen flag (issue #539) — one word
+         * of padding each past their pointers. */
+        check_size(EAST_VAL_VECTOR, 40, "Vector node");
+        check_size(EAST_VAL_MATRIX, 48, "Matrix node");
         check_size(EAST_VAL_STRING, 72, "String node");
         check(sizeof(EastValue) <= 104, "sizeof(EastValue) must not grow past 104");
     }

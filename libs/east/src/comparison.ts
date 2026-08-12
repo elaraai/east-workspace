@@ -5,6 +5,7 @@
 import { toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
 import type { EastType, ValueTypeOf } from "./types.js";
 import { isVariant, variant } from "./containers/variant.js";
+import { isFrozenValue } from "./frozen.js";
 import type { ref } from "./containers/ref.js";
 
 /** Map of comparers for recursive types, keyed by recursive type id (bigint) */
@@ -13,9 +14,42 @@ type TypeContext = Map<bigint, any>;
 /** Tracks (x,y) pairs previously/currently being compared */
 type ValueContext = Map<any, Set<any>>;
 
-export function isFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
+/** Identity comparison that upgrades to deep value equality when BOTH
+ *  operands are frozen — frozen collections are value types (the Blob
+ *  precedent), and a mutable operand keeps identity semantics. The equality
+ *  comparer is built on first frozen use, so unfrozen comparisons pay only
+ *  the frozen checks; `eqCtx` carries the recursive-type registrations that
+ *  let element back-references resolve during that deferred build. */
+function frozenAwareIs(type: EastTypeValue, eqCtx: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean {
+  let equal: ((x: any, y: any, ctx?: ValueContext) => boolean) | undefined;
+  return (x: any, y: any, _ctx?: ValueContext) => {
+    if (Object.is(x, y)) return true;
+    if (isFrozenValue(x) && isFrozenValue(y)) {
+      equal ??= equalFor(type, eqCtx);
+      return equal(x, y);
+    }
+    return false;
+  };
+}
+
+/**
+ * Builds the East `Is` comparer for a type.
+ *
+ * Immutable types compare by value, mutable containers by identity — except
+ * that two FROZEN Array/Set/Dict/Vector/Matrix operands compare by deep
+ * value equality (a frozen collection is a value type; the Blob precedent).
+ * A `Ref` always compares by identity, frozen or not.
+ *
+ * @param type - the compared type
+ * @param typeCtx - recursive-type registry of `Is` comparers, keyed by
+ *   wrapper id (shared across one build)
+ * @param eqCtx - recursive-type registry of EQUALITY comparers, threaded to
+ *   the deferred `equalFor` build the frozen path performs
+ * @returns the comparer
+ */
+export function isFor(type: EastTypeValue, typeCtx?: TypeContext, eqCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function isFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map(), eqCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   // Convert EastType to EastTypeValue if necessary
   if (!isVariant(type)) {
     type = toEastTypeValue(type as EastType);
@@ -45,23 +79,24 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new
       return true;
     }
   } else if (type.type === "Ref") {
-    // mutable types are compared by identity
+    // mutable types are compared by identity (a Ref is the explicit identity
+    // cell — frozen or not, its meaningful relation is identity)
     return (x: any[], y: any, _ctx?: ValueContext) => Object.is(x, y);
   } else if (type.type === "Array") {
-    // mutable types are compared by identity
-    return (x: any[], y: any, _ctx?: ValueContext) => Object.is(x, y);
+    // mutable arrays are compared by identity; frozen arrays by value
+    return frozenAwareIs(type as EastTypeValue, eqCtx);
   } else if (type.type === "Vector") {
-    // `is` compares by identity; value equality is via Equal/equalFor
-    return (x: any, y: any, _ctx?: ValueContext) => Object.is(x, y);
+    // `is` compares mutable vectors by identity; frozen vectors by value
+    return frozenAwareIs(type as EastTypeValue, eqCtx);
   } else if (type.type === "Matrix") {
-    // `is` compares by identity; value equality is via Equal/equalFor
-    return (x: any, y: any, _ctx?: ValueContext) => Object.is(x, y);
+    // `is` compares mutable matrices by identity; frozen matrices by value
+    return frozenAwareIs(type as EastTypeValue, eqCtx);
   } else if (type.type === "Set") {
-    // mutable types are compared by identity
-    return (x: Set<any>, y: any, _ctx?: ValueContext) => Object.is(x, y);
+    // mutable sets are compared by identity; frozen sets by value
+    return frozenAwareIs(type as EastTypeValue, eqCtx);
   } else if (type.type === "Dict") {
-    // mutable types are compared by identity
-    return (x: Map<any, any>, y: any, _ctx?: ValueContext) => Object.is(x, y);
+    // mutable dicts are compared by identity; frozen dicts by value
+    return frozenAwareIs(type as EastTypeValue, eqCtx);
   } else if (type.type === "Struct") {
     // const field_comparers = type.value.map(({ name, type }) => [name, isFor(type, typeCtx)] as const);
     const field_comparers: [string, (x: any, y: any, ctx?: ValueContext) => boolean][] = [];
@@ -77,7 +112,7 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new
       return true;
     }
     for (const field of type.value) {
-      field_comparers.push([field.name, isFor(field.type, typeCtx)] as const);
+      field_comparers.push([field.name, isFor(field.type, typeCtx, eqCtx)] as const);
     }
     return ret;
   } else if (type.type === "Variant") {
@@ -90,15 +125,21 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new
       return case_comparers[x.type]!(x.value, y.value, ctx);
     };
     for (const { name, type: caseType } of type.value) {
-      case_comparers[name] = isFor(caseType, typeCtx);
+      case_comparers[name] = isFor(caseType, typeCtx, eqCtx);
     }
     return ret;
   } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
-    // Recursive wrapper: register handler by id, build inner
+    // Recursive wrapper: register handler by id, build inner. The equality
+    // context is registered up front (via equalFor's own wrapper handling) so
+    // a nested container's deferred frozen-equality build can resolve
+    // back-references to this wrapper.
     let inner: (x: any, y: any, ctx?: ValueContext) => boolean;
     const ret = (x: any, y: any, ctx?: ValueContext) => inner(x, y, ctx);
     typeCtx.set((type.value as any).value.id as bigint, ret);
-    inner = isFor((type.value as any).value.inner, typeCtx);
+    if (!eqCtx.has((type.value as any).value.id as bigint)) {
+      equalFor(type, eqCtx);
+    }
+    inner = isFor((type.value as any).value.inner, typeCtx, eqCtx);
     return ret;
   } else if (type.type === "Recursive") {
     // Self-reference: look up by id

@@ -45,11 +45,16 @@ struct btree;
  *
  * Sized to fill the union's widest OTHER arm exactly, so inlining never grows
  * sizeof(EastValue) — which would skew the layout east-py's extensions share
- * through one libeast-c. That arm is `dict`: five pointers, two size_t and a
- * flag padded to a word, i.e. eight words. So the capacity is word-size
+ * through one libeast-c. That arm is `dict`: five pointers, two size_t and two
+ * flags padded to one word, i.e. eight words. So the capacity is word-size
  * dependent: 47 on LP64, 23 on ILP32 (the win32 wheels cibuildwheel produces).
  * The static_assert in values.c is what holds this honest if an arm widens. */
 #define EAST_STRING_INLINE_CAP (8 * sizeof(void *) - sizeof(char *) - sizeof(size_t) - 1)
+
+/* The uniform frozen-mutation error message, identical across the TS, C and
+ * Python runtimes (compliance-tested). */
+#define EAST_FROZEN_MUTATION_MSG                                                                   \
+    "cannot mutate a frozen value (task inputs are immutable) — copy first"
 
 /*
  * A value is allocated in a size class chosen by its kind, not at one uniform
@@ -93,6 +98,7 @@ struct EastValue {
             size_t len;
             size_t cap;
             EastType *elem_type;
+            bool frozen; /* task-input decode: mutating builtins refuse; value-typed under Is */
         } array;
         struct {
             struct btree *tree; /* authoritative ordered store (item = EastValue*) */
@@ -102,6 +108,7 @@ struct EastValue {
             size_t len;         /* element count, maintained eagerly (always valid) */
             size_t cap;         /* capacity of the `items` cache */
             bool dirty;         /* `items` is stale and must be resynced before use */
+            bool frozen;        /* task-input decode: mutating builtins refuse */
             EastType *elem_type;
         } set;
         struct {
@@ -111,6 +118,7 @@ struct EastValue {
             size_t len;         /* entry count, maintained eagerly (always valid) */
             size_t cap;         /* capacity of the `keys`/`values` caches */
             bool dirty;         /* caches are stale and must be resynced before use */
+            bool frozen;        /* task-input decode: mutating builtins refuse */
             EastType *key_type;
             EastType *val_type;
         } dict;
@@ -131,17 +139,20 @@ struct EastValue {
         } variant;
         struct {
             EastValue *value;
+            bool frozen; /* task-input decode: RefUpdate/RefMerge refuse */
         } ref;
         struct {
             void *data; // float64*, int64_t*, or bool*
             size_t len;
             EastType *elem_type;
+            bool frozen; /* task-input decode: value-typed under Is */
         } vector;
         struct {
             void *data; // float64*, int64_t*, or bool*
             size_t rows;
             size_t cols;
             EastType *elem_type;
+            bool frozen; /* task-input decode: value-typed under Is */
         } matrix;
         struct {
             EastCompiledFn *compiled;
@@ -151,6 +162,7 @@ struct EastValue {
             uint8_t *data;      /* owned blob bytes */
             size_t len;
             EastValue *hydrated; /* NULL until the first unsupported op */
+            bool frozen;         /* frozen open: segments decode frozen, mutation refuses */
         } paged;
     } data;
 
@@ -189,6 +201,65 @@ static inline bool east_value_is_tracked(const EastValue *v)
 static inline bool east_value_iter_locked(const EastValue *v)
 {
     return v && east_value_kind_has_gc(v->kind) && v->iter_lock > 0;
+}
+
+/* Whether a value was constructed by a frozen (task-input) decode. The flag
+ * lives per union arm — only the kinds that can carry it answer true — and is
+ * inherited by every nested allocation a frozen decode constructs. Frozen
+ * values refuse the mutating builtins and compare as value types under Is. */
+static inline bool east_value_frozen(const EastValue *v)
+{
+    if (!v) return false;
+    switch (v->kind) {
+    case EAST_VAL_ARRAY:
+        return v->data.array.frozen;
+    case EAST_VAL_SET:
+        return v->data.set.frozen;
+    case EAST_VAL_DICT:
+        return v->data.dict.frozen;
+    case EAST_VAL_REF:
+        return v->data.ref.frozen;
+    case EAST_VAL_VECTOR:
+        return v->data.vector.frozen;
+    case EAST_VAL_MATRIX:
+        return v->data.matrix.frozen;
+    case EAST_VAL_PAGED:
+        return v->data.paged.frozen;
+    default:
+        return false;
+    }
+}
+
+/* Brand a value as frozen at construction time (decoders only — the flag is
+ * never cleared, and copies made by the builtins are fresh mutable values). */
+static inline void east_value_set_frozen(EastValue *v)
+{
+    if (!v) return;
+    switch (v->kind) {
+    case EAST_VAL_ARRAY:
+        v->data.array.frozen = true;
+        break;
+    case EAST_VAL_SET:
+        v->data.set.frozen = true;
+        break;
+    case EAST_VAL_DICT:
+        v->data.dict.frozen = true;
+        break;
+    case EAST_VAL_REF:
+        v->data.ref.frozen = true;
+        break;
+    case EAST_VAL_VECTOR:
+        v->data.vector.frozen = true;
+        break;
+    case EAST_VAL_MATRIX:
+        v->data.matrix.frozen = true;
+        break;
+    case EAST_VAL_PAGED:
+        v->data.paged.frozen = true;
+        break;
+    default:
+        break;
+    }
 }
 
 /* A node holding only this arm, rounded up to the slab's 8-byte granularity —

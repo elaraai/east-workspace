@@ -6,6 +6,7 @@
  * the implementation dispatches based on the type tree.
  */
 #include "east/builtins.h"
+#include "east/serialization.h" /* east_paged_hydrated for frozen lazy Is */
 #include "east/types.h"
 #include "east/values.h"
 #include <math.h>
@@ -58,7 +59,11 @@ static bool cycle_check_and_mark(CycleCtx *c, EastValue *a, EastValue *b)
 /*  isFor — identity comparison (TS Object.is semantics)               */
 /*  Mutable types: pointer identity. Immutable: value.                 */
 /*  Struct/Variant: recursive per-field isFor. Function: throws.       */
+/*  Frozen collections (#539) are value types — the Blob precedent:    */
+/*  both operands frozen compares by deep value.                       */
 /* ------------------------------------------------------------------ */
+
+static bool equal_for(EastType *type, EastValue *a, EastValue *b);
 
 static bool is_for(EastType *type, EastValue *a, EastValue *b)
 {
@@ -69,9 +74,26 @@ static bool is_for(EastType *type, EastValue *a, EastValue *b)
     case EAST_TYPE_ARRAY:
     case EAST_TYPE_SET:
     case EAST_TYPE_DICT:
-    case EAST_TYPE_REF:
     case EAST_TYPE_VECTOR:
     case EAST_TYPE_MATRIX:
+        /* Both frozen: deep value equality. Any mutable operand keeps
+         * identity semantics (the a == b fast path above). Frozen lazy
+         * values hydrate first — equal_for walks the eager representation. */
+        if (east_value_frozen(a) && east_value_frozen(b)) {
+            if (a->kind == EAST_VAL_PAGED) {
+                EastValue *h = east_paged_hydrated(a);
+                if (h) a = h;
+            }
+            if (b->kind == EAST_VAL_PAGED) {
+                EastValue *h = east_paged_hydrated(b);
+                if (h) b = h;
+            }
+            return equal_for(type, a, b);
+        }
+        return false;
+    case EAST_TYPE_REF:
+        /* A Ref is the explicit identity cell — frozen or not, its
+         * meaningful relation is identity. */
         return false;
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION:

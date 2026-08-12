@@ -313,24 +313,49 @@ static size_t lazy_input_threshold(void)
     return (size_t)64 * 1024 * 1024;
 }
 
-/* Loads input value `path`: when `want_lazy`, an indexed beast2 collection
- * blob opens as a lazy paged value (O(segment) decoded memory — issue #505);
- * anything not pageable (other formats, non-collection types, index-less or
- * aliased blobs) silently decodes whole, exactly like east-node's runner. */
+/* Loads input value `path`, always FROZEN — task inputs are immutable
+ * (mutating builtins raise the uniform copy-first error, and frozen
+ * collections compare by value). When `want_lazy`, an indexed beast2
+ * collection blob opens as a lazy paged value (O(segment) decoded memory —
+ * issue #505); anything not pageable (other formats, index-less or aliased
+ * blobs, Ref- or function-bearing element shapes) silently decodes whole,
+ * exactly like east-node's runner. Non-beast2 formats have no frozen
+ * decoder, so the decoded value round-trips through a canonical beast2
+ * encode + frozen decode, like east-py's runner. */
 static EastValue *load_input_value(const char *path, EastType *type, bool want_lazy)
 {
     if (!want_lazy || detect_format(path) != FMT_BEAST2 ||
         (type->kind != EAST_TYPE_ARRAY && type->kind != EAST_TYPE_SET &&
          type->kind != EAST_TYPE_DICT)) {
-        return load_value(path, type);
+        if (detect_format(path) == FMT_BEAST2) {
+            size_t len = 0;
+            uint8_t *data = read_file_binary(path, &len);
+            if (!data) return NULL;
+            EastValue *val = east_beast2_decode_full_frozen(data, len, type);
+            free(data);
+            if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
+            return val;
+        }
+        EastValue *plain = load_value(path, type);
+        if (!plain) return NULL;
+        ByteBuffer *buf = east_beast2_encode_full(plain, type);
+        east_value_release(plain);
+        if (!buf) {
+            fprintf(stderr, "Error: Failed to freeze input %s\n", path);
+            return NULL;
+        }
+        EastValue *val = east_beast2_decode_full_frozen(buf->data, buf->len, type);
+        byte_buffer_free(buf);
+        if (!val) fprintf(stderr, "Error: Failed to freeze input %s\n", path);
+        return val;
     }
     size_t len = 0;
     uint8_t *data = read_file_binary(path, &len);
     if (!data) return NULL;
-    EastValue *paged = east_beast2_open_paged(data, len, type);
+    EastValue *paged = east_beast2_open_paged_frozen(data, len, type);
     if (paged) return paged; /* took ownership of data */
     free(east_builtin_get_error());
-    EastValue *val = east_beast2_decode_full(data, len, type);
+    EastValue *val = east_beast2_decode_full_frozen(data, len, type);
     free(data);
     if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
     return val;

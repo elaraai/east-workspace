@@ -33,6 +33,7 @@ import {
 } from '../types.js';
 import { matrix } from '../containers/matrix.js';
 import { decodeJSONFor, encodeJSONFor, fromJSONFor, toJSONFor } from "./json.js";
+import { isFrozenValue } from "../frozen.js";
 import { compareFor, equalFor } from "../comparison.js";
 import { SortedSet } from "../containers/sortedset.js";
 import { SortedMap } from "../containers/sortedmap.js";
@@ -1038,13 +1039,14 @@ describe('Json encoding/decoding of EAST values', () => {
         assert.ok(!Object.isFrozen(date));
     });
 
-    test('should attempt to freeze decoded Blob when frozen=true', () => {
-        // Note: Uint8Array cannot actually be frozen in JavaScript
-        // This test verifies that the frozen code path is executed
+    test('should brand decoded Blob as frozen when frozen=true', () => {
+        // Uint8Array cannot be Object.freeze'd (freezing array buffer views
+        // with elements throws), so frozen decodes brand it in the frozen
+        // registry instead.
         const fromJson = fromJSONFor(BlobType, true);
-        // This will execute the Object.freeze code path, which will throw
-        // because Uint8Array cannot be frozen
-        assert.throws(() => fromJson("0x01020304"), /Cannot freeze array buffer views/);
+        const blob = fromJson("0x01020304");
+        assert.deepEqual(blob, new Uint8Array([1, 2, 3, 4]));
+        assert.ok(isFrozenValue(blob));
     });
 
     test('should not freeze decoded Blob when frozen=false', () => {

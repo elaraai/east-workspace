@@ -43,6 +43,13 @@ EastValue *east_beast2_decode(const uint8_t *data, size_t len, EastType *type);
 // below to pin a container explicitly.
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type);
 EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *type);
+// Frozen (task-input) decode: every constructed container, Ref, Vector and
+// Matrix carries the frozen flag from construction (inherited by nested
+// allocations, no post-walk) — the mutating builtins refuse them with
+// EAST_FROZEN_MUTATION_MSG and frozen collections compare as value types
+// under Is. Function values and their captures stay mutable (a closure owns
+// its own state).
+EastValue *east_beast2_decode_full_frozen(const uint8_t *data, size_t len, EastType *type);
 // Purge the type-table section skip-cache (#417). Called by
 // east_type_registry_clear (cached tables retain arena-backed types); useful
 // directly only in tests or before tearing down the runtime by other means.
@@ -186,6 +193,14 @@ EastType *east_beast2_pages_type(Beast2Pages *p);
 // malformed container — message via east_builtin_get_error) the caller keeps
 // ownership. `type` must be the blob's Array/Set/Dict decode type.
 EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type);
+
+// Frozen lazy open (issue #539): the paged value and every pager-served
+// segment decode frozen, so mutation refuses and the collection is a value
+// type under Is. Because frozen values cannot be mutated, the shape gate
+// collapses — any Array/Set/Dict element shape opens lazily except those
+// carrying a Ref (an identity cell) or function values (captured state),
+// which still fall back to the eager frozen decode.
+EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *type);
 
 // The eager collection behind a paged value, decoding the whole blob on
 // first use (cached on the wrapper; iteration locks carry over). Returns a

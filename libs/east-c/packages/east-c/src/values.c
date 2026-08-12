@@ -284,6 +284,7 @@ EastValue *east_array_new(EastType *elem_type)
     }
     v->data.array.elem_type = elem_type;
     if (elem_type) east_type_retain(elem_type);
+    v->data.array.frozen = false;
     return v;
 }
 
@@ -308,6 +309,7 @@ EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity)
     }
     v->data.array.elem_type = elem_type;
     if (elem_type) east_type_retain(elem_type);
+    v->data.array.frozen = false;
     return v;
 }
 
@@ -461,6 +463,7 @@ EastValue *east_set_new(EastType *elem_type)
     v->data.set.len = 0;
     v->data.set.cap = 0;
     v->data.set.dirty = false; /* empty cache is trivially in sync */
+    v->data.set.frozen = false;
     v->data.set.elem_type = elem_type;
     if (elem_type) east_type_retain(elem_type);
     return v;
@@ -662,6 +665,7 @@ EastValue *east_dict_new(EastType *key_type, EastType *val_type)
     v->data.dict.len = 0;
     v->data.dict.cap = 0;
     v->data.dict.dirty = false;
+    v->data.dict.frozen = false;
     v->data.dict.key_type = key_type;
     if (key_type) east_type_retain(key_type);
     v->data.dict.val_type = val_type;
@@ -975,6 +979,7 @@ EastValue *east_ref_new(EastValue *value)
     if (!v) return NULL;
     v->data.ref.value = value;
     if (value) east_value_retain(value);
+    v->data.ref.frozen = false;
     return v;
 }
 
@@ -1001,6 +1006,7 @@ EastValue *east_vector_new(EastType *elem_type, size_t len)
     EastValue *v = alloc_value(EAST_VAL_VECTOR);
     if (!v) return NULL;
     v->data.vector.len = len;
+    v->data.vector.frozen = false;
     v->data.vector.elem_type = elem_type;
     if (elem_type) east_type_retain(elem_type);
     size_t esize = elem_size_for_type(elem_type);
@@ -1027,6 +1033,7 @@ EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols)
     if (!v) return NULL;
     v->data.matrix.rows = rows;
     v->data.matrix.cols = cols;
+    v->data.matrix.frozen = false;
     v->data.matrix.elem_type = elem_type;
     if (elem_type) east_type_retain(elem_type);
     size_t count = rows * cols;
@@ -1069,6 +1076,7 @@ EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len)
     v->data.paged.data = data;
     v->data.paged.len = len;
     v->data.paged.hydrated = NULL;
+    v->data.paged.frozen = false;
     return v;
 }
 

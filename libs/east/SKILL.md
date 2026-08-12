@@ -175,7 +175,7 @@ Task → What do you need?
     │   ├─ Equality → East.equal()/.equals()/.eq(), East.notEqual()/.notEquals()/.ne()
     │   ├─ Ordering → East.less()/.lessThan()/.lt(), East.greater()/.greaterThan()/.gt()
     │   ├─ Bounds → East.lessEqual()/.lte()/.le(), East.greaterEqual()/.gte()/.ge()
-    │   ├─ Identity → East.is() (identity equality; use East.equal() for value equality)
+    │   ├─ Identity → East.is() (identity for mutable collections; FROZEN collections — task inputs — compare by value; East.equal() for value equality)
     │   └─ Utilities → East.min(), East.max(), East.clamp()
     │
     ├─ Conversion (East.*)

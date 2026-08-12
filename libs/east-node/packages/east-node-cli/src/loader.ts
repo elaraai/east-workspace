@@ -334,6 +334,10 @@ export function loadEastIR(filePath: string): EastIR<any, any> | AsyncEastIR<any
  *
  * The type of the input must be provided to decode correctly.
  *
+ * Task inputs decode **frozen**: deeply immutable from construction, with
+ * mutating builtins throwing the uniform runtime error naming the copy-first
+ * remedy. Frozen collections compare by value under East `Is`.
+ *
  * @param filePath - Path to the input file
  * @param type - The expected East type of the input
  * @returns Decoded value
@@ -346,15 +350,15 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
         case 'beast2': {
             // For inputs, we use decodeBeast2 which is self-describing
             // This allows loading data without knowing the exact type
-            const result = decodeBeast2(data);
+            const result = decodeBeast2(data, { frozen: true });
             return result.value;
         }
         case 'east': {
-            const decoder = decodeEastFor(type);
+            const decoder = decodeEastFor(type, true);
             return decoder(data);
         }
         case 'json': {
-            const decoder = decodeJSONFor(type);
+            const decoder = decodeJSONFor(type, true);
             return decoder(data);
         }
     }
@@ -369,14 +373,15 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
  *
  * Returns `undefined` when the file cannot be served lazily (a non-beast2
  * format, a v4 or index-less blob, a non-collection root, or an element
- * shape the lazy contract excludes — see below) — the caller falls back to
+ * shape carrying a `Ref` or function values) — the caller falls back to
  * {@link loadInput}.
  *
- * Element shapes that transitively contain a mutable container
- * (Array/Set/Dict/Ref) or an identity-compared kind (Vector/Matrix,
- * functions) always decode eagerly: East's runtime is reference-semantic for
- * nested containers, so a write through a lazily-served (freshly decoded)
- * element would be silently dropped. {@link isBeast2LazySafe} is the gate.
+ * The value opens **frozen**, like every task input, which is what makes
+ * lazy service safe for any nested element shape: frozen values cannot be
+ * mutated (no write through a freshly decoded element to drop) and frozen
+ * collections compare by value. Only `Ref` (an identity cell even when
+ * frozen) and function shapes fall back to the eager (frozen) decode.
+ * {@link isBeast2LazySafe} is the gate.
  *
  * @param filePath - Path to the input file
  * @returns The lazy collection value, or `undefined` to fall back
@@ -386,8 +391,8 @@ export function loadInputLazy(filePath: string): unknown | undefined {
     const data = readFileSync(filePath);
     try {
         const extents = readBeast2Extents(data);
-        if (!isBeast2LazySafe(extents.typeValue)) return undefined;
-        return openBeast2LazyFor(extents.typeValue)(data);
+        if (!isBeast2LazySafe(extents.typeValue, { frozen: true })) return undefined;
+        return openBeast2LazyFor(extents.typeValue, { frozen: true })(data);
     } catch {
         return undefined;
     }

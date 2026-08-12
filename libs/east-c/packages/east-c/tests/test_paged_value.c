@@ -235,6 +235,112 @@ static void test_equivalence_and_hydration(void)
     east_value_release(paged);
 }
 
+/* A Dict<Integer, Struct{xs: Array<Integer>}> — the nested-container shape
+ * the unfrozen gate refuses — paged-encoded with tiny segments. */
+static uint8_t *encode_nested_dict(size_t n, EastType *nested, size_t *len_out)
+{
+    EastType *row_type = nested->data.dict.value;
+    EastValue *dict = east_dict_new(nested->data.dict.key, row_type);
+    for (size_t i = 0; i < n; i++) {
+        EastValue *xs = east_array_new(&east_integer_type);
+        EastValue *elem = east_integer((int64_t)(i * 10));
+        east_array_push(xs, elem);
+        east_value_release(elem);
+        const char *names[] = {"xs"};
+        EastValue *vals[] = {xs};
+        EastValue *row = east_struct_new(names, vals, 1, row_type);
+        east_value_release(xs);
+        EastValue *k = east_integer((int64_t)i);
+        east_dict_set(dict, k, row);
+        east_value_release(k);
+        east_value_release(row);
+    }
+    ByteBuffer *buf = east_beast2_encode_paged(dict, nested, EAST_BEAST2_CODEC_DEFLATE, 64);
+    east_value_release(dict);
+    if (!buf) return NULL;
+    uint8_t *data = malloc(buf->len);
+    memcpy(data, buf->data, buf->len);
+    *len_out = buf->len;
+    byte_buffer_free(buf);
+    return data;
+}
+
+static void test_frozen_open(void)
+{
+    /* The collapsed frozen gate (#539): a nested-container element shape the
+     * unfrozen gate refuses opens frozen, serves frozen values from the
+     * pager, refuses mutation, and hydrates frozen. */
+    EastType *xs_arr = east_array_type(&east_integer_type);
+    EastType *row = east_struct_type((const char *[]){"xs"}, (EastType *[]){xs_arr}, 1);
+    EastType *nested = east_dict_type(&east_integer_type, row);
+
+    size_t len = 0;
+    uint8_t *data = encode_nested_dict(20, nested, &len);
+    CHECK(data != NULL, "nested paged encode failed");
+    if (!data) return;
+
+    EastValue *unfrozen_refused = east_beast2_open_paged(data, len, nested);
+    CHECK(unfrozen_refused == NULL, "nested shape unexpectedly opened without frozen");
+    free(east_builtin_get_error());
+
+    EastValue *frozen = east_beast2_open_paged_frozen(data, len, nested);
+    CHECK(frozen != NULL && frozen->kind == EAST_VAL_PAGED, "frozen open failed");
+    if (!frozen) {
+        free(data);
+        return;
+    }
+    CHECK(east_value_frozen(frozen), "frozen paged value not branded");
+
+    /* Pager-served keyed read hands back frozen values without hydrating. */
+    EastValue *key = east_integer(7);
+    EastValue *out = NULL;
+    CHECK(east_beast2_pages_get_key(frozen->data.paged.pages, key, &out) == 1, "keyed read miss");
+    east_value_release(key);
+    if (out) {
+        EastValue *xs = east_struct_get_field(out, "xs");
+        CHECK(xs != NULL && east_value_frozen(xs), "pager-served nested array not frozen");
+        east_value_release(out);
+    }
+    CHECK(frozen->data.paged.hydrated == NULL, "keyed read hydrated the frozen value");
+
+    /* Hydration inherits the brand, so the eager child refuses mutation too. */
+    EastValue *h = east_paged_hydrated(frozen);
+    CHECK(h != NULL && east_value_frozen(h), "frozen hydration lost the brand");
+    if (h) {
+        EastValue *hkey = east_integer(3);
+        EastValue *hrow = east_dict_get(h, hkey);
+        EastValue *hxs = hrow ? east_struct_get_field(hrow, "xs") : NULL;
+        CHECK(hxs != NULL && east_value_frozen(hxs), "hydrated nested array not frozen");
+        east_value_release(hkey);
+    }
+    east_value_release(frozen);
+
+    /* Ref- and function-bearing shapes still refuse the frozen open. */
+    size_t dlen = 0;
+    uint8_t *ddata = encode_int_dict(5, &dlen);
+    EastType *ref_row = east_struct_type((const char *[]){"r"},
+                                         (EastType *[]){east_ref_type(&east_integer_type)}, 1);
+    EastValue *ref_refused = east_beast2_open_paged_frozen(ddata, dlen, east_array_type(ref_row));
+    CHECK(ref_refused == NULL, "Ref element shape unexpectedly opened frozen");
+    free(east_builtin_get_error());
+
+    /* Vector elements DO open frozen (value-typed under Is). */
+    EastType *vec_arr = east_array_type(east_vector_type(&east_float_type));
+    EastValue *vec_ok = east_beast2_open_paged_frozen(ddata, dlen, vec_arr);
+    /* The bytes are a Dict blob, so the open may fail later on type grounds —
+     * the SHAPE gate itself must not refuse. Either a paged value or a
+     * non-gate error is acceptable; a gate message is not. */
+    if (!vec_ok) {
+        char *err = east_builtin_get_error();
+        CHECK(err == NULL || strstr(err, "frozen lazy paged values need") == NULL,
+              "vector shape hit the frozen gate: %s", err ? err : "(none)");
+        free(err);
+        free(ddata);
+    } else {
+        east_value_release(vec_ok);
+    }
+}
+
 static void test_release_states(void)
 {
     EastType *at = east_array_type(&east_integer_type);
@@ -279,6 +385,7 @@ int main(void)
     test_shape_gate();
     test_pager_served_reads();
     test_equivalence_and_hydration();
+    test_frozen_open();
     test_release_states();
 
     east_gc_collect_full();

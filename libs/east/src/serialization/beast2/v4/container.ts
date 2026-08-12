@@ -19,6 +19,7 @@
 
 import { toEastTypeValue, type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
+import { markFrozen } from "../../../frozen.js";
 import { isVariant, variant } from "../../../containers/variant.js";
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import { ref } from "../../../containers/ref.js";
@@ -75,6 +76,11 @@ interface DecodeContext extends PlatformDecodeContext {
   typeTable: EastTypeValue[];
   stringTable: string[];
   sourceMap: SourceMap | null;
+  /** Freeze every decoded value at construction (task-input decodes). Lives
+   *  on the context so the shared decoder caches serve frozen and mutable
+   *  decodes alike. Cleared around Function capture decoding — a closure
+   *  owns its own state. */
+  frozen: boolean;
 }
 
 // =============================================================================
@@ -261,10 +267,19 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
       };
 
     case "DateTime":
-      return (reader) => new Date(Number(reader.readZigzag()));
+      return (reader, ctx) => {
+        const date = new Date(Number(reader.readZigzag()));
+        if (ctx.frozen) Object.freeze(date);
+        return date;
+      };
 
     case "Blob":
-      return (reader) => reader.readBytes(reader.readVarint());
+      return (reader, ctx) => {
+        const bytes = reader.readBytes(reader.readVarint());
+        // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+        if (ctx.frozen) markFrozen(bytes);
+        return bytes;
+      };
 
     case "Ref":
     case "Array":
@@ -286,6 +301,7 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
       const ret: ValueDecoder = (reader, ctx) => {
         const result: Record<string, any> = {};
         for (let i = 0; i < names.length; i++) result[names[i]!] = decoders[i]!(reader, ctx);
+        if (ctx.frozen) Object.freeze(result);
         return result;
       };
 
@@ -303,7 +319,9 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
         const tagIndex = reader.readVarint();
         if (tagIndex >= caseDecoders.length) throw new Error(`Invalid variant tag ${tagIndex}`);
         const [caseName, caseDec] = caseDecoders[tagIndex]!;
-        return variant(caseName, caseDec(reader, ctx));
+        const v = variant(caseName, caseDec(reader, ctx));
+        if (ctx.frozen) Object.freeze(v);
+        return v;
       };
 
       for (const { name, type: caseType } of type.value) {
@@ -334,65 +352,82 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
       const captureDecoderCache = new Map<EastTypeValue, ValueDecoder>();
 
       return (reader: BufferReader, ctx: DecodeContext) => {
-        const ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+        // The IR itself must never decode frozen — decoded functions compile
+        // their IR, and captured values stay mutable (a closure owns its own
+        // state).
+        const wasFrozen = ctx.frozen;
+        ctx.frozen = false;
+        try {
+          const ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
 
-        if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
-          throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
-        }
-
-        // Decode captures
-        const captureCount = reader.readVarint();
-        if (captureCount !== ir.value.captures.length) {
-          throw new Error(`Capture count mismatch: IR has ${ir.value.captures.length}, data has ${captureCount}`);
-        }
-
-        const captureContext: RuntimeContext = {};
-        const typeContext: Record<string, EastTypeValue> = {};
-
-        for (const captureVar of ir.value.captures) {
-          const name = captureVar.value.name;
-          const captureType = captureVar.value.type as EastTypeValue;
-
-          // Get or build cached decoder for this capture type
-          let dec = captureDecoderCache.get(captureType);
-          if (!dec) {
-            dec = buildDecoder(captureType, typeCtx);
-            captureDecoderCache.set(captureType, dec);
+          if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
+            throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
           }
-          const captureValue = dec(reader, ctx);
 
-          captureContext[name] = captureVar.value.mutable
-            ? variant("boxed", captureValue)
-            : variant("value", captureValue);
-          typeContext[name] = captureType;
+          // Decode captures
+          const captureCount = reader.readVarint();
+          if (captureCount !== ir.value.captures.length) {
+            throw new Error(`Capture count mismatch: IR has ${ir.value.captures.length}, data has ${captureCount}`);
+          }
+
+          const captureContext: RuntimeContext = {};
+          const typeContext: Record<string, EastTypeValue> = {};
+
+          for (const captureVar of ir.value.captures) {
+            const name = captureVar.value.name;
+            const captureType = captureVar.value.type as EastTypeValue;
+
+            // Get or build cached decoder for this capture type
+            let dec = captureDecoderCache.get(captureType);
+            if (!dec) {
+              dec = buildDecoder(captureType, typeCtx);
+              captureDecoderCache.set(captureType, dec);
+            }
+            const captureValue = dec(reader, ctx);
+
+            captureContext[name] = captureVar.value.mutable
+              ? variant("boxed", captureValue)
+              : variant("value", captureValue);
+            typeContext[name] = captureType;
+          }
+
+          return finishDecodedFunction(ir, isAsync, captureContext, typeContext, ctx, ctx.sourceMap);
+        } finally {
+          ctx.frozen = wasFrozen;
         }
-
-        return finishDecodedFunction(ir, isAsync, captureContext, typeContext, ctx, ctx.sourceMap);
       };
     }
 
     case "Vector": {
       const elemType = type.value.type;
       const bpe = elemType === "Float" ? 8 : elemType === "Integer" ? 8 : 1;
-      return (reader) => {
+      return (reader, ctx) => {
         const len = reader.readVarint();
         const raw = new Uint8Array(reader.readBytesView(len * bpe));
-        if (elemType === "Float") return new Float64Array(raw.buffer, 0, len);
-        if (elemType === "Integer") return new BigInt64Array(raw.buffer, 0, len);
-        return new Uint8ClampedArray(raw.buffer, 0, len);
+        const vec = elemType === "Float" ? new Float64Array(raw.buffer, 0, len)
+          : elemType === "Integer" ? new BigInt64Array(raw.buffer, 0, len)
+          : new Uint8ClampedArray(raw.buffer, 0, len);
+        // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+        if (ctx.frozen) markFrozen(vec);
+        return vec;
       };
     }
 
     case "Matrix": {
       const elemType = type.value.type;
       const bpe = elemType === "Float" ? 8 : elemType === "Integer" ? 8 : 1;
-      return (reader) => {
+      return (reader, ctx) => {
         const rows = reader.readVarint();
         const cols = reader.readVarint();
         const raw = new Uint8Array(reader.readBytesView(rows * cols * bpe));
-        if (elemType === "Float") return matrix(new Float64Array(raw.buffer, 0, rows * cols), rows, cols);
-        if (elemType === "Integer") return matrix(new BigInt64Array(raw.buffer, 0, rows * cols), rows, cols);
-        return matrix(new Uint8ClampedArray(raw.buffer, 0, rows * cols), rows, cols);
+        const m = elemType === "Float" ? matrix(new Float64Array(raw.buffer, 0, rows * cols), rows, cols)
+          : elemType === "Integer" ? matrix(new BigInt64Array(raw.buffer, 0, rows * cols), rows, cols)
+          : matrix(new Uint8ClampedArray(raw.buffer, 0, rows * cols), rows, cols);
+        if (ctx.frozen) {
+          markFrozen(m.data);
+          Object.freeze(m);
+        }
+        return m;
       };
     }
 
@@ -640,6 +675,10 @@ function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext):
         break;
       }
     }
+
+    // Reverse fill order means entry i is complete here (its children carry
+    // higher indices and froze on their own iterations).
+    if (ctx.frozen) Object.freeze(ctx.mutableValues[i]);
   }
 }
 
@@ -786,6 +825,7 @@ export function decodeBeast2V4For(type: EastTypeValue | EastType, options?: Beas
       typeTable,
       stringTable,
       sourceMap,
+      frozen: options?.frozen ?? false,
       ...platformCtx,
     };
     readMutableValueTableSection(reader, ctx);
@@ -823,6 +863,7 @@ export function decodeIRWithSourceMapV4(data: Uint8Array): { ir: any; sourceMap:
     typeTable,
     stringTable,
     sourceMap,
+    frozen: false,
     ...buildPlatformContext(),
   };
   readMutableValueTableSection(reader, ctx);
@@ -858,6 +899,7 @@ export function decodeBeast2V4(data: Uint8Array, options?: Beast2DecodeOptions):
     typeTable,
     stringTable,
     sourceMap,
+    frozen: options?.frozen ?? false,
     ...buildPlatformContext(options),
   };
   readMutableValueTableSection(reader, ctx);

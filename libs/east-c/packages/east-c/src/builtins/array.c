@@ -32,6 +32,17 @@ static EastType *_make_option_type(EastType *inner)
         }                                                                                          \
     } while (0)
 
+/* Frozen task inputs (#539): a frozen value refuses every mutating builtin
+ * with the uniform cross-runtime message. Checked BEFORE the iteration guard
+ * so a frozen paged value refuses without hydrating. */
+#define FROZEN_GUARD(v)                                                                            \
+    do {                                                                                           \
+        if (east_value_frozen(v)) {                                                                \
+            east_builtin_error(EAST_FROZEN_MUTATION_MSG);                                          \
+            return NULL;                                                                           \
+        }                                                                                          \
+    } while (0)
+
 static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
 {
     EvalResult r = east_call(fn->data.function.compiled, call_args, nargs);
@@ -142,6 +153,7 @@ static EastValue *array_update_impl(EastValue **args, size_t n)
     (void)n;
     int64_t index = args[1]->data.integer;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     size_t len = east_array_len(arr);
     if (index < 0 || (size_t)index >= len) {
         char msg[128];
@@ -163,6 +175,7 @@ static EastValue *array_update_impl(EastValue **args, size_t n)
 static EastValue *array_push_last_impl(EastValue **args, size_t n)
 {
     (void)n;
+    FROZEN_GUARD(args[0]);
     ITER_GUARD_ARRAY(args[0]);
     east_array_push(args[0], args[1]);
     return east_null();
@@ -175,6 +188,7 @@ static EastValue *array_pop_last_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     size_t len = east_array_len(arr);
     if (len == 0) {
@@ -195,6 +209,7 @@ static EastValue *array_push_first_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     EastValue *val = args[1];
     size_t len = east_array_len(arr);
@@ -216,6 +231,7 @@ static EastValue *array_pop_first_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     size_t len = east_array_len(arr);
     if (len == 0) {
@@ -291,6 +307,7 @@ static EastValue *array_clear_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     /* Release all elements */
     for (size_t i = 0; i < east_array_len(arr); i++) {
@@ -320,6 +337,7 @@ static EastValue *array_reverse_in_place_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     size_t len = east_array_len(arr);
     for (size_t i = 0; i < len / 2; i++) {
@@ -632,6 +650,7 @@ static EastValue *array_sort_in_place_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     EastValue *key_fn = args[1];
     size_t len = east_array_len(arr);
@@ -958,6 +977,7 @@ static EastValue *array_merge_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     int64_t index = args[1]->data.integer;
     EastValue *value = args[2];
     EastValue *fn = args[3];
@@ -991,6 +1011,7 @@ static EastValue *array_append_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     EastValue *other = args[1];
     for (size_t i = 0; i < east_array_len(other); i++)
@@ -1005,6 +1026,7 @@ static EastValue *array_prepend_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     ITER_GUARD_ARRAY(arr);
     EastValue *other = args[1];
     size_t other_len = east_array_len(other);
@@ -1030,6 +1052,7 @@ static EastValue *array_merge_all_impl(EastValue **args, size_t n)
 {
     (void)n;
     EastValue *arr = args[0];
+    FROZEN_GUARD(arr);
     EastValue *other = args[1];
     EastValue *fn = args[2];
     size_t arr_len = east_array_len(arr);

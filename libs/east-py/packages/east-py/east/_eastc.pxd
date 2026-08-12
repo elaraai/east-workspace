@@ -374,6 +374,10 @@ cdef extern from "east/serialization.h":
     ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
     ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type)
     EastValue *east_beast2_decode_full(const uint8_t *data, size_t length, EastType *type)
+    # Frozen (task-input) decode: every constructed container/Ref/Vector/Matrix
+    # carries the frozen flag from construction — mutating builtins refuse and
+    # frozen collections compare as value types under Is (#539).
+    EastValue *east_beast2_decode_full_frozen(const uint8_t *data, size_t length, EastType *type)
     # BEAST2 IR decode+convert in one shot (keeps type table alive for O(1) resolution)
     IRNode *east_beast2_decode_ir(const uint8_t *data, size_t length, EastValue **ir_value_out,
                                   EastSourceMap **source_map_out)
@@ -425,6 +429,9 @@ cdef extern from "east/serialization.h":
     # returns a BORROWED value kept alive by the wrapper (NULL on decode
     # failure, message via east_builtin_get_error).
     EastValue *east_beast2_open_paged(uint8_t *data, size_t length, EastType *type)
+    # Frozen lazy open (#539): the paged value and every pager-served segment
+    # decode frozen; the shape gate collapses to Ref/function exclusions.
+    EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t length, EastType *type)
     EastValue *east_paged_hydrated(EastValue *v)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)

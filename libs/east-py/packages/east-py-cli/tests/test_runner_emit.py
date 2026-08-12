@@ -182,13 +182,14 @@ def test_wide_rows_rebatch_toward_the_segment_byte_target(tmp_path):
 
 
 def test_lazy_paged_input_pins(tmp_path, monkeypatch):
-    # The lazy paged-input contract end to end on the Python runner (#516),
-    # against the same fixtures the east-c cli_paged gate uses.
+    # The lazy paged-input contract end to end on the Python runner
+    # (#516, #539), against the same fixtures the east-c cli_paged gate uses.
     monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
 
-    # Mutating a dict inside its own $.for raises the canonical iteration
-    # error on a lazily-opened input exactly as on eager.
-    with pytest.raises(EastError, match="Cannot modify Dict during iteration"):
+    # Inputs are frozen: mutating a dict input (inside its own $.for) raises
+    # the uniform copy-first error on a lazily-opened input, refused before
+    # any hydration.
+    with pytest.raises(EastError, match="cannot mutate a frozen value"):
         run_program(FIXTURES / "paged_for_mutate.beast2", [], [], [FIXTURES / "paged_table.beast2"])
 
     # A keyed `has` over a corrupt blob (non-disjoint spliced key ranges)
@@ -196,13 +197,13 @@ def test_lazy_paged_input_pins(tmp_path, monkeypatch):
     with pytest.raises(EastError, match="not disjoint ascending key ranges"):
         run_program(FIXTURES / "paged_has.beast2", [], [], [FIXTURES / "paged_corrupt.beast2"])
 
-    # The shape gate: a mutable-nested element type decodes eagerly despite
-    # the threshold, so a write through a read-out element lands in the
-    # input and the observed size is 3.
-    result = run_program(
-        FIXTURES / "paged_nested_mutate.beast2", [], [], [FIXTURES / "paged_nested.beast2"]
-    )
-    assert result == 3
+    # The collapsed shape gate: a nested-container element shape opens
+    # lazily AND frozen, so the write through a read-out element raises the
+    # uniform error instead of landing in the input.
+    with pytest.raises(EastError, match="cannot mutate a frozen value"):
+        run_program(
+            FIXTURES / "paged_nested_mutate.beast2", [], [], [FIXTURES / "paged_nested.beast2"]
+        )
 
 
 def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):

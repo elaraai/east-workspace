@@ -523,6 +523,7 @@ function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (re
         const v = val(reader, ctx);
         map.set(k, v);
       }
+      if (ctx.frozen) Object.freeze(map);
       return map;
     };
   }
@@ -541,12 +542,14 @@ function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (re
         }
         set.add(item);
       }
+      if (ctx.frozen) Object.freeze(set);
       return set;
     };
   }
   return (reader, ctx, n) => {
     const arr: any[] = new Array(n);
     for (let i = 0; i < n; i++) arr[i] = elem(reader, ctx);
+    if (ctx.frozen) Object.freeze(arr);
     return arr;
   };
 }
@@ -568,7 +571,7 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
   return function* (data: Uint8Array) {
     const { kind, sourceMap, frameOffset } = openSegmented(data, typeValue);
     const decodeSegment = buildSegmentDecoder(typeValue, kind);
-    const ctx: V5DecodeContext = { containers: [], sourceMap, ...buildPlatformContext(options) };
+    const ctx: V5DecodeContext = { containers: [], sourceMap, frozen: options?.frozen ?? false, ...buildPlatformContext(options) };
     const cursor = new FrameReader(data, frameOffset);
 
     let reader = cursor.next();
@@ -724,7 +727,7 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (n !== this.indexData.counts[i]) {
       throw new Error(`beast2 v5: segment ${i} declares ${n} elements, index says ${this.indexData.counts[i]}`);
     }
-    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, ...buildPlatformContext(this.platform) };
+    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: this.platform?.frozen ?? false, ...buildPlatformContext(this.platform) };
     const value = this.decodeSegment(reader, ctx, n, order);
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after segment ${i}`);
@@ -777,7 +780,7 @@ export class Beast2Pages<T extends EastType = EastType> {
     const cursor = new FrameReader(this.data, this.indexData.offsets[i]!);
     const reader = cursor.next();
     reader.readVarint();  // element count — segments are never empty
-    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, ...buildPlatformContext(this.platform) };
+    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: this.platform?.frozen ?? false, ...buildPlatformContext(this.platform) };
     return this.fenceDec(reader, ctx);
   }
 
