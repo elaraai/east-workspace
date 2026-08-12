@@ -89,6 +89,13 @@ What traces (#393 expanded this to the whole builtin surface):
   branch), consume with ``.is_some()`` / ``.is_none()`` / ``.unwrap_or()`` /
   ``.match()`` / ``.unwrap()``; ``.try_parse(T)`` parses a String strictly
   to ``Option<T>`` (``none`` on any parse failure).
+- General variants: construct with ``variant(case, payload)`` typed from
+  context — the kernel's declared ``out=`` types the whole traced result
+  (including a ``where`` over variant branches, which defers until the
+  context arrives), a ``where()`` sibling types its variant arm, and a
+  declared struct field types a variant built inside a struct literal.
+  Consume with ``.get_tag()`` / ``.has_tag(tag)`` / ``.match()`` /
+  ``.unwrap(tag)``.
 - Struct results: return a dict literal — ``lambda r: {"a": …, "b": …}`` —
   so one kernel can emit every computed column in a single pass.
 
@@ -208,6 +215,8 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
 
     if isinstance(value, KernelExpr):
         return value
+    if isinstance(value, _DeferredWhere):
+        return value.resolve(hint)
     if value is None or is_east_null(value):
         return KernelExpr(_literal(None, NullType), NullType)
     if isinstance(value, bool):
@@ -229,7 +238,7 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
     if lifted is not None:
         return lifted
     if isinstance(value, dict):
-        return _lift_struct(value)
+        return _lift_struct(value, hint)
     raise KernelTraceError(
         f"cannot lift python value of type {type(value).__name__} into an East kernel expression"
     )
@@ -324,19 +333,26 @@ def _lift_collection(value: Any) -> KernelExpr | None:
     return None
 
 
-def _lift_struct(value: dict) -> KernelExpr:
+def _lift_struct(value: dict, hint: EastType | None = None) -> KernelExpr:
     """Lift a dict of traced expressions/literals into Struct IR.
 
     Lets kernels build rows naturally: ``lambda el, i: {"i": i, "v": el.x}``.
+    With a Struct hint from context (the kernel's declared ``out=``), each
+    field lifts under its declared type — which is what lets a field hold a
+    general ``variant(case, …)`` or a bare ``none`` (#541).
     """
     from east.types.types import StructType as _StructType
+
+    field_hints: dict[str, EastType] = {}
+    if hint is not None and getattr(hint, "type", None) == "Struct":
+        field_hints = {f["name"]: f["type"] for f in hint.value}
 
     fields = []
     field_types = []
     for name, item in value.items():
         if not isinstance(name, str):
             raise KernelTraceError("struct construction needs string field names")
-        e = _lift(item)
+        e = _lift(item, hint=field_hints.get(name))
         fields.append((name, e.ir))
         field_types.append((name, e.east_type))
     struct_t = _StructType(field_types)
@@ -392,11 +408,63 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
             )
         node = ir_variant(hint, value.type, payload.ir)
         return KernelExpr(node, hint)
-    if isinstance(value.value, KernelExpr):
-        raise KernelTraceError(
-            f"variant({value.type!r}, …) in a traced kernel needs a VariantType from context"
-        )
-    return None
+    # A general variant — the 2-arg variant(case, payload) construction
+    # carries no VariantType — reached here with no Variant hint (#541).
+    raise KernelTraceError(
+        f"variant({value.type!r}, …) in a traced kernel needs a VariantType from "
+        "context — declare the kernel output (kernel(..., out=VariantType(...))), "
+        "or build it in a where() with a typed sibling or a typed struct field"
+    )
+
+
+def _needs_type_context(value: Any) -> bool:
+    """Whether a value can only lift with a type from context: a bare
+    ``none``, a general ``variant(case, …)`` (the 2-arg construction carries
+    no VariantType), or a deferred ``where`` over such branches (#541).
+    ``some(expr)`` self-types and never defers."""
+    from east.types.values import is_east_variant
+
+    if isinstance(value, _DeferredWhere):
+        return True
+    if isinstance(value, KernelExpr) or not is_east_variant(value):
+        return False
+    return value.type != "some"
+
+
+class _DeferredWhere:
+    """A traced ``where()`` whose branches ALL need a type from context —
+    e.g. ``where(cond, variant("a", …), variant("b", …))`` (#541).
+
+    The conditional materialises when the surrounding context supplies the
+    type: the kernel's declared ``out=`` (threaded to the root lift), a
+    typed struct field, or an enclosing ``where`` sibling. Reaching
+    ``_lift`` with no hint raises the actionable error instead of the
+    opaque cannot-lift one.
+    """
+
+    __slots__ = ("cond", "then", "otherwise")
+
+    def __init__(self, cond: KernelExpr, then: Any, otherwise: Any) -> None:
+        self.cond = cond
+        self.then = then
+        self.otherwise = otherwise
+
+    def resolve(self, hint: EastType | None) -> KernelExpr:
+        if hint is None:
+            raise KernelTraceError(
+                "where() with variant branches in both arms needs a type from "
+                "context — declare the kernel output (kernel(..., out=VariantType(...))) "
+                "or build it in a typed struct field"
+            )
+        then_e = _lift(self.then, hint=hint)
+        else_e = _lift(self.otherwise, hint=hint)
+        if then_e.east_type != else_e.east_type:
+            raise KernelTraceError(
+                f"where() branches must have the same East type "
+                f"({then_e.east_type.type} vs {else_e.east_type.type})"
+            )
+        node = _k_ifelse(then_e.east_type, [(self.cond.ir, then_e.ir)], else_e.ir)
+        return KernelExpr(node, then_e.east_type)
 
 
 def _is_option(t: EastType) -> bool:
@@ -3227,7 +3295,8 @@ def where(cond: Any, then: Any, otherwise: Any) -> Any:
     so the same lambda works on both paths.
     """
     if not isinstance(cond, KernelExpr):
-        if isinstance(then, KernelExpr) or isinstance(otherwise, KernelExpr):
+        if isinstance(then, (KernelExpr, _DeferredWhere)) or \
+                isinstance(otherwise, (KernelExpr, _DeferredWhere)):
             raise KernelTraceError(
                 "where() received a python condition with traced branches — "
                 "the condition must come from the kernel's parameters"
@@ -3235,15 +3304,24 @@ def where(cond: Any, then: Any, otherwise: Any) -> Any:
         return then if cond else otherwise
     if cond.east_type.type != "Boolean":
         raise KernelTraceError(f"where() condition must be Boolean, got {cond.east_type.type}")
-    from east.types.values import is_east_variant
 
-    # A bare `none` branch has no standalone type — lift the sibling first and
-    # type the `none` from it. Otherwise lift `then`, type `otherwise` from it,
-    # then re-lift `then` so a `some`/`none` pair reconciles whichever arm the
-    # `none` sits in.
-    if is_east_variant(then) and then.type == "none":
+    # A branch that cannot lift unaided — a bare `none`, a general
+    # `variant(case, …)`, or a nested deferred where — types itself from its
+    # sibling. When BOTH branches need context the conditional defers whole,
+    # typed later by the surrounding context (the kernel's declared out=, a
+    # typed struct field, or an enclosing where) — see _DeferredWhere (#541).
+    # With both branches liftable, lift `then`, type `otherwise` from it,
+    # then re-lift `then` so e.g. an int/float pair reconciles either way.
+    then_needs = _needs_type_context(then)
+    else_needs = _needs_type_context(otherwise)
+    if then_needs and else_needs:
+        return _DeferredWhere(cond, then, otherwise)
+    if then_needs:
         else_e = _lift(otherwise)
         then_e = _lift(then, hint=else_e.east_type)
+    elif else_needs:
+        then_e = _lift(then)
+        else_e = _lift(otherwise, hint=then_e.east_type)
     else:
         then_e = _lift(then)
         else_e = _lift(otherwise, hint=then_e.east_type)
@@ -3619,12 +3697,15 @@ def _function_ir(
     return _finalize_ir(top, param_names, kernel_fn=fn_node)
 
 
-def trace(fn: Any, param_types: list[EastType]) -> tuple[Any, EastType]:
+def trace(fn: Any, param_types: list[EastType], out_hint: EastType | None = None) -> tuple[Any, EastType]:
     """Trace ``fn`` over expression proxies; return (IR value, output type).
 
     The IR value is homoiconic — an ``EastVariant`` conforming to ``IRType``
     (compile with ``compile_from_value``). Raises KernelTraceError when the
-    lambda performs untraceable operations.
+    lambda performs untraceable operations. ``out_hint`` types the traced
+    result expression — the kernel's declared ``out=`` — which is what lets
+    the root build a general variant or a ``where`` over variant branches
+    (#541).
     """
     global _const_registry
     proxies = [KernelExpr(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
@@ -3638,7 +3719,7 @@ def trace(fn: Any, param_types: list[EastType]) -> tuple[Any, EastType]:
             raise
         except Exception as e:
             raise KernelTraceError(f"kernel lambda is not traceable: {e}") from e
-        result = _lift(result)
+        result = _lift(result, hint=out_hint)
         consts = _const_registry.entries if outer else []
     finally:
         if outer:
@@ -3684,7 +3765,7 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
     types = [param_types] if isinstance(param_types, EastType) else list(param_types)
     if fn is None:
         return lambda f: kernel(types, f, out=out)
-    ir_value, out_type = trace(fn, types)
+    ir_value, out_type = trace(fn, types, out_hint=out)
     if out is not None and out != out_type:
         raise TypeError(f"kernel output is {out_type.type}, expected {out.type}")
     from east.runtime.compiler import compile_from_value
@@ -3902,7 +3983,8 @@ def try_push_down(east_fn: Any) -> Any | None:
     try:
         if not _eligible(east_fn.fn):
             return None
-        ir_value, out_type = trace(east_fn.fn, list(east_fn.input_types))
+        ir_value, out_type = trace(east_fn.fn, list(east_fn.input_types),
+                                   out_hint=east_fn.output_type)
         if out_type != east_fn.output_type:
             return None
         from east.runtime.compiler import compile_from_value

@@ -527,7 +527,9 @@ Task → What do you need?
     │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD")
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
-    │   │   │             construct with variant(case, payload) under a typed context
+    │   │   │             construct with variant(case, payload) typed from context: the kernel's declared
+    │   │   │             out= (types the whole result, incl. a where() over variant branches), a typed
+    │   │   │             where() sibling, or a declared struct field
     │   │   ├─ Collections → the FULL closed surface enumerated in [Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)
     │   │   │                 (#452) — that list is the ONE registry, pinned against `_TRACED_SURFACE`; highlights:
     │   │   │                 map · filter · filter_map · fold · scan · map_reduce · flatten_to_array/set ·
