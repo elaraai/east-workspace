@@ -67,15 +67,6 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Array'): (
         'serialized Recursive-type dialect divergence (#475)',
         frozenset({'map() with function returning Expr<RecursiveType> preserves type'})),
-    ('kernel', 'Blob__Beast_v1_'): (
-        'variant tag construction at the py boundary — #476/#478 family',
-        frozenset({'Beast v1 - Variant type'})),
-    ('trampoline', 'Blob__Beast_v1_'): (
-        'variant tag construction at the py boundary — #476/#478 family',
-        frozenset({'Beast v1 - Variant type'})),
-    ('traced', 'Blob__Beast_v1_'): (
-        'variant tag construction at the py boundary — #476/#478 family',
-        frozenset({'Beast v1 - Variant type'})),
     ('kernel', 'Blob__Beast_v2_'): (
         'beast-codec function/recursive value shapes at the py boundary — #476',
         frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
@@ -96,13 +87,13 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
         frozenset({'Beast v2 parity - a recursive type referenced from several positions'})),
     ('kernel', 'East'): (
         'value aliasing and recursive-type print parity — #478',
-        frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
+        frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),
     ('trampoline', 'East'): (
         'value aliasing and recursive-type print parity — #478',
-        frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
+        frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),
     ('traced', 'East'): (
         'value aliasing and recursive-type print parity — #478',
-        frozenset({'Nested array aliases', 'Print a variant value as a string', 'Recursive type - EastTypeType', 'Recursive type - larger tree without cycles', 'Recursive type - tree without cycles', 'print() with variant', 'str() with variant interpolation'})),
+        frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),
     ('kernel', 'Frozen'): (
         'frozen task-input decode is a C-runtime brand with no eager-python-surface spelling (#539)',
         frozenset({'Is keeps identity semantics for mutable and mixed operands', 'Is on two frozen collections is deep value equality', 'Is recurses into nested frozen containers by value', 'a frozen Ref stays an identity cell under Is', 'copying a frozen array yields a mutable scratch value', 'equality, ordering, printing and encoding match the mutable twin', 'frozen Vector and Matrix are value types under Is', 'frozen array mutations throw; the mutable twin accepts them', 'frozen collections keep serving reads and iteration', 'frozen dict mutations throw, including through a read-out element', 'frozen ref assignment throws', 'frozen set mutations throw; reads still serve'})),
@@ -114,22 +105,29 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
         frozenset({'Is keeps identity semantics for mutable and mixed operands', 'Is on two frozen collections is deep value equality', 'Is recurses into nested frozen containers by value', 'a frozen Ref stays an identity cell under Is', 'copying a frozen array yields a mutable scratch value', 'equality, ordering, printing and encoding match the mutable twin', 'frozen Vector and Matrix are value types under Is', 'frozen array mutations throw; the mutable twin accepts them', 'frozen collections keep serving reads and iteration', 'frozen dict mutations throw, including through a read-out element', 'frozen ref assignment throws', 'frozen set mutations throw; reads still serve'})),
     ('kernel', 'Function'): (
         'function values crossing the py boundary (identity, serialization) — #476',
-        frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
+        frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity'})),
     ('trampoline', 'Function'): (
         'function values crossing the py boundary (identity, serialization) — #476',
-        frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a function with a loop to BEAST2', 'Serialize a function with control flow (if/return) to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'free function with control flow serialized and called', 'free function with loop serialized and called', 'function in recursive type (linked list) serialized and called', 'function returning recursive type serialized and called', 'outer closure with shared mutable capture preserves sharing (with serialization)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
+        frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a function with a loop to BEAST2', 'Serialize a function with control flow (if/return) to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'free function with control flow serialized and called', 'free function with loop serialized and called', 'function in recursive type (linked list) serialized and called', 'function returning recursive type serialized and called', 'outer closure with shared mutable capture preserves sharing (with serialization)', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity'})),
     ('traced', 'Function'): (
         'function values crossing the py boundary (identity, serialization) — #476',
-        frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
+        frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity'})),
+    # py PatchType(T) mangles recursive back-references: a Recursive depth
+    # marker falls into the replace-only arm (no patch case) with its depth
+    # unrebased under the patch type's new nesting, so patch values for
+    # recursive T decode/marshal under a structurally wrong type — the
+    # declared-slot marshalling (#534) surfaces what the by-name looseness
+    # previously absorbed. Fixing PatchType is part of the recursive-type
+    # scheme rework (#475/#478).
     ('kernel', 'Patch___E2E_All_Types'): (
-        'recursive/function containers beyond quote and coercion — #476/#478',
-        frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
+        'py PatchType over recursive types diverges from the declared patch type — #475/#478',
+        frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive linked list with nested structs', 'E2E: Recursive type patch-compose-invert roundtrip'})),
     ('trampoline', 'Patch___E2E_All_Types'): (
-        'recursive/function containers beyond quote and coercion — #476/#478',
-        frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
+        'py PatchType over recursive types diverges from the declared patch type — #475/#478',
+        frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive linked list with nested structs', 'E2E: Recursive type patch-compose-invert roundtrip'})),
     ('traced', 'Patch___E2E_All_Types'): (
-        'recursive/function containers beyond quote and coercion — #476/#478',
-        frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
+        'py PatchType over recursive types diverges from the declared patch type — #475/#478',
+        frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive linked list with nested structs', 'E2E: Recursive type patch-compose-invert roundtrip'})),
     ('kernel', 'String'): (
         'recursive-type print/parse and JSON shapes — #478 family',
         frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
@@ -141,31 +139,39 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
         frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
     ('kernel', 'Recursive'): (
         'recursive value print/parse and comparison parity — #478',
-        frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
+        frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
     ('trampoline', 'Recursive'): (
         'recursive value print/parse and comparison parity — #478',
-        frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
+        frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
     ('traced', 'Recursive'): (
         'recursive value print/parse and comparison parity — #478',
-        frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
+        frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
+    # Patch fuzz stems whose failing arms differ BY MODE (kernel's compiled
+    # callbacks keep diff/apply on the working path; the traced/trampoline
+    # replays hit the PatchType-recursive divergence) — pinned per mode.
+    ('kernel', 'Patch_Fuzz___122b8585aa4f'): (
+        'py PatchType over recursive types diverges from the declared patch type — #475/#478',
+        frozenset({'compose round trip', 'invert round trip'})),
+    ('trampoline', 'Patch_Fuzz___122b8585aa4f'): (
+        'py PatchType over recursive types diverges from the declared patch type — #475/#478',
+        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
+    ('traced', 'Patch_Fuzz___122b8585aa4f'): (
+        'py PatchType over recursive types diverges from the declared patch type — #475/#478',
+        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
 }
 
-# The fuzz cases with function-valued/recursive containers (#476/#478) fail
-# identically in every mode, so they pin once per stem. The stems are STABLE
-# across exports since the corpus generator was seeded (#532) — a deliberate
-# seed bump regenerates this table (run the replay, pin what fails).
+# The fuzz cases with recursive containers (#475/#478 — see the PatchType
+# note above) fail identically in every mode, so they pin once per stem. The
+# stems are STABLE across exports since the corpus generator was seeded
+# (#532) — a deliberate seed bump regenerates this table (run the replay,
+# pin what fails).
 _FUZZ_DIFFS: dict[str, frozenset[str]] = {
-    'Patch_Fuzz___122b8585aa4f': frozenset({'compose round trip', 'invert round trip'}),
-    'Patch_Fuzz___19262e7451b3': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
-    'Patch_Fuzz___19b76faa3c47': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
     'Patch_Fuzz___2b0ccf4b6729': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
-    'Patch_Fuzz___4c17ec4ab855': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
     'Patch_Fuzz___7608deb8b3bb': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
-    'Patch_Fuzz___98e128b1904b': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
-    'Patch_Fuzz___b2c20d642a20': frozenset({'compose round trip'}),
+    'Patch_Fuzz___b2c20d642a20': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
 }
 KNOWN_DIFFS.update({
-    (mode, stem): ('fuzz cases with function-valued/recursive containers — #476/#478', diffs)
+    (mode, stem): ('py PatchType over recursive types diverges from the declared patch type — #475/#478', diffs)
     for stem, diffs in _FUZZ_DIFFS.items()
     for mode in MODES
 })

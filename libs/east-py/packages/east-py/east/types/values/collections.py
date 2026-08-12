@@ -3273,11 +3273,13 @@ class EastDict(Generic[K, V]):
             return  # traced, or not an East value — existing coercion applies
         if actual.type == "Dict" and not len(other):
             # No slots to misread, so no unsafe decode is possible. This is not
-            # a loophole but a necessity: the group_* sugar folds an empty
-            # placeholder-typed accumulator (group_reduce types an empty result
-            # `(element_type, element_type)`) into a correctly-typed counts
-            # dict, and that composition is sound precisely because it copies
-            # nothing.
+            # a loophole but a necessity: the segment-streamed file surfaces
+            # union per-segment results, and an EMPTY segment's result carries
+            # placeholder type labels (an untypeable callback on no rows infers
+            # nothing). The union methods pair this allowance with an
+            # empty-`other` short-circuit, so the mislabelled (but contentless)
+            # value never crosses into east-c — the funnel's declared-type
+            # marshalling would rightly refuse its pointer (#534).
             return
         _require_operand_type(other, _DictT(self.key_type, self.value_type), op)
 
@@ -3334,6 +3336,11 @@ class EastDict(Generic[K, V]):
 
         self._require_same_dict_type(other, "union")
         result = _call_builtin("DictCopy", [self.key_type, self.value_type], [self], DictType(self.key_type, self.value_type))
+        if isinstance(other, EastDict) and len(other) == 0:
+            # Nothing to add — and an empty `other` may carry placeholder type
+            # labels (see _require_same_dict_type), which must not cross into
+            # east-c as a mislabelled pointer.
+            return result
         _call_builtin("DictUnionInPlace", [self.key_type, self.value_type],
                       [result, other, self._union_combine(combine)], NullType)
         return result
@@ -3356,6 +3363,11 @@ class EastDict(Generic[K, V]):
 
         self._require_same_dict_type(other, "union_in_place")
         self._check_not_iterating()
+        if isinstance(other, EastDict) and len(other) == 0:
+            # Nothing to add — and an empty `other` may carry placeholder type
+            # labels (see _require_same_dict_type), which must not cross into
+            # east-c as a mislabelled pointer.
+            return
         _call_builtin("DictUnionInPlace", [self.key_type, self.value_type],
                       [self, other, self._union_combine(combine)], NullType)
 
