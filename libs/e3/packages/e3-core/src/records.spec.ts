@@ -590,8 +590,12 @@ describe('frozen reducer state (#539)', () => {
 
   it('reducer state is frozen: in-place mutation reports the uniform error, copy-first commits', async () => {
     const inPlace = await recordMutate(storage, realRunner, repo, ws, 'kv', 'bump', [], { actor: 'cli:test' });
-    assert.strictEqual(inPlace.kind, 'failed');
-    assert.match((inPlace as { stderr: string }).stderr, FROZEN);
+    assert.strictEqual(inPlace.kind, 'failed', JSON.stringify(inPlace));
+    // The whole outcome rides the failure message: the exit code separates a
+    // reducer that raised (the catch printed and exited 1) from one that died
+    // without reaching its error path.
+    assert.match((inPlace as { stderr: string }).stderr, FROZEN,
+      `frozen refusal reaches the caller's stderr: ${JSON.stringify(inPlace)}`);
     assert.strictEqual((await recordHistory(storage, repo, ws, 'kv')).length, 1, 'nothing committed');
 
     const copied = await recordMutate(storage, realRunner, repo, ws, 'kv', 'bumpCopy', [], { actor: 'cli:test' });
