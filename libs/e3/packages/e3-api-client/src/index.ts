@@ -106,9 +106,12 @@ export {
   datasetGet,
   datasetGetPage,
   datasetGetStatus,
+  datasetFindKey,
   datasetSet,
   type DatasetPage,
   type DatasetPageWindow,
+  type DatasetFindQuery,
+  type DatasetFindResult,
 } from './datasets.js';
 
 // Tasks

@@ -21,7 +21,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ApiError, datasetGetPage } from '@elaraai/e3-api-client';
+import { ApiError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { none, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
@@ -32,11 +32,39 @@ import {
     type ValueTreePaging,
 } from '@elaraai/east-ui-components';
 import { StatusDisplay } from './StatusDisplay.js';
+import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from './DatasetKeySearch.js';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
 import { pagingDebug } from '../debug.js';
 
 /** Elements fetched per page — one remote window per scroll-ahead page. */
 const PAGE_SIZE = 500;
+
+/** Loaded pages retained around the current window. Materialized rows are
+ *  heavy (each row's whole value becomes ValueTree node IR — wide rows run
+ *  to tens of KB apiece), so unbounded retention OOMs the webview on
+ *  GB-scale datasets, and re-flattening every retained page on each page
+ *  arrival is what made scrolling degrade over time. Evicted pages fall
+ *  back to placeholders and reload on return (raw page bytes stay in the
+ *  hash-pinned query cache, so a return pays decode + materialize only). */
+const MAX_RETAINED_PAGES = 8;
+
+/** Drops loaded pages far from the window `[firstPage, lastPage]`, keeping
+ *  the window itself and then the nearest pages up to the retention cap. */
+export function pruneRetainedPages<T>(
+    pages: ReadonlyMap<number, T>,
+    firstPage: number,
+    lastPage: number,
+    max: number,
+): ReadonlyMap<number, T> {
+    if (pages.size <= max) return pages;
+    const distance = (p: number): number => (p < firstPage ? firstPage - p : p > lastPage ? p - lastPage : 0);
+    const keep = [...pages.keys()].sort((a, b) => distance(a) - distance(b) || a - b).slice(0, max);
+    const kept = new Map<number, T>();
+    for (const p of keep.sort((a, b) => a - b)) {
+        kept.set(p, pages.get(p)!);
+    }
+    return kept;
+}
 
 export interface PagedDatasetPreviewProps {
     apiUrl: string;
@@ -108,6 +136,8 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     const [totals, setTotals] = useState<{ elements: number; bytes: number } | null>(null);
     const [loadingCount, setLoadingCount] = useState(0);
     const [error, setError] = useState<Error | null>(null);
+    /** Key-search jump target — the tree's controlled scrollToRow (#520). */
+    const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
     const inflightRef = useRef(new Set<number>());
 
     // A new value (content hash) invalidates every page.
@@ -116,6 +146,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         setPages(new Map());
         setTotals(null);
         setError(null);
+        setJumpRow(undefined);
         inflightRef.current.clear();
     }, [path, hash]);
 
@@ -170,8 +201,47 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             if (!pages.has(p)) missing.push(p);
         }
         pagingDebug(`need rows [${startRow}, ${endRow}) → pages ${first}..${last}, missing=[${missing.join(',')}], inflight=[${[...inflightRef.current].join(',')}]`);
+        // Retention: drop pages far from this window (same reference back —
+        // and no re-render — while under the cap), so heap and per-arrival
+        // re-flatten stay bounded however far the user roams.
+        setPages((prev) => pruneRetainedPages(prev, first, last, MAX_RETAINED_PAGES));
         for (const p of missing) loadPage(p);
     }, [pages, loadPage]);
+
+    // Key search (#520): queries resolve server-side against the segment
+    // fences; results and popup windows are hash-pinned and immutable, so
+    // repeated type-ahead queries are cache hits.
+    const keyType = useMemo<EastTypeValue | null>(() => (
+        type.type === 'Dict' ? (type.value as { key: EastTypeValue; value: EastTypeValue }).key
+        : type.type === 'Set' ? type.value as EastTypeValue
+        : null
+    ), [type]);
+    const pathParts = useMemo(() => path.split('.').filter(Boolean).map((v) => variant('field', v)), [path]);
+    const onFindKey = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
+        const reqOpts = requestOptions ?? { token: null };
+        const queryTag = JSON.stringify(query);
+        const result = await queryClient.fetchQuery({
+            queryKey: ['datasetFind', apiUrl, repo, workspace, path, hash, queryTag],
+            queryFn: () => datasetFindKey(apiUrl, repo, workspace, pathParts, { ...query, hash }, reqOpts),
+            staleTime: Infinity, // hash-pinned: one content hash, one answer
+        });
+        pagingDebug(`find ${queryTag}: found=${result.found} row=${result.row} count=${result.count}`);
+        return result;
+    }, [queryClient, apiUrl, repo, workspace, path, hash, pathParts, requestOptions]);
+    const onListRange = useCallback(async (row: number, limit: number): Promise<string[]> => {
+        const reqOpts = requestOptions ?? { token: null };
+        const page = await queryClient.fetchQuery({
+            queryKey: ['datasetPage', apiUrl, repo, workspace, path, hash, `w${row}:${limit}`],
+            queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: row, limit, hash }, reqOpts),
+            staleTime: Infinity,
+        });
+        const decoded = decodeBeast2For(type)(page.data);
+        const stringKeys = keyType !== null && keyType.type === 'String';
+        const keys = type.type === 'Dict'
+            ? [...(decoded as Map<unknown, unknown>).keys()]
+            : [...(decoded as Set<unknown>).values()];
+        return keys.map((k) => (stringKeys ? k as string : ValueTree.keyLabel(keyType as never, k)));
+    }, [queryClient, apiUrl, repo, workspace, path, hash, pathParts, requestOptions, type, keyType]);
 
     const treeValue = useMemo<ValueTreeValue>(() => ({
         root: ValueTree.materialize(type, emptyOf(type)),
@@ -188,8 +258,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             pageSize: PAGE_SIZE,
             pages,
             onNeedRows,
+            scrollToRow: jumpRow,
         }
-    ), [totals, pages, onNeedRows]);
+    ), [totals, pages, onNeedRows, jumpRow]);
 
     if (error !== null) {
         // The server refusing for its own safety (read cap) is not a
@@ -219,6 +290,10 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
                     {totals.elements.toLocaleString()} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes)}
                 </Text>
                 {loadingCount > 0 && <Text fontSize="xs" color="fg.muted">Loading…</Text>}
+                {keyType !== null && (
+                    <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange}
+                        onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
+                )}
                 <Flex flex={1} justify="flex-end">
                     <DownloadButton onClick={onDownload} />
                 </Flex>

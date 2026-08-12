@@ -23,6 +23,9 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         "itemIndicator", "itemGroup", "itemGroupLabel", "empty", "indicatorGroup",
     ],
     base: {
+        root: {
+            width: "100%",
+        },
         // The bordered shell wears the shared chrome; the inner input carries
         // the padding + font, so the control's own padding is zeroed and focus
         // is tracked with `_focusWithin`.
@@ -37,6 +40,11 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         },
         input: {
             flex: 1,
+            /* Shrinkable + ellipsized: a long placeholder (struct key
+             * signatures) truncates instead of running under the trigger
+             * icons. */
+            minWidth: "0",
+            textOverflow: "ellipsis",
             minHeight: "0",
             background: "transparent",
             border: "none",
@@ -51,8 +59,22 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             outline: "none",
             _placeholder: { color: "fg.subtle" },
         },
+        /* In-flow beside the input (the merged Chakra default absolutely
+         * positions this over the input's end, where custom input padding
+         * lets long text run underneath it). */
+        indicatorGroup: {
+            position: "static",
+            display: "flex",
+            alignItems: "center",
+            flexShrink: 0,
+        },
         trigger: {
             paddingX: "{spacing.2}",
+            color: "fg.muted",
+            cursor: "pointer",
+        },
+        clearTrigger: {
+            paddingX: "{spacing.1}",
             color: "fg.muted",
             cursor: "pointer",
         },
@@ -82,5 +104,20 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         },
         itemGroupLabel: { textStyle: "caption.eyebrow", paddingX: "{spacing.3}", paddingY: "{spacing.2}" },
         label: { textStyle: "caption.eyebrow", marginBottom: "{spacing.1}" },
+    },
+    variants: {
+        variant: {
+            /* The merged Chakra default styles the INNER input per variant —
+             * a 1px border and an inside focus ring — and default variant
+             * styles beat custom base. The control shell wears the one field
+             * ring (`_focusWithin` above), so the input stays chromeless. */
+            outline: {
+                input: {
+                    borderWidth: "0",
+                    focusVisibleRing: "none",
+                    _focusVisible: { outline: "none", boxShadow: "none" },
+                },
+            },
+        },
     },
 });

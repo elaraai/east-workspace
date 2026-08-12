@@ -55,6 +55,16 @@ export interface VirtualRowsProps {
     count: number;
     /** Estimated pixel height of row `index` (measured precisely once mounted). */
     estimateSize: (index: number) => number;
+    /**
+     * Whether to measure mounted rows (default true). Pass `false` when rows
+     * are FIXED-HEIGHT (`estimateSize` is exact): rows then sit at exact
+     * multiples of the fixed height. Fixed-height collections must opt out —
+     * under browser zoom, measurement reports device-snapped fractional
+     * heights even for a fixed-height box, and the accumulated drift between
+     * measured offsets and rendered boxes paints as stray hairline rules and
+     * vertically clipped row text (#533).
+     */
+    measureRows?: boolean | undefined;
     /** Renders body row `index` — a full-width, self-contained row element. */
     renderRow: (index: number) => ReactNode;
     /** Rows above/below the viewport to keep mounted (default 4). */
@@ -86,7 +96,7 @@ export interface VirtualRowsProps {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, footer, count, estimateSize, renderRow,
+        header, footer, count, estimateSize, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
     } = props;
     const h = parseCssSize(props.height);
@@ -161,20 +171,43 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 </Box>
             )}
             <Box ref={itemsRef} position="relative" height={`${virtualizer.getTotalSize()}px`} minWidth={minWidth}>
-                {items.map((item) => (
+                {measureRows ? (
+                    items.map((item) => (
+                        <Box
+                            key={item.key}
+                            data-index={item.index}
+                            ref={virtualizer.measureElement}
+                            position="absolute"
+                            top="0"
+                            left="0"
+                            width="100%"
+                            style={{ transform: `translateY(${item.start - itemsOffset}px)` }}
+                        >
+                            {renderRow(item.index)}
+                        </Box>
+                    ))
+                ) : items.length > 0 && (
+                    // Fixed-row window: ONE translated normal-flow column.
+                    // Adjacent rows share edges inside a single layer, so row
+                    // backgrounds (hover, match highlight) cannot rasterize
+                    // hairline seams between rows — per-row transformed
+                    // layers can, whenever fractional zoom / devicePixelRatio
+                    // puts some rows' offsets on fractional device pixels
+                    // (#533).
                     <Box
-                        key={item.key}
-                        data-index={item.index}
-                        ref={virtualizer.measureElement}
                         position="absolute"
                         top="0"
                         left="0"
                         width="100%"
-                        style={{ transform: `translateY(${item.start - itemsOffset}px)` }}
+                        style={{ transform: `translateY(${items[0]!.start - itemsOffset}px)` }}
                     >
-                        {renderRow(item.index)}
+                        {items.map((item) => (
+                            <Box key={item.key} data-index={item.index}>
+                                {renderRow(item.index)}
+                            </Box>
+                        ))}
                     </Box>
-                ))}
+                )}
             </Box>
             {footer}
         </Box>

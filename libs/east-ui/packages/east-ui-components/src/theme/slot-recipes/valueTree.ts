@@ -38,8 +38,14 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.3}",
             paddingY: "3px",
-            minHeight: "32px",
+            /* FIXED height, not min: the renderer virtualizes rows at exact
+             * 32px multiples without per-row measurement (#533) — a row that
+             * grew would overlap its neighbour. Inline editors are capped to
+             * 26px below, so every row's content fits. */
+            height: "32px",
             _hover: { background: "bg.subtle" },
+            /* Transient search-jump highlight (#520). */
+            "&[data-match]": { background: "bg.brand.subtle" },
             _focusVisible: {
                 outline: "2px solid",
                 outlineColor: "border.brand",

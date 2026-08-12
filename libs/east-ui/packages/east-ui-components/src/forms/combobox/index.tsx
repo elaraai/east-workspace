@@ -45,12 +45,18 @@ export function toChakraCombobox(value: ComboboxRootValue) {
 
 export interface EastChakraComboboxProps {
     value: ComboboxRootValue;
+    /** How committing an option treats the typed input text: `"replace"`
+     *  (the default) writes the option's label into the input, `"preserve"`
+     *  leaves the typed text untouched (host-driven search boxes, where the
+     *  label is display-only and replacing — then re-syncing the controlled
+     *  empty selection — would wipe the query), `"clear"` empties it. */
+    selectionBehavior?: 'clear' | 'replace' | 'preserve';
 }
 
 /**
  * Renders an East UI Combobox value using Chakra UI Combobox component.
  */
-export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: EastChakraComboboxProps) {
+export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -105,6 +111,7 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: Ea
     return (
         <ChakraCombobox.Root
             {...props}
+            {...(selectionBehavior !== undefined && { selectionBehavior })}
             collection={collection}
             inputValue={inputValue}
             onValueChange={handleValueChange}
@@ -133,4 +140,4 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: Ea
             </Portal>
         </ChakraCombobox.Root>
     );
-}, (prev, next) => comboboxRootEqual(prev.value, next.value));
+}, (prev, next) => comboboxRootEqual(prev.value, next.value) && prev.selectionBehavior === next.selectionBehavior);

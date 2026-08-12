@@ -246,6 +246,101 @@ export async function datasetGetPage(
   };
 }
 
+/** Query for {@link datasetFindKey}, optionally pinned to a content hash:
+ *  `key` (a whole-key `.east` literal, any key type), `prefix` (String
+ *  keys — or, for Struct keys, a prefix on the FIRST field when it is a
+ *  String), or `fields` (Struct keys: `.east` literals of exact leading
+ *  fields in declaration order, optionally with `prefix` continuing into
+ *  the next String field). Every form addresses one contiguous row range
+ *  in the canonical key order. Pinned queries are immutable-cacheable
+ *  (same URL ⇒ same answer); a stale pin is refused with an error rather
+ *  than answered against different content. */
+export type DatasetFindQuery = ({ key: string } | { prefix: string } | { fields: string[]; prefix?: string }) & { hash?: string };
+
+/** A key-search result over a Set/Dict dataset. */
+export interface DatasetFindResult {
+  /** Whether any row matched. */
+  found: boolean;
+  /** Global element index of the match — a prefix range's first row; for a
+   *  miss, the key's insertion row. Rows address the canonical East key
+   *  order, the same row space {@link datasetGetPage} element windows
+   *  serve. */
+  row: number;
+  /** Number of matched rows (1/0 for an exact key). */
+  count: number;
+  /** Content hash of the source object — cache key for the result. */
+  hash: string;
+}
+
+/**
+ * Locate a key (or string-prefix range) in a Set/Dict dataset by global
+ * element row.
+ *
+ * The server binary-searches the stored blob's segment fences with the key
+ * type's East comparator and decodes at most two segments — never the
+ * whole collection — so a lookup in a very large keyed dataset stays
+ * O(log segments). The resulting `row` plugs straight into a
+ * {@link datasetGetPage} element window (e.g. a paged viewer's scroll
+ * position).
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset (e.g., ['inputs', 'rows'])
+ * @param query - The key literal or string prefix to locate
+ * @param options - Request options including auth token
+ * @returns The match's row placement and count
+ * @throws {ApiError} On application-level errors (non-keyed dataset,
+ *   unparsable key literal, stale hash pin, index-less blob)
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetFindKey(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetFindQuery,
+  options: RequestOptions
+): Promise<DatasetFindResult> {
+  const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
+  const params = new URLSearchParams({ find: 'true' });
+  if ('fields' in query) {
+    for (const field of query.fields) {
+      params.append('field', field);
+    }
+    if (query.prefix !== undefined) {
+      params.set('prefix', query.prefix);
+    }
+  } else if ('key' in query) {
+    params.set('key', query.key);
+  } else {
+    params.set('prefix', query.prefix);
+  }
+  if (query.hash !== undefined) {
+    params.set('hash', query.hash);
+  }
+  const response = await fetchWithAuth(
+    `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    },
+    options
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = parseErrorBody(text, `http_${response.status}`);
+    if (response.status === 401) {
+      throw new AuthError(error.details as string ?? 'Authentication required');
+    }
+    throw error;
+  }
+
+  const body = await response.json() as { found: boolean; row: number; count: number };
+  return { ...body, hash: response.headers.get('X-Content-SHA256') ?? '' };
+}
+
 const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 
 /**

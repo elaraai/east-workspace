@@ -118,9 +118,12 @@ function EastChakraConfiguratorImpl({ value, storageKey }: EastChakraConfigurato
             <Box key={`${control.label}-${i}`} css={styles.row} {...stackedAttr}>
                 <Box css={styles.rowLabel}>{control.label}</Box>
                 <Box css={styles.rowControl}>
+                    {/* The dispatcher's keyless sentinel is '' (childKey
+                      * treats it as root), so a keyless configurator hands
+                      * its children the root key rather than undefined. */}
                     <EastChakraComponent
                         value={control.control}
-                        storageKey={storageKey === undefined ? undefined : `${storageKey}.control.${i}`}
+                        storageKey={storageKey === undefined ? '' : `${storageKey}.control.${i}`}
                     />
                     {hint !== undefined && <Box css={styles.rowHint}>{hint}</Box>}
                 </Box>
@@ -167,7 +170,7 @@ function EastChakraConfiguratorImpl({ value, storageKey }: EastChakraConfigurato
                 <Box css={styles.preview}>
                     <EastChakraComponent
                         value={value.preview}
-                        storageKey={storageKey === undefined ? undefined : `${storageKey}.preview`}
+                        storageKey={storageKey === undefined ? '' : `${storageKey}.preview`}
                     />
                 </Box>
 
@@ -176,7 +179,7 @@ function EastChakraConfiguratorImpl({ value, storageKey }: EastChakraConfigurato
                         <Box css={styles.asideTitle}>{aside.label}</Box>
                         <EastChakraComponent
                             value={aside.body}
-                            storageKey={storageKey === undefined ? undefined : `${storageKey}.aside`}
+                            storageKey={storageKey === undefined ? '' : `${storageKey}.aside`}
                         />
                     </Box>
                 )}

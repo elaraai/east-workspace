@@ -11,6 +11,7 @@ import {
   listDatasetsRecursive,
   listDatasetsRecursivePaths,
   listDatasetsWithStatus,
+  findDatasetKey,
   getDataset,
   getDatasetPage,
   getDatasetStatus,
@@ -80,6 +81,7 @@ export function createDatasetRoutes(
     const recursive = c.req.query('recursive') === 'true';
     const status = c.req.query('status') === 'true';
     const page = c.req.query('page') === 'true';
+    const find = c.req.query('find') === 'true';
 
     if (recursive && !list) {
       return c.json({ error: 'recursive requires list=true' }, 400);
@@ -90,6 +92,20 @@ export function createDatasetRoutes(
     if (list && status)              return listDatasetsWithStatus(storage, repoPath, ws, treePath);
     if (list)                        return listDatasets(storage, repoPath, ws, treePath);
     if (status)                      return getDatasetStatus(storage, repoPath, ws, treePath);
+    if (find) {
+      const hash = c.req.query('hash');
+      const key = c.req.query('key');
+      const prefix = c.req.query('prefix');
+      const fields = c.req.queries('field');
+      return findDatasetKey(storage, repoPath, ws, treePath, {
+        ...(key !== undefined && { key }),
+        ...(prefix !== undefined && { prefix }),
+        ...(fields !== undefined && fields.length > 0 && { fields }),
+        ...(hash !== undefined && hash !== '' && { hash }),
+      }, {
+        ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
+      });
+    }
     if (page) {
       const hash = c.req.query('hash');
       const window = {
