@@ -236,8 +236,9 @@ syntax, fastest first:
   eager on plain values, an East `IfElse` on traced expressions — the same
   lambda works on both paths.
 - Arithmetic follows East types exactly: no implicit Integer↔Float mixing
-  (`.to_float()` / `.to_integer()` convert), `//` is East IntegerDivide,
-  `/` is Float division. Struct fields read as attributes or items
+  (`.to_float()` / `.to_integer()` convert), `//` is East IntegerDivide —
+  truncation toward zero, NOT python's floored `//` — and `/` is Float
+  division. Struct fields read as attributes or items
   (`r.price` / `r["price"]` — both trace, and both work on real rows).
 - Each eager call re-traces (compilation is tens of µs — amortised over the
   loop); hoist a `kernel(...)` if you call the same lambda in a tight

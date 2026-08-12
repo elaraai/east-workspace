@@ -42,6 +42,29 @@ await describe("Integer", (test) => {
         $(assert.equal(East.value(-9223372036854775808n).remainder(-1n), 0n));
     });
 
+    test("Mixed-sign division truncates toward zero", $ => {
+        // The quotient truncates toward zero (the reference compiler's bigint
+        // division), never Python-style flooring (#397)
+        $(assert.equal(East.value(-10n).divide(3n), -3n));
+        $(assert.equal(East.value(10n).divide(-3n), -3n));
+        $(assert.equal(East.value(-10n).divide(-3n), 3n));
+        $(assert.equal(East.value(-9n).divide(3n), -3n));
+        $(assert.equal(East.value(7n).divide(2n), 3n));
+        $(assert.equal(East.value(-7n).divide(2n), -3n));
+        $(assert.equal(East.value(7n).divide(-2n), -3n));
+        $(assert.equal(East.value(-7n).divide(-2n), 3n));
+
+        // remainder carries the dividend's sign, pairing with truncation so
+        // a == (a/b)*b + a%b holds for mixed signs
+        $(assert.equal(East.value(-10n).remainder(3n), -1n));
+        $(assert.equal(East.value(10n).remainder(-3n), 1n));
+        $(assert.equal(East.value(-10n).remainder(-3n), -1n));
+        $(assert.equal(
+            East.value(-10n).divide(3n).multiply(3n).add(East.value(-10n).remainder(3n)), -10n));
+        $(assert.equal(
+            East.value(10n).divide(-3n).multiply(-3n).add(East.value(10n).remainder(-3n)), 10n));
+    });
+
     assert.examples(test, {
         integerPrint: ex.integerPrint,
         integerPrintCommaSeperated: ex.integerPrintCommaSeperated,
