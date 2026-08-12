@@ -26,7 +26,7 @@ import {
     NullType,
     printType,
 } from "../types.js";
-import { randomType, randomValueFor, randomRecursiveType, randomFunctionType } from "../fuzz.js";
+import { randomType, randomValueFor, randomRecursiveType, randomFunctionType, seedFuzz } from "../fuzz.js";
 
 /**
  * A generated test case containing a random type and sample values for testing.
@@ -64,6 +64,11 @@ export interface FuzzTestOptions {
     attemptsMultiplier?: number;
     /** Ensure diverse type coverage (at least one of each kind) */
     ensureDiversity?: boolean;
+    /** Seed for the deterministic random stream. The generated cases form a
+     *  cross-runtime replay corpus whose suite names downstream pins key on,
+     *  so generation must reproduce across exports — bump the seed
+     *  deliberately to mint a fresh corpus. */
+    seed?: number;
 }
 
 const DEFAULT_OPTIONS: Required<FuzzTestOptions> = {
@@ -74,6 +79,7 @@ const DEFAULT_OPTIONS: Required<FuzzTestOptions> = {
     maxValueRetries: 20,
     attemptsMultiplier: 3,
     ensureDiversity: true,
+    seed: 0xea57,
 };
 
 /**
@@ -150,6 +156,9 @@ function getDiverseTypes(includeRecursive: boolean, includeFunctions: boolean): 
  */
 export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCase[] {
     const opts = { ...DEFAULT_OPTIONS, ...options };
+    // Reseed at entry so the corpus reproduces regardless of what consumed
+    // the stream earlier in the process.
+    seedFuzz(opts.seed);
     const testCases: FuzzTestCase[] = [];
     const seenTypes = new Set<string>();
 

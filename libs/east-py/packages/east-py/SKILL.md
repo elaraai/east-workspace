@@ -651,6 +651,22 @@ that still run python, so you can reason about cost and semantics:
   immutable) — copy first` — call `.copy()` to derive a mutable value.
   Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
   through the proxy; frozen collections compare by value under `Is`.
+- **f-strings cannot trace.** An f-string over a kernel parameter raises a
+  named `KernelTraceError` in an explicit `kernel()` (it would constant-fold
+  the proxy into the result); on the eager path the lambda falls back to the
+  per-element python path and computes correctly. Build traced strings with
+  `+` concatenation.
+- **`EAST_KERNEL_STRICT=1`** turns the silent per-element fallback into a
+  loud error for callbacks that PASS the purity gate but fail to trace (the
+  hours-not-errors failure mode) — genuinely-python lambdas keep their
+  silent fallback either way. Use it in perf work and CI for kernel-heavy
+  jobs.
+- **The traced twins accept the eager keywords** — `out=` (`map`,
+  `filter_map`, `map_reduce`, `flatten_to_array/set`, `to_array`, `to_set`),
+  `key_out=`/`value_out=` (`to_dict`), `key_out=`/`acc_out=` (`group_fold`),
+  `pred=`, `key=`, `value_fn=` — and an `out=`-family pin also TYPES the
+  callback's trace, so a pinned callback can build a general variant
+  (`variant(case, payload)`) without any other context.
 
 ## Core Concepts
 

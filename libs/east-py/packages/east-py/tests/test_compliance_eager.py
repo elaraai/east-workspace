@@ -121,69 +121,6 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Function'): (
         'function values crossing the py boundary (identity, serialization) — #476',
         frozenset({'Serialize a closure that captures an array to BEAST2', 'Serialize a closure that captures another function to BEAST2', 'Serialize a closure with an integer capture to BEAST2', 'Serialize a closure with multiple captures to BEAST2', 'Serialize a struct containing a function to BEAST2', 'Serialize an async closure with captures to BEAST2', 'Serialize deeply nested closures (A->B->C->value) to BEAST2', 'Store functions in an array and call them by index', 'array of functions', 'async function with captures serialized and called', 'closure capturing Dict', 'closure capturing Set', 'closure capturing another function serialized and called', 'closure capturing recursive type (linked list)', 'closure with array capture serialized and called', 'closure with integer capture serialized and called', 'closure with multiple captures serialized and called', 'deeply nested closures (A captures B captures C captures value)', 'recursive type with function field serialized and called', 'separate closures in struct do not share captures after deserialization', 'struct containing closure and captured value preserves identity', 'struct containing function serialized and called'})),
-    ('kernel', 'Patch_Fuzz___062a1c65d952'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___062a1c65d952'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'invert round trip'})),
-    ('traced', 'Patch_Fuzz___062a1c65d952'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'invert round trip'})),
-    ('kernel', 'Patch_Fuzz___19b76faa3c47'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___19b76faa3c47'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('traced', 'Patch_Fuzz___19b76faa3c47'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('kernel', 'Patch_Fuzz___1e1c1b5a63b7'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___1e1c1b5a63b7'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('traced', 'Patch_Fuzz___1e1c1b5a63b7'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('kernel', 'Patch_Fuzz___8ee509b21a13'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___8ee509b21a13'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('traced', 'Patch_Fuzz___8ee509b21a13'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('kernel', 'Patch_Fuzz___98e128b1904b'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___98e128b1904b'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('traced', 'Patch_Fuzz___98e128b1904b'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('kernel', 'Patch_Fuzz___c07dba9d2a08'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___c07dba9d2a08'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('traced', 'Patch_Fuzz___c07dba9d2a08'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'})),
-    ('kernel', 'Patch_Fuzz___c7637b618ea1'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'invert round trip'})),
-    ('trampoline', 'Patch_Fuzz___c7637b618ea1'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'invert round trip'})),
-    ('traced', 'Patch_Fuzz___c7637b618ea1'): (
-        'fuzz cases with function-valued/recursive containers — #476/#478',
-        frozenset({'compose round trip', 'invert round trip'})),
     ('kernel', 'Patch___E2E_All_Types'): (
         'recursive/function containers beyond quote and coercion — #476/#478',
         frozenset({'E2E: Deeply nested Expr AST with recursive types', 'E2E: JSON-like recursive type with Dict containing recursive values', 'E2E: Mutually-referential-like structure via deep nesting', 'E2E: Recursive type patch-compose-invert roundtrip'})),
@@ -212,6 +149,26 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
         'recursive value print/parse and comparison parity — #478',
         frozenset({'Create a struct-based recursive type (like an XML node)', 'Print then parse a value that recurses through a Dict value; the round-trip is equal', 'Print then parse a value that recurses through an Array element; the round-trip is equal', 'Struct-based recursive type', 'Struct-based recursive type with $.let'})),
 }
+
+# The fuzz cases with function-valued/recursive containers (#476/#478) fail
+# identically in every mode, so they pin once per stem. The stems are STABLE
+# across exports since the corpus generator was seeded (#532) — a deliberate
+# seed bump regenerates this table (run the replay, pin what fails).
+_FUZZ_DIFFS: dict[str, frozenset[str]] = {
+    'Patch_Fuzz___122b8585aa4f': frozenset({'compose round trip', 'invert round trip'}),
+    'Patch_Fuzz___19262e7451b3': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
+    'Patch_Fuzz___19b76faa3c47': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
+    'Patch_Fuzz___2b0ccf4b6729': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
+    'Patch_Fuzz___4c17ec4ab855': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
+    'Patch_Fuzz___7608deb8b3bb': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
+    'Patch_Fuzz___98e128b1904b': frozenset({'compose round trip', 'diff/apply round trip', 'invert round trip'}),
+    'Patch_Fuzz___b2c20d642a20': frozenset({'compose round trip'}),
+}
+KNOWN_DIFFS.update({
+    (mode, stem): ('fuzz cases with function-valued/recursive containers — #476/#478', diffs)
+    for stem, diffs in _FUZZ_DIFFS.items()
+    for mode in MODES
+})
 
 _TOTAL = Report()
 

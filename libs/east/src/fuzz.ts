@@ -37,11 +37,37 @@ import { printFor } from "./serialization/east.js";
 import { toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
 import { ref } from "./containers/ref.js";
 
+/** Deterministic PRNG state (mulberry32). The fuzz output is a cross-runtime
+ * REPLAY corpus: east-c and east-py compliance and the eager-replay pins all
+ * key on the generated suite names, so generation must reproduce byte-for-byte
+ * across exports. Reseed with {@link seedFuzz}; mint a fresh corpus by bumping
+ * the seed deliberately, never by reverting to `Math.random`. */
+let fuzzState = 0xea57 | 0;
+
+function random(): number {
+  fuzzState = (fuzzState + 0x6d2b79f5) | 0;
+  let t = Math.imul(fuzzState ^ (fuzzState >>> 15), 1 | fuzzState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/**
+ * Reseeds the fuzz generator's deterministic random stream.
+ *
+ * Call at the start of a generation run so the produced types and values are
+ * reproducible regardless of what consumed the stream before.
+ *
+ * @param seed - the stream seed; equal seeds reproduce equal output
+ */
+export function seedFuzz(seed: number): void {
+  fuzzState = seed | 0;
+}
+
 /**
  * Generates a random primitive East type.
  */
 function randomPrimitiveType(): EastType {
-  const r = Math.random() * 7;
+  const r = random() * 7;
   if (r < 1) return NullType;
   if (r < 2) return BooleanType;
   if (r < 3) return IntegerType;
@@ -80,7 +106,7 @@ export function randomType(
   // Higher chance of primitives at deeper levels
   const primitiveWeight = depth >= maxDepth ? 0.9 : 0.5;
 
-  if (Math.random() < primitiveWeight) {
+  if (random() < primitiveWeight) {
     return randomPrimitiveType();
   }
 
@@ -89,7 +115,7 @@ export function randomType(
   if (includeRecursive && depth === 0) totalWeight += 1; // Recursive only at top level
   if (includeFunctions) totalWeight += 1;
 
-  const r = Math.random() * totalWeight;
+  const r = random() * totalWeight;
 
   if (r < 1) {
     // Array
@@ -102,7 +128,7 @@ export function randomType(
     return DictType(StringType, randomType(depth + 1, { includeRecursive: false, includeFunctions: false }));
   } else if (r < 4) {
     // Struct with 0-4 fields
-    const fieldCount = Math.floor(Math.random() * 5);
+    const fieldCount = Math.floor(random() * 5);
     const fields: Record<string, EastType> = {};
     for (let i = 0; i < fieldCount; i++) {
       fields[`field${i}`] = randomType(depth + 1, { includeRecursive: false, includeFunctions: false });
@@ -110,12 +136,12 @@ export function randomType(
     return StructType(fields);
   } else if (r < 5) {
     // Variant
-    if (Math.random() < 0.3) {
+    if (random() < 0.3) {
       // Option type (common variant pattern)
       return OptionType(randomType(depth + 1, { includeRecursive: false, includeFunctions: false }));
     } else {
       // Custom variant with 1-3 cases
-      const caseCount = 1 + Math.floor(Math.random() * 3);
+      const caseCount = 1 + Math.floor(random() * 3);
       const cases: Record<string, EastType> = {};
       for (let i = 0; i < caseCount; i++) {
         cases[`case${i}`] = randomType(depth + 1, { includeRecursive: false, includeFunctions: false });
@@ -125,11 +151,11 @@ export function randomType(
   } else if (r < 6) {
     // Vector with random numeric element type
     const elemTypes = [FloatType, IntegerType, BooleanType];
-    return VectorType(elemTypes[Math.floor(Math.random() * elemTypes.length)]!);
+    return VectorType(elemTypes[Math.floor(random() * elemTypes.length)]!);
   } else if (r < 7) {
     // Matrix with random numeric element type
     const elemTypes = [FloatType, IntegerType, BooleanType];
-    return MatrixType(elemTypes[Math.floor(Math.random() * elemTypes.length)]!);
+    return MatrixType(elemTypes[Math.floor(random() * elemTypes.length)]!);
   } else if (r < 8 && includeRecursive && depth === 0) {
     // Recursive type - only at top level to avoid nested recursion complexity
     return randomRecursiveType();
@@ -154,7 +180,7 @@ export function randomType(
  */
 export function randomRecursiveType(): EastType {
   const innerType = randomPrimitiveType();
-  const pattern = Math.floor(Math.random() * 5);
+  const pattern = Math.floor(random() * 5);
 
   switch (pattern) {
     case 0:
@@ -215,19 +241,19 @@ export function randomRecursiveType(): EastType {
  * Output types are also kept simple to avoid excessive nesting.
  */
 export function randomFunctionType(): EastType {
-  const argCount = Math.floor(Math.random() * 4);
+  const argCount = Math.floor(random() * 4);
   const args: EastType[] = [];
 
   for (let i = 0; i < argCount; i++) {
     // Use simple types for arguments to keep things manageable
-    const argType = Math.random() < 0.7
+    const argType = random() < 0.7
       ? randomPrimitiveType()
       : ArrayType(randomPrimitiveType());
     args.push(argType);
   }
 
   // Output type - also keep simple
-  const outputType = Math.random() < 0.7
+  const outputType = random() < 0.7
     ? randomPrimitiveType()
     : StructType({
         result: randomPrimitiveType(),
@@ -295,37 +321,37 @@ function buildValueGenerator(
   } else if (type.type === "Null") {
     return () => null;
   } else if (type.type === "Boolean") {
-    return () => Math.random() < 0.5;
+    return () => random() < 0.5;
   } else if (type.type === "Integer") {
-    return () => BigInt(Math.floor(Math.random() * 200) - 100);
+    return () => BigInt(Math.floor(random() * 200) - 100);
   } else if (type.type === "Float") {
     return () => {
-      const r = Math.random();
+      const r = random();
       if (r < 0.05) return NaN;
       if (r < 0.10) return Infinity;
       if (r < 0.15) return -Infinity;
       if (r < 0.20) return 0.0;
       if (r < 0.25) return -0.0;
-      return Math.random() * 200 - 100;
+      return random() * 200 - 100;
     };
   } else if (type.type === "String") {
     return () => {
-      const length = Math.floor(Math.random() * 20);
+      const length = Math.floor(random() * 20);
       if (length === 0) return "";
-      return Math.random().toString(36).substring(2, 2 + length);
+      return random().toString(36).substring(2, 2 + length);
     };
   } else if (type.type === "DateTime") {
     return () => {
       const year2025 = new Date("2025-01-01T00:00:00.000Z").valueOf();
       const oneYear = 1000 * 60 * 60 * 24 * 365;
-      return new Date(year2025 + Math.floor(Math.random() * oneYear));
+      return new Date(year2025 + Math.floor(random() * oneYear));
     };
   } else if (type.type === "Blob") {
     return () => {
-      const length = Math.floor(Math.random() * 100);
+      const length = Math.floor(random() * 100);
       const arr = new Uint8Array(length);
       for (let i = 0; i < length; i++) {
-        arr[i] = Math.floor(Math.random() * 256);
+        arr[i] = Math.floor(random() * 256);
       }
       return arr;
     };
@@ -339,7 +365,7 @@ function buildValueGenerator(
     let itemGen: (depth: number) => any;
     const ret = (depth: number) => {
       const maxLen = depth >= ctx.maxDepth ? 0 : Math.max(1, 5 - depth);
-      const length = Math.floor(Math.random() * (maxLen + 1));
+      const length = Math.floor(random() * (maxLen + 1));
       return Array.from({ length }, () => itemGen(depth));
     };
     itemGen = buildValueGenerator(type.value, ctx);
@@ -353,7 +379,7 @@ function buildValueGenerator(
     let itemGen: (depth: number) => any;
     const ret = (depth: number) => {
       const maxLen = depth >= ctx.maxDepth ? 0 : 5;
-      const length = Math.floor(Math.random() * (maxLen + 1));
+      const length = Math.floor(random() * (maxLen + 1));
       const set = new SortedSet<any>(undefined, keyComparer);
       for (let i = 0; i < length; i++) {
         set.add(itemGen(depth));
@@ -368,7 +394,7 @@ function buildValueGenerator(
     let valueGen: (depth: number) => any;
     const ret = (depth: number) => {
       const maxLen = depth >= ctx.maxDepth ? 0 : 5;
-      const length = Math.floor(Math.random() * (maxLen + 1));
+      const length = Math.floor(random() * (maxLen + 1));
       const dict = new SortedMap<any, any>(undefined, keyComparer);
       for (let i = 0; i < length; i++) {
         dict.set(keyGen(depth), valueGen(depth));
@@ -400,16 +426,16 @@ function buildValueGenerator(
 
       let chosen: (typeof caseInfos)[number];
       if (depth >= ctx.maxDepth && terminalCases.length > 0) {
-        chosen = terminalCases[Math.floor(Math.random() * terminalCases.length)]!;
+        chosen = terminalCases[Math.floor(random() * terminalCases.length)]!;
       } else if (terminalCases.length > 0 && nonTerminalCases.length > 0) {
         const terminalProb = Math.min(0.3 + depth * 0.2, 0.9);
-        if (Math.random() < terminalProb) {
-          chosen = terminalCases[Math.floor(Math.random() * terminalCases.length)]!;
+        if (random() < terminalProb) {
+          chosen = terminalCases[Math.floor(random() * terminalCases.length)]!;
         } else {
-          chosen = nonTerminalCases[Math.floor(Math.random() * nonTerminalCases.length)]!;
+          chosen = nonTerminalCases[Math.floor(random() * nonTerminalCases.length)]!;
         }
       } else {
-        chosen = caseInfos[Math.floor(Math.random() * caseInfos.length)]!;
+        chosen = caseInfos[Math.floor(random() * caseInfos.length)]!;
       }
 
       return variant(chosen.name, chosen.gen(depth));
@@ -453,50 +479,50 @@ function buildValueGenerator(
   } else if (type.type === "Vector") {
     const elemType = type.value;
     return () => {
-      const length = Math.floor(Math.random() * 10);
+      const length = Math.floor(random() * 10);
       if (elemType.type === "Float") {
         const arr = new Float64Array(length);
         for (let i = 0; i < length; i++) {
-          const r = Math.random();
+          const r = random();
           if (r < 0.05) arr[i] = NaN;
           else if (r < 0.10) arr[i] = Infinity;
           else if (r < 0.15) arr[i] = -Infinity;
-          else arr[i] = Math.random() * 200 - 100;
+          else arr[i] = random() * 200 - 100;
         }
         return arr;
       } else if (elemType.type === "Integer") {
         const arr = new BigInt64Array(length);
-        for (let i = 0; i < length; i++) arr[i] = BigInt(Math.floor(Math.random() * 200) - 100);
+        for (let i = 0; i < length; i++) arr[i] = BigInt(Math.floor(random() * 200) - 100);
         return arr;
       } else {
         const arr = new Uint8ClampedArray(length);
-        for (let i = 0; i < length; i++) arr[i] = Math.random() < 0.5 ? 1 : 0;
+        for (let i = 0; i < length; i++) arr[i] = random() < 0.5 ? 1 : 0;
         return arr;
       }
     };
   } else if (type.type === "Matrix") {
     const elemType = type.value;
     return () => {
-      const rows = Math.floor(Math.random() * 5);
-      const cols = rows === 0 ? 0 : Math.floor(Math.random() * 5);
+      const rows = Math.floor(random() * 5);
+      const cols = rows === 0 ? 0 : Math.floor(random() * 5);
       const totalLen = rows * cols;
       if (elemType.type === "Float") {
         const data = new Float64Array(totalLen);
         for (let i = 0; i < totalLen; i++) {
-          const r = Math.random();
+          const r = random();
           if (r < 0.05) data[i] = NaN;
           else if (r < 0.10) data[i] = Infinity;
           else if (r < 0.15) data[i] = -Infinity;
-          else data[i] = Math.random() * 200 - 100;
+          else data[i] = random() * 200 - 100;
         }
         return matrix(data, rows, cols);
       } else if (elemType.type === "Integer") {
         const data = new BigInt64Array(totalLen);
-        for (let i = 0; i < totalLen; i++) data[i] = BigInt(Math.floor(Math.random() * 200) - 100);
+        for (let i = 0; i < totalLen; i++) data[i] = BigInt(Math.floor(random() * 200) - 100);
         return matrix(data, rows, cols);
       } else {
         const data = new Uint8ClampedArray(totalLen);
-        for (let i = 0; i < totalLen; i++) data[i] = Math.random() < 0.5 ? 1 : 0;
+        for (let i = 0; i < totalLen; i++) data[i] = random() < 0.5 ? 1 : 0;
         return matrix(data, rows, cols);
       }
     };
