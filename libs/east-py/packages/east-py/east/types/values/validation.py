@@ -57,7 +57,7 @@ EastValue = (
 def is_value_of(
     value: EastValue,
     typ: EastType,
-    type_ctx: list[EastType] | None = None,
+    type_ctx: dict[int, EastType] | None = None,
     nodes_visited: set[int] | None = None,
 ) -> bool:
     """Check if a value conforms to an East type.
@@ -65,7 +65,8 @@ def is_value_of(
     Args:
         value: The value to check
         typ: The East type to validate against
-        type_ctx: Internal parameter for resolving recursive type references
+        type_ctx: Internal map from recursive scope id to its wrapper type,
+            used to resolve ``ref`` back-references
         nodes_visited: Internal parameter for cycle detection in values
 
     Returns:
@@ -73,7 +74,7 @@ def is_value_of(
     """
     # Initialize type context if needed
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     # Handle Never type
     if typ["type"] == "Never":
@@ -117,57 +118,37 @@ def is_value_of(
     if typ["type"] == "Ref":
         if not isinstance(value, EastRef):
             return False
-        # Push current type onto context for recursive references
-        type_ctx.append(typ)
-        try:
-            return is_value_of(value.value, typ["value"], type_ctx, nodes_visited)  # type: ignore[typeddict-item]
-        finally:
-            type_ctx.pop()
+        return is_value_of(value.value, typ["value"], type_ctx, nodes_visited)  # type: ignore[typeddict-item]
 
     # Handle Array type
     if typ["type"] == "Array":
         if not isinstance(value, EastArray):
             return False
-        # Push current type onto context for recursive references
-        type_ctx.append(typ)
-        try:
-            for elem in value:
-                if not is_value_of(elem, typ["value"], type_ctx, nodes_visited):  # type: ignore[typeddict-item]
-                    return False
-            return True
-        finally:
-            type_ctx.pop()
+        for elem in value:
+            if not is_value_of(elem, typ["value"], type_ctx, nodes_visited):  # type: ignore[typeddict-item]
+                return False
+        return True
 
     # Handle Set type
     if typ["type"] == "Set":
         if not isinstance(value, EastSet):
             return False
-        # Push current type onto context for recursive references
-        type_ctx.append(typ)
-        try:
-            for elem in value:
-                if not is_value_of(elem, typ["value"], type_ctx, nodes_visited):  # type: ignore[typeddict-item]
-                    return False
-            return True
-        finally:
-            type_ctx.pop()
+        for elem in value:
+            if not is_value_of(elem, typ["value"], type_ctx, nodes_visited):  # type: ignore[typeddict-item]
+                return False
+        return True
 
     # Handle Dict type
     if typ["type"] == "Dict":
         if not isinstance(value, EastDict):
             return False
         dict_type = typ["value"]
-        # Push current type onto context for recursive references
-        type_ctx.append(typ)
-        try:
-            for k, v in value.items():
-                if not is_value_of(k, dict_type["key"], type_ctx, nodes_visited):
-                    return False
-                if not is_value_of(v, dict_type["value"], type_ctx, nodes_visited):
-                    return False
-            return True
-        finally:
-            type_ctx.pop()
+        for k, v in value.items():
+            if not is_value_of(k, dict_type["key"], type_ctx, nodes_visited):
+                return False
+            if not is_value_of(v, dict_type["value"], type_ctx, nodes_visited):
+                return False
+        return True
 
     # Handle Struct type — fields are matched by NAME, not position (the C
     # bridge marshals structs by name, so the validator must too).
@@ -177,18 +158,13 @@ def is_value_of(
         type_fields = typ["value"]
         if len(value) != len(type_fields):
             return False
-        # Push current type onto context for recursive references
-        type_ctx.append(typ)
-        try:
-            for field_def in type_fields:
-                field_name = field_def["name"]
-                if field_name not in value:
-                    return False
-                if not is_value_of(value[field_name], field_def["type"], type_ctx, nodes_visited):
-                    return False
-            return True
-        finally:
-            type_ctx.pop()
+        for field_def in type_fields:
+            field_name = field_def["name"]
+            if field_name not in value:
+                return False
+            if not is_value_of(value[field_name], field_def["type"], type_ctx, nodes_visited):
+                return False
+        return True
 
     # Handle Variant type
     if typ["type"] == "Variant":
@@ -198,30 +174,21 @@ def is_value_of(
         variant_value = value.value
         # Find the case type
         cases = typ["value"]
-        # Push current type onto context for recursive references
-        type_ctx.append(typ)
-        try:
-            for case in cases:
-                if case["name"] == variant_tag:
-                    return is_value_of(variant_value, case["type"], type_ctx, nodes_visited)
-            return False  # Case not found
-        finally:
-            type_ctx.pop()
+        for case in cases:
+            if case["name"] == variant_tag:
+                return is_value_of(variant_value, case["type"], type_ctx, nodes_visited)
+        return False  # Case not found
 
-    # Handle Recursive type
+    # Handle Recursive type: a wrapper binds its scope id, a ref resolves it.
     if typ["type"] == "Recursive":
-        scope_id = typ["value"]
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
+        payload = typ["value"]
+        if payload.type == "wrapper":
+            type_ctx[payload.value["id"]] = typ
+            return is_value_of(value, payload.value["inner"], type_ctx, nodes_visited)
 
-        # Resolve the scope_id to the actual type from the context stack
-        stack_index = len(type_ctx) - scope_id
-        if stack_index < 0 or stack_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} (type_ctx len={len(type_ctx)}, calculated index={stack_index})"
-            )
-
-        resolved_type = type_ctx[stack_index]
+        resolved_type = type_ctx.get(payload.value)
+        if resolved_type is None:
+            raise ValueError(f"is_value_of: unresolved Recursive ref({payload.value})")
 
         # Check for value cycles to avoid infinite recursion
         value_id = id(value)

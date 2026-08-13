@@ -121,12 +121,12 @@ def make_east_key(type_val: Any) -> type:
     return EastKey
 
 
-def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a type-specific equality function.
 
     Args:
         type_val: The East type to create an equality function for
-        type_ctx: Optional context for handling recursive types (internal use)
+        type_ctx: Internal map from recursive scope id to that scope's comparer
 
     Returns:
         A function that compares two values of the given type for equality
@@ -139,7 +139,7 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     from east.types.values import EastArray, EastDict, EastSet
 
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     if is_never_type(type_val):
 
@@ -221,7 +221,6 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
         return equal_matrix
 
     if is_array_type(type_val):
-        type_ctx.append(None)  # Placeholder
         value_comparer = equal_for(type_val.value, type_ctx)
 
         def equal_array(x: EastArray, y: EastArray, ctx=None) -> bool:
@@ -250,12 +249,9 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             # Compare elements
             return all(value_comparer(x[i], y[i], ctx) for i in range(len(x)))
 
-        type_ctx[-1] = equal_array
-        type_ctx.pop()  # Pop the Array from type_ctx
         return equal_array
 
     if is_set_type(type_val):
-        type_ctx.append(None)  # Placeholder
 
         def equal_set(x: EastSet, y: EastSet, _ctx=None) -> bool:
             if len(x) != len(y):
@@ -263,12 +259,9 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             # Sets use value equality via __contains__
             return all(item in y for item in x)
 
-        type_ctx[-1] = equal_set
-        type_ctx.pop()  # Pop the Set from type_ctx
         return equal_set
 
     if is_dict_type(type_val):
-        type_ctx.append(None)  # Placeholder
         value_comparer = equal_for(type_val.value["value"], type_ctx)
 
         def equal_dict(x: EastDict, y: EastDict, ctx=None) -> bool:
@@ -304,15 +297,11 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
 
             return True
 
-        type_ctx[-1] = equal_dict
-        type_ctx.pop()  # Pop the Dict from type_ctx
         return equal_dict
 
     if is_ref_type(type_val):
         from east.types.values import EastRef
 
-        # Get inner value comparer
-        type_ctx.append(None)  # Placeholder
         inner_comparer = equal_for(type_val.value, type_ctx)
 
         def equal_ref(x: EastRef, y: EastRef, ctx=None) -> bool:
@@ -337,8 +326,6 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             # Compare inner values
             return inner_comparer(x.value, y.value, ctx)
 
-        type_ctx[-1] = equal_ref
-        type_ctx.pop()  # Pop the Ref from type_ctx
         return equal_ref
 
     if is_struct_type(type_val):
@@ -368,13 +355,10 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
 
             return True
 
-        type_ctx.append(equal_struct)
-        # Structs don't record markers - only Variants do (they're the roots of recursive types)
         for field_struct in type_val.value:
             field_name = field_struct["name"]
             field_type = field_struct["type"]
             field_comparers.append((field_name, equal_for(field_type, type_ctx)))
-        type_ctx.pop()
         return equal_struct
 
     if is_variant_type(type_val):
@@ -408,27 +392,37 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             # Compare values
             return case_comparers[x_tag](x_val, y_val, ctx)
 
-        type_ctx.append(equal_variant)
         for case_struct in type_val.value:
             case_name = case_struct["name"]
             case_type = case_struct["type"]
             case_comparers[case_name] = equal_for(case_type, type_ctx)
-        type_ctx.pop()
         return equal_variant
 
     if is_recursive_type(type_val):
-        # Look up the comparer from the type context using integer scope_id
-        scope_id = type_val.value
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
+        payload = type_val.value
+        if payload.type == "wrapper":
+            # Register a forward cell for the scope BEFORE building the inner
+            # comparer, so ref(id) leaves inside the body resolve to it.
+            rec_id = payload.value["id"]
+            cell: list[Any] = [None]
 
-        ctx_index = len(type_ctx) - scope_id
-        if ctx_index < 0 or ctx_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} "
-                f"(ctx len={len(type_ctx)}, calculated index={ctx_index})"
-            )
-        return type_ctx[ctx_index]
+            def equal_recursive(x, y, ctx=None):
+                return cell[0](x, y, ctx)
+
+            prev = type_ctx.get(rec_id)
+            type_ctx[rec_id] = equal_recursive
+            try:
+                cell[0] = equal_for(payload.value["inner"], type_ctx)
+            finally:
+                if prev is None:
+                    type_ctx.pop(rec_id, None)
+                else:
+                    type_ctx[rec_id] = prev
+            return cell[0]
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise ValueError(f"equal_for: unresolved Recursive ref({payload.value})")
+        return resolved
 
     if is_function_type(type_val) or is_async_function_type(type_val):
         # Functions are always considered equal for equality comparison
@@ -437,7 +431,7 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 
 
-def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def is_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create an identity comparer for a given type.
 
     Identity comparison uses Python `is` for mutables (Array, Set, Dict),
@@ -446,13 +440,13 @@ def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
 
     Args:
         type_val: The East type to create a comparer for
-        type_ctx: Stack of comparers for recursive types (internal)
+        type_ctx: Internal map from recursive scope id to that scope's comparer
 
     Returns:
         A function (x, y, ctx) -> bool that performs identity comparison
     """
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     if is_never_type(type_val):
 
@@ -527,13 +521,10 @@ def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                     return False
             return True
 
-        type_ctx.append(is_struct)
-        # Structs don't record markers - only Variants do (they're the roots of recursive types)
         for field_struct in type_val.value:
             field_name = field_struct["name"]
             field_type = field_struct["type"]
             field_comparers.append((field_name, is_for(field_type, type_ctx)))
-        type_ctx.pop()
         return is_struct
 
     if is_variant_type(type_val):
@@ -546,27 +537,35 @@ def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             case_key = x["type"]
             return case_comparers[case_key](x["value"], y["value"], ctx)
 
-        type_ctx.append(is_variant)
         for case_struct in type_val.value:
             case_name = case_struct["name"]
             case_type = case_struct["type"]
             case_comparers[case_name] = is_for(case_type, type_ctx)
-        type_ctx.pop()
         return is_variant
 
     if is_recursive_type(type_val):
-        # Look up the comparer from the type context using integer scope_id
-        scope_id = type_val.value
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
+        payload = type_val.value
+        if payload.type == "wrapper":
+            rec_id = payload.value["id"]
+            cell: list[Any] = [None]
 
-        ctx_index = len(type_ctx) - scope_id
-        if ctx_index < 0 or ctx_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} "
-                f"(ctx len={len(type_ctx)}, calculated index={ctx_index})"
-            )
-        return type_ctx[ctx_index]
+            def is_recursive(x, y, ctx=None):
+                return cell[0](x, y, ctx)
+
+            prev = type_ctx.get(rec_id)
+            type_ctx[rec_id] = is_recursive
+            try:
+                cell[0] = is_for(payload.value["inner"], type_ctx)
+            finally:
+                if prev is None:
+                    type_ctx.pop(rec_id, None)
+                else:
+                    type_ctx[rec_id] = prev
+            return cell[0]
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise ValueError(f"is_for: unresolved Recursive ref({payload.value})")
+        return resolved
 
     if is_function_type(type_val):
         raise RuntimeError("Attempted to compare values of type .Function")
@@ -574,7 +573,7 @@ def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 
 
-def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def compare_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a three-way comparer for a given type.
 
     Returns a function that compares two values and returns:
@@ -584,13 +583,13 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
 
     Args:
         type_val: The East type to create a comparer for
-        type_ctx: Stack of comparers for recursive types (internal)
+        type_ctx: Internal map from recursive scope id to that scope's comparer
 
     Returns:
         A function (x, y, ctx) -> Literal[-1, 0, 1]
     """
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     if is_never_type(type_val):
 
@@ -721,14 +720,11 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                     return c
             return -1 if len(x) < len(y) else (1 if len(x) > len(y) else 0)
 
-        type_ctx.append(compare_array)
         value_comparer = compare_for(type_val.value, type_ctx)
-        type_ctx.pop()
         return compare_array
 
     if is_set_type(type_val):
         # Sets are assumed to be sorted
-        type_ctx.append(None)  # Placeholder
         key_comparer = compare_for(type_val.value, type_ctx)
         # Create a key class for sorting elements
         elem_key_class = make_east_key(type_val.value)
@@ -768,8 +764,6 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                 pass
             return 0
 
-        type_ctx[-1] = compare_set
-        type_ctx.pop()
         return compare_set
 
     if is_dict_type(type_val):
@@ -823,9 +817,7 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                 pass
             return 0
 
-        type_ctx.append(compare_dict)
         value_comparer_dict = compare_for(type_val.value["value"], type_ctx)
-        type_ctx.pop()
         return compare_dict
 
     if is_ref_type(type_val):
@@ -856,9 +848,7 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             # Compare inner values
             return inner_comparer(x.value, y.value, ctx)
 
-        type_ctx.append(compare_ref)
         inner_comparer = compare_for(type_val.value, type_ctx)
-        type_ctx.pop()
         return compare_ref
 
     if is_struct_type(type_val):
@@ -872,13 +862,10 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                     return c
             return 0
 
-        type_ctx.append(compare_struct)
-        # Structs don't record markers - only Variants do (they're the roots of recursive types)
         for field_struct in type_val.value:
             field_name = field_struct["name"]
             field_type = field_struct["type"]
             field_comparers.append((field_name, compare_for(field_type, type_ctx)))
-        type_ctx.pop()
         return compare_struct
 
     if is_variant_type(type_val):
@@ -895,27 +882,35 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
             case_key = x["type"]
             return case_comparers[case_key](x["value"], y["value"], ctx)
 
-        type_ctx.append(compare_variant)
         for case_struct in type_val.value:
             case_name = case_struct["name"]
             case_type = case_struct["type"]
             case_comparers[case_name] = compare_for(case_type, type_ctx)
-        type_ctx.pop()
         return compare_variant
 
     if is_recursive_type(type_val):
-        # Look up the comparer from the type context using integer scope_id
-        scope_id = type_val.value
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
+        payload = type_val.value
+        if payload.type == "wrapper":
+            rec_id = payload.value["id"]
+            cell: list[Any] = [None]
 
-        ctx_index = len(type_ctx) - scope_id
-        if ctx_index < 0 or ctx_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} "
-                f"(ctx len={len(type_ctx)}, calculated index={ctx_index})"
-            )
-        return type_ctx[ctx_index]
+            def compare_recursive(x, y, ctx=None):
+                return cell[0](x, y, ctx)
+
+            prev = type_ctx.get(rec_id)
+            type_ctx[rec_id] = compare_recursive
+            try:
+                cell[0] = compare_for(payload.value["inner"], type_ctx)
+            finally:
+                if prev is None:
+                    type_ctx.pop(rec_id, None)
+                else:
+                    type_ctx[rec_id] = prev
+            return cell[0]
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise ValueError(f"compare_for: unresolved Recursive ref({payload.value})")
+        return resolved
 
     if is_function_type(type_val) or is_async_function_type(type_val):
         # Functions are always considered equal for comparison
@@ -924,7 +919,7 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 
 
-def less_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def less_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a less-than comparer for a given type.
 
     Args:
@@ -938,7 +933,7 @@ def less_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     return lambda x, y, ctx=None: comparer(x, y, ctx) == -1
 
 
-def not_equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def not_equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a not-equal comparer for a given type.
 
     Args:
@@ -952,7 +947,7 @@ def not_equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     return lambda x, y, ctx=None: not eq(x, y, ctx)
 
 
-def less_equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def less_equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a less-than-or-equal comparer for a given type.
 
     Args:
@@ -966,7 +961,7 @@ def less_equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     return lambda x, y, ctx=None: comparer(x, y, ctx) != 1
 
 
-def greater_equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def greater_equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a greater-than-or-equal comparer for a given type.
 
     Args:
@@ -980,7 +975,7 @@ def greater_equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
     return lambda x, y, ctx=None: comparer(x, y, ctx) != -1
 
 
-def greater_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
+def greater_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create a greater-than comparer for a given type.
 
     Args:

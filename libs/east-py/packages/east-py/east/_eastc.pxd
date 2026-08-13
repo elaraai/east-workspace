@@ -113,6 +113,7 @@ cdef extern from "east/types.h":
     # Recursive type
     EastType *east_recursive_type_new()
     void east_recursive_type_set(EastType *rec, EastType *node)
+    EastType *east_recursive_type_intern(EastType *rec)
 
     # Ref counting
     void east_type_retain(EastType *t)

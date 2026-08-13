@@ -93,7 +93,15 @@ EastTypeType = recursive_type(
             ("Dict", StructType([("key", type_ref), ("value", type_ref)])),
             ("Struct", ArrayType(StructType([("name", StringType), ("type", type_ref)]))),
             ("Variant", ArrayType(StructType([("name", StringType), ("type", type_ref)]))),
-            ("Recursive", IntegerType),
+            (
+                "Recursive",
+                VariantType(
+                    [
+                        ("ref", IntegerType),
+                        ("wrapper", StructType([("id", IntegerType), ("inner", type_ref)])),
+                    ]
+                ),
+            ),
             (
                 "Function",
                 StructType(

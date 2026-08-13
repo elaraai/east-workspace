@@ -6,10 +6,12 @@
 
 Covers the east-c bridge's reverse converter (``c_type_ptr_to_py_type``):
 
-- Recursive types whose back-edge passes THROUGH a container (Dict, Array)
-  must reconstruct with the same ``Recursive(depth)`` as the canonical depth
-  model (``replace_markers`` in east/types/types.py): every container level
-  counts, so the forward → reverse round-trip is the identity.
+- Recursive types reconstruct in the id dialect — ``wrapper({id, inner})``
+  binding the scope, ``ref(id)`` at every back-edge — and intern through
+  types.py's recursive-type registry, so the forward → reverse round-trip
+  returns the SAME canonical wrapper object (not merely an equal one).
+- Back-edges are position-independent: a back-edge through a Dict, an Array,
+  or at two different nesting depths is the same ``ref(id)`` everywhere.
 - The reverse caches are scoped to a single top-level conversion, so repeated
   and interleaved conversions never bleed state across calls.
 
@@ -39,16 +41,7 @@ from east import (  # noqa: E402
     variant,
 )
 
-# Note: value checks below use is_value_of with directly-built values rather
-# than coerce_to. Coercing against recursive-through-container types is a
-# separate, pre-existing limitation: _coerce constructs container proxies
-# whose element type is a bare Recursive(n) fragment, which the forward
-# bridge rejects ("Invalid recursive type depth") even for hand-built Python
-# types that never went through the reverse bridge.
-
 # Back-edge through a Dict: Variant{ leaf: Integer, document: Dict<String, self> }.
-# replace_markers counts the Variant level (1) and the Dict level (2),
-# so the back-edge is Recursive(2).
 DocType = recursive_type(
     lambda self: VariantType([
         ("document", DictType(StringType, self)),
@@ -85,12 +78,15 @@ def _case_type(variant_type, name):
 
 def test_roundtrip_recursive_through_dict():
     rt = _roundtrip(DocType)
-    # Round-trip is the identity (structural type equality)
-    assert rt == DocType
-    # The back-edge counts the Dict container level: Recursive(2), not (1)
-    back_edge = _case_type(rt, "document").value["value"]
+    # Round-trip is the identity: the reverse converter interns through the
+    # same registry recursive_type used, so the canonical wrapper comes back.
+    assert rt is DocType
+    # The back-edge through the Dict is a ref bound to the wrapper's own id.
+    rec_id = rt.value.value["id"]
+    back_edge = _case_type(rt.value.value["inner"], "document").value["value"]
     assert back_edge.type == "Recursive"
-    assert back_edge.value == 2
+    assert back_edge.value.type == "ref"
+    assert back_edge.value.value == rec_id
     # A conforming recursive value validates against the reconstructed type
     inner = EastDict(StringType, DocType)
     inner["a"] = variant("leaf", 1)
@@ -104,11 +100,12 @@ def test_roundtrip_recursive_through_dict():
 
 def test_roundtrip_recursive_through_array():
     rt = _roundtrip(TreeType)
-    assert rt == TreeType
-    # The back-edge counts the Array container level: Recursive(2), not (1)
-    back_edge = _case_type(rt, "children").value
+    assert rt is TreeType
+    rec_id = rt.value.value["id"]
+    back_edge = _case_type(rt.value.value["inner"], "children").value
     assert back_edge.type == "Recursive"
-    assert back_edge.value == 2
+    assert back_edge.value.type == "ref"
+    assert back_edge.value.value == rec_id
     children = EastArray(
         TreeType,
         [variant("leaf", 1), variant("children", EastArray(TreeType, []))],
@@ -121,7 +118,6 @@ def test_roundtrip_recursive_through_array():
 
 
 def test_roundtrip_recursive_through_struct_field():
-    # Direct Struct back-edge (the previously working case): one level
     LinkedType = recursive_type(
         lambda self: VariantType([
             ("nil", IntegerType),
@@ -129,51 +125,45 @@ def test_roundtrip_recursive_through_struct_field():
         ])
     )
     rt = _roundtrip(LinkedType)
-    assert rt == LinkedType
-    back_edge = _case_type(rt, "node").value[0]["type"]
+    assert rt is LinkedType
+    rec_id = rt.value.value["id"]
+    back_edge = _case_type(rt.value.value["inner"], "node").value[0]["type"]
     assert back_edge.type == "Recursive"
-    assert back_edge.value == 2  # Variant level + Struct level
+    assert back_edge.value.type == "ref"
+    assert back_edge.value.value == rec_id
 
 
 def test_reverse_caches_are_scoped_per_conversion():
-    # The reverse caches (_py_type_cache, _type_convert_stack) are cdef
-    # module-level globals — Cython does not expose them in the module dict,
-    # so they cannot be inspected directly from Python. Assert that (so this
-    # test is revisited if they ever become introspectable) and verify the
-    # observable contract instead: nothing is memoized across top-level
-    # conversions, so repeated and interleaved conversions are independently
-    # correct.
+    # The reverse caches (_py_type_cache, _rev_rec_ids) are cdef module-level
+    # globals — Cython does not expose them in the module dict, so they cannot
+    # be inspected directly from Python. Assert that (so this test is revisited
+    # if they ever become introspectable) and verify the observable contract
+    # instead: nothing is memoized across top-level conversions, so repeated
+    # and interleaved conversions are independently correct.
     bridge = east._eastc_bridge
     assert not hasattr(bridge, "_py_type_cache")
-    assert not hasattr(bridge, "_type_convert_stack")
+    assert not hasattr(bridge, "_rev_rec_ids")
 
     doc_arr = EastArray(DocType, [])
     tree_arr = EastArray(TreeType, [])
     for _ in range(3):
-        assert c_type_ptr_to_py_type(doc_arr._c_elem_type_ptr) == DocType
-        assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) == TreeType
+        assert c_type_ptr_to_py_type(doc_arr._c_elem_type_ptr) is DocType
+        assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) is TreeType
 
     # A conversion that frees its C type must not poison a later conversion:
     # release DocType's proxy (dropping its retained pointer), then convert a
     # different type and re-check it.
     del doc_arr
-    assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) == TreeType
+    assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) is TreeType
 
 
 def test_shared_interned_subtree_at_two_depths():
-    # Issue #34 H2: a recursive subtree that appears at two different stack
-    # depths shares ONE interned C pointer. The reverse converter's
-    # within-call cache must not memoize a result whose Recursive(depth)
-    # back-edge escapes the cached node — caching it would replay a depth
-    # built at one stack level when the same pointer is hit at another,
-    # silently producing the wrong Python type.
+    # A recursive subtree that appears at two different nesting depths shares
+    # ONE interned C pointer (issue #34 H2 in the old depth dialect). Under
+    # ids, back-edges are position-independent: both occurrences reconstruct
+    # as the same ref(id), whatever depth the shared pointer is re-hit at.
     #
     #   X = Struct{ a: Array<X>, b: Struct{ inner: Array<X> } }
-    #
-    # Array<X> is interned to a single node. Converting field `a` builds it
-    # at the Struct's depth; field `b.inner` re-hits that interned pointer at
-    # a deeper stack level. The back-edge to X must resolve to the SAME outer
-    # Struct in both, so the round-trip is the identity.
     XType = recursive_type(
         lambda self: StructType([
             ("a", ArrayType(self)),
@@ -182,24 +172,20 @@ def test_shared_interned_subtree_at_two_depths():
     )
 
     rt = _roundtrip(XType)
-    assert rt == XType
+    assert rt is XType
 
-    # Both Array<X> occurrences must carry the same back-edge depth: the path
-    # Struct(X) → field → Array → Recursive crosses two counted levels.
-    fields = {f["name"]: f["type"] for f in rt.value}
+    rec_id = rt.value.value["id"]
+    fields = {f["name"]: f["type"] for f in rt.value.value["inner"].value}
     a_back = fields["a"].value  # Array payload
     assert a_back.type == "Recursive"
-    a_depth = a_back.value
+    assert a_back.value.type == "ref"
+    assert a_back.value.value == rec_id
 
     inner_fields = {f["name"]: f["type"] for f in fields["b"].value}
     b_back = inner_fields["inner"].value  # Array payload of nested struct
     assert b_back.type == "Recursive"
-    b_depth = b_back.value
-
-    # The shared Array<X> reached at two stack depths must NOT collapse to one
-    # memoized depth: each occurrence binds to the outer X at its own level.
-    assert a_depth == 2  # Struct(X) + Array
-    assert b_depth == 3  # Struct(X) + inner Struct + Array
+    assert b_back.value.type == "ref"
+    assert b_back.value.value == rec_id
 
     # A conforming value validates against the reconstructed type.
     empty = EastArray(XType, [])

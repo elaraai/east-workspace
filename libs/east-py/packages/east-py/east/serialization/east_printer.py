@@ -58,15 +58,3 @@ def print_identifier(identifier: str) -> str:
         escaped = identifier.replace("\\", "\\\\").replace("`", "\\`")
         return f"`{escaped}`"
     return identifier
-
-
-def _find_recursive_marker(typ: EastType) -> Any | None:
-    """Find the recursive marker in a type, if any.
-
-    Returns the marker value for recursive types, or None.
-    Used by parser for circular reference handling.
-    """
-    from east.types.types import is_recursive_type
-    if is_recursive_type(typ):
-        return typ.value
-    return None
