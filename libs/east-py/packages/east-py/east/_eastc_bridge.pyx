@@ -1370,12 +1370,47 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
             _eastc.east_value_retain(existing)
             return existing
 
+    # A compiled kernel carries its native function value on its handle —
+    # pass it through, exactly like the decoded-wrapper fast path above. A
+    # kernel converted into a Function-typed slot (an array of functions, a
+    # struct field) must cross as its real closure: the IR-fallback carrier
+    # below is encode-only, and CALLING it evaluates its Function node into
+    # a fresh closure value that the caller then union-reads as the declared
+    # output type — a pointer-sized integer where a result should be (#476 D).
+    kernel_handle = getattr(val, "_eastc_handle", None)
+    if kernel_handle is not None:
+        handle_int = <uintptr_t>getattr(kernel_handle, "_fn_val", 0)
+        existing = <_eastc.EastValue*>handle_int
+        if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
+            _eastc.east_value_retain(existing)
+            return existing
+
     py_ir = getattr(val, EAST_IR_ATTR, None)
     if py_ir is None:
         raise RuntimeError(
             "Cannot serialize function: no IR attached. "
             "Functions must be compiled from East IR to be serializable."
         )
+
+    # Compile the attached IR into a real closure and pass its function value
+    # through. The hand-built carrier below is encode-only: its `ir` is the
+    # Function node itself, so CALLING it evaluates that node into a fresh
+    # closure value that the caller union-reads as the declared output type
+    # (#476 D). Compiling covers both plain Function nodes and capture-baked
+    # Block[Let…, Function] shapes with the exact wire shape either way. The
+    # carrier remains only for the explicit-captures protocol (a non-empty
+    # EAST_CAPTURES_ATTR dict), whose values live outside the IR.
+    cdef uintptr_t baked_ptr
+    if not getattr(val, EAST_CAPTURES_ATTR, None):
+        from east.runtime.compiler import compile_from_value
+        native = compile_from_value(py_ir)
+        baked_ptr = <uintptr_t>getattr(
+            getattr(native, "_eastc_handle", None), "_fn_val", 0)
+        if baked_ptr != 0:
+            existing = <_eastc.EastValue*>baked_ptr
+            if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
+                _eastc.east_value_retain(existing)
+                return existing
 
     # Use east-c's internal IR type (handles deep recursion natively)
     if _eastc.east_ir_type == NULL:
@@ -1409,7 +1444,11 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     # tear the whole thing down via east_compiled_fn_free.
     capture_values = getattr(val, EAST_CAPTURES_ATTR, {})
     try:
-        captures_list = py_ir["value"]["captures"]
+        # The attached IR may be a bare Function node or a capture-baked
+        # Block[Let…, Function] (the kernel tracer's and the replay's
+        # hoisted-constant shape) — a Block declares no captures.
+        fn_payload = py_ir["value"]
+        captures_list = fn_payload["captures"] if "captures" in fn_payload else []
         if len(captures_list) > 0 and len(capture_values) > 0:
             _populate_fn_captures(fn, captures_list, capture_values, identity_map)
     except:
