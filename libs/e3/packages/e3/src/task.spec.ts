@@ -311,8 +311,10 @@ describe('partitionTask', () => {
       by: (_$, key) => key.sku,
       output: DictType(StringType, IntegerType),
       combine: ($, a, b) => {
-        $(a.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
-        $.return(a);
+        // Partials are frozen task inputs — fold into a copy.
+        const acc = $.let(a.copy());
+        $(acc.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
+        $.return(acc);
       },
     }, ($, slice) =>
       slice.toArray(($, v, k) => ({ sku: k.sku, v }))

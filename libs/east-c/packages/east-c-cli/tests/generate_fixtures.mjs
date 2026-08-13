@@ -153,8 +153,9 @@ const fixtures = {
 
   // ---- Lazy paged-input pins (#516) ----------------------------------
 
-  // Mutating a dict inside its own $.for must raise the canonical
-  // iteration-lock error on a lazily-opened input exactly as on eager.
+  // Inputs are frozen: mutating a dict input (inside its own $.for) must
+  // raise the uniform copy-first error on a lazily-opened input, refused
+  // before any hydration.
   'paged_for_mutate.beast2': encodeEastIR(
     East.function([DictType(IntegerType, StringType)], NullType, ($, d) => {
       $.for(d, (_$, _v, _k) => d.insert(999n, 'x'));
@@ -189,9 +190,9 @@ const fixtures = {
     ),
   ]),
 
-  // The shape gate: a mutable-nested element type must decode eagerly, so a
-  // write through a read-out element lands in the input (result 3) even
-  // when the size threshold would otherwise open it lazily.
+  // The collapsed shape gate: a nested-container element type opens lazily
+  // AND frozen under the threshold, so the write through a read-out element
+  // must raise the uniform copy-first error instead of landing.
   'paged_nested_mutate.beast2': encodeEastIR(
     East.function(
       [DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }))],

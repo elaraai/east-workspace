@@ -3,6 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { type EastType, printIdentifier, type ValueTypeOf, TypeWiden, isTypeEqual, NeverType, NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType, ArrayType, SetType, DictType, StructType, VariantType } from "../types.js";
+import { markFrozen } from "../frozen.js";
 import { matrix } from "../containers/matrix.js";
 import { compareFor } from "../comparison.js";
 import { SortedMap } from "../containers/sortedmap.js";
@@ -164,16 +165,25 @@ export function encodeEastFor(type: EastTypeValue | EastType): (x: any) => Uint8
   return (x: any) => textEncoder.encode(printer(x, { refs: new Map(), currentPath: [] }));
 }
 
-export function decodeEastFor(type: EastTypeValue): (x: Uint8Array) => any
-export function decodeEastFor<T extends EastType>(type: T): (x: Uint8Array) => ValueTypeOf<T>
-export function decodeEastFor(type: EastType | EastTypeValue): (x: Uint8Array) => any {
+/**
+ * Builds a decoder from East text bytes to a value of the given type.
+ *
+ * @param type - the decoded type
+ * @param frozen - construct the value deeply frozen (task-input decodes):
+ *   mutating builtins throw, and frozen collections compare as value types
+ *   under `Is`
+ * @returns a function decoding UTF-8 East text to the value
+ */
+export function decodeEastFor(type: EastTypeValue, frozen?: boolean): (x: Uint8Array) => any
+export function decodeEastFor<T extends EastType>(type: T, frozen?: boolean): (x: Uint8Array) => ValueTypeOf<T>
+export function decodeEastFor(type: EastType | EastTypeValue, frozen: boolean = false): (x: Uint8Array) => any {
   // Convert EastType to EastTypeValue if necessary
   if (!isVariant(type)) {
     type = toEastTypeValue(type);
   }
 
   const textDecoder = new TextDecoder();
-  const parser = parseFor(type as EastTypeValue);
+  const parser = parseFor(type as EastTypeValue, frozen);
   return (x: Uint8Array) => {
     const result = parser(textDecoder.decode(x));
     if (result.success) {
@@ -887,7 +897,8 @@ const parseBlob = (frozen: boolean): Parser<Uint8Array> => (input: string, pos: 
   }
 
   if (frozen) {
-    Object.freeze(bytes);
+    // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+    markFrozen(bytes);
   }
 
   return { value: bytes, position: pos };
@@ -1531,7 +1542,9 @@ const createMatrixParser = (element_type: EastTypeValue, frozen: boolean): Parse
 
     // Handle empty matrix
     if (input[pos] === ']') {
-      return { value: matrix(_createTypedArray(element_type, [], frozen), 0, 0), position: pos + 1 };
+      const empty = matrix(_createTypedArray(element_type, [], frozen), 0, 0);
+      if (frozen) Object.freeze(empty);
+      return { value: empty, position: pos + 1 };
     }
 
     while (true) {
@@ -1586,7 +1599,9 @@ const createMatrixParser = (element_type: EastTypeValue, frozen: boolean): Parse
         }
         const flat = rows.flat();
         const numRows = rows.length;
-        return { value: matrix(_createTypedArray(element_type, flat, frozen), numRows, numCols), position: pos + 1 };
+        const m = matrix(_createTypedArray(element_type, flat, frozen), numRows, numCols);
+        if (frozen) Object.freeze(m);
+        return { value: m, position: pos + 1 };
       }
 
       if (input[pos] !== ',') {
@@ -1610,7 +1625,8 @@ function _createTypedArray(element_type: EastTypeValue, values: any[], frozen: b
     throw new Error(`Unsupported vector/matrix element type: ${element_type.type}`);
   }
   if (frozen) {
-    Object.freeze(result);
+    // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+    markFrozen(result);
   }
   return result;
 }

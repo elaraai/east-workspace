@@ -20,6 +20,13 @@ import type { SourceMap } from "../../location.js";
 /** Options accepted by every beast2 decode entry point. */
 export type Beast2DecodeOptions = {
   platform?: PlatformFunction[];
+  /** Decode the value frozen: every container, struct, variant and scalar
+   *  wrapper is deeply immutable from construction (no post-walk), mutating
+   *  builtins throw, and frozen collections compare as value types under
+   *  `Is`. This is how runners decode task inputs. Captured values inside
+   *  decoded Function values stay mutable — a closure owns its own state.
+   *  Defaults to `false`. */
+  frozen?: boolean;
 };
 
 /** The IRType schema as an EastTypeValue — module-level singleton shared by

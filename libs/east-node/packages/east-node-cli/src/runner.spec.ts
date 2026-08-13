@@ -244,31 +244,6 @@ describe('runner streaming execution', () => {
     assert.equal(result, 'row-1234');
   });
 
-  it('the shape gate keeps mutable-nested inputs eager even under the threshold', async () => {
-    const NestedT = DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }));
-    const table = new SortedMap<bigint, { xs: bigint[] }>(
-      [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]],
-      compareFor(IntegerType),
-    );
-    const inputPath = join(tempDir, 'nested.beast2');
-    writeFileSync(inputPath, encodeBeast2PagedFor(NestedT, { batchSize: 2 })(table));
-
-    // Write through a read-out element, then force a re-materialization
-    // (insert would hydrate a lazy value from the blob, dropping the write)
-    // and observe: only an eagerly-opened input keeps the write.
-    const fn = East.function([NestedT], IntegerType, ($, d) => {
-      const row = $.let(d.get(1n));
-      $(row.xs.pushLast(42n));
-      $(d.insert(99n, { xs: [] }));
-      return d.get(1n).xs.size();
-    });
-    const outputPath = join(tempDir, 'output.beast2');
-    await runProgram(writeIr(fn), [], [], [inputPath], outputPath, { lazyInputBytes: 1 });
-
-    const result = decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath)));
-    assert.equal(result, 3n, 'the write through the read-out element must land in the input');
-  });
-
   it('refuses --emit with a non-.beast2 output, like east-c and east-py', async () => {
     const fn = East.function([FunctionType([IntegerType], NullType)], NullType, ($, emit) => {
       $(emit(1n));
@@ -307,6 +282,78 @@ describe('runner streaming execution', () => {
     await assert.rejects(
       runProgram(writeIr(dup), [], [], [], join(tempDir, 'dupset.beast2'), { emit: 'set' }),
       /duplicate Set element emitted/,
+    );
+  });
+});
+
+describe('frozen inputs', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'east-node-frozen-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function writeIr(fn: { toIR(): any }): string {
+    const irPath = join(tempDir, 'program.beast2');
+    writeFileSync(irPath, encodeEastIR(fn.toIR()));
+    return irPath;
+  }
+
+  const NestedT = DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }));
+
+  function writeNestedInput(): string {
+    const table = new SortedMap<bigint, { xs: bigint[] }>(
+      [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]],
+      compareFor(IntegerType),
+    );
+    const inputPath = join(tempDir, 'nested.beast2');
+    writeFileSync(inputPath, encodeBeast2PagedFor(NestedT, { batchSize: 2 })(table));
+    return inputPath;
+  }
+
+  it('an input refuses mutation with the uniform copy-first error', async () => {
+    const fn = East.function([NestedT], NullType, ($, d) => {
+      $(d.insert(99n, { xs: [] }));
+    });
+    await assert.rejects(
+      runProgram(writeIr(fn), [], [], [writeNestedInput()], join(tempDir, 'out.beast2')),
+      /cannot mutate a frozen value \(task inputs are immutable\) — copy first/,
+    );
+  });
+
+  it('a copied input accepts the mutation — the documented escape hatch', async () => {
+    const fn = East.function([NestedT], IntegerType, ($, d) => {
+      const mine = $.let(d.copy());
+      $(mine.insert(99n, { xs: [] }));
+      return mine.size();
+    });
+    const outputPath = join(tempDir, 'out.beast2');
+    await runProgram(writeIr(fn), [], [], [writeNestedInput()], outputPath);
+    assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 4n);
+  });
+
+  it('the frozen shape gate admits nested containers lazily: reads serve, writes refuse', async () => {
+    // Frozen is what makes lazy service safe for nested element shapes, so
+    // with a 1-byte threshold this opens pager-backed AND immutable.
+    const read = East.function([NestedT], IntegerType, ($, d) => d.get(1n).xs.size());
+    const outputPath = join(tempDir, 'out.beast2');
+    await runProgram(writeIr(read), [], [], [writeNestedInput()], outputPath,
+      { lazyInputBytes: 1 });
+    assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 2n);
+
+    const write = East.function([NestedT], IntegerType, ($, d) => {
+      const row = $.let(d.get(1n));
+      $(row.xs.pushLast(42n));
+      return d.get(1n).xs.size();
+    });
+    await assert.rejects(
+      runProgram(writeIr(write), [], [], [writeNestedInput()], join(tempDir, 'out2.beast2'),
+        { lazyInputBytes: 1 }),
+      /cannot mutate a frozen value \(task inputs are immutable\) — copy first/,
     );
   });
 });

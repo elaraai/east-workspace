@@ -7,6 +7,7 @@ import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import { EastTypeValueType, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../types.js";
+import { markFrozen } from "../frozen.js";
 import { isVariant, variant } from "../containers/variant.js";
 import { printFor } from "./east.js";
 import { ref } from "../containers/ref.js";
@@ -584,7 +585,8 @@ function createJSONDecoder(
                 bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
             }
             if (frozen) {
-                Object.freeze(bytes);
+                // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+                markFrozen(bytes);
             }
             return bytes;
         }
@@ -946,7 +948,9 @@ function createJSONDecoder(
             }
             const rows = json.length;
             if (rows === 0) {
-                return matrix(_createTypedArray(type.value, [], frozen), 0, 0);
+                const empty = matrix(_createTypedArray(type.value, [], frozen), 0, 0);
+                if (frozen) Object.freeze(empty);
+                return empty;
             }
             const cols = Array.isArray(json[0]) ? json[0].length : 0;
             const flatValues = [];
@@ -970,7 +974,9 @@ function createJSONDecoder(
                     }
                 }
             }
-            return matrix(_createTypedArray(type.value, flatValues, frozen), rows, cols);
+            const m = matrix(_createTypedArray(type.value, flatValues, frozen), rows, cols);
+            if (frozen) Object.freeze(m);
+            return m;
         };
     } else {
         throw new Error(`Unhandled type ${(type satisfies never as any).type} for fromJson`);
@@ -989,7 +995,8 @@ function _createTypedArray(element_type: EastTypeValue, values: any[], frozen: b
         throw new Error(`Unsupported vector/matrix element type: ${element_type.type}`);
     }
     if (frozen) {
-        Object.freeze(result);
+        // Typed arrays with elements cannot be Object.freeze'd — brand instead.
+        markFrozen(result);
     }
     return result;
 }

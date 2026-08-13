@@ -312,6 +312,16 @@ decode_type_table(data, count):
 
 The reconstruction phase converts the flat table back into an `EastTypeValue` tree. Recursive entries are converted to proper `Recursive(depth)` self-references using a depth stack that tracks compound type nesting.
 
+### 6.4 Frozen Decode
+
+Decoders accept a frozen mode — `decodeBeast2(data, { frozen: true })` / a `frozen` option on `decodeBeast2For` in TypeScript, `east_beast2_decode_full_frozen` in C, `load_frozen_value` in Python — that constructs every value in the tree deeply immutable **at decode time**; nothing is re-walked after the fact. Every runner decodes task inputs this way: task inputs are immutable, on all runtimes, always.
+
+- **Construction-time freezing.** Each container, struct, variant, date, vector, and matrix is frozen as it is built. TypeScript uses `Object.freeze` plus a WeakSet brand (`markFrozen` / `isFrozenValue`) for values `Object.freeze` cannot cover (typed arrays throw on freeze; pager-backed lazy values hydrate through their own internals). C carries a per-value `frozen` flag, inherited by nested allocations and checked by every mutating builtin; Python inherits the C flag through the bridge.
+- **Functions stay mutable.** A Function/AsyncFunction subtree (IR + captures) always decodes unfrozen — captures are closure-owned state, and the IR is stamped in place when the decoded function is finalized. The frozen flag is cleared for the subtree and restored after.
+- **Mutation is an error.** Every mutating builtin on a frozen value fails with `cannot mutate a frozen value (task inputs are immutable) — copy first`, uniformly across runtimes; `.copy()` is the escape hatch.
+- **Value semantics under `Is`.** Two frozen Array/Set/Dict/Vector/Matrix values compare by deep value equality under East `Is` (the Blob precedent — a frozen collection is a value, not a mutable cell). A frozen Ref remains an identity cell. `equalFor` / `compareFor` / print / encode are byte-for-byte unchanged.
+- **Frozen lazy opens.** `openBeast2LazyFor(type, { frozen: true })` (TS) / `east_beast2_open_paged_frozen` (C) / `open_paged_value(..., frozen=True)` (Python) open segmented blobs pager-backed **and** frozen: each segment decodes frozen on demand, mutation is refused before any hydration, and the lazy shape gate collapses to excluding only Ref- and function-bearing element shapes (unfrozen, any nested Array/Set/Dict/Vector/Matrix element forces an eager decode, because East mutates those in place through read-out elements).
+
 ---
 
 ## 7. Varint Encoding

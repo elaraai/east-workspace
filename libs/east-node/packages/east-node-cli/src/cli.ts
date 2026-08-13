@@ -55,16 +55,30 @@ interface VersionOptions {
     package?: string[];
 }
 
+/**
+ * Print `message` to stderr and exit 1 once the write has FLUSHED.
+ *
+ * Piped stdio is asynchronous on Windows, so `console.error(...)` followed by
+ * `process.exit(1)` can truncate the message before a parent process ever
+ * reads it — e3 spawns this CLI with stdio pipes and surfaces the stderr tail
+ * on failure, and on windows-latest that tail arrived empty. The returned
+ * promise never resolves (the process exits from the write callback), so
+ * `return fail(...)` ends the caller exactly like the exit it replaces.
+ */
+function fail(message: string): Promise<never> {
+    process.exitCode = 1;
+    return new Promise(() => {
+        process.stderr.write(`${message}\n`, () => process.exit(1));
+    });
+}
+
 async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
     try {
         // --from-snapshot is exclusive with <ir_file>, -i, -p
         if (options.fromSnapshot) {
             if (irFile || (options.input && options.input.length > 0) ||
                 (options.package && options.package.length > 0)) {
-                console.error(
-                    'Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p',
-                );
-                process.exit(1);
+                return fail('Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p');
             }
             const ex = await readSnapshot(options.fromSnapshot);
             try {
@@ -84,26 +98,23 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
         }
 
         if (!irFile) {
-            console.error('Error: Missing <ir_file> argument (or use --from-snapshot PATH)');
-            process.exit(1);
+            return fail('Error: Missing <ir_file> argument (or use --from-snapshot PATH)');
         }
 
         const packages = options.package ?? [];
         if (packages.length === 0) {
-            console.error('Error: At least one platform package is required.');
-            console.error('Example: east-node run program.beast2 -p @elaraai/east-node-std');
-            process.exit(1);
+            return fail('Error: At least one platform package is required.\n' +
+                'Example: east-node run program.beast2 -p @elaraai/east-node-std');
         }
 
         // The manifest carries no streaming flags (format v1), so a captured
         // emit/stream invocation would replay with the wrong arity — refuse
         // at capture with the fix instead of failing confusingly at replay.
         if (options.snapshot && (options.emit !== undefined || options.stream !== undefined)) {
-            console.error(
+            return fail(
                 'Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no ' +
                 'streaming flags); replay with --from-snapshot passing --emit/--stream explicitly',
             );
-            process.exit(1);
         }
 
         // Write the snapshot BEFORE execution so crashes still leave the bundle behind.
@@ -129,18 +140,15 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             { verbose: options.verbose ?? false, ...streamingOptions(options) }
         );
     } catch (err) {
-        if (err instanceof EastError) {
-            console.error(`Error: ${err.toString()}`);
-        } else {
-            // A plain (non-East) error — e.g. one thrown by a custom platform
-            // function. Print the STACK, not just the message: East runtime and
-            // platform errors carry source-mapped frames (the platform code that
-            // threw + the East call site), and the message alone drops them. The
-            // stack already begins with `Error: <message>`, so don't re-prefix.
-            const e = err as Error;
-            console.error(e.stack ?? `Error: ${e.message ?? String(err)}`);
-        }
-        process.exit(1);
+        // A plain (non-East) error — e.g. one thrown by a custom platform
+        // function — prints its STACK, not just the message: East runtime and
+        // platform errors carry source-mapped frames (the platform code that
+        // threw + the East call site), and the message alone drops them. The
+        // stack already begins with `Error: <message>`, so don't re-prefix.
+        const e = err as Error;
+        return fail(err instanceof EastError
+            ? `Error: ${err.toString()}`
+            : (e.stack ?? `Error: ${e.message ?? String(err)}`));
     }
 }
 

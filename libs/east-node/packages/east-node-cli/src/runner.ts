@@ -150,9 +150,12 @@ export async function runProgram(
         }
     }
 
-    // Load inputs. The streamed input always opens lazily; other beast2
-    // collection inputs open lazily at or above the size threshold, so a
-    // sparse read into a huge indexed input stops paying a whole decode.
+    // Load inputs — always frozen (task inputs are immutable; mutating one
+    // throws the uniform copy-first error). The streamed input always opens
+    // lazily; other beast2 collection inputs open lazily at or above the
+    // size threshold, so a sparse read into a huge indexed input stops
+    // paying a whole decode — and because frozen collapses the shape gate,
+    // nested-container element shapes open lazily too.
     const threshold = lazyThreshold(opts);
     const inputs: unknown[] = [];
     for (let i = 0; i < inputPaths.length; i++) {

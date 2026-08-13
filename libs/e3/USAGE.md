@@ -225,8 +225,9 @@ const totals = e3.partitionTask('totals', {
   by: (_$, key) => key.sku,   // rows with equal by(key) never split apart
   output: DictType(StringType, IntegerType),
   combine: ($, a, b) => {
-    $(a.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
-    $.return(a);
+    const acc = $.let(a.copy());   // partials are frozen inputs — fold into a copy
+    $(acc.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
+    $.return(acc);
   },
 }, ($, slice) => /* aggregate the slice */ ...);
 ```
@@ -255,7 +256,9 @@ semantics, no parallelism, and any input change re-runs the whole pass.
 Runs on every stock runtime: the output always streams through `emit`, and
 every runner feeds the `stream` input lazily with O(segment) decoded memory
 (segment-fed iteration and keyed reads; any other operation on it decodes
-the whole value once).
+the whole value once). Task inputs decode deeply frozen on every runtime:
+mutating one raises `cannot mutate a frozen value (task inputs are
+immutable) — copy first` — derive changed values from `.copy()`.
 
 ```typescript
 import { ArrayType } from '@elaraai/east';

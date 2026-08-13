@@ -89,7 +89,7 @@ ByteBuffer *east_beast2_v4_encode_full(EastValue *value, EastType *type)
     return buf;
 }
 
-EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type)
+EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type, bool frozen)
 {
     if (!data || !type) return NULL;
     if (len < 8) return NULL;
@@ -112,7 +112,8 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
     EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* 5. Read value table section (two-pass) */
-    Beast2MutableValues mv = read_value_table_section(data, len, &offset, tt.types, tt.count, &st);
+    Beast2MutableValues mv =
+        read_value_table_section(data, len, &offset, tt.types, tt.count, &st, frozen);
 
     /* 6. Decode value stream */
     Beast2DecodeCtx dctx;
@@ -123,6 +124,7 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
     dctx.mutable_values = mv.values;
     dctx.mutable_values_count = mv.count;
     dctx.source_map = &sm;
+    dctx.frozen = frozen;
     EastValue *result = beast2_decode_value(data, len, &offset, type, &dctx);
     beast2_dec_ctx_free(&dctx);
 
@@ -171,7 +173,8 @@ EastValue *east_beast2_v4_decode_auto(const uint8_t *data, size_t len)
     EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* 4. Read value table section */
-    Beast2MutableValues mv = read_value_table_section(data, len, &offset, tt.types, tt.count, &st);
+    Beast2MutableValues mv =
+        read_value_table_section(data, len, &offset, tt.types, tt.count, &st, false);
 
     /* 5. Decode value stream using root type */
     Beast2DecodeCtx dctx;
@@ -213,7 +216,8 @@ IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir
     EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* Read value table section (IR arrays are mutable containers) */
-    Beast2MutableValues mv = read_value_table_section(data, len, &offset, tt.types, tt.count, &st);
+    Beast2MutableValues mv =
+        read_value_table_section(data, len, &offset, tt.types, tt.count, &st, false);
 
     /* Decode IR as EastValue variant tree */
     Beast2DecodeCtx dctx;

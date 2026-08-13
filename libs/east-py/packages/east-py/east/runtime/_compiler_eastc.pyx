@@ -319,7 +319,7 @@ def foreign_function_value(object east_fn):
     return _ForeignFnHold()
 
 
-def open_paged_value(uintptr_t type_ptr, bytes data):
+def open_paged_value(uintptr_t type_ptr, bytes data, bint frozen=False):
     """Open an indexed beast2 collection blob as a lazy paged C value (#505).
 
     The returned hold carries the ``EAST_VAL_PAGED`` value's pointer (released
@@ -328,6 +328,12 @@ def open_paged_value(uintptr_t type_ptr, bytes data):
     compiled body with O(segment) decoded memory. Returns ``None`` when the
     blob is not pageable (no index, aliased segments, or not a v5 container) —
     the caller falls back to the eager load, exactly like east-node's runner.
+
+    With ``frozen`` (#539) the value and every pager-served segment decode
+    frozen — mutation refuses with the uniform cross-runtime error and the
+    collection compares as a value type under Is — and the shape gate
+    collapses: any element shape opens lazily except those carrying a Ref or
+    function values, which return ``None`` for the eager frozen fallback.
     """
     _ensure_runtime()
     cdef size_t n = len(data)
@@ -335,8 +341,11 @@ def open_paged_value(uintptr_t type_ptr, bytes data):
     if buf == NULL:
         raise MemoryError()
     memcpy(buf, <const uint8_t*><char*>data, n)
-    cdef _eastc.EastValue* v = _eastc.east_beast2_open_paged(
-        buf, n, <_eastc.EastType*>type_ptr)
+    cdef _eastc.EastValue* v
+    if frozen:
+        v = _eastc.east_beast2_open_paged_frozen(buf, n, <_eastc.EastType*>type_ptr)
+    else:
+        v = _eastc.east_beast2_open_paged(buf, n, <_eastc.EastType*>type_ptr)
     if v == NULL:
         free(buf)  # ownership stayed with us on failure
         free(_eastc.east_builtin_get_error())
@@ -358,6 +367,105 @@ def open_paged_value(uintptr_t type_ptr, bytes data):
             _proxy_value_release(self._east_c_paged)
 
     return _PagedValueHold()
+
+
+cdef _eastc.EastType* _resolve_c_type(object east_type, bint* own) except NULL:
+    """An ``EastType*`` from a Python EastType or a raw pointer (int). Sets
+    *own when the caller must release it."""
+    own[0] = False
+    if isinstance(east_type, int):
+        if <uintptr_t>east_type == 0:
+            raise ValueError("east type pointer must not be null")
+        return <_eastc.EastType*><uintptr_t>east_type
+    own[0] = True
+    return py_type_to_c(east_type)
+
+
+cdef object _frozen_hold_from(_eastc.EastValue* v):
+    """Wrap a retained frozen C value as the hold ``_eastc_call``'s argument
+    conversion and the platform bridge's return conversion pass straight
+    through (attribute ``_east_c_value``)."""
+    cdef uintptr_t v_ptr = <uintptr_t>v
+
+    class _FrozenValueHold:
+        __slots__ = ("_east_c_value", "_released")
+
+        def __init__(self):
+            self._east_c_value = v_ptr
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_value)
+
+    return _FrozenValueHold()
+
+
+def load_frozen_value(object east_type, bytes data):
+    """Decode a beast2 blob as a FROZEN C value (#539).
+
+    The eager sibling of ``open_paged_value(..., frozen=True)``: every
+    constructed container carries the frozen brand from construction, so the
+    compiled body's mutating builtins refuse it and it compares as a value
+    type under Is. ``east_type`` is a Python EastType or a raw ``EastType*``
+    pointer (a runner passes ``handle._input_types[i]``). Returns a hold
+    recognised by ``_eastc_call``'s argument conversion and by platform
+    function returns.
+    """
+    _ensure_runtime()
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_type = _resolve_c_type(east_type, &own_type)
+    cdef _eastc.EastValue* v
+    try:
+        v = _eastc.east_beast2_decode_full_frozen(
+            <const uint8_t*><char*>data, len(data), c_type)
+    finally:
+        if own_type:
+            _eastc.east_type_release(c_type)
+    if v == NULL:
+        err = _eastc.east_builtin_get_error()
+        msg = err.decode("utf-8") if err != NULL else "frozen beast2 decode failed"
+        free(err)
+        raise ValueError(msg)
+    return _frozen_hold_from(v)
+
+
+def freeze_value(object east_type, object value):
+    """A frozen deep copy of ``value`` — encode + frozen decode through the
+    real beast2 path, so the copy is constructed exactly as a frozen task
+    input would be (#539). Backs the compliance suite's ``freeze*`` platform
+    functions; ``east_type`` is a Python EastType or a raw pointer.
+    """
+    _ensure_runtime()
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_type = _resolve_c_type(east_type, &own_type)
+    cdef _eastc.EastValue* c_val = NULL
+    cdef _eastc.ByteBuffer* blob = NULL
+    cdef _eastc.EastValue* frozen = NULL
+    try:
+        c_val = py_value_to_c(value, c_type)
+        blob = _eastc.east_beast2_encode_full(c_val, c_type)
+        if blob == NULL:
+            err = _eastc.east_builtin_get_error()
+            msg = err.decode("utf-8") if err != NULL else "freeze: encode failed"
+            free(err)
+            raise ValueError(msg)
+        frozen = _eastc.east_beast2_decode_full_frozen(blob.data, blob.len, c_type)
+        if frozen == NULL:
+            err = _eastc.east_builtin_get_error()
+            msg = err.decode("utf-8") if err != NULL else "freeze: frozen decode failed"
+            free(err)
+            raise ValueError(msg)
+        return _frozen_hold_from(frozen)
+    finally:
+        if blob != NULL:
+            _eastc.byte_buffer_free(blob)
+        if c_val != NULL:
+            _eastc.east_value_release(c_val)
+        if own_type:
+            _eastc.east_type_release(c_type)
 
 
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
@@ -1260,6 +1368,15 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
                     if i < n_types and getattr(args[i], "_east_c_paged_type", 0) != input_type_ptrs[i]:
                         raise TypeError("paged input type does not match the parameter type")
                     c_args[i] = <_eastc.EastValue*><uintptr_t>paged
+                    _eastc.east_value_retain(c_args[i])
+                    continue
+                # A frozen hold (load_frozen_value / freeze_value) passes its
+                # branded C value straight through — re-converting via python
+                # would construct a fresh mutable value and drop the frozen
+                # contract (#539).
+                raw = getattr(args[i], "_east_c_value", None)
+                if raw is not None:
+                    c_args[i] = <_eastc.EastValue*><uintptr_t>raw
                     _eastc.east_value_retain(c_args[i])
                 elif i < n_types:
                     c_args[i] = py_value_to_c(args[i], <_eastc.EastType*><uintptr_t>input_type_ptrs[i])

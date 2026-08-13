@@ -527,7 +527,9 @@ Task → What do you need?
     │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD")
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
-    │   │   │             construct with variant(case, payload) under a typed context
+    │   │   │             construct with variant(case, payload) typed from context: the kernel's declared
+    │   │   │             out= (types the whole result, incl. a where() over variant branches), a typed
+    │   │   │             where() sibling, or a declared struct field
     │   │   ├─ Collections → the FULL closed surface enumerated in [Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)
     │   │   │                 (#452) — that list is the ONE registry, pinned against `_TRACED_SURFACE`; highlights:
     │   │   │                 map · filter · filter_map · fold · scan · map_reduce · flatten_to_array/set ·
@@ -643,6 +645,12 @@ that still run python, so you can reason about cost and semantics:
 - **Genuinely-Python loops cross the boundary once** —
   `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
   call or a decode per element.
+- **Task inputs arrive frozen.** Runner-decoded values reaching a
+  `@platform_function` are zero-copy proxies over the frozen C value:
+  mutating one raises `cannot mutate a frozen value (task inputs are
+  immutable) — copy first` — call `.copy()` to derive a mutable value.
+  Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
+  through the proxy; frozen collections compare by value under `Is`.
 
 ## Core Concepts
 

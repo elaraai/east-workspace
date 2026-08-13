@@ -272,6 +272,16 @@ retry-on-conflict safe — the loop can re-run the reducer against fresher
 state without observable side effects. Async platform-IO mutation bodies are
 explicitly rejected in v1 (open question §13).
 
+> **As built (#539, frozen task inputs).** The reducer's state parameter
+> decodes **frozen**, like every task input: mutating it in place raises the
+> uniform `cannot mutate a frozen value (task inputs are immutable) — copy
+> first` error, so reducers derive the new state from `state.copy()` (or
+> build it fresh) — the sketch above predates this. Because the frozen lazy
+> shape gate admits nested-container element shapes, the state is served
+> pager-backed for any practical record shape: a keyed-touch reducer pays
+> O(touched) on the read side instead of a whole-state decode (the write
+> half stays O(n) — the #413 partial-key follow-on).
+
 `package_()` (`packages/e3/src/package.ts`) branches on
 `item.kind === 'mutation'` exactly as it does for `'function'`
 (`e3-functions.md` §3 item 2): collect by name onto the owning record,

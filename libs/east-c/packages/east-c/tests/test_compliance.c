@@ -113,6 +113,34 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_null());
 }
 
+/* The frozen-inputs fixtures' freeze capability (#539): an encode + frozen
+ * decode through the real beast2 path, so the suite exercises the same
+ * construction a frozen task input takes. One implementation registered
+ * under each fixture type's name. */
+static EvalResult plat_freeze(EastValue **args, size_t num_args, EastType **input_types,
+                              size_t num_input_types, EastType *output_type)
+{
+    (void)output_type;
+    if (num_args < 1 || num_input_types < 1 || !args[0] || !input_types[0])
+        return eval_error("freeze: missing argument or input type");
+    ByteBuffer *blob = east_beast2_encode_full(args[0], input_types[0]);
+    if (!blob) {
+        char *err = east_builtin_get_error();
+        EvalResult r = eval_error(err ? err : "freeze: encode failed");
+        free(err);
+        return r;
+    }
+    EastValue *frozen = east_beast2_decode_full_frozen(blob->data, blob->len, input_types[0]);
+    byte_buffer_free(blob);
+    if (!frozen) {
+        char *err = east_builtin_get_error();
+        EvalResult r = eval_error(err ? err : "freeze: frozen decode failed");
+        free(err);
+        return r;
+    }
+    return eval_ok(frozen);
+}
+
 static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_types,
                             size_t num_input_types, EastType *output_type)
 {
@@ -236,6 +264,13 @@ static int run_suite(void *arg)
     platform_registry_add(platform, "testFail", plat_test_fail, false);
     platform_registry_add(platform, "describe", plat_describe, true);
     platform_registry_add(platform, "test", plat_test, true);
+    /* The Frozen suite's per-type freeze capability (#539). */
+    platform_registry_add(platform, "freezeArray", plat_freeze, false);
+    platform_registry_add(platform, "freezeSet", plat_freeze, false);
+    platform_registry_add(platform, "freezeDict", plat_freeze, false);
+    platform_registry_add(platform, "freezeRef", plat_freeze, false);
+    platform_registry_add(platform, "freezeVector", plat_freeze, false);
+    platform_registry_add(platform, "freezeMatrix", plat_freeze, false);
 
     /* Stage 1: Read JSON file */
     struct timespec t0, t1;

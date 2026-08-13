@@ -173,6 +173,10 @@ typedef struct {
     size_t def_cap;
     EastSourceMap *sm; /* borrowed; owned by the entry point / reader */
     int depth;
+    /* Brand every constructed container/Ref/Vector/Matrix at construction
+     * (task-input decodes). Cleared around Function subtrees — a decoded
+     * closure and its captures stay mutable. */
+    bool frozen;
 } B2V5DecodeCtx;
 
 void b2v5_dec_ctx_init(B2V5DecodeCtx *ctx, EastSourceMap *sm);

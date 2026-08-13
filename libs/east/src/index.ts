@@ -13,6 +13,7 @@ export * from './type_of_type.js';
 export * from './type_diff.js';
 export * from './serialization/index.js';
 export * from './comparison.js';
+export { isFrozenValue } from './frozen.js';
 export * from './ast.js';
 export * from './expr/index.js';
 export * from './ir.js';

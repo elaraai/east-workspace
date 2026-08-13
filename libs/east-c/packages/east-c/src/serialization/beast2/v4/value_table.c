@@ -315,7 +315,7 @@ void write_value_table_section(Beast2ValueTable *vt, Beast2EncodeCtx *ctx, ByteB
 
 Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, size_t *offset,
                                              EastType **types, size_t type_count,
-                                             Beast2StringTableDec *st)
+                                             Beast2StringTableDec *st, bool frozen)
 {
     /* Input bytes are untrusted: all reads are bounds-checked, entry extents
      * are validated against the section, declared element counts are bounded
@@ -406,6 +406,10 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
 
         if (!mv.values[i]) goto fail; /* container allocation failed */
 
+        /* The frozen brand goes on at construction — pass 2 fills through the
+         * raw value helpers, which the brand does not guard. */
+        if (frozen) east_value_set_frozen(mv.values[i]);
+
         entry_offsets[i] = entry_start;
         entry_lengths[i] = (size_t)entry_byte_length;
         *offset = entry_end;
@@ -419,6 +423,7 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
     dctx.global_type_table_size = type_count;
     dctx.mutable_values = mv.values;
     dctx.mutable_values_count = mv.count;
+    dctx.frozen = frozen;
 
     for (int64_t i = (int64_t)mv.count - 1; i >= 0; i--) {
         size_t off = entry_offsets[i];

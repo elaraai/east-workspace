@@ -141,7 +141,7 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    is = isFor(t, ctx.equal);
+    is = isFor(t, undefined, ctx.equal);
     elementEqual = equalFor(t.value as EastTypeValue, ctx.equal);
     elementDiff = diffFor(t.value as EastTypeValue, ctx);
     ctx.diff.pop();
@@ -239,7 +239,7 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    is = isFor(t, ctx.equal);
+    is = isFor(t, undefined, ctx.equal);
     valueDiff = diffFor(t.value.value, ctx);
     valueEqual = equalFor(t.value.value as EastTypeValue, ctx.equal);
     ctx.diff.pop();
@@ -349,7 +349,7 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    is = isFor(t, ctx.equal);
+    is = isFor(t, undefined, ctx.equal);
     innerDiff = diffFor(t.value, ctx);
     innerEqual = equalFor(t.value as EastTypeValue, ctx.equal);
     ctx.diff.pop();

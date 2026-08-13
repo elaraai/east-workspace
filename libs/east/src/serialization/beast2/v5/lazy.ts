@@ -31,6 +31,7 @@
 import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
+import { markFrozen } from "../../../frozen.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
 import { type Beast2DecodeOptions } from "../shared.js";
@@ -85,7 +86,10 @@ function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number): Gener
 class LazySortedMap<K, V> extends SortedMap<K, V> {
   private hydrated = false;
 
-  constructor(private readonly pages: Beast2Pages, private readonly cmp: (a: K, b: K) => number) {
+  // A frozen lazy map cannot be Object.freeze'd — hydration writes through
+  // its own internals — so the flag guards the mutators and the frozen
+  // registry carries the brand (see openBeast2LazyFor).
+  constructor(private readonly pages: Beast2Pages, private readonly cmp: (a: K, b: K) => number, private readonly frozen: boolean = false) {
     super(undefined, cmp);
   }
 
@@ -113,11 +117,18 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   }
 
   override set(key: K, value: V): this {
+    // Refuse BEFORE hydrating — a doomed write must not pay a whole decode.
+    if (this.frozen) {
+      throw new TypeError("Cannot modify frozen SortedMap");
+    }
     this.hydrate();
     return super.set(key, value);
   }
 
   override delete(key: K): boolean {
+    if (this.frozen) {
+      throw new TypeError("Cannot modify frozen SortedMap");
+    }
     this.hydrate();
     return super.delete(key);
   }
@@ -125,7 +136,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   override clear(): void {
     // Skip decoding just to discard it — an empty tree plus the hydrated
     // flag IS the cleared state.
-    if (Object.isFrozen(this)) {
+    if (this.frozen || Object.isFrozen(this)) {
       throw new TypeError("Cannot modify frozen SortedMap");
     }
     this.hydrated = true;
@@ -205,7 +216,10 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
 class LazySortedSet<K> extends SortedSet<K> {
   private hydrated = false;
 
-  constructor(private readonly pages: Beast2Pages, private readonly cmp: (a: K, b: K) => number) {
+  // A frozen lazy set cannot be Object.freeze'd — hydration writes through
+  // its own internals — so the flag guards the mutators and the frozen
+  // registry carries the brand (see openBeast2LazyFor).
+  constructor(private readonly pages: Beast2Pages, private readonly cmp: (a: K, b: K) => number, private readonly frozen: boolean = false) {
     super(undefined, cmp);
   }
 
@@ -229,11 +243,18 @@ class LazySortedSet<K> extends SortedSet<K> {
   }
 
   override add(key: K): this {
+    // Refuse BEFORE hydrating — a doomed write must not pay a whole decode.
+    if (this.frozen) {
+      throw new TypeError("Cannot modify frozen SortedSet");
+    }
     this.hydrate();
     return super.add(key);
   }
 
   override delete(key: K): boolean {
+    if (this.frozen) {
+      throw new TypeError("Cannot modify frozen SortedSet");
+    }
     this.hydrate();
     return super.delete(key);
   }
@@ -241,7 +262,7 @@ class LazySortedSet<K> extends SortedSet<K> {
   override clear(): void {
     // Skip decoding just to discard it — an empty tree plus the hydrated
     // flag IS the cleared state.
-    if (Object.isFrozen(this)) {
+    if (this.frozen || Object.isFrozen(this)) {
       throw new TypeError("Cannot modify frozen SortedSet");
     }
     this.hydrated = true;
@@ -345,7 +366,7 @@ const LAZY_ARRAY_READS = new Set<PropertyKey>(["entries", "keys", "values", "for
  *  the pager; any other access hydrates the target array in place. The
  *  proxy IS the value, so identity-keyed host state (iteration locks,
  *  freezes) survives hydration. */
-function lazyArray(pages: Beast2Pages): unknown[] {
+function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
   const target: unknown[] = [];
   let hydrated = false;
   const hydrate = (): void => {
@@ -397,6 +418,12 @@ function lazyArray(pages: Beast2Pages): unknown[] {
       return Reflect.get(t, prop, receiver);
     },
     set(t, prop, value, receiver) {
+      // A frozen lazy array refuses BEFORE hydrating — a doomed write must
+      // not pay a whole decode. (Object.freeze cannot brand the proxy: its
+      // target must stay writable for hydration.)
+      if (frozen) {
+        throw new TypeError("Cannot modify frozen Array");
+      }
       hydrate();
       return Reflect.set(t, prop, value, receiver);
     },
@@ -413,10 +440,16 @@ function lazyArray(pages: Beast2Pages): unknown[] {
       return Reflect.getOwnPropertyDescriptor(t, prop);
     },
     defineProperty(t, prop, attributes) {
+      if (frozen) {
+        throw new TypeError("Cannot modify frozen Array");
+      }
       hydrate();
       return Reflect.defineProperty(t, prop, attributes);
     },
     deleteProperty(t, prop) {
+      if (frozen) {
+        throw new TypeError("Cannot modify frozen Array");
+      }
       hydrate();
       return Reflect.deleteProperty(t, prop);
     },
@@ -435,8 +468,14 @@ function lazyArray(pages: Beast2Pages): unknown[] {
  * semantics, so the lazy value is observationally identical to
  * `decodeBeast2For(type)(data)`.
  *
+ * With `options.frozen`, the value is a frozen East value: each pager-served
+ * segment decodes frozen as it materializes, mutation throws instead of
+ * hydrating, and the collection compares as a value type under `Is` — see
+ * {@link isBeast2LazySafe} for the wider shapes a frozen open admits.
+ *
  * @param type - the collection type (Array/Set/Dict)
- * @param options - decode options (platform functions for decoded functions)
+ * @param options - decode options (platform functions for decoded functions,
+ *   frozen)
  * @returns a function opening a blob as a lazy collection value
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
@@ -445,17 +484,25 @@ export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, o
   if (!isSegmentedRoot(typeValue)) {
     throw new TypeError(`beast2 v5 lazy values hold Array, Set or Dict roots, not ${typeValue.type}`);
   }
+  const frozen = options?.frozen ?? false;
   return (data: Uint8Array) => {
+    // The pages carry the decode options, so every segment (and fence) the
+    // lazy value serves is decoded frozen at construction.
     const pages = new Beast2Pages(data, typeValue, options);
+    let value: unknown;
     if (typeValue.type === "Array") {
-      return lazyArray(pages) as ValueTypeOf<T>;
-    }
-    if (typeValue.type === "Set") {
+      value = lazyArray(pages, frozen);
+    } else if (typeValue.type === "Set") {
       const cmp = compareFor((typeValue as any).value) as (a: unknown, b: unknown) => number;
-      return new LazySortedSet(pages, cmp) as ValueTypeOf<T>;
+      value = new LazySortedSet(pages, cmp, frozen);
+    } else {
+      const cmp = compareFor((typeValue as any).value.key) as (a: unknown, b: unknown) => number;
+      value = new LazySortedMap(pages, cmp, frozen);
     }
-    const cmp = compareFor((typeValue as any).value.key) as (a: unknown, b: unknown) => number;
-    return new LazySortedMap(pages, cmp) as ValueTypeOf<T>;
+    // Lazy values cannot be Object.freeze'd (hydration writes through their
+    // own internals), so the registry carries the frozen brand.
+    if (frozen) markFrozen(value);
+    return value as ValueTypeOf<T>;
   };
 }
 
@@ -491,6 +538,46 @@ function isLazySafeElement(type: EastTypeValue): boolean {
   }
 }
 
+/** The frozen-open variant of {@link isLazySafeElement}: frozen values
+ *  cannot be mutated and frozen collections (incl. Vector/Matrix) compare
+ *  as value types under `Is`, so fresh per-segment decodes are unobservable
+ *  for every shape except `Ref` (the explicit identity cell — identity
+ *  across fresh decodes cannot be kept without pinning) and functions
+ *  (a decoded closure re-creates any mutable state it captured, and its
+ *  captures stay mutable even in a frozen decode). */
+function isLazySafeElementFrozen(type: EastTypeValue): boolean {
+  switch (type.type) {
+    case "Ref":
+    case "Function":
+    case "AsyncFunction":
+      return false;
+    case "Array":
+    case "Set":
+      return isLazySafeElementFrozen((type as any).value as EastTypeValue);
+    case "Dict": {
+      const dict = (type as any).value as { key: EastTypeValue; value: EastTypeValue };
+      return isLazySafeElementFrozen(dict.key) && isLazySafeElementFrozen(dict.value);
+    }
+    case "Struct":
+    case "Variant":
+      return (type.value as { name: string; type: EastTypeValue }[]).every((f) => isLazySafeElementFrozen(f.type));
+    case "Recursive":
+      return type.value.type === "wrapper" ? isLazySafeElementFrozen((type.value.value as { inner: EastTypeValue }).inner) : true;
+    default:
+      // Scalars, Blob, Vector, Matrix — all value types when frozen.
+      return true;
+  }
+}
+
+/** Options accepted by {@link isBeast2LazySafe}. */
+export type Beast2LazySafeOptions = {
+  /** Judge the shape for a frozen open ({@link openBeast2LazyFor} with
+   *  `frozen`): only `Ref`- and function-bearing element shapes force the
+   *  eager decode, since frozen values cannot be mutated and frozen
+   *  collections compare as value types. Defaults to `false`. */
+  frozen?: boolean;
+};
+
 /**
  * Decides whether a collection type may be opened lazily
  * ({@link openBeast2LazyFor}) with eager-equivalent semantics.
@@ -505,10 +592,17 @@ function isLazySafeElement(type: EastTypeValue): boolean {
  * state it captured. Scalar, struct and variant element shapes are safe —
  * they compare by value and have no in-place mutation builtins.
  *
+ * For a **frozen** open (`options.frozen`) the gate collapses: a frozen value
+ * cannot be mutated and frozen collections (including Vector/Matrix) compare
+ * as value types under `Is`, so fresh per-segment decodes are unobservable
+ * for every practical shape. Only `Ref`- and function-bearing element shapes
+ * still force the eager (frozen) decode.
+ *
  * Runners consult this before opening a large input lazily; an unsafe shape
  * falls back to the eager whole decode (always correct, just not O(segment)).
  *
  * @param type - the candidate input type
+ * @param options - gate options (`frozen` for frozen opens)
  * @returns `true` when the type is an Array, Set or Dict whose element (and
  *   key) shapes make lazy opening observationally equivalent to the eager
  *   decode; `false` otherwise, including for non-collection roots
@@ -517,15 +611,17 @@ function isLazySafeElement(type: EastTypeValue): boolean {
  * ```ts
  * isBeast2LazySafe(DictType(IntegerType, StructType({ id: IntegerType })));  // true
  * isBeast2LazySafe(DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) })));  // false — nested mutation
+ * isBeast2LazySafe(DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) })), { frozen: true });  // true — frozen values cannot be mutated
  * isBeast2LazySafe(StringType);  // false — not a collection root
  * ```
  */
-export function isBeast2LazySafe(type: EastType | EastTypeValue): boolean {
+export function isBeast2LazySafe(type: EastType | EastTypeValue, options?: Beast2LazySafeOptions): boolean {
   const typeValue = asTypeValue(type);
   if (!isSegmentedRoot(typeValue)) return false;
+  const safeElement = options?.frozen ? isLazySafeElementFrozen : isLazySafeElement;
   if (typeValue.type === "Dict") {
     const dict = (typeValue as any).value as { key: EastTypeValue; value: EastTypeValue };
-    return isLazySafeElement(dict.key) && isLazySafeElement(dict.value);
+    return safeElement(dict.key) && safeElement(dict.value);
   }
-  return isLazySafeElement((typeValue as any).value as EastTypeValue);
+  return safeElement((typeValue as any).value as EastTypeValue);
 }

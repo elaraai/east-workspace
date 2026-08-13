@@ -681,6 +681,7 @@ struct Beast2Pages {
     size_t *cumulative;   /* prefix sums of index.counts; NULL when count == 0 */
     EastValue **fences;   /* lazily decoded first element/key per segment (owned) */
     bool fences_verified; /* strict ascent checked (first keyed read) */
+    bool frozen;          /* frozen open: every decoded segment/fence is branded */
     struct {
         size_t idx;
         EastValue *seg; /* owned; NULL = empty slot */
@@ -814,6 +815,7 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
 
     b2v5_frames_init(&f, p->data, p->len, p->index.offsets[i]);
     b2v5_dec_ctx_init(&ctx, &p->sm);
+    ctx.frozen = p->frozen;
 
     if (!b2v5_frames_next(&f)) goto done; /* error already posted */
     if (!read_varint_checked(f.chunk, f.chunk_len, &f.chunk_off, &n)) {
@@ -834,6 +836,7 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
     }
     segment = b2v5_new_segment_container(p->type, (size_t)n);
     if (!segment) goto done;
+    if (ctx.frozen) east_value_set_frozen(segment);
     if (!b2v5_decode_elements_into(segment, p->type, n, f.chunk, f.chunk_len, &f.chunk_off, &ctx,
                                    p->type->kind == EAST_TYPE_ARRAY ? NULL : &order)) {
         /* Keep a specific posted message (e.g. the canonical-order
@@ -1019,6 +1022,7 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
         size_t coff = 0;
         uint64_t n;
         b2v5_dec_ctx_init(&ctx, &p->sm);
+        ctx.frozen = p->frozen;
         if (read_varint_checked(p->data + off, (size_t)payload_len, &coff, &n) && n > 0)
             first = b2v5_decode_value(p->data + off, (size_t)payload_len, &coff,
                                       pages_fence_type(p), &ctx);
@@ -1041,6 +1045,7 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
             size_t coff = 0;
             uint64_t n;
             b2v5_dec_ctx_init(&ctx, &p->sm);
+            ctx.frozen = p->frozen;
             if (read_varint_checked(buf, got, &coff, &n) && n > 0)
                 first = b2v5_decode_value(buf, got, &coff, pages_fence_type(p), &ctx);
             b2v5_dec_ctx_free(&ctx);
@@ -1367,36 +1372,67 @@ static bool lazy_safe_element(const EastType *t, const EastType *recursive)
     }
 }
 
+/* The frozen-open variant of lazy_safe_element (issue #539): frozen values
+ * cannot be mutated and frozen collections (incl. Vector/Matrix) compare as
+ * value types under Is, so fresh per-segment decodes are unobservable for
+ * every shape except Ref (the explicit identity cell — identity across fresh
+ * decodes cannot be kept without pinning) and functions (a decoded closure
+ * re-creates any mutable state it captured; captures stay mutable even in a
+ * frozen decode). Mirrors the TS gate (east lazy.ts, frozen mode). */
+static bool lazy_safe_element_frozen(const EastType *t, const EastType *recursive)
+{
+    if (!t) return false;
+    if (t == recursive) return true; /* back-reference: already on the checked path */
+    switch (t->kind) {
+    case EAST_TYPE_REF:
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+        return false;
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+        return lazy_safe_element_frozen(t->data.element, recursive);
+    case EAST_TYPE_DICT:
+        return lazy_safe_element_frozen(t->data.dict.key, recursive) &&
+               lazy_safe_element_frozen(t->data.dict.value, recursive);
+    case EAST_TYPE_STRUCT:
+        for (size_t i = 0; i < t->data.struct_.num_fields; i++)
+            if (!lazy_safe_element_frozen(t->data.struct_.fields[i].type, recursive)) return false;
+        return true;
+    case EAST_TYPE_VARIANT:
+        for (size_t i = 0; i < t->data.variant.num_cases; i++)
+            if (!lazy_safe_element_frozen(t->data.variant.cases[i].type, recursive)) return false;
+        return true;
+    case EAST_TYPE_RECURSIVE:
+        return lazy_safe_element_frozen(t->data.recursive.node, t);
+    default:
+        /* Scalars, Blob, Vector, Matrix — all value types when frozen. */
+        return true;
+    }
+}
+
 /* The root-level shape gate: only collection roots whose element (and key)
  * shapes are value-semantic may open lazily; anything else must decode
  * eagerly. Non-collection roots pass through to east_beast2_pages_new's own
- * (more specific) refusal. */
-static bool lazy_shape_safe(const EastType *type)
+ * (more specific) refusal. `frozen` collapses the gate to the Ref/function
+ * exclusions above. */
+static bool lazy_shape_safe(const EastType *type, bool frozen)
 {
     if (!type) return false;
+    bool (*safe)(const EastType *, const EastType *) =
+        frozen ? lazy_safe_element_frozen : lazy_safe_element;
     switch (type->kind) {
     case EAST_TYPE_ARRAY:
     case EAST_TYPE_SET:
-        return lazy_safe_element(type->data.element, NULL);
+        return safe(type->data.element, NULL);
     case EAST_TYPE_DICT:
-        return lazy_safe_element(type->data.dict.key, NULL) &&
-               lazy_safe_element(type->data.dict.value, NULL);
+        return safe(type->data.dict.key, NULL) && safe(type->data.dict.value, NULL);
     default:
         return true;
     }
 }
 
-EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
+static EastValue *open_paged_common(uint8_t *data, size_t len, EastType *type, bool frozen)
 {
-    /* Shape gate (#516): element shapes East can mutate in place (or observe
-     * by identity) must not be served as fresh pager decodes — the caller
-     * falls back to the eager whole decode, which is always correct. */
-    if (type && !lazy_shape_safe(type)) {
-        east_builtin_error("beast2 v5: lazy paged values need value-semantic element shapes — "
-                           "an element containing an Array/Set/Dict/Ref (mutable in place) or a "
-                           "Vector/Matrix/function (identity-compared) must decode eagerly");
-        return NULL;
-    }
     Beast2Pages *pages = east_beast2_pages_new(data, len, type);
     if (!pages) return NULL;
     /* Random access (and therefore every pager-served operation) needs
@@ -1407,20 +1443,55 @@ EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
                            "self-contained segments");
         return NULL;
     }
+    pages->frozen = frozen;
     EastValue *v = east_paged_new(pages, data, len);
     if (!v) {
         east_beast2_pages_free(pages);
         return NULL;
     }
+    if (frozen) east_value_set_frozen(v);
     return v;
+}
+
+EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
+{
+    /* Shape gate (#516): element shapes East can mutate in place (or observe
+     * by identity) must not be served as fresh pager decodes — the caller
+     * falls back to the eager whole decode, which is always correct. */
+    if (type && !lazy_shape_safe(type, false)) {
+        east_builtin_error("beast2 v5: lazy paged values need value-semantic element shapes — "
+                           "an element containing an Array/Set/Dict/Ref (mutable in place) or a "
+                           "Vector/Matrix/function (identity-compared) must decode eagerly");
+        return NULL;
+    }
+    return open_paged_common(data, len, type, false);
+}
+
+EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *type)
+{
+    /* The collapsed frozen gate (#539): only Ref- and function-bearing
+     * element shapes still force the eager (frozen) decode. */
+    if (type && !lazy_shape_safe(type, true)) {
+        east_builtin_error("beast2 v5: frozen lazy paged values need element shapes without a "
+                           "Ref (an identity cell) or function values (captured state) — such "
+                           "shapes must decode eagerly");
+        return NULL;
+    }
+    return open_paged_common(data, len, type, true);
 }
 
 EastValue *east_paged_hydrated(EastValue *v)
 {
     if (!v || v->kind != EAST_VAL_PAGED) return v;
     if (v->data.paged.hydrated) return v->data.paged.hydrated;
-    EastValue *whole = east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
-                                               east_beast2_pages_type(v->data.paged.pages));
+    /* A frozen open hydrates frozen, so the eager child enforces the same
+     * contract the pager-served reads did. */
+    EastValue *whole =
+        v->data.paged.frozen
+            ? east_beast2_decode_full_frozen(v->data.paged.data, v->data.paged.len,
+                                             east_beast2_pages_type(v->data.paged.pages))
+            : east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
+                                      east_beast2_pages_type(v->data.paged.pages));
     if (!whole) return NULL;
     /* Iteration locks taken on the wrapper carry over, so a body that
      * hydrates mid-loop still cannot mutate the collection it iterates. */

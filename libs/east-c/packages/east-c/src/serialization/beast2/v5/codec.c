@@ -407,7 +407,15 @@ EastValue *b2v5_decode_value(const uint8_t *data, size_t len, size_t *offset, Ea
 {
     if (ctx->depth >= BEAST2_MAX_DEPTH) return NULL;
     ctx->depth++;
+    /* Function subtrees never decode frozen: the IR is stamped in place
+     * before compiling, and captured values stay mutable (a closure owns its
+     * own state). Containers a capture merely aliases from the frozen graph
+     * resolve by REF and keep their brand. */
+    bool was_frozen = ctx->frozen;
+    if (type && (type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION))
+        ctx->frozen = false;
     EastValue *result = b2v5_decode_value_inner(data, len, offset, type, ctx);
+    ctx->frozen = was_frozen;
     ctx->depth--;
     return result;
 }
@@ -617,6 +625,9 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
             container = east_dict_new(type->data.dict.key, type->data.dict.value);
         }
         if (!container) return NULL;
+        /* The frozen brand goes on at construction — the decode fill below
+         * uses the raw value helpers, which the brand does not guard. */
+        if (ctx->frozen) east_value_set_frozen(container);
         /* Register at definition start so cycles resolve (create-then-fill). */
         if (!b2v5_dec_ctx_push(ctx, container)) {
             east_value_release(container);
@@ -637,6 +648,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
 
         EastValue *cell = east_ref_new(east_null());
         if (!cell) return NULL;
+        if (ctx->frozen) east_value_set_frozen(cell);
         if (!b2v5_dec_ctx_push(ctx, cell)) {
             east_value_release(cell);
             return NULL;
@@ -718,6 +730,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
 
         EastValue *vec = east_vector_new(elem_type, (size_t)vlen);
         if (!vec) return NULL;
+        if (ctx->frozen) east_value_set_frozen(vec);
 
         size_t byte_count = (size_t)vlen * elem_size;
         memcpy(vec->data.vector.data, data + *offset, byte_count);
@@ -747,6 +760,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
 
         EastValue *mat = east_matrix_new(elem_type, (size_t)rows, (size_t)cols);
         if (!mat) return NULL;
+        if (ctx->frozen) east_value_set_frozen(mat);
 
         size_t byte_count = (size_t)rows * (size_t)cols * elem_size;
         memcpy(mat->data.matrix.data, data + *offset, byte_count);

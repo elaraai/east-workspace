@@ -66,16 +66,18 @@ extern const uint8_t BEAST2_FOOTER_MAGIC_V5[8];
 /*  (public east_beast2_* names dispatch on the magic in full.c)        */
 /* ================================================================== */
 
-/* v4 — globally-sectioned container (v4/container.c) */
+/* v4 — globally-sectioned container (v4/container.c). `frozen` brands every
+ * constructed container/Ref/Vector/Matrix at construction (task-input
+ * decodes). */
 ByteBuffer *east_beast2_v4_encode_full(EastValue *value, EastType *type);
-EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type, bool frozen);
 EastValue *east_beast2_v4_decode_auto(const uint8_t *data, size_t len);
 IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
                                  EastSourceMap **source_map_out);
 EastType *east_beast2_v4_extract_type(const uint8_t *data, size_t len);
 
 /* v5 — segment-terminated record stream (v5/container.c) */
-EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType *type);
+EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType *type, bool frozen);
 EastValue *east_beast2_v5_decode_auto(const uint8_t *data, size_t len);
 IRNode *east_beast2_v5_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
                                  EastSourceMap **source_map_out);
@@ -271,7 +273,7 @@ typedef struct {
 
 Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, size_t *offset,
                                              EastType **types, size_t type_count,
-                                             Beast2StringTableDec *st);
+                                             Beast2StringTableDec *st, bool frozen);
 void beast2_mutable_values_free(Beast2MutableValues *mv);
 
 /* ================================================================== */
@@ -325,6 +327,10 @@ typedef struct {
     /* Recursion depth of beast2_decode_value (guards C stack exhaustion
      * on adversarially nested input) */
     int depth;
+    /* Brand every constructed container/Ref/Vector/Matrix at construction
+     * (task-input decodes). Cleared around Function subtrees — a decoded
+     * closure and its captures stay mutable. */
+    bool frozen;
 #ifdef BEAST2_PROFILE_DEDUP
     struct {
         EastType *type;

@@ -1,0 +1,109 @@
+#
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under the Business Source License 1.1. See LICENSE.md for details.
+#
+"""General variant construction in traced kernels (#541).
+
+The 2-arg ``variant(case, payload)`` construction carries no VariantType, so
+a traced kernel needs the type from context. These pin every context that
+supplies it — the kernel's declared ``out=`` (threaded to the root lift), a
+``where()`` sibling, a typed struct field — and the deferred ``where`` over
+variant branches in both arms. The exact spellings are the issue's repro.
+"""
+
+import pytest
+
+from east import (
+    EastArray,
+    NullType,
+    StringType,
+    StructType,
+    VariantType,
+    east_null,
+    kernel,
+    none,
+    some,
+    variant,
+    where,
+)
+from east.kernel import KernelTraceError
+from east.types.values import is_east_null
+
+Source = VariantType([("vessel", StringType), ("added", NullType)])
+Row = StructType([("code", StringType)])
+
+
+def _rows() -> EastArray:
+    return EastArray(Row, [{"code": "TANK-1"}, {"code": "ADDED"}])
+
+
+def _classify(r):
+    return where(r["code"] == "ADDED", variant("added", east_null),
+                 variant("vessel", r["code"]))
+
+
+def test_bare_variant_with_expression_payload_types_from_out():
+    out = _rows().map(kernel(Row, lambda r: variant("vessel", r["code"]), out=Source))
+    assert [(v.type, v.value) for v in out] == [("vessel", "TANK-1"), ("vessel", "ADDED")]
+
+
+def test_bare_variant_with_literal_payload_types_from_out():
+    out = _rows().map(kernel(Row, lambda r: variant("added", east_null), out=Source))
+    assert [v.type for v in out] == ["added", "added"]
+    assert all(is_east_null(v.value) for v in out)
+
+
+def test_where_with_variant_branches_defers_to_out():
+    out = _rows().map(kernel(Row, _classify, out=Source))
+    assert [v.type for v in out] == ["vessel", "added"]
+    assert out[0].value == "TANK-1"
+    assert is_east_null(out[1].value)
+
+
+def test_where_with_variant_branches_without_out_raises_the_actionable_error():
+    with pytest.raises(KernelTraceError, match="needs a type from context"):
+        kernel(Row, _classify)
+
+
+def test_variant_inside_struct_field_types_from_out():
+    wrapper = StructType([("src", Source)])
+    out = _rows().map(
+        kernel(Row, lambda r: {"src": _classify(r)}, out=wrapper)
+    )
+    assert [row["src"].type for row in out] == ["vessel", "added"]
+
+
+def test_unknown_case_names_the_declared_cases():
+    with pytest.raises(KernelTraceError, match="not in"):
+        kernel(Row, lambda r: variant("boat", r["code"]), out=Source)
+
+
+def test_payload_type_mismatch_is_named():
+    with pytest.raises(KernelTraceError, match="payload has type Integer, expected String"):
+        kernel(Row, lambda r: variant("vessel", 1), out=Source)
+
+
+def test_bare_variant_without_any_context_raises_the_actionable_error():
+    with pytest.raises(KernelTraceError, match="needs a VariantType from context"):
+        kernel(Row, lambda r: variant("vessel", r["code"]))
+
+
+def test_options_still_trace_without_out():
+    # The pre-existing some/none contract, untouched by the general fix.
+    out = _rows().map(
+        kernel(Row, lambda r: where(r["code"] == "ADDED", none, some(r["code"])))
+    )
+    assert [v.type for v in out] == [("some"), ("none")]
+    assert out[0].value == "TANK-1"
+
+
+def test_where_sibling_types_a_variant_branch():
+    # One arm lifts unaided (some), the other (none) types from it — and a
+    # general variant arm types from a typed sibling the same way, via an
+    # expression whose type is already known.
+    typed = kernel(Row, lambda r: variant("vessel", r["code"]), out=Source)
+    out = _rows().map(
+        kernel(Row, lambda r: where(r["code"] == "ADDED", variant("added", east_null),
+                                    typed(r)), out=Source)
+    )
+    assert [v.type for v in out] == ["vessel", "added"]

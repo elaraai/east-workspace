@@ -44,6 +44,48 @@ def get_test_ir_files(ir_dir: Path | None = None):
     return sorted(d.glob("*.json"))
 
 
+def _freeze_platform() -> list:
+    """The Frozen suite's per-type freeze capability (#539): an encode +
+    frozen decode through the real beast2 path, so the fixtures exercise the
+    same construction a frozen task input takes. The returned hold passes the
+    branded C value straight through the platform bridge."""
+    from east.runtime._compiler_eastc import freeze_value
+
+    from east.runtime.platform import PlatformFunction
+    from east.types.types import (
+        ArrayType,
+        DictType,
+        FloatType,
+        IntegerType,
+        MatrixType,
+        RefType,
+        SetType,
+        StringType,
+        StructType,
+        VectorType,
+    )
+
+    row = StructType([("id", IntegerType), ("xs", ArrayType(FloatType))])
+    fixtures = {
+        "freezeArray": ArrayType(IntegerType),
+        "freezeSet": SetType(StringType),
+        "freezeDict": DictType(StringType, row),
+        "freezeRef": RefType(IntegerType),
+        "freezeVector": VectorType(FloatType),
+        "freezeMatrix": MatrixType(IntegerType),
+    }
+
+    def impl_for(east_type):
+        def freeze(x):
+            return freeze_value(east_type, x)
+        return freeze
+
+    return [
+        PlatformFunction(name=name, inputs=[t], output=t, type="sync", fn=impl_for(t))
+        for name, t in fixtures.items()
+    ]
+
+
 def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list | None = None) -> tuple[int, int]:
     """Run a single IR file. Returns (passed, failed). Writes east-c style output to `out`."""
     from east.runtime.compiler import compile_from_json
@@ -115,6 +157,7 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
         PlatformFunction(name="test", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=test_impl),
         PlatformFunction(name="testPass", inputs=[], output=NullType, type="sync", fn=test_pass),
         PlatformFunction(name="testFail", inputs=[StringType], output=NullType, type="sync", fn=test_fail),
+        *_freeze_platform(),
     ]
 
     # Filter out test harness functions from extra_platform — we provide our own

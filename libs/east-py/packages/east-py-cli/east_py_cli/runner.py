@@ -85,6 +85,19 @@ def _lazy_input_threshold() -> int:
     return _LAZY_INPUT_BYTES_DEFAULT
 
 
+def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> object:
+    """An eagerly-decoded FROZEN input value — task inputs are immutable
+    (mutating builtins raise the uniform copy-first error, and frozen
+    collections compare by value). beast2 files decode frozen directly;
+    other formats load as python values and re-freeze through the beast2
+    round-trip, so every format honors the same contract."""
+    from east.runtime._compiler_eastc import freeze_value, load_frozen_value
+
+    if Path(file_path).suffix.lower() in (".beast2", ".beast"):
+        return load_frozen_value(type_ptr, Path(file_path).read_bytes())
+    return freeze_value(type_ptr, load_value(file_path, param_type))
+
+
 class _EmitSink:
     """The ``--emit`` capability: a Python callable passed as the body's
     trailing FunctionType parameter, appending elements (pairs for dict
@@ -434,11 +447,15 @@ def run_program(
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
-    # Load inputs with type-directed parsing. The streamed input always opens
-    # as a lazy paged value (segment-fed iteration + keyed reads at O(segment)
-    # decoded memory — #505); other indexed beast2 collection inputs open
-    # lazily at or above the size threshold. Anything not pageable falls back
-    # to the whole decode, exactly like east-node's runner.
+    # Load inputs with type-directed parsing — always FROZEN (task inputs are
+    # immutable; mutating one raises the uniform copy-first error). The
+    # streamed input always opens as a lazy paged value (segment-fed
+    # iteration + keyed reads at O(segment) decoded memory — #505); other
+    # indexed beast2 collection inputs open lazily at or above the size
+    # threshold — and because frozen collapses the shape gate,
+    # nested-container element shapes open lazily too. Anything not pageable
+    # falls back to the whole (frozen) decode, exactly like east-node's
+    # runner.
     from east.runtime._compiler_eastc import open_paged_value
 
     threshold = _lazy_input_threshold()
@@ -453,8 +470,12 @@ def run_program(
             and Path(file_path).suffix.lower() in (".beast2", ".beast")
             and getattr(param_type, "type", None) in ("Array", "Set", "Dict")
         ):
-            lazy = open_paged_value(handle._input_types[i], Path(file_path).read_bytes())
-        inputs.append(lazy if lazy is not None else load_value(file_path, param_type))
+            lazy = open_paged_value(handle._input_types[i], Path(file_path).read_bytes(),
+                                    frozen=True)
+        if lazy is not None:
+            inputs.append(lazy)
+        else:
+            inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
 
     # The emit capability rides the trailing FunctionType parameter as a
     # foreign function value backed by the sink's Python callable.

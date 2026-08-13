@@ -34,6 +34,12 @@ static EastValue *ref_get_impl(EastValue **args, size_t n)
 static EastValue *ref_update_impl(EastValue **args, size_t n)
 {
     (void)n;
+    /* Frozen task inputs (#539): a frozen Ref refuses assignment with the
+     * uniform cross-runtime message. */
+    if (east_value_frozen(args[0])) {
+        east_builtin_error(EAST_FROZEN_MUTATION_MSG);
+        return NULL;
+    }
     east_ref_set(args[0], args[1]);
     return east_null();
 }
@@ -41,6 +47,10 @@ static EastValue *ref_update_impl(EastValue **args, size_t n)
 static EastValue *ref_merge_impl(EastValue **args, size_t n)
 {
     (void)n;
+    if (east_value_frozen(args[0])) {
+        east_builtin_error(EAST_FROZEN_MUTATION_MSG);
+        return NULL;
+    }
     /* args: ref, new_value, update_fn */
     EastValue *current = east_ref_get(args[0]);
     EastValue *call_args[] = {current, args[1]};
