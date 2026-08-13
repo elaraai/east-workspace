@@ -33,6 +33,13 @@ from east cimport _eastc
 
 from datetime import UTC
 from datetime import datetime as DateTime
+from datetime import timedelta as TimeDelta
+
+# Decode datetimes by epoch arithmetic, not fromtimestamp: Windows'
+# fromtimestamp rejects pre-epoch (negative) values with EINVAL, and the
+# arithmetic is exact for integer milliseconds where the float division
+# was not.
+_EPOCH_UTC = DateTime(1970, 1, 1, tzinfo=UTC)
 
 import numpy as np
 import os
@@ -501,7 +508,7 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
 
     elif kind == _eastc.EAST_TYPE_DATETIME:
         millis = val.data.datetime
-        return DateTime.fromtimestamp(millis / 1000.0, tz=UTC)
+        return _EPOCH_UTC + TimeDelta(milliseconds=millis)
 
     elif kind == _eastc.EAST_TYPE_BLOB:
         return EastBlob((<char*>val.data.blob.data)[:val.data.blob.len])
