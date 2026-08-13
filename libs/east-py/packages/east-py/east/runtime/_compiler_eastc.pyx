@@ -636,6 +636,15 @@ def call_builtin(str name, list type_params, list args, object output_type):
                                 c_args[i] = <_eastc.EastValue*>fn_ptr
                                 _eastc.east_value_retain(c_args[i])
                                 continue
+                            if getattr(args[i].fn, EAST_CAPTURES_ATTR, None):
+                                # Live capture values ride OUTSIDE the IR:
+                                # convert through the bridge, whose carrier
+                                # populates the closure's captures env via the
+                                # conversion's identity_map — compiling the
+                                # bare node here would leave the declared
+                                # captures unbound (#476 E).
+                                c_args[i] = py_value_to_c(args[i].fn, arg_types[i])
+                                continue
                             py_ir = getattr(args[i].fn, EAST_IR_ATTR, None)
                             if py_ir is not None:
                                 # Compile the attached IR: a capture-baked

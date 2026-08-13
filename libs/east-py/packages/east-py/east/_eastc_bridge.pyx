@@ -1456,6 +1456,38 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
         raise
 
     cdef _eastc.EastValue* result = _eastc.east_function_value(fn)
+    if py_ir.type not in ("Function", "AsyncFunction"):
+        return result
+
+    # Evaluate the Function node once against the populated captures env —
+    # the unwrap _compile_from_ir_node performs — so the value that crosses
+    # is the REAL closure: callable, serializable, and sharing its captured
+    # values (via identity_map) with the surrounding conversion (#476 E).
+    # The carrier itself stays encode-only: calling it would return a fresh
+    # closure instead of a result.
+    cdef _eastc.EvalResult unwrapped = _eastc.east_call(fn, NULL, 0)
+    cdef _eastc.EastCompiledFn* closure_fn
+    cdef _eastc.PlatformRegistry* cur_p
+    cdef _eastc.BuiltinRegistry* cur_b
+    if (unwrapped.status == _eastc.EVAL_OK or unwrapped.status == _eastc.EVAL_RETURN) \
+            and unwrapped.value != NULL \
+            and unwrapped.value.kind == _eastc.EAST_VAL_FUNCTION:
+        closure_fn = unwrapped.value.data.function.compiled
+        if closure_fn != NULL:
+            # The closure inherited the carrier's NULL registries; wire the
+            # thread-current ones so a later call executes (same contract as
+            # the funnel's decode wiring).
+            _eastc.east_get_thread_context(&cur_p, &cur_b)
+            if closure_fn.builtins == NULL:
+                closure_fn.builtins = cur_b
+            if closure_fn.platform == NULL and cur_p != NULL:
+                closure_fn.platform = cur_p
+                _eastc.platform_registry_retain(cur_p)
+        _eastc.east_value_release(result)
+        return unwrapped.value
+    if unwrapped.value != NULL:
+        _eastc.east_value_release(unwrapped.value)
+    _eastc.eval_result_free(&unwrapped)
     return result
 
 

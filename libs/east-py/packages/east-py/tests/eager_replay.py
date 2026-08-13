@@ -242,11 +242,21 @@ class Closure:
 
     @property
     def _east_ir(self) -> Any:
+        # Captures present: expose the UNBAKED node and let _east_captures
+        # supply the live values — the bridge populates the closure's captures
+        # env through its identity_map, so a captured value and its aliases in
+        # the same conversion stay ONE value (#476 E). Capture-free: the baked
+        # node suits the compile fallback.
+        if list(self.payload["captures"]):
+            return self.node
         return _baked_node(self)
 
     @property
     def _east_captures(self) -> dict:
-        return {}
+        return {
+            var.value["name"]: self.env.get(var.value["name"])
+            for var in self.payload["captures"]
+        }
 
 
 # Closure → owning evaluator (module-level so Closure can stay a light value).
@@ -799,11 +809,13 @@ class EagerEvaluator:
                 if getattr(cb, "_east_ir", None) is None:
                     # A Function-typed VALUE slot serializes the callback from
                     # its IR; the interpreter-backed callbacks (by-reference
-                    # captures) carry none, so bake the capture snapshot here —
-                    # at the builtin call, exactly when encode reads it.
+                    # captures) carry none, so attach the Closure's node and
+                    # live capture values here — at the builtin call, exactly
+                    # when the conversion reads them (aliasing preserved via
+                    # the bridge's identity_map).
                     with contextlib.suppress(AttributeError, TypeError, _Unsupported):
-                        cb._east_ir = _baked_node(a)
-                        cb._east_captures = {}
+                        cb._east_ir = a._east_ir
+                        cb._east_captures = a._east_captures
                 conv.append(EastFunction(
                     cb,
                     [self.canon(v.value["type"]) for v in pp["parameters"]],
