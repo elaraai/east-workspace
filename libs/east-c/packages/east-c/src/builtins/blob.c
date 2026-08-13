@@ -237,7 +237,19 @@ static EastValue *blob_encode_beast(EastValue **args, size_t n)
         return NULL;
     }
     ByteBuffer *buf = east_beast_encode(args[0], type);
-    if (!buf) return east_blob(NULL, 0);
+    if (!buf) {
+        /* Propagate the encoder's failure (its message is already in the
+         * error slot). Returning an empty blob here made an unserializable
+         * value look like a 0-byte success and only fail at decode time. */
+        char *posted = east_builtin_get_error();
+        if (posted) {
+            east_builtin_error(posted);
+            free(posted);
+        } else {
+            east_builtin_error("Failed to encode Beast data");
+        }
+        return NULL;
+    }
     EastValue *result = east_blob(buf->data, buf->len);
     byte_buffer_free(buf);
     return result;
@@ -270,7 +282,19 @@ static EastValue *blob_encode_beast2(EastValue **args, size_t n)
         return NULL;
     }
     ByteBuffer *buf = east_beast2_encode_full(args[0], type);
-    if (!buf) return east_blob(NULL, 0);
+    if (!buf) {
+        /* Propagate the encoder's failure (its message is already in the
+         * error slot). Returning an empty blob here made an unserializable
+         * value look like a 0-byte success and only fail at decode time. */
+        char *posted = east_builtin_get_error();
+        if (posted) {
+            east_builtin_error(posted);
+            free(posted);
+        } else {
+            east_builtin_error("Failed to encode Beast2 data");
+        }
+        return NULL;
+    }
     EastValue *result = east_blob(buf->data, buf->len);
     byte_buffer_free(buf);
     return result;

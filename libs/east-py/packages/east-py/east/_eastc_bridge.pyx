@@ -1377,6 +1377,22 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
             "Functions must be compiled from East IR to be serializable."
         )
 
+    # A capture-baked Block[Let…, Function] is compilable but not wire-shaped
+    # (the codec reads source_ir as a Function node). Compile it: the unwrap
+    # evaluates the Lets into a real closure whose source_ir and captures env
+    # carry exactly the wire shape (#476).
+    cdef uintptr_t baked_ptr
+    if py_ir.type not in ("Function", "AsyncFunction"):
+        from east.runtime.compiler import compile_from_value
+        native = compile_from_value(py_ir)
+        baked_ptr = <uintptr_t>getattr(
+            getattr(native, "_eastc_handle", None), "_fn_val", 0)
+        if baked_ptr != 0:
+            existing = <_eastc.EastValue*>baked_ptr
+            if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
+                _eastc.east_value_retain(existing)
+                return existing
+
     # Use east-c's internal IR type (handles deep recursion natively)
     if _eastc.east_ir_type == NULL:
         _eastc.east_type_of_type_init()
@@ -1409,7 +1425,11 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     # tear the whole thing down via east_compiled_fn_free.
     capture_values = getattr(val, EAST_CAPTURES_ATTR, {})
     try:
-        captures_list = py_ir["value"]["captures"]
+        # The attached IR may be a bare Function node or a capture-baked
+        # Block[Let…, Function] (the kernel tracer's and the replay's
+        # hoisted-constant shape) — a Block declares no captures.
+        fn_payload = py_ir["value"]
+        captures_list = fn_payload["captures"] if "captures" in fn_payload else []
         if len(captures_list) > 0 and len(capture_values) > 0:
             _populate_fn_captures(fn, captures_list, capture_values, identity_map)
     except:

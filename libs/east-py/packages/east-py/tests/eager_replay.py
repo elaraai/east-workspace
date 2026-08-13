@@ -38,6 +38,7 @@ the #470 failure shape.
 
 from __future__ import annotations
 
+import contextlib
 import json as _pyjson
 from collections import Counter
 from dataclasses import dataclass, field
@@ -253,16 +254,27 @@ _EVALUATOR_OF: dict[int, EagerEvaluator] = {}
 
 
 def _baked_node(clo: Closure) -> Any:
-    """The closure's Function IR with captures baked as quoted Lets."""
+    """The closure's Function IR with captures baked as quoted Lets.
+
+    A captured function is not quotable as a literal — it bakes as ITS OWN
+    baked node (recursively), so closure chains (A captures B captures C)
+    reduce to one self-contained IR tree.
+    """
     p = clo.payload
     captures = list(p["captures"])
     if not captures:
         return ir_function(p["type"], [], list(p["parameters"]), p["body"])
-    lets = [
-        ir_let(var.value["type"], var,
-               quote_value(clo.env.get(var.value["name"]), var.value["type"]))
-        for var in captures
-    ]
+
+    def let_value(var: Any) -> Any:
+        captured = clo.env.get(var.value["name"])
+        if isinstance(captured, Closure):
+            return _baked_node(captured)
+        attached = getattr(captured, "_east_ir", None)
+        if attached is not None:
+            return attached
+        return quote_value(captured, var.value["type"])
+
+    lets = [ir_let(var.value["type"], var, let_value(var)) for var in captures]
     return ir_block(p["type"], [*lets, clo.node])
 
 
@@ -783,8 +795,17 @@ class EagerEvaluator:
                 pp = a.payload
                 from east._eastc_bridge import resolve_child_type
 
+                cb = self.make_callback(a)
+                if getattr(cb, "_east_ir", None) is None:
+                    # A Function-typed VALUE slot serializes the callback from
+                    # its IR; the interpreter-backed callbacks (by-reference
+                    # captures) carry none, so bake the capture snapshot here —
+                    # at the builtin call, exactly when encode reads it.
+                    with contextlib.suppress(AttributeError, TypeError, _Unsupported):
+                        cb._east_ir = _baked_node(a)
+                        cb._east_captures = {}
                 conv.append(EastFunction(
-                    self.make_callback(a),
+                    cb,
                     [self.canon(v.value["type"]) for v in pp["parameters"]],
                     resolve_child_type(pp["type"], ("output",)),
                 ))
