@@ -27,6 +27,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* List = Recursive(self => Variant{ cons: Struct{head: Integer, tail: self},
  *                                   nil: Null })
@@ -89,6 +90,36 @@ int main(void)
     if (list->ref_count != -1) {
         printf("FAIL refcount: retain/release not a no-op (ref_count %d)\n", list->ref_count);
         failures++;
+    }
+
+    /* #472: the shared nullary-case value a variant type hands out is owned
+     * by the (arena-immortal) type and reclaimed only with the arena, so any
+     * retain/release traffic on the type must leave it live and mintable.
+     * east_type_release used to carry a refcount-zero path that would have
+     * free()d the shared value (and the arena-interior type) out from under
+     * every holder. Shared minting needs the variant node itself — a
+     * Recursive wrapper and its inner node are different `type` values, so
+     * the wrapper never shares. */
+    EastType *inner_variant = list->data.recursive.node;
+    EastValue *shared_nil = east_variant_new("nil", east_null(), inner_variant);
+    if (!shared_nil || shared_nil->ref_count != -1) {
+        printf("FAIL shared case: expected the immortal shared `nil` value\n");
+        failures++;
+    } else {
+        EastValue *again = east_variant_new("nil", east_null(), inner_variant);
+        if (again != shared_nil) {
+            printf("FAIL shared case: second mint did not return the shared value\n");
+            failures++;
+        }
+        east_value_release(again);
+        east_value_release(shared_nil); /* no-ops — the value is immortal */
+        east_type_release(inner_variant);
+        east_type_release(inner_variant); /* over-release: still a no-op */
+        EastValue *after = east_variant_new("nil", east_null(), inner_variant);
+        if (after != shared_nil || strcmp(east_variant_case_name(after), "nil") != 0) {
+            printf("FAIL shared case: type release traffic disturbed the shared value\n");
+            failures++;
+        }
     }
 
     /* type_of_type round trip: List -> EastTypeType value -> List. */
