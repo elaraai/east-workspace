@@ -85,18 +85,6 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Frozen'): (
         'frozen task-input decode is a C-runtime brand with no eager-python-surface spelling (#539)',
         frozenset({'Is keeps identity semantics for mutable and mixed operands', 'Is on two frozen collections is deep value equality', 'Is recurses into nested frozen containers by value', 'a frozen Ref stays an identity cell under Is', 'copying a frozen array yields a mutable scratch value', 'equality, ordering, printing and encoding match the mutable twin', 'frozen Vector and Matrix are value types under Is', 'frozen array mutations throw; the mutable twin accepts them', 'frozen collections keep serving reads and iteration', 'frozen dict mutations throw, including through a read-out element', 'frozen ref assignment throws', 'frozen set mutations throw; reads still serve'})),
-    # The two-test residue of #476: closure/captured-value identity does not
-    # survive deserialization (item E), and a closure capturing a recursive
-    # type still reaches the encoder without source IR.
-    ('kernel', 'Function'): (
-        'function values crossing the py boundary (identity, recursive captures) — #476 E',
-        frozenset({'closure capturing recursive type (linked list)', 'struct containing closure and captured value preserves identity'})),
-    ('trampoline', 'Function'): (
-        'function values crossing the py boundary (identity, recursive captures) — #476 E',
-        frozenset({'closure capturing recursive type (linked list)', 'struct containing closure and captured value preserves identity'})),
-    ('traced', 'Function'): (
-        'function values crossing the py boundary (identity, recursive captures) — #476 E',
-        frozenset({'closure capturing recursive type (linked list)', 'struct containing closure and captured value preserves identity'})),
     ('kernel', 'String'): (
         'recursive-type print/parse and JSON shapes — #478 family',
         frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),

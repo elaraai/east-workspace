@@ -355,6 +355,17 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
                 east_value_release(inner);
             } else if (cap_val) {
                 b2v5_encode_value(buf, cap_val, cap_type, ctx);
+            } else {
+                /* ncaps was already written from the IR's declaration list;
+                 * silently skipping an unbound capture would leave the wire
+                 * short one value and desync every later read. */
+                char msg[160];
+                snprintf(msg, sizeof(msg),
+                         "beast2 v5 encode: closure capture '%s' has no bound value "
+                         "(declared in the IR but absent from the captures environment)",
+                         cap_name ? cap_name : "(null)");
+                east_builtin_error(msg);
+                ctx->failed = true;
             }
 
             if (cap_type) east_type_release(cap_type);
