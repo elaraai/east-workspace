@@ -1370,6 +1370,21 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
             _eastc.east_value_retain(existing)
             return existing
 
+    # A compiled kernel carries its native function value on its handle —
+    # pass it through, exactly like the decoded-wrapper fast path above. A
+    # kernel converted into a Function-typed slot (an array of functions, a
+    # struct field) must cross as its real closure: the IR-fallback carrier
+    # below is encode-only, and CALLING it evaluates its Function node into
+    # a fresh closure value that the caller then union-reads as the declared
+    # output type — a pointer-sized integer where a result should be (#476 D).
+    kernel_handle = getattr(val, "_eastc_handle", None)
+    if kernel_handle is not None:
+        handle_int = <uintptr_t>getattr(kernel_handle, "_fn_val", 0)
+        existing = <_eastc.EastValue*>handle_int
+        if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
+            _eastc.east_value_retain(existing)
+            return existing
+
     py_ir = getattr(val, EAST_IR_ATTR, None)
     if py_ir is None:
         raise RuntimeError(
@@ -1377,12 +1392,16 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
             "Functions must be compiled from East IR to be serializable."
         )
 
-    # A capture-baked Block[Let…, Function] is compilable but not wire-shaped
-    # (the codec reads source_ir as a Function node). Compile it: the unwrap
-    # evaluates the Lets into a real closure whose source_ir and captures env
-    # carry exactly the wire shape (#476).
+    # Compile the attached IR into a real closure and pass its function value
+    # through. The hand-built carrier below is encode-only: its `ir` is the
+    # Function node itself, so CALLING it evaluates that node into a fresh
+    # closure value that the caller union-reads as the declared output type
+    # (#476 D). Compiling covers both plain Function nodes and capture-baked
+    # Block[Let…, Function] shapes with the exact wire shape either way. The
+    # carrier remains only for the explicit-captures protocol (a non-empty
+    # EAST_CAPTURES_ATTR dict), whose values live outside the IR.
     cdef uintptr_t baked_ptr
-    if py_ir.type not in ("Function", "AsyncFunction"):
+    if not getattr(val, EAST_CAPTURES_ATTR, None):
         from east.runtime.compiler import compile_from_value
         native = compile_from_value(py_ir)
         baked_ptr = <uintptr_t>getattr(

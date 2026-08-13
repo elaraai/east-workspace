@@ -19,7 +19,7 @@ Three boundary defects, each pinned by the round trip it used to break:
 
 from east.runtime._compiler_eastc import call_builtin
 
-from east import BlobType, FunctionType, IntegerType, type_of
+from east import BlobType, EastArray, FunctionType, IntegerType, type_of
 from east.kernel import kernel, trace
 from east.runtime.compiler import compile_from_value
 from east.types.values.structural import EastFunction
@@ -70,3 +70,16 @@ def test_type_of_reads_declared_function_signatures():
     assert type_of(back) == FT
     back(1)
     assert type_of(back) == FT
+
+
+def test_functions_stored_in_an_array_call_correctly():
+    # A function in a value slot must cross as a REAL closure. The encode-only
+    # carrier's `ir` is the Function node itself, so calling it evaluated the
+    # node into a fresh closure value and union-read it as the output type —
+    # a pointer-sized integer where 6 belongs (#476 D).
+    arr = EastArray(FT, [
+        kernel(IntegerType, lambda x: x * 2),
+        kernel(IntegerType, lambda x: x * 3),
+    ])
+    assert arr[0](3) == 6
+    assert arr[1](3) == 9
