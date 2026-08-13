@@ -35,6 +35,7 @@ from east.types.types import (
     IntegerType,
     StringType,
     StructType,
+    _close_recursive_refs,
 )
 from east.types.values import (
     EAST_ELEMENT_TO_DTYPE,
@@ -270,49 +271,6 @@ def coerce_to(value: object, typ: EastType, *, path: str = "$") -> EastValue:
     return _coerce(value, typ, path, {})
 
 
-def _close_type(typ: EastType, type_ctx: dict[int, EastType]) -> EastType:
-    """Substitute free recursive ``ref``s with their wrappers.
-
-    A type fragment extracted from inside a recursive scope carries ``ref``
-    leaves bound by an enclosing wrapper that is no longer above it. The
-    container proxies forward-convert their child types standalone, so the
-    fragment must be closed first. Wrappers are already self-contained and
-    are left untouched, which keeps the substitution finite.
-    """
-    kind = typ["type"]
-    if kind == "Recursive":
-        payload = typ["value"]
-        if payload.type == "ref":
-            return type_ctx.get(payload.value, typ)
-        return typ
-    if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
-        inner = _close_type(typ["value"], type_ctx)
-        return typ if inner is typ["value"] else EastVariant(kind, inner)
-    if kind == "Dict":
-        k = _close_type(typ["value"]["key"], type_ctx)
-        v = _close_type(typ["value"]["value"], type_ctx)
-        if k is typ["value"]["key"] and v is typ["value"]["value"]:
-            return typ
-        return EastVariant("Dict", {"key": k, "value": v})
-    if kind in ("Struct", "Variant"):
-        members = [
-            {"name": m["name"], "type": _close_type(m["type"], type_ctx)}
-            for m in typ["value"]
-        ]
-        if all(nm["type"] is m["type"] for nm, m in zip(members, typ["value"], strict=True)):
-            return typ
-        return EastVariant(kind, members)
-    if kind in ("Function", "AsyncFunction"):
-        inputs = [_close_type(i, type_ctx) for i in typ["value"]["inputs"]]
-        output = _close_type(typ["value"]["output"], type_ctx)
-        if output is typ["value"]["output"] and all(
-            ni is i for ni, i in zip(inputs, typ["value"]["inputs"], strict=True)
-        ):
-            return typ
-        return EastVariant(kind, {"inputs": inputs, "output": output})
-    return typ
-
-
 def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType]) -> EastValue:
     kind = typ["type"]
 
@@ -388,7 +346,7 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
         raise EastTypeError(f"expected {kind} or array-like, got {_describe(value)}", value=value, expected=typ, path=path)
 
     if kind == "Array":
-        elem = _close_type(typ["value"], type_ctx) if type_ctx else typ["value"]
+        elem = _close_recursive_refs(typ["value"], type_ctx) if type_ctx else typ["value"]
         if isinstance(value, np.ndarray):
             return _coerce_array_from_numpy(value, typ, elem, path)
         if (
@@ -406,15 +364,15 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
             return EastArray(elem, [_coerce(it, elem, f"{path}[{i}]", type_ctx) for i, it in enumerate(value)])
         raise EastTypeError(f"expected Array or list, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Set":
-        elem = _close_type(typ["value"], type_ctx) if type_ctx else typ["value"]
+        elem = _close_recursive_refs(typ["value"], type_ctx) if type_ctx else typ["value"]
         if isinstance(value, (EastSet, set, frozenset, list, tuple)):
             return EastSet(elem, [_coerce(it, elem, f"{path}{{{i}}}", type_ctx) for i, it in enumerate(value)])
         raise EastTypeError(f"expected Set or iterable, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Dict":
         dt = typ["value"]
         if type_ctx:
-            dt = {"key": _close_type(dt["key"], type_ctx),
-                  "value": _close_type(dt["value"], type_ctx)}
+            dt = {"key": _close_recursive_refs(dt["key"], type_ctx),
+                  "value": _close_recursive_refs(dt["value"], type_ctx)}
         if isinstance(value, (dict, EastDict)):
             result: EastDict = EastDict(dt["key"], dt["value"])
             for k, v in value.items():

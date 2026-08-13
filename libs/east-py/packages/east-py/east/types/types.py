@@ -1047,7 +1047,53 @@ def OptionType(value_type: EastType) -> EastVariant[list[VariantCaseDef]]:
     return SomeType(value_type)
 
 
-def PatchType(type: EastType, _ctx: dict[int, EastType] | None = None) -> EastType:
+def _close_recursive_refs(typ: EastType, wrappers: dict[int, EastType]) -> EastType:
+    """Substitute free recursive ``ref``s with their wrappers.
+
+    A subtree extracted from inside a recursive scope carries ``ref`` leaves
+    bound by an enclosing wrapper that is no longer above it; embedding or
+    converting such a fragment standalone is unsound. Wrappers themselves are
+    already self-contained and are left untouched, keeping this finite.
+    """
+    kind = typ.type
+    if kind == "Recursive":
+        payload = typ.value
+        if payload.type == "ref":
+            return wrappers.get(payload.value, typ)
+        return typ
+    if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
+        inner = _close_recursive_refs(typ.value, wrappers)
+        return typ if inner is typ.value else EastVariant(kind, inner)
+    if kind == "Dict":
+        k = _close_recursive_refs(typ.value["key"], wrappers)
+        v = _close_recursive_refs(typ.value["value"], wrappers)
+        if k is typ.value["key"] and v is typ.value["value"]:
+            return typ
+        return EastVariant("Dict", {"key": k, "value": v})
+    if kind in ("Struct", "Variant"):
+        members = [
+            {"name": m["name"], "type": _close_recursive_refs(m["type"], wrappers)}
+            for m in typ.value
+        ]
+        if all(nm["type"] is m["type"] for nm, m in zip(members, typ.value, strict=True)):
+            return typ
+        return EastVariant(kind, members)
+    if kind in ("Function", "AsyncFunction"):
+        inputs = [_close_recursive_refs(i, wrappers) for i in typ.value["inputs"]]
+        output = _close_recursive_refs(typ.value["output"], wrappers)
+        if output is typ.value["output"] and all(
+            ni is i for ni, i in zip(inputs, typ.value["inputs"], strict=True)
+        ):
+            return typ
+        return EastVariant(kind, {"inputs": inputs, "output": output})
+    return typ
+
+
+def PatchType(
+    type: EastType,
+    _ctx: dict[int, EastType] | None = None,
+    _wrappers: dict[int, EastType] | None = None,
+) -> EastType:
     """Compute the patch type for ``type``.
 
     A patch is the type of the diff between two values of ``type``, as produced
@@ -1060,13 +1106,24 @@ def PatchType(type: EastType, _ctx: dict[int, EastType] | None = None) -> EastTy
         type: The East type whose patch type to compute.
         _ctx: Internal map from recursive scope id to the patch type its
             back-references resolve to.
+        _wrappers: Internal map from recursive scope id to its wrapper,
+            used to close embedded subtrees over their binders.
 
     Returns:
-        The patch type as an ``EastType``.
+        The patch type as an ``EastType``. Every type it embeds (the
+        ``before``/``after`` positions, operation element types) is
+        self-contained — subtrees of a recursive scope are closed over
+        their wrapper before embedding.
     """
     kind = type.type
+    if _wrappers is None:
+        _wrappers = {}
+    # Types embedded in the patch shape must stand alone: inside a recursive
+    # scope the raw subtree carries free back-references to a binder the
+    # patch type does not contain.
+    closed = _close_recursive_refs(type, _wrappers) if _wrappers else type
     unchanged = ("unchanged", NullType)
-    replace = ("replace", StructType([("before", type), ("after", type)]))
+    replace = ("replace", StructType([("before", closed), ("after", closed)]))
 
     if kind == "Recursive":
         # Mirrors the TS reference (libs/east/src/patch/type_of_patch.ts): a
@@ -1082,18 +1139,19 @@ def PatchType(type: EastType, _ctx: dict[int, EastType] | None = None) -> EastTy
             if cached is not None:
                 return cached
             _ctx[rec_id] = VariantType([unchanged, replace])
-            return PatchType(payload.value["inner"], _ctx)
+            _wrappers[rec_id] = type
+            return PatchType(payload.value["inner"], _ctx, _wrappers)
         cached = _ctx.get(payload.value)
         if cached is None:
             raise ValueError(f"PatchType: unresolved Recursive ref({payload.value})")
         return cached
     if kind == "Array":
-        element_type = type.value
+        element_type = _close_recursive_refs(type.value, _wrappers) if _wrappers else type.value
         operation = VariantType(
             [
                 ("delete", element_type),
                 ("insert", element_type),
-                ("update", PatchType(element_type, _ctx)),
+                ("update", PatchType(type.value, _ctx, _wrappers)),
             ]
         )
         entry = StructType(
@@ -1101,28 +1159,36 @@ def PatchType(type: EastType, _ctx: dict[int, EastType] | None = None) -> EastTy
         )
         return VariantType([unchanged, replace, ("patch", ArrayType(entry))])
     if kind == "Set":
+        key_type = _close_recursive_refs(type.value, _wrappers) if _wrappers else type.value
         operation = VariantType([("delete", NullType), ("insert", NullType)])
-        return VariantType([unchanged, replace, ("patch", DictType(type.value, operation))])
+        return VariantType([unchanged, replace, ("patch", DictType(key_type, operation))])
     if kind == "Dict":
-        value_type = type.value["value"]
+        value_type = (
+            _close_recursive_refs(type.value["value"], _wrappers)
+            if _wrappers
+            else type.value["value"]
+        )
+        key_type = (
+            _close_recursive_refs(type.value["key"], _wrappers)
+            if _wrappers
+            else type.value["key"]
+        )
         operation = VariantType(
             [
                 ("delete", value_type),
                 ("insert", value_type),
-                ("update", PatchType(value_type, _ctx)),
+                ("update", PatchType(type.value["value"], _ctx, _wrappers)),
             ]
         )
-        return VariantType(
-            [unchanged, replace, ("patch", DictType(type.value["key"], operation))]
-        )
+        return VariantType([unchanged, replace, ("patch", DictType(key_type, operation))])
     if kind == "Struct":
-        patch_fields = [(f["name"], PatchType(f["type"], _ctx)) for f in type.value]
+        patch_fields = [(f["name"], PatchType(f["type"], _ctx, _wrappers)) for f in type.value]
         return VariantType([unchanged, replace, ("patch", StructType(patch_fields))])
     if kind == "Variant":
-        patch_cases = [(c["name"], PatchType(c["type"], _ctx)) for c in type.value]
+        patch_cases = [(c["name"], PatchType(c["type"], _ctx, _wrappers)) for c in type.value]
         return VariantType([unchanged, replace, ("patch", VariantType(patch_cases))])
     if kind == "Ref":
-        return VariantType([unchanged, replace, ("patch", PatchType(type.value, _ctx))])
+        return VariantType([unchanged, replace, ("patch", PatchType(type.value, _ctx, _wrappers))])
     # Scalars, Vector/Matrix, and Function/AsyncFunction carry replace-only
     # semantics.
     return VariantType([unchanged, replace])
