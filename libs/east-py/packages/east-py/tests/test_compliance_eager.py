@@ -214,8 +214,12 @@ def test_replay(mode_stem):
         f"pinned diffs now PASS [{mode}] in {stem}: {sorted(fixed)} — remove "
         f"them from KNOWN_DIFFS (reason was: {reason})")
     # a (mode, file) may be entirely pinned (some fuzz cases are wholly
-    # exotic) — but an unpinned file that ran nothing is a broken replay
-    assert rep.tests_passed > 0 or (pinned and failed == pinned)
+    # exotic) — but an unpinned file that ran nothing is a broken replay.
+    # Unstable arms drop out of BOTH sides: on the platform where one fails
+    # a wholly-pinned stem can run zero tests, and on the other the same arm
+    # is absent from `failed` while still sitting in its pin.
+    assert rep.tests_passed > 0 or (
+        (pinned or unstable) and failed - unstable == pinned - unstable)
 
 
 @pytest.mark.skipif(not get_test_ir_files(), reason="no exported IR (run make test-export)")
