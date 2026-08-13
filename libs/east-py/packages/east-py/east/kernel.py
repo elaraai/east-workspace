@@ -776,6 +776,9 @@ class KernelExpr:
         return _lift(other, hint=self.east_type).__truediv__(self)
 
     def __floordiv__(self, other: Any) -> KernelExpr:
+        # Python `//` floors; East IntegerDivide truncates toward zero. A
+        # traced `//` therefore differs from eager Python for mixed-sign
+        # operands: -10 // 3 == -4 in Python but traces to -3.
         if self.east_type.type != "Integer":
             raise KernelTraceError("`//` is East IntegerDivide — both sides must be Integer")
         other = _lift(other)

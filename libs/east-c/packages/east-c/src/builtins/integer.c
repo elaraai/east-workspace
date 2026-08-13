@@ -38,13 +38,11 @@ static EastValue *integer_divide(EastValue **args, size_t n)
     /* INT64_MIN / -1 overflows int64 (SIGFPE on x86); the reference compiler
        wraps via BigInt.asIntN(64, ...), which yields INT64_MIN again */
     if (a == INT64_MIN && b == -1) return east_integer(INT64_MIN);
-    /* Floor division matching C truncation toward zero for positive,
-       but we want floored division like Python // */
-    int64_t q = a / b;
-    int64_t r = a % b;
-    /* Adjust if remainder and divisor have different signs */
-    if (r != 0 && ((r ^ b) < 0)) q -= 1;
-    return east_integer(q);
+    /* Truncate toward zero — C99 `/` already does, and it is what the
+       reference compiler's BigInt `a / b` does. NOT floored (Python `//`):
+       flooring here made `a == (a / b) * b + a % b` false for mixed signs,
+       because integer_remainder below takes the sign of the dividend. */
+    return east_integer(a / b);
 }
 
 static EastValue *integer_remainder(EastValue **args, size_t n)

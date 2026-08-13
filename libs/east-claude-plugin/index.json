@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1075,
+    "totalEntries": 1076,
     "totalFiles": 192,
     "packages": {
-      "east": 498,
+      "east": 499,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -5984,6 +5984,28 @@
         "import { East, IntegerType, FloatType, BooleanType, StringType, example } from \"@elaraai/east\";"
       ],
       "source": "// Divide two integers (integer division)\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const x = $.const(10n, IntegerType);\n        return x.divide(5n);\n    })"
+    },
+    {
+      "id": "east:integer.examples.ts:integerDivideTruncates",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/integer.examples.ts",
+      "suite": "Arithmetic",
+      "test": "Divide a negative integer — the quotient truncates toward zero, it does not floor",
+      "keywords": [
+        "integer",
+        "IntegerType",
+        "divide",
+        "division",
+        "negative",
+        "truncate",
+        "toward zero",
+        "sign"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, BooleanType, StringType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Divide a negative integer — the quotient truncates toward zero, it does not floor\n// inputs: []  returns: -3n\nEast.function([], IntegerType, ($) => {\n        const x = $.const(-10n, IntegerType);\n        // -10 / 3 is -3, not -4: East truncates like C and JS, unlike Python's `//`.\n        return x.divide(3n);\n    })"
     },
     {
       "id": "east:integer.examples.ts:integerRemainder",

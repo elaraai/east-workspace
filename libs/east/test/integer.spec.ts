@@ -13,6 +13,7 @@ await describe("Integer", (test) => {
         integerSubtract: ex.integerSubtract,
         integerMultiply: ex.integerMultiply,
         integerDivide: ex.integerDivide,
+        integerDivideTruncates: ex.integerDivideTruncates,
         integerRemainder: ex.integerRemainder,
         integerPow: ex.integerPow,
     });
@@ -25,6 +26,30 @@ await describe("Integer", (test) => {
         $(assert.equal(East.value(10n).divide(5n), 2n));
         $(assert.equal(East.value(10n).remainder(5n), 0n));
         $(assert.equal(East.value(10n).pow(5n), 100_000n));
+    });
+
+    test("Mixed-sign division truncates toward zero", $ => {
+        // east-c used to floor these (-10 / 3 == -4), so the same IR gave
+        // different answers on east-node and east-c/east-py.
+        $(assert.equal(East.value(-10n).divide(3n), -3n));
+        $(assert.equal(East.value(10n).divide(-3n), -3n));
+        $(assert.equal(East.value(-10n).divide(-3n), 3n));
+        $(assert.equal(East.value(-7n).divide(3n), -2n));
+        $(assert.equal(East.value(-9n).divide(3n), -3n));   // exact: no rounding either way
+        $(assert.equal(East.value(-1n).divide(2n), 0n));    // floors to -1, truncates to 0
+    });
+
+    test("Division and remainder agree", $ => {
+        // a == (a / b) * b + a % b, for every sign combination. Remainder takes
+        // the sign of the dividend, so only a truncating quotient satisfies this.
+        $(assert.equal(East.value(10n).divide(3n).multiply(3n).add(East.value(10n).remainder(3n)), 10n));
+        $(assert.equal(East.value(-10n).divide(3n).multiply(3n).add(East.value(-10n).remainder(3n)), -10n));
+        $(assert.equal(East.value(10n).divide(-3n).multiply(-3n).add(East.value(10n).remainder(-3n)), 10n));
+        $(assert.equal(East.value(-10n).divide(-3n).multiply(-3n).add(East.value(-10n).remainder(-3n)), -10n));
+        $(assert.equal(East.value(7n).divide(3n).multiply(3n).add(East.value(7n).remainder(3n)), 7n));
+        $(assert.equal(East.value(-7n).divide(3n).multiply(3n).add(East.value(-7n).remainder(3n)), -7n));
+        $(assert.equal(East.value(11n).divide(-3n).multiply(-3n).add(East.value(11n).remainder(-3n)), 11n));
+        $(assert.equal(East.value(-11n).divide(-3n).multiply(-3n).add(East.value(-11n).remainder(-3n)), -11n));
     });
 
     test("Division by zero", $ => {
