@@ -105,7 +105,7 @@ def explain_value_of(value: EastValue, typ: EastType) -> list[tuple[str, str]]:
     ``("$.rows[2].price", "expected Float, got str")``.
     """
     out: list[tuple[str, str]] = []
-    _explain(value, typ, "$", [], out)
+    _explain(value, typ, "$", {}, out)
     return out
 
 
@@ -116,7 +116,7 @@ def assert_value_of(value: EastValue, typ: EastType, *, path: str = "$") -> East
     Returns ``value`` unchanged so it can be used inline.
     """
     problems: list[tuple[str, str]] = []
-    _explain(value, typ, path, [], problems)
+    _explain(value, typ, path, {}, problems)
     if problems:
         bad_path, reason = problems[0]
         raise EastTypeError(f"{reason} (at {bad_path})", value=value, expected=typ, path=bad_path)
@@ -124,7 +124,7 @@ def assert_value_of(value: EastValue, typ: EastType, *, path: str = "$") -> East
 
 
 def _explain(
-    value: Any, typ: EastType, path: str, type_ctx: list[EastType], out: list[tuple[str, str]]
+    value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType], out: list[tuple[str, str]]
 ) -> None:
     kind = typ["type"]
 
@@ -176,46 +176,30 @@ def _explain(
         if not isinstance(value, EastRef):
             out.append((path, f"expected Ref, got {_describe(value)}"))
             return
-        type_ctx.append(typ)
-        try:
-            _explain(value.value, typ["value"], f"{path}.&", type_ctx, out)
-        finally:
-            type_ctx.pop()
+        _explain(value.value, typ["value"], f"{path}.&", type_ctx, out)
         return
     if kind == "Array":
         if not isinstance(value, EastArray):
             out.append((path, f"expected Array, got {_describe(value)}"))
             return
-        type_ctx.append(typ)
-        try:
-            for i, elem in enumerate(value):
-                _explain(elem, typ["value"], f"{path}[{i}]", type_ctx, out)
-        finally:
-            type_ctx.pop()
+        for i, elem in enumerate(value):
+            _explain(elem, typ["value"], f"{path}[{i}]", type_ctx, out)
         return
     if kind == "Set":
         if not isinstance(value, EastSet):
             out.append((path, f"expected Set, got {_describe(value)}"))
             return
-        type_ctx.append(typ)
-        try:
-            for i, elem in enumerate(value):
-                _explain(elem, typ["value"], f"{path}{{{i}}}", type_ctx, out)
-        finally:
-            type_ctx.pop()
+        for i, elem in enumerate(value):
+            _explain(elem, typ["value"], f"{path}{{{i}}}", type_ctx, out)
         return
     if kind == "Dict":
         if not isinstance(value, EastDict):
             out.append((path, f"expected Dict, got {_describe(value)}"))
             return
         dt = typ["value"]
-        type_ctx.append(typ)
-        try:
-            for k, v in value.items():
-                _explain(k, dt["key"], f"{path}<key>", type_ctx, out)
-                _explain(v, dt["value"], f"{path}[{k!r}]", type_ctx, out)
-        finally:
-            type_ctx.pop()
+        for k, v in value.items():
+            _explain(k, dt["key"], f"{path}<key>", type_ctx, out)
+            _explain(v, dt["value"], f"{path}[{k!r}]", type_ctx, out)
         return
     if kind == "Struct":
         if not is_east_struct(value):
@@ -223,19 +207,15 @@ def _explain(
             return
         type_fields = typ["value"]
         type_names = {fd["name"] for fd in type_fields}
-        type_ctx.append(typ)
-        try:
-            for fd in type_fields:
-                name = fd["name"]
-                if name not in value:
-                    out.append((f"{path}.{name}", f"missing field {name!r}"))
-                    continue
-                _explain(value[name], fd["type"], f"{path}.{name}", type_ctx, out)
-            for vk in value:
-                if vk not in type_names:
-                    out.append((f"{path}.{vk}", f"unexpected field {vk!r}"))
-        finally:
-            type_ctx.pop()
+        for fd in type_fields:
+            name = fd["name"]
+            if name not in value:
+                out.append((f"{path}.{name}", f"missing field {name!r}"))
+                continue
+            _explain(value[name], fd["type"], f"{path}.{name}", type_ctx, out)
+        for vk in value:
+            if vk not in type_names:
+                out.append((f"{path}.{vk}", f"unexpected field {vk!r}"))
         return
     if kind == "Variant":
         if not is_east_variant(value):
@@ -248,20 +228,20 @@ def _explain(
             names = ", ".join(c["name"] for c in cases)
             out.append((path, f"variant case {tag!r} not in {{{names}}}"))
             return
-        type_ctx.append(typ)
-        try:
-            _explain(value.value, match["type"], f"{path}.{tag}", type_ctx, out)
-        finally:
-            type_ctx.pop()
+        _explain(value.value, match["type"], f"{path}.{tag}", type_ctx, out)
         return
     if kind == "Recursive":
-        # Delegate the recursive subtree to is_value_of (which guards cycles).
-        scope_id = typ["value"]
-        idx = len(type_ctx) - scope_id
-        if idx < 0 or idx >= len(type_ctx):
-            out.append((path, f"invalid recursive scope_id {scope_id}"))
+        payload = typ["value"]
+        if payload.type == "wrapper":
+            type_ctx[payload.value["id"]] = typ
+            _explain(value, payload.value["inner"], path, type_ctx, out)
             return
-        if not is_value_of(value, type_ctx[idx], list(type_ctx)):
+        # Delegate the recursive subtree to is_value_of (which guards cycles).
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            out.append((path, f"unresolved recursive ref({payload.value})"))
+            return
+        if not is_value_of(value, resolved, dict(type_ctx)):
             out.append((path, "does not match the recursive type"))
         return
     if kind == "Function":
@@ -287,10 +267,10 @@ def coerce_to(value: object, typ: EastType, *, path: str = "$") -> EastValue:
     numpy columns directly. Raises ``EastTypeError`` (path-pinpointed) on
     the irreconcilable.
     """
-    return _coerce(value, typ, path, [])
+    return _coerce(value, typ, path, {})
 
 
-def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> EastValue:
+def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType]) -> EastValue:
     kind = typ["type"]
 
     if kind == "Null":
@@ -380,33 +360,21 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> E
             out.extend(value)
             return out
         if isinstance(value, (list, tuple, EastArray)):
-            type_ctx.append(typ)
-            try:
-                return EastArray(elem, [_coerce(it, elem, f"{path}[{i}]", type_ctx) for i, it in enumerate(value)])
-            finally:
-                type_ctx.pop()
+            return EastArray(elem, [_coerce(it, elem, f"{path}[{i}]", type_ctx) for i, it in enumerate(value)])
         raise EastTypeError(f"expected Array or list, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Set":
         elem = typ["value"]
         if isinstance(value, (EastSet, set, frozenset, list, tuple)):
-            type_ctx.append(typ)
-            try:
-                return EastSet(elem, [_coerce(it, elem, f"{path}{{{i}}}", type_ctx) for i, it in enumerate(value)])
-            finally:
-                type_ctx.pop()
+            return EastSet(elem, [_coerce(it, elem, f"{path}{{{i}}}", type_ctx) for i, it in enumerate(value)])
         raise EastTypeError(f"expected Set or iterable, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Dict":
         dt = typ["value"]
         if isinstance(value, (dict, EastDict)):
             result: EastDict = EastDict(dt["key"], dt["value"])
-            type_ctx.append(typ)
-            try:
-                for k, v in value.items():
-                    ck = _coerce(k, dt["key"], f"{path}<key>", type_ctx)
-                    cv = _coerce(v, dt["value"], f"{path}[{k!r}]", type_ctx)
-                    result[ck] = cv
-            finally:
-                type_ctx.pop()
+            for k, v in value.items():
+                ck = _coerce(k, dt["key"], f"{path}<key>", type_ctx)
+                cv = _coerce(v, dt["value"], f"{path}[{k!r}]", type_ctx)
+                result[ck] = cv
             return result
         raise EastTypeError(f"expected Dict or dict, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Struct":
@@ -414,18 +382,14 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> E
         if is_east_struct(value) or isinstance(value, dict):
             data: dict[str, Any] = {}
             type_names = {fd["name"] for fd in type_fields}
-            type_ctx.append(typ)
-            try:
-                for fd in type_fields:
-                    name = fd["name"]
-                    if name not in value:
-                        raise EastTypeError(f"missing field {name!r}", value=value, expected=typ, path=f"{path}.{name}")
-                    data[name] = _coerce(value[name], fd["type"], f"{path}.{name}", type_ctx)
-                for vk in value:
-                    if vk not in type_names:
-                        raise EastTypeError(f"unexpected field {vk!r}", value=value, expected=typ, path=f"{path}.{vk}")
-            finally:
-                type_ctx.pop()
+            for fd in type_fields:
+                name = fd["name"]
+                if name not in value:
+                    raise EastTypeError(f"missing field {name!r}", value=value, expected=typ, path=f"{path}.{name}")
+                data[name] = _coerce(value[name], fd["type"], f"{path}.{name}", type_ctx)
+            for vk in value:
+                if vk not in type_names:
+                    raise EastTypeError(f"unexpected field {vk!r}", value=value, expected=typ, path=f"{path}.{vk}")
             return EastStruct(data)
         raise EastTypeError(f"expected Struct or dict, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Variant":
@@ -440,25 +404,20 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> E
         if match is None:
             names = ", ".join(c["name"] for c in cases)
             raise EastTypeError(f"variant case {tag!r} not in {{{names}}}", value=value, expected=typ, path=path)
-        type_ctx.append(typ)
-        try:
-            return EastVariant(tag, _coerce(inner, match["type"], f"{path}.{tag}", type_ctx))
-        finally:
-            type_ctx.pop()
+        return EastVariant(tag, _coerce(inner, match["type"], f"{path}.{tag}", type_ctx))
     if kind == "Ref":
         inner_t = typ["value"]
-        type_ctx.append(typ)
-        try:
-            inner = value.value if isinstance(value, EastRef) else value
-            return EastRef(_coerce(inner, inner_t, f"{path}.&", type_ctx))
-        finally:
-            type_ctx.pop()
+        inner = value.value if isinstance(value, EastRef) else value
+        return EastRef(_coerce(inner, inner_t, f"{path}.&", type_ctx))
     if kind == "Recursive":
-        scope_id = typ["value"]
-        idx = len(type_ctx) - scope_id
-        if idx < 0 or idx >= len(type_ctx):
-            raise EastTypeError(f"invalid recursive scope_id {scope_id}", value=value, expected=typ, path=path)
-        return _coerce(value, type_ctx[idx], path, type_ctx)
+        payload = typ["value"]
+        if payload.type == "wrapper":
+            type_ctx[payload.value["id"]] = typ
+            return _coerce(value, payload.value["inner"], path, type_ctx)
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise EastTypeError(f"unresolved recursive ref({payload.value})", value=value, expected=typ, path=path)
+        return _coerce(value, resolved, path, type_ctx)
     if kind == "Function":
         raise EastTypeError("cannot coerce a value to a Function at the Python boundary", value=value, expected=typ, path=path)
     raise EastTypeError(f"cannot coerce to unknown type kind {kind!r}", value=value, expected=typ, path=path)

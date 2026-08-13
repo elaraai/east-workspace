@@ -181,10 +181,16 @@ class AsyncFunctionTypeValue(TypedDict):
 
 
 class RecursiveTypeDef(TypedDict):
-    """Recursive type reference."""
+    """Recursive type node.
+
+    The payload is itself a variant: ``wrapper`` carries ``{id, inner}`` (the
+    binder that introduces a recursive scope), and ``ref`` carries the integer
+    id of the wrapper it refers back to. Mirrors the TS reference
+    (``EastTypeType`` in libs/east/src/type_of_type.ts).
+    """
 
     type: Literal["Recursive"]
-    value: int  # Marker ID
+    value: EastVariant  # variant("ref", int) | variant("wrapper", {"id": int, "inner": EastType})
 
 
 # EastType is EastVariant - types are homoiconic (types are values)
@@ -285,8 +291,12 @@ def _type_hash(t: Any) -> int:
             h = _hash_combine(h, _type_hash(inp))
         return _hash_combine(h, _type_hash(value["output"]))
     if kind == "Recursive":
-        # Hash the marker only; do not recurse into the (cyclic) body.
-        return _hash_combine(h, (value if isinstance(value, int) else 0) & _FNV_MASK)
+        # Hash by the scope id only; never recurse into a wrapper's inner.
+        # Structurally identical wrappers share an id via _intern_recursive_wrapper,
+        # so id-hashing keeps equal types hash-equal without deep traversal.
+        if value.type == "ref":
+            return _hash_combine(_hash_combine(h, 0x01), value.value & _FNV_MASK)
+        return _hash_combine(_hash_combine(h, 0x02), value.value["id"] & _FNV_MASK)
     # Primitive: tag only.
     return h
 
@@ -494,20 +504,20 @@ def AsyncFunctionType(
     return _intern_type(EastVariant("AsyncFunction", {"inputs": inputs, "output": output}))
 
 
-def RecursiveTypeRef(marker: int) -> EastVariant[int]:
-    """Create a recursive type reference.
+def RecursiveTypeRef(marker: int) -> EastVariant[EastVariant]:
+    """Create a recursive type back-reference to the wrapper with id ``marker``.
 
     Args:
-        marker: Recursive type marker ID
+        marker: The scope id of the enclosing recursive wrapper
 
     Returns:
-        Recursive type reference
+        Recursive type reference (``ref`` form)
     """
-    return EastVariant("Recursive", marker)
+    return EastVariant("Recursive", EastVariant("ref", marker))
 
 
 def RecursiveType(builder: Any) -> EastType:
-    """Build a recursive type with integer scope_ids.
+    """Build a recursive type in the id-based wrapper/ref form.
 
     This is an alias for recursive_type() that matches TypeScript's naming convention.
 
@@ -515,7 +525,7 @@ def RecursiveType(builder: Any) -> EastType:
         builder: Function that takes a self-reference and returns the node type
 
     Returns:
-        A type where all self-references use integer scope_ids
+        A ``Recursive`` wrapper type whose self-references are ``ref(id)`` nodes
 
     Example:
         ListType = RecursiveType(
@@ -556,8 +566,8 @@ VariantTypeAlias: TypeAlias = EastVariant[list[VariantCaseDef]]
 FunctionTypeAlias: TypeAlias = EastVariant[FunctionTypeValue]
 """Type alias for Function types. Value has 'inputs', 'output', 'platforms'."""
 
-RecursiveTypeAlias: TypeAlias = EastVariant[int]
-"""Type alias for Recursive type references. Value is the depth."""
+RecursiveTypeAlias: TypeAlias = EastVariant[EastVariant]
+"""Type alias for Recursive types. Value is the ``ref``/``wrapper`` payload variant."""
 
 VectorTypeAlias: TypeAlias = EastVariant[EastType]
 """Type alias for Vector types. Value is the element type."""
@@ -755,8 +765,8 @@ def is_async_function_type(typ: EastType) -> TypeGuard[EastVariant[AsyncFunction
     return typ.type == "AsyncFunction"
 
 
-def is_recursive_type(typ: EastType) -> TypeGuard[EastVariant[int]]:
-    """Check if a type is a Recursive type reference."""
+def is_recursive_type(typ: EastType) -> TypeGuard[EastVariant[EastVariant]]:
+    """Check if a type is a Recursive type (``ref`` or ``wrapper`` form)."""
     return typ.type == "Recursive"
 
 
@@ -835,6 +845,10 @@ def is_data_type(typ: EastType, recursive_type: EastType | None = None) -> bool:
     if is_variant_type(typ):
         return all(is_data_type(case["type"], recursive_type) for case in typ.value)
     if is_recursive_type(typ):
+        # ref: a back-reference into a scope already being checked. wrapper:
+        # check the inner node (its refs are leaves, so this is finite).
+        if typ.value.type == "wrapper":
+            return is_data_type(typ.value.value["inner"], recursive_type)
         return True
     # Primitive types are data types
     return True
@@ -894,6 +908,11 @@ def _find_mutable(
                 found[0].append(("case", case["name"]))
                 return found
         return None
+    if typ.type == "Recursive" and typ.value.type == "wrapper":
+        # The wrapper is transparent: a recursive type is immutable iff its
+        # inner node is. Back-references (ref) fall through as immutable —
+        # the scope containing them is already being checked.
+        return _find_mutable(typ.value.value["inner"], recursive_type)
     # Primitives and recursive back-references are immutable
     return None
 
@@ -1028,7 +1047,7 @@ def OptionType(value_type: EastType) -> EastVariant[list[VariantCaseDef]]:
     return SomeType(value_type)
 
 
-def PatchType(type: EastType) -> EastType:
+def PatchType(type: EastType, _ctx: dict[int, EastType] | None = None) -> EastType:
     """Compute the patch type for ``type``.
 
     A patch is the type of the diff between two values of ``type``, as produced
@@ -1039,6 +1058,8 @@ def PatchType(type: EastType) -> EastType:
 
     Args:
         type: The East type whose patch type to compute.
+        _ctx: Internal map from recursive scope id to the patch type its
+            back-references resolve to.
 
     Returns:
         The patch type as an ``EastType``.
@@ -1047,13 +1068,32 @@ def PatchType(type: EastType) -> EastType:
     unchanged = ("unchanged", NullType)
     replace = ("replace", StructType([("before", type), ("after", type)]))
 
+    if kind == "Recursive":
+        # Mirrors the TS reference (libs/east/src/patch/type_of_patch.ts): a
+        # wrapper registers replace-only semantics for its scope BEFORE
+        # recursing, so back-references inside the body resolve to a patch of
+        # the whole recursive type — never to a patch of the bare back-ref.
+        payload = type.value
+        if _ctx is None:
+            _ctx = {}
+        if payload.type == "wrapper":
+            rec_id = payload.value["id"]
+            cached = _ctx.get(rec_id)
+            if cached is not None:
+                return cached
+            _ctx[rec_id] = VariantType([unchanged, replace])
+            return PatchType(payload.value["inner"], _ctx)
+        cached = _ctx.get(payload.value)
+        if cached is None:
+            raise ValueError(f"PatchType: unresolved Recursive ref({payload.value})")
+        return cached
     if kind == "Array":
         element_type = type.value
         operation = VariantType(
             [
                 ("delete", element_type),
                 ("insert", element_type),
-                ("update", PatchType(element_type)),
+                ("update", PatchType(element_type, _ctx)),
             ]
         )
         entry = StructType(
@@ -1069,22 +1109,22 @@ def PatchType(type: EastType) -> EastType:
             [
                 ("delete", value_type),
                 ("insert", value_type),
-                ("update", PatchType(value_type)),
+                ("update", PatchType(value_type, _ctx)),
             ]
         )
         return VariantType(
             [unchanged, replace, ("patch", DictType(type.value["key"], operation))]
         )
     if kind == "Struct":
-        patch_fields = [(f["name"], PatchType(f["type"])) for f in type.value]
+        patch_fields = [(f["name"], PatchType(f["type"], _ctx)) for f in type.value]
         return VariantType([unchanged, replace, ("patch", StructType(patch_fields))])
     if kind == "Variant":
-        patch_cases = [(c["name"], PatchType(c["type"])) for c in type.value]
+        patch_cases = [(c["name"], PatchType(c["type"], _ctx)) for c in type.value]
         return VariantType([unchanged, replace, ("patch", VariantType(patch_cases))])
     if kind == "Ref":
-        return VariantType([unchanged, replace, ("patch", PatchType(type.value))])
-    # Scalars, Vector/Matrix, Function/AsyncFunction, and recursive back-reference
-    # markers all carry replace-only semantics.
+        return VariantType([unchanged, replace, ("patch", PatchType(type.value, _ctx))])
+    # Scalars, Vector/Matrix, and Function/AsyncFunction carry replace-only
+    # semantics.
     return VariantType([unchanged, replace])
 
 
@@ -1107,8 +1147,8 @@ class TypeMismatchError(TypeError):
 class RecursiveTypeMarker:
     """Temporary marker used during recursive type construction.
 
-    After construction, all marker instances are replaced with integer scope_ids.
-    This class should not appear in any final type structures - only integers.
+    After construction, all marker instances are replaced with ``ref(id)``
+    back-references. This class should not appear in any final type structure.
     """
 
     def __repr__(self) -> str:
@@ -1116,17 +1156,61 @@ class RecursiveTypeMarker:
         return f"<RecursiveMarker at {hex(id(self))}>"
 
 
-def recursive_type(builder: Any) -> EastType:
-    """Build a recursive type with integer scope_ids (matches TypeScript).
+# Process-unique scope ids for recursive wrappers, and the canonical wrapper
+# registry. Mirrors the TS reference (_recursiveIntern in libs/east/src/types.ts):
+# structurally identical recursive types share ONE wrapper (and therefore one
+# id), which is what makes the id fast-paths in the equality family sound
+# within a process. Foreign ids (decoded wire types, another runtime's mint)
+# are handled by alpha-equivalence in is_type_equal.
+_next_recursive_id: int = 1
+_recursive_intern: list[EastVariant] = []
 
-    This function creates a recursive type where all self-references use integer
-    scope_ids based on their depth in the type structure.
+
+def _mint_recursive_id() -> int:
+    """Allocate the next process-unique recursive scope id.
+
+    Shared with the C bridge's reverse type converter, so wrappers minted from
+    C pointers draw from the same sequence as recursive_type.
+    """
+    global _next_recursive_id
+    rec_id = _next_recursive_id
+    _next_recursive_id += 1
+    return rec_id
+
+
+def _intern_recursive_wrapper(built: EastVariant) -> EastVariant:
+    """Return the canonical wrapper structurally equal to ``built``.
+
+    Registers ``built`` as the new canonical if no match exists. Also the
+    chokepoint for wrappers reconstructed from east-c pointers or decoded from
+    the wire, so every in-process route to a given recursive structure
+    converges on one id.
+    """
+    for existing in _recursive_intern:
+        if is_type_equal(existing, built):
+            return existing
+    _recursive_intern.append(built)
+    return built
+
+
+def recursive_type(builder: Any) -> EastType:
+    """Build a recursive type in the id-based wrapper/ref form.
+
+    The builder's self-references become ``Recursive ref(id)`` leaves and the
+    whole type is wrapped as ``Recursive wrapper{id, inner}``, matching the
+    TypeScript reference (``toEastTypeValue`` of a ``RecursiveType``). The
+    result is a finite tree: refs are leaves, and only the wrapper binds them.
 
     Args:
-        builder: Function that takes a marker and returns the node type
+        builder: Function that takes a self-reference and returns the node type
 
     Returns:
-        A type where all self-references use integer scope_ids
+        The canonical ``Recursive`` wrapper type for the built structure
+
+    Raises:
+        TypeError: If the builder threads its self-reference into another
+            in-progress recursive scope (mutual recursion), or places it in a
+            set key or dict key position.
 
     Example:
         ListType = recursive_type(
@@ -1135,110 +1219,144 @@ def recursive_type(builder: Any) -> EastType:
                 ("cons", StructType([("head", IntegerType), ("tail", self)]))
             ])
         )
-        # The "tail" field will have type .Recursive 2 (integer, not marker)
+        # The "tail" field will have type .Recursive .ref <id>
     """
-    # Create a marker for this recursive scope
     marker = RecursiveTypeMarker()
 
     # Create a placeholder with internal-only tag (never escapes this function)
     # This avoids polluting is_recursive_type with RecursiveTypeMarker handling
     placeholder: EastVariant = EastVariant("_RecursivePlaceholder", marker)
 
-    # Build the type using the placeholder
     node = builder(placeholder)
 
-    # Replace all placeholders with finalized Recursive types containing integer scope_ids
-    def replace_markers(t: EastType, stack_depth: int = 0) -> EastType:
-        """Recursively replace placeholders with integer scope_ids.
+    rec_id = _mint_recursive_id()
+    ref: EastVariant = EastVariant("Recursive", EastVariant("ref", rec_id))
 
-        Args:
-            t: Type to process
-            stack_depth: Current type_ctx stack depth
+    def finalize(t: EastType, allowed: bool) -> EastType:
+        """Replace our placeholders with ``ref(id)``, validating as we go.
 
-        Returns:
-            Type with placeholders replaced by finalized Recursive types
+        ``allowed`` is False inside set-key and dict-key positions, mirroring
+        the TS reference's validateNotMutuallyRecursive.
         """
-        # Check for internal placeholder (not via is_recursive_type)
         if t.type == "_RecursivePlaceholder":
             if t.value is marker:
-                return EastVariant("Recursive", stack_depth)
-            # Different marker (nested recursive_type call), leave for outer call
-            return t
+                if not allowed:
+                    raise TypeError(
+                        "RecursiveType cannot pass into set keys, dictionary keys, "
+                        "or function input/output types"
+                    )
+                return ref
+            # A different in-progress scope's marker reached our body: the
+            # builder captured another recursive_type's self-reference.
+            raise TypeError(
+                "RecursiveType must have SCC size 1: nested RecursiveTypes with "
+                "cross-references are not supported. Each RecursiveType can only "
+                "reference itself, not other recursive scopes."
+            )
 
-        # Already finalized recursive type, leave as-is
+        # A completed nested recursive type contains no placeholders (its own
+        # finalize already ran, and a leaked foreign marker raises above).
         if is_recursive_type(t):
             return t
 
-        # Vector, Matrix: These push to type_ctx
         if is_vector_type(t):
-            return EastVariant("Vector", replace_markers(t.value, stack_depth + 1))
+            new = finalize(t.value, allowed)
+            return t if new is t.value else EastVariant("Vector", new)
         if is_matrix_type(t):
-            return EastVariant("Matrix", replace_markers(t.value, stack_depth + 1))
-
-        # Array, Set, Ref: These push to type_ctx
+            new = finalize(t.value, allowed)
+            return t if new is t.value else EastVariant("Matrix", new)
         if is_array_type(t):
-            return EastVariant("Array", replace_markers(t.value, stack_depth + 1))
+            new = finalize(t.value, allowed)
+            return t if new is t.value else EastVariant("Array", new)
         if is_set_type(t):
-            return EastVariant("Set", replace_markers(t.value, stack_depth + 1))
+            new = finalize(t.value, False)
+            return t if new is t.value else EastVariant("Set", new)
         if is_ref_type(t):
-            return EastVariant("Ref", replace_markers(t.value, stack_depth + 1))
+            new = finalize(t.value, allowed)
+            return t if new is t.value else EastVariant("Ref", new)
 
-        # Dict: Pushes to type_ctx once
         if is_dict_type(t):
-            new_key = replace_markers(t.value["key"], stack_depth + 1)
-            new_value_type = replace_markers(t.value["value"], stack_depth + 1)
+            new_key = finalize(t.value["key"], False)
+            new_value_type = finalize(t.value["value"], allowed)
+            if new_key is t.value["key"] and new_value_type is t.value["value"]:
+                return t
             return EastVariant("Dict", {"key": new_key, "value": new_value_type})
 
-        # Struct: Pushes to type_ctx
         if is_struct_type(t):
             new_fields = [
-                {"name": field["name"], "type": replace_markers(field["type"], stack_depth + 1)}
+                {"name": field["name"], "type": finalize(field["type"], allowed)}
                 for field in t.value
             ]
+            if all(nf["type"] is f["type"] for nf, f in zip(new_fields, t.value, strict=True)):
+                return t
             return EastVariant("Struct", new_fields)
 
-        # Variant: Pushes to type_ctx
         if is_variant_type(t):
             new_cases = [
-                {"name": case["name"], "type": replace_markers(case["type"], stack_depth + 1)}
+                {"name": case["name"], "type": finalize(case["type"], allowed)}
                 for case in t.value
             ]
+            if all(nc["type"] is c["type"] for nc, c in zip(new_cases, t.value, strict=True)):
+                return t
             return EastVariant("Variant", new_cases)
 
-        # Function: Does NOT push to type_ctx
         if is_function_type(t):
-            new_inputs = [replace_markers(inp, stack_depth) for inp in t.value["inputs"]]
-            new_output = replace_markers(t.value["output"], stack_depth)
-            return EastVariant(
-                "Function",
-                {
-                    "inputs": new_inputs,
-                    "output": new_output,
-                },
-            )
+            new_inputs = [finalize(inp, allowed) for inp in t.value["inputs"]]
+            new_output = finalize(t.value["output"], allowed)
+            if new_output is t.value["output"] and all(
+                ni is i for ni, i in zip(new_inputs, t.value["inputs"], strict=True)
+            ):
+                return t
+            return EastVariant("Function", {"inputs": new_inputs, "output": new_output})
 
-        # AsyncFunction: Does NOT push to type_ctx
         if is_async_function_type(t):
-            new_inputs = [replace_markers(inp, stack_depth) for inp in t.value["inputs"]]
-            new_output = replace_markers(t.value["output"], stack_depth)
-            return EastVariant(
-                "AsyncFunction",
-                {
-                    "inputs": new_inputs,
-                    "output": new_output,
-                },
-            )
+            new_inputs = [finalize(inp, allowed) for inp in t.value["inputs"]]
+            new_output = finalize(t.value["output"], allowed)
+            if new_output is t.value["output"] and all(
+                ni is i for ni, i in zip(new_inputs, t.value["inputs"], strict=True)
+            ):
+                return t
+            return EastVariant("AsyncFunction", {"inputs": new_inputs, "output": new_output})
 
         # Primitive types, return as-is
         return t
 
-    # Start with stack_depth=0; the root type hasn't pushed to type_ctx yet
-    return replace_markers(node, stack_depth=0)
+    inner = finalize(node, True)
+    built: EastVariant = EastVariant(
+        "Recursive", EastVariant("wrapper", {"id": rec_id, "inner": inner})
+    )
+    return _intern_recursive_wrapper(built)
 
 
 # =============================================================================
 # Type Comparison
 # =============================================================================
+
+# Co-inductive assumption stack for comparing recursive wrappers with distinct
+# ids (alpha-equivalence). While wrapper(id1) and wrapper(id2) are being
+# compared structurally, the pair (id1, id2) is assumed equal so their inner
+# ref(id1)/ref(id2) leaves agree — the same reasoning east-c's assumption stack
+# uses on its cyclic form, and the TS reference's cache pre-seed on ids.
+_rec_eq_assumptions: set[tuple[int, int]] = set()
+
+
+def _recursive_ids_equal(t1: EastType, t2: EastType) -> bool | None:
+    """Resolve the Recursive-vs-Recursive fast paths shared by the comparison family.
+
+    Returns True when the scope ids match or are assumed equal, None when both
+    sides are wrappers with distinct ids (caller must compare inners under the
+    assumption), and False otherwise.
+    """
+    p1, p2 = t1.value, t2.value
+    id1 = p1.value if p1.type == "ref" else p1.value["id"]
+    id2 = p2.value if p2.type == "ref" else p2.value["id"]
+    if id1 == id2:
+        return True
+    if (id1, id2) in _rec_eq_assumptions:
+        return True
+    if p1.type == "wrapper" and p2.type == "wrapper":
+        return None
+    return False
 
 
 def type_equal(
@@ -1410,8 +1528,19 @@ def type_equal(
     # Handle Recursive types
     if is_recursive_type(t1):
         if is_recursive_type(t2):
-            # Compare scope_ids directly (both are finalized with int values)
-            if t1.value == t2.value:
+            fast = _recursive_ids_equal(t1, t2)
+            if fast is True:
+                return t1
+            if fast is None:
+                # Distinct wrappers: structurally compare inners under the
+                # assumption that their scopes coincide (alpha-equivalence).
+                id1 = t1.value.value["id"]
+                id2 = t2.value.value["id"]
+                _rec_eq_assumptions.add((id1, id2))
+                try:
+                    type_equal(t1.value.value["inner"], t2.value.value["inner"], r1, r2)
+                finally:
+                    _rec_eq_assumptions.discard((id1, id2))
                 return t1
             raise TypeMismatchError(
                 f"{print_type(t1)} is not equal to {print_type(t2)}: recursive types do not match"
@@ -1455,10 +1584,19 @@ def is_type_equal(
     if r2 is None:
         r2 = t2
 
-    # Handle Recursive types (finalized with int scope_ids)
+    # Handle Recursive types
     if is_recursive_type(t1):
         if is_recursive_type(t2):
-            return t1.value == t2.value
+            fast = _recursive_ids_equal(t1, t2)
+            if fast is not None:
+                return fast
+            id1 = t1.value.value["id"]
+            id2 = t2.value.value["id"]
+            _rec_eq_assumptions.add((id1, id2))
+            try:
+                return is_type_equal(t1.value.value["inner"], t2.value.value["inner"], r1, r2)
+            finally:
+                _rec_eq_assumptions.discard((id1, id2))
         return False
     if is_recursive_type(t2):
         return False
@@ -1561,11 +1699,14 @@ def is_subtype(t1: EastType, t2: EastType) -> bool:
     Returns:
         True if t1 is a subtype of t2, False otherwise
     """
-    # Handle Recursive types (finalized with int scope_ids)
+    # Handle Recursive types, mirroring the TS reference (isSubtypeValueImpl):
+    # wrappers are transparent on either side; refs compare by scope id.
+    if is_recursive_type(t1) and t1.value.type == "wrapper":
+        return is_subtype(t1.value.value["inner"], t2)
+    if is_recursive_type(t2) and t2.value.type == "wrapper":
+        return is_subtype(t1, t2.value.value["inner"])
     if is_recursive_type(t1):
-        if is_recursive_type(t2):
-            return t1.value == t2.value
-        return False
+        return is_recursive_type(t2) and t1.value.value == t2.value.value
     if is_recursive_type(t2):
         return False
 
@@ -1689,10 +1830,11 @@ def type_union(t1: EastType, t2: EastType) -> EastType:
         if is_never_type(t2):
             return t1
 
-        # Recursive types
+        # Recursive types: require the same recursive type (exact match, heap
+        # invariance) — id fast-path plus alpha-equivalence for foreign ids.
         if is_recursive_type(t1):
             if is_recursive_type(t2):
-                if t1.value == t2.value:
+                if is_type_equal(t1, t2):
                     return t1
                 raise TypeMismatchError(
                     f"Cannot union {print_type(t1)} with {print_type(t2)}: incompatible recursive types"
@@ -1881,10 +2023,11 @@ def type_intersect(t1: EastType, t2: EastType) -> EastType:
         if is_never_type(t1) or is_never_type(t2):
             return NeverType
 
-        # Recursive types
+        # Recursive types: require the same recursive type (exact match, heap
+        # invariance) — id fast-path plus alpha-equivalence for foreign ids.
         if is_recursive_type(t1):
             if is_recursive_type(t2):
-                if t1.value == t2.value:
+                if is_type_equal(t1, t2):
                     return t1
                 raise TypeMismatchError(
                     f"Cannot intersect {print_type(t1)} with {print_type(t2)}: incompatible recursive types"

@@ -165,9 +165,11 @@ def cy_compare_for(type_val, type_ctx=None):
     - -1 means x < y
     -  0 means x == y
     -  1 means x > y
+
+    type_ctx maps recursive scope ids to their comparers.
     """
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     if is_never_type(type_val):
         def compare_never(_x, _y, _ctx=None):
@@ -309,13 +311,10 @@ def cy_compare_for(type_val, type_ctx=None):
                 return 1
             return 0
 
-        type_ctx.append(compare_array)
         value_comparer[0] = cy_compare_for(type_val.value, type_ctx)
-        type_ctx.pop()
         return compare_array
 
     if is_set_type(type_val):
-        type_ctx.append(None)
         key_comparer = cy_compare_for(type_val.value, type_ctx)
         elem_key_class = cy_make_east_key(type_val.value)
 
@@ -347,8 +346,6 @@ def cy_compare_for(type_val, type_ctx=None):
                 pass
             return 0
 
-        type_ctx[len(type_ctx) - 1] = compare_set
-        type_ctx.pop()
         return compare_set
 
     if is_dict_type(type_val):
@@ -394,9 +391,7 @@ def cy_compare_for(type_val, type_ctx=None):
                 pass
             return 0
 
-        type_ctx.append(compare_dict)
         value_comparer_dict[0] = cy_compare_for(type_val.value["value"], type_ctx)
-        type_ctx.pop()
         return compare_dict
 
     if is_ref_type(type_val):
@@ -416,9 +411,7 @@ def cy_compare_for(type_val, type_ctx=None):
             ctx[x_id].add(id(y))
             return inner_comparer[0](x.value, y.value, ctx)
 
-        type_ctx.append(compare_ref)
         inner_comparer[0] = cy_compare_for(type_val.value, type_ctx)
-        type_ctx.pop()
         return compare_ref
 
     if is_struct_type(type_val):
@@ -432,12 +425,10 @@ def cy_compare_for(type_val, type_ctx=None):
                     return c
             return 0
 
-        type_ctx.append(compare_struct)
         for field_struct in type_val.value:
             field_name = field_struct["name"]
             field_type = field_struct["type"]
             field_comparers.append((field_name, cy_compare_for(field_type, type_ctx)))
-        type_ctx.pop()
         return compare_struct
 
     if is_variant_type(type_val):
@@ -452,25 +443,37 @@ def cy_compare_for(type_val, type_ctx=None):
                 return 1
             return case_comparers[x_type](x["value"], y["value"], ctx)
 
-        type_ctx.append(compare_variant)
         for case_struct in type_val.value:
             case_name = case_struct["name"]
             case_type = case_struct["type"]
             case_comparers[case_name] = cy_compare_for(case_type, type_ctx)
-        type_ctx.pop()
         return compare_variant
 
     if is_recursive_type(type_val):
-        scope_id = type_val.value
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
-        ctx_index = len(type_ctx) - scope_id
-        if ctx_index < 0 or ctx_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} "
-                f"(ctx len={len(type_ctx)}, calculated index={ctx_index})"
-            )
-        return type_ctx[ctx_index]
+        payload = type_val.value
+        if payload.type == "wrapper":
+            # Register a forward cell for the scope BEFORE building the inner
+            # comparer, so ref(id) leaves inside the body resolve to it.
+            rec_id = payload.value["id"]
+            cell = [None]
+
+            def compare_recursive(x, y, ctx=None):
+                return cell[0](x, y, ctx)
+
+            prev = type_ctx.get(rec_id)
+            type_ctx[rec_id] = compare_recursive
+            try:
+                cell[0] = cy_compare_for(payload.value["inner"], type_ctx)
+            finally:
+                if prev is None:
+                    type_ctx.pop(rec_id, None)
+                else:
+                    type_ctx[rec_id] = prev
+            return cell[0]
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise ValueError(f"cy_compare_for: unresolved Recursive ref({payload.value})")
+        return resolved
 
     if is_function_type(type_val) or is_async_function_type(type_val):
         return lambda _x, _y: 0
@@ -483,11 +486,14 @@ def cy_compare_for(type_val, type_ctx=None):
 # =========================================================================
 
 def cy_equal_for(type_val, type_ctx=None):
-    """Create a type-specific equality function."""
+    """Create a type-specific equality function.
+
+    type_ctx maps recursive scope ids to their comparers.
+    """
     from east.types.values import EastArray, EastDict, EastSet
 
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     if is_never_type(type_val):
         def equal_never(_x, _y, _ctx=None):
@@ -554,7 +560,6 @@ def cy_equal_for(type_val, type_ctx=None):
         return equal_matrix
 
     if is_array_type(type_val):
-        type_ctx.append(None)
         value_comparer = cy_equal_for(type_val.value, type_ctx)
 
         def equal_array(x, y, ctx=None):
@@ -576,24 +581,18 @@ def cy_equal_for(type_val, type_ctx=None):
                     return False
             return True
 
-        type_ctx[len(type_ctx) - 1] = equal_array
-        type_ctx.pop()
         return equal_array
 
     if is_set_type(type_val):
-        type_ctx.append(None)
 
         def equal_set(x, y, _ctx=None):
             if len(x) != len(y):
                 return False
             return all(item in y for item in x)
 
-        type_ctx[len(type_ctx) - 1] = equal_set
-        type_ctx.pop()
         return equal_set
 
     if is_dict_type(type_val):
-        type_ctx.append(None)
         value_comparer = cy_equal_for(type_val.value["value"], type_ctx)
 
         def equal_dict(x, y, ctx=None):
@@ -616,13 +615,10 @@ def cy_equal_for(type_val, type_ctx=None):
                     return False
             return True
 
-        type_ctx[len(type_ctx) - 1] = equal_dict
-        type_ctx.pop()
         return equal_dict
 
     if is_ref_type(type_val):
         from east.types.values import EastRef
-        type_ctx.append(None)
         inner_comparer = cy_equal_for(type_val.value, type_ctx)
 
         def equal_ref(x, y, ctx=None):
@@ -638,8 +634,6 @@ def cy_equal_for(type_val, type_ctx=None):
             ctx[x_id].add(id(y))
             return inner_comparer(x.value, y.value, ctx)
 
-        type_ctx[len(type_ctx) - 1] = equal_ref
-        type_ctx.pop()
         return equal_ref
 
     if is_struct_type(type_val):
@@ -659,12 +653,10 @@ def cy_equal_for(type_val, type_ctx=None):
                     return False
             return True
 
-        type_ctx.append(equal_struct)
         for field_struct in type_val.value:
             field_name = field_struct["name"]
             field_type = field_struct["type"]
             field_comparers.append((field_name, cy_equal_for(field_type, type_ctx)))
-        type_ctx.pop()
         return equal_struct
 
     if is_variant_type(type_val):
@@ -685,25 +677,35 @@ def cy_equal_for(type_val, type_ctx=None):
             ctx[x_id].add(id(y))
             return case_comparers[x_tag](x["value"], y["value"], ctx)
 
-        type_ctx.append(equal_variant)
         for case_struct in type_val.value:
             case_name = case_struct["name"]
             case_type = case_struct["type"]
             case_comparers[case_name] = cy_equal_for(case_type, type_ctx)
-        type_ctx.pop()
         return equal_variant
 
     if is_recursive_type(type_val):
-        scope_id = type_val.value
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
-        ctx_index = len(type_ctx) - scope_id
-        if ctx_index < 0 or ctx_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} "
-                f"(ctx len={len(type_ctx)}, calculated index={ctx_index})"
-            )
-        return type_ctx[ctx_index]
+        payload = type_val.value
+        if payload.type == "wrapper":
+            rec_id = payload.value["id"]
+            cell = [None]
+
+            def equal_recursive(x, y, ctx=None):
+                return cell[0](x, y, ctx)
+
+            prev = type_ctx.get(rec_id)
+            type_ctx[rec_id] = equal_recursive
+            try:
+                cell[0] = cy_equal_for(payload.value["inner"], type_ctx)
+            finally:
+                if prev is None:
+                    type_ctx.pop(rec_id, None)
+                else:
+                    type_ctx[rec_id] = prev
+            return cell[0]
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise ValueError(f"cy_equal_for: unresolved Recursive ref({payload.value})")
+        return resolved
 
     if is_function_type(type_val) or is_async_function_type(type_val):
         return lambda _x, _y: True
@@ -716,9 +718,12 @@ def cy_equal_for(type_val, type_ctx=None):
 # =========================================================================
 
 def cy_is_for(type_val, type_ctx=None):
-    """Create an identity comparer for a given type."""
+    """Create an identity comparer for a given type.
+
+    type_ctx maps recursive scope ids to their comparers.
+    """
     if type_ctx is None:
-        type_ctx = []
+        type_ctx = {}
 
     if is_never_type(type_val):
         def is_never(_x, _y, _ctx=None):
@@ -788,12 +793,10 @@ def cy_is_for(type_val, type_ctx=None):
                     return False
             return True
 
-        type_ctx.append(is_struct)
         for field_struct in type_val.value:
             field_name = field_struct["name"]
             field_type = field_struct["type"]
             field_comparers.append((field_name, cy_is_for(field_type, type_ctx)))
-        type_ctx.pop()
         return is_struct
 
     if is_variant_type(type_val):
@@ -805,25 +808,35 @@ def cy_is_for(type_val, type_ctx=None):
             case_key = x["type"]
             return case_comparers[case_key](x["value"], y["value"], ctx)
 
-        type_ctx.append(is_variant)
         for case_struct in type_val.value:
             case_name = case_struct["name"]
             case_type = case_struct["type"]
             case_comparers[case_name] = cy_is_for(case_type, type_ctx)
-        type_ctx.pop()
         return is_variant
 
     if is_recursive_type(type_val):
-        scope_id = type_val.value
-        if not isinstance(scope_id, int):
-            raise ValueError(f"Recursive type must have integer scope_id, got {type(scope_id)}")
-        ctx_index = len(type_ctx) - scope_id
-        if ctx_index < 0 or ctx_index >= len(type_ctx):
-            raise ValueError(
-                f"Invalid recursive scope_id {scope_id} "
-                f"(ctx len={len(type_ctx)}, calculated index={ctx_index})"
-            )
-        return type_ctx[ctx_index]
+        payload = type_val.value
+        if payload.type == "wrapper":
+            rec_id = payload.value["id"]
+            cell = [None]
+
+            def is_recursive(x, y, ctx=None):
+                return cell[0](x, y, ctx)
+
+            prev = type_ctx.get(rec_id)
+            type_ctx[rec_id] = is_recursive
+            try:
+                cell[0] = cy_is_for(payload.value["inner"], type_ctx)
+            finally:
+                if prev is None:
+                    type_ctx.pop(rec_id, None)
+                else:
+                    type_ctx[rec_id] = prev
+            return cell[0]
+        resolved = type_ctx.get(payload.value)
+        if resolved is None:
+            raise ValueError(f"cy_is_for: unresolved Recursive ref({payload.value})")
+        return resolved
 
     if is_function_type(type_val):
         raise RuntimeError("Attempted to compare values of type .Function")
