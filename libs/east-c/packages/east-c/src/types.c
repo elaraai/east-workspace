@@ -530,72 +530,23 @@ void east_recursive_type_set(EastType *rec, EastType *node)
 
 void east_type_retain(EastType *t)
 {
-    if (!t) return;
-    if (t->ref_count < 0) return; /* singleton -- never freed */
-    __atomic_add_fetch(&t->ref_count, 1, __ATOMIC_RELAXED);
+    /* Every EastType is a primitive singleton or an arena-interned immortal
+     * (ref_count == -1) — see arena_alloc_type and the constructors above.
+     * Retain/release stay in the calling convention so ownership reads
+     * locally balanced at every use site, but both are no-ops: type lifetime
+     * belongs to east_type_registry_clear() alone. */
+    (void)t;
 }
 
 void east_type_release(EastType *t)
 {
-    if (!t) return;
-    if (t->ref_count == -1) return; /* singleton -- never freed */
-
-    if (__atomic_sub_fetch(&t->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
-
-    /* ref_count reached 0 -- free children then the node itself */
-    switch (t->kind) {
-    case EAST_TYPE_ARRAY:
-    case EAST_TYPE_SET:
-    case EAST_TYPE_REF:
-    case EAST_TYPE_VECTOR:
-    case EAST_TYPE_MATRIX:
-        east_type_release(t->data.element);
-        break;
-
-    case EAST_TYPE_DICT:
-        east_type_release(t->data.dict.key);
-        east_type_release(t->data.dict.value);
-        break;
-
-    case EAST_TYPE_STRUCT:
-        for (size_t i = 0; i < t->data.struct_.num_fields; i++) {
-            free(t->data.struct_.fields[i].name);
-            east_type_release(t->data.struct_.fields[i].type);
-        }
-        free(t->data.struct_.fields);
-        break;
-
-    case EAST_TYPE_VARIANT:
-        east_variant_type_free_shared_cases(t); /* they borrow cases[i].name */
-        for (size_t i = 0; i < t->data.variant.num_cases; i++) {
-            free(t->data.variant.cases[i].name);
-            east_type_release(t->data.variant.cases[i].type);
-        }
-        free(t->data.variant.cases);
-        free(t->data.variant.tag_slots);
-        break;
-
-    case EAST_TYPE_FUNCTION:
-    case EAST_TYPE_ASYNC_FUNCTION:
-        for (size_t i = 0; i < t->data.function.num_inputs; i++) {
-            east_type_release(t->data.function.inputs[i]);
-        }
-        free(t->data.function.inputs);
-        east_type_release(t->data.function.output);
-        break;
-
-    case EAST_TYPE_RECURSIVE:
-        /* Recursive wrappers are arena-allocated and immortal
-         * (ref_count == -1), so they can never reach this switch —
-         * the singleton check above always returns first. */
-        return;
-
-    default:
-        /* primitives have no children to release */
-        break;
-    }
-
-    free(t);
+    /* A no-op by the same contract as east_type_retain. This used to carry a
+     * refcount-zero free path even though no refcounted EastType has ever
+     * existed; had it fired it would have free()d arena-interior memory,
+     * orphaned the intern table's slot, and torn down shared nullary-case
+     * values other values still reference (#472). The arena sweep in
+     * east_type_registry_clear() is the one owner. */
+    (void)t;
 }
 
 /* ------------------------------------------------------------------ */
