@@ -493,6 +493,29 @@ cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
 
 # ─── Eager builtin invocation (no IR compile) ────────────────────────────
 
+cdef _eastc.EastValue* _callback_value_for(object arg, list native_holds) except NULL:
+    """The C function value for an EastFunction in a Function-typed slot.
+
+    A precompiled kernel used as the callback rides its own native function
+    value straight into the builtin (#409); otherwise IR push-down traces a
+    provably-pure python callback into a native kernel so the loop never
+    re-enters python; otherwise the callable is wrapped behind the
+    per-element invoke trampoline.
+    """
+    cdef uintptr_t fn_ptr
+    cdef _eastc.EastValue* out
+    native = _native_kernel_for(arg)
+    if native is None:
+        native = _try_push_down_py(arg)
+    fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
+    if fn_ptr != 0:
+        native_holds.append(native)
+        out = <_eastc.EastValue*>fn_ptr
+        _eastc.east_value_retain(out)
+        return out
+    return _wrap_pyfn(arg)
+
+
 def call_builtin(str name, list type_params, list args, object output_type):
     """Eagerly invoke an east-c builtin by name and return its result.
 
@@ -505,7 +528,8 @@ def call_builtin(str name, list type_params, list args, object output_type):
     Args:
         name: undotted builtin name, e.g. "ArraySortDefault", "FloatSqrt".
         type_params: Python EastTypes for the builtin's type parameters.
-        args: Python values; each arg's C type is inferred via ``type_of``.
+        args: Python values; each one marshals against the builtin's DECLARED
+            input type for its slot (east.runtime.builtin_signatures).
         output_type: Python EastType used to decode the result.
     """
     cdef bytes name_bytes = name.encode("utf-8")
@@ -515,18 +539,33 @@ def call_builtin(str name, list type_params, list args, object output_type):
     cdef _eastc.EastType** arg_types = NULL
     cdef _eastc.EastValue** c_args = NULL
     cdef _eastc.EastType* c_out = NULL
+    cdef _eastc.EastType* resolved
     cdef _eastc.BuiltinImpl bfn
     cdef _eastc.EastValue* result
     cdef char* err
     cdef size_t i, j
     cdef uintptr_t fn_ptr
     cdef object py_result
+    cdef list declared
     # Keeps traced kernels alive until their function values are released.
     cdef list native_holds = []
 
-    from east.types.values import EastFunction, type_of
+    from east.runtime.builtin_signatures import FN, builtin_inputs
+    from east.types.values import EastFunction
 
     _ensure_runtime()
+
+    # The builtin's declared input types, instanced with the call's type
+    # parameters. Every value slot converts against ITS declared type — never
+    # against the argument's own inferred type, which let a wrongly-typed
+    # scalar slot reinterpret memory inside east-c (an Integer key inserted
+    # into a String-keyed dict was dereferenced as a string pointer, #534).
+    # An unknown name or an arity mismatch is a caller bug, named here before
+    # east-c ever sees a value.
+    declared = builtin_inputs(name, type_params)
+    if len(declared) != nargs:
+        raise TypeError(
+            f"east-c builtin {name} takes {len(declared)} argument(s), got {nargs}")
 
     try:
         if ntp > 0:
@@ -549,34 +588,66 @@ def call_builtin(str name, list type_params, list args, object output_type):
                 c_args[i] = NULL
                 arg_types[i] = NULL
             for i in range(nargs):
-                if isinstance(args[i], EastFunction):
-                    # A precompiled kernel used as the callback rides its own
-                    # native function value straight into the builtin (#409);
-                    # otherwise IR push-down traces a provably-pure python
-                    # callback into a native kernel so the loop never
-                    # re-enters python; otherwise wrap the callable behind
-                    # the per-element invoke trampoline.
-                    native = _native_kernel_for(args[i])
-                    if native is None:
-                        native = _try_push_down_py(args[i])
-                    fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
-                    if fn_ptr != 0:
-                        native_holds.append(native)
-                        c_args[i] = <_eastc.EastValue*>fn_ptr
-                        _eastc.east_value_retain(c_args[i])
+                if declared[i] is FN:
+                    if isinstance(args[i], EastFunction):
+                        c_args[i] = _callback_value_for(args[i], native_holds)
                     else:
-                        c_args[i] = _wrap_pyfn(args[i])
-                else:
-                    fn_ptr = _native_fn_val_ptr(args[i])
-                    if fn_ptr != 0:
                         # Compiled East function (east.kernel / compile_from_*):
                         # pass its value through so the callback executes
-                        # natively (no python).
+                        # natively (no python). Anything else in a callback
+                        # slot is a caller bug — wrapping it behind the invoke
+                        # trampoline would hand east-c a "function" that dies
+                        # per element.
+                        fn_ptr = _native_fn_val_ptr(args[i])
+                        if fn_ptr == 0:
+                            raise TypeError(
+                                f"{name} argument {i} is Function-typed and takes a "
+                                f"callback (an EastFunction or a compiled kernel); "
+                                f"got {type(args[i]).__name__}")
                         c_args[i] = <_eastc.EastValue*>fn_ptr
                         _eastc.east_value_retain(c_args[i])
-                    else:
-                        arg_types[i] = py_type_to_c(type_of(args[i]))
+                else:
+                    arg_types[i] = py_type_to_c(declared[i])
+                    # A Function-typed VALUE slot (a generic T instanced to a
+                    # function type, e.g. Print or BlobEncodeBeast2 over
+                    # functions) accepts the same forms a callback slot does:
+                    # an EastFunction resolves to its native/traced/trampoline
+                    # function value, a compiled function passes its value
+                    # through, and anything else converts below (decoded
+                    # function wrappers serialize from their attached IR).
+                    resolved = arg_types[i]
+                    while resolved.kind == _eastc.EAST_TYPE_RECURSIVE and resolved.data.recursive.node != NULL:
+                        resolved = resolved.data.recursive.node
+                    if resolved.kind == _eastc.EAST_TYPE_FUNCTION or resolved.kind == _eastc.EAST_TYPE_ASYNC_FUNCTION:
+                        if isinstance(args[i], EastFunction):
+                            c_args[i] = _callback_value_for(args[i], native_holds)
+                            continue
+                        fn_ptr = _native_fn_val_ptr(args[i])
+                        if fn_ptr != 0:
+                            c_args[i] = <_eastc.EastValue*>fn_ptr
+                            _eastc.east_value_retain(c_args[i])
+                            continue
+                    try:
                         c_args[i] = py_value_to_c(args[i], arg_types[i])
+                    except Exception as conv_err:
+                        # Name the builtin, the slot and the declared type —
+                        # the raw conversion error alone ("an integer is
+                        # required") does not say which argument was wrong.
+                        # Printing the type is itself a conversion that can
+                        # fail on the same shape that got us here, so it must
+                        # degrade to a placeholder, never recurse into another
+                        # round of error formatting.
+                        try:
+                            from east.serialization.east_printer import print_east
+                            from east.types.type_of_type import EastTypeType
+                            printed = print_east(declared[i], EastTypeType)
+                        except Exception:
+                            printed = "<type>"
+                        raise TypeError(
+                            f"{name} argument {i}: {type(args[i]).__name__} value does "
+                            f"not convert to the declared slot type "
+                            f"{printed} — {conv_err}"
+                        ) from conv_err
 
         c_out = py_type_to_c(output_type)
 

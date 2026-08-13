@@ -35,7 +35,7 @@ from east.types.types import (
     PatchType,
     StringType,
 )
-from east.types.values import EastValue, _call_builtin, type_of
+from east.types.values import EastValue, _call_builtin
 
 
 class _FloatNamespace:
@@ -1037,24 +1037,31 @@ class _East:
         return _call_builtin("Is", [typ], [a, b], BooleanType)
 
     @staticmethod
-    def diff(before: EastValue, after: EastValue) -> EastValue:
+    def diff(typ: EastType, before: EastValue, after: EastValue) -> EastValue:
         """Structural diff producing a patch from ``before`` to ``after`` (east-c Diff).
 
-        ``before`` and ``after`` must share a type; the result is a value of
-        ``PatchType(type_of(before))`` that :meth:`apply_patch` replays onto
-        ``before`` to reconstruct ``after``.
+        ``typ`` is the shared East type of both operands — explicit, like
+        :meth:`compose_patch` / :meth:`invert_patch`, because a type sampled
+        from one value cannot describe both: ``type_of(variant("ok", 1))`` is
+        the single-case ``Variant<ok>``, so an ``"error"``-case ``after`` has
+        no case to marshal into (and a tag-equal payload of a different type
+        would be reinterpreted, #534). The result is a value of
+        ``PatchType(typ)`` that :meth:`apply_patch` replays onto ``before``
+        to reconstruct ``after``.
         """
-        typ = type_of(before)
         return _call_builtin("Diff", [typ, PatchType(typ)], [before, after], PatchType(typ))
 
     @staticmethod
-    def apply_patch(value: EastValue, patch: EastValue) -> EastValue:
+    def apply_patch(typ: EastType, value: EastValue, patch: EastValue) -> EastValue:
         """Apply ``patch`` to ``value``, producing the patched value (east-c ApplyPatch).
+
+        ``typ`` is ``value``'s East type — explicit for the same reason as
+        :meth:`diff`: a patch may replace a variant with a case the sampled
+        single-case type does not carry.
 
         Raises an East runtime error if the patch conflicts with the value
         (e.g. deleting a key that is not present).
         """
-        typ = type_of(value)
         return _call_builtin("ApplyPatch", [typ, PatchType(typ)], [value, patch], typ)
 
     @staticmethod

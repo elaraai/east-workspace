@@ -490,9 +490,9 @@ Task → What do you need?
     │   └─ Blob          → size/get_uint8/.data · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
     │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …))
     │
-    ├─ Diff / patch two values of one type (East's structural patch algebra)
-    │   ├─ Compute a patch → East.diff(before, after)   (patch type is PatchType(T))
-    │   ├─ Apply it → East.apply_patch(value, patch)
+    ├─ Diff / patch two values of one type (East's structural patch algebra; all four take T first)
+    │   ├─ Compute a patch → East.diff(T, before, after)   (patch type is PatchType(T))
+    │   ├─ Apply it → East.apply_patch(T, value, patch)
     │   ├─ Combine two patches → East.compose_patch(T, first, second)
     │   └─ Reverse one → East.invert_patch(T, patch)
     │
@@ -1038,12 +1038,14 @@ Every one delegates to east-c.
 **`East`** comparisons (East total order; element type `T` first): `compare(T, a, b) -> int`,
 `equal/not_equal/less/less_equal/greater/greater_equal(T, a, b) -> bool`.
 
-**`East`** structural diff/patch (any East type `T`; a patch is a value of `PatchType(T)`):
+**`East`** structural diff/patch (any East type `T`; a patch is a value of `PatchType(T)`; every
+function takes `T` explicitly — a type sampled from one value cannot describe both sides of a
+variant diff):
 
 | Signature | Notes |
 |-----------|-------|
-| `diff(before, after) -> patch` | The patch turning `before` into `after` (types inferred) |
-| `apply_patch(value, patch) -> value` | Apply; `apply_patch(v, diff(v, w)) == w` |
+| `diff(T, before, after) -> patch` | The patch turning `before` into `after` |
+| `apply_patch(T, value, patch) -> value` | Apply; `apply_patch(T, v, diff(T, v, w)) == w` |
 | `compose_patch(T, first, second) -> patch` | One patch equal to applying `first` then `second` |
 | `invert_patch(T, patch) -> patch` | The undo: applying patch then its inverse round-trips |
 
