@@ -623,13 +623,13 @@ def call_builtin(str name, list type_params, list args, object output_type):
                     if resolved.kind == _eastc.EAST_TYPE_FUNCTION or resolved.kind == _eastc.EAST_TYPE_ASYNC_FUNCTION:
                         if isinstance(args[i], EastFunction):
                             # A VALUE slot holds data (Print, BlobEncodeBeast2 over
-                            # functions): prefer the native function value, but a
-                            # callback whose python body carries its IR serializes
-                            # from it rather than crossing as an unserializable
-                            # invoke trampoline (#476).
+                            # functions): prefer the native function value, then
+                            # the function's OWN attached representation (live
+                            # captures / attached IR) — push-down TRACING comes
+                            # last: it re-derives the body, which executes
+                            # identically but is a different function value
+                            # than the one the slot holds (#476).
                             native = _native_kernel_for(args[i])
-                            if native is None:
-                                native = _try_push_down_py(args[i])
                             fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
                             if fn_ptr != 0:
                                 native_holds.append(native)
@@ -660,6 +660,13 @@ def call_builtin(str name, list type_params, list args, object output_type):
                                     c_args[i] = <_eastc.EastValue*>fn_ptr
                                     _eastc.east_value_retain(c_args[i])
                                     continue
+                            native = _try_push_down_py(args[i])
+                            fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
+                            if fn_ptr != 0:
+                                native_holds.append(native)
+                                c_args[i] = <_eastc.EastValue*>fn_ptr
+                                _eastc.east_value_retain(c_args[i])
+                                continue
                             c_args[i] = _wrap_pyfn(args[i])
                             continue
                         fn_ptr = _native_fn_val_ptr(args[i])

@@ -58,24 +58,14 @@ FUNNEL_ONLY = frozenset({
 })
 
 KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
-    ('kernel', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary — #476',
-        frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
-    ('trampoline', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary — #476',
-        frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
+    # Traced mode materialises callbacks through the tracer's reconstruction,
+    # so a function value serialized in traced mode encodes the RECONSTRUCTED
+    # body — the tracer-fidelity differential this mode exists to measure.
+    # Byte-golden comparisons against the program's own closure therefore
+    # differ here (and only here: kernel and trampoline are byte-identical).
     ('traced', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary — #476',
-        frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
-    ('kernel', 'East'): (
-        'value aliasing and recursive-type print parity — #478',
-        frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),
-    ('trampoline', 'East'): (
-        'value aliasing and recursive-type print parity — #478',
-        frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),
-    ('traced', 'East'): (
-        'value aliasing and recursive-type print parity — #478',
-        frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),
+        'traced-mode function serialization encodes the tracer reconstruction — the mode differential',
+        frozenset({'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Simple function (no captures)'})),
     ('kernel', 'Frozen'): (
         'frozen task-input decode is a C-runtime brand with no eager-python-surface spelling (#539)',
         frozenset({'Is keeps identity semantics for mutable and mixed operands', 'Is on two frozen collections is deep value equality', 'Is recurses into nested frozen containers by value', 'a frozen Ref stays an identity cell under Is', 'copying a frozen array yields a mutable scratch value', 'equality, ordering, printing and encoding match the mutable twin', 'frozen Vector and Matrix are value types under Is', 'frozen array mutations throw; the mutable twin accepts them', 'frozen collections keep serving reads and iteration', 'frozen dict mutations throw, including through a read-out element', 'frozen ref assignment throws', 'frozen set mutations throw; reads still serve'})),
@@ -85,15 +75,6 @@ KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ('traced', 'Frozen'): (
         'frozen task-input decode is a C-runtime brand with no eager-python-surface spelling (#539)',
         frozenset({'Is keeps identity semantics for mutable and mixed operands', 'Is on two frozen collections is deep value equality', 'Is recurses into nested frozen containers by value', 'a frozen Ref stays an identity cell under Is', 'copying a frozen array yields a mutable scratch value', 'equality, ordering, printing and encoding match the mutable twin', 'frozen Vector and Matrix are value types under Is', 'frozen array mutations throw; the mutable twin accepts them', 'frozen collections keep serving reads and iteration', 'frozen dict mutations throw, including through a read-out element', 'frozen ref assignment throws', 'frozen set mutations throw; reads still serve'})),
-    ('kernel', 'String'): (
-        'recursive-type print/parse and JSON shapes — #478 family',
-        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
-    ('trampoline', 'String'): (
-        'recursive-type print/parse and JSON shapes — #478 family',
-        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
-    ('traced', 'String'): (
-        'recursive-type print/parse and JSON shapes — #478 family',
-        frozenset({'JSON parse', 'JSON print', 'Parsing values', 'Printing values'})),
 }
 
 # Arms whose OUTCOME is platform-divergent, excluded from BOTH ratchet

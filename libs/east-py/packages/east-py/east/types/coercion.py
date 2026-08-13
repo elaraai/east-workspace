@@ -35,6 +35,7 @@ from east.types.types import (
     IntegerType,
     StringType,
     StructType,
+    _close_recursive_refs,
 )
 from east.types.values import (
     EAST_ELEMENT_TO_DTYPE,
@@ -345,7 +346,7 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
         raise EastTypeError(f"expected {kind} or array-like, got {_describe(value)}", value=value, expected=typ, path=path)
 
     if kind == "Array":
-        elem = typ["value"]
+        elem = _close_recursive_refs(typ["value"], type_ctx) if type_ctx else typ["value"]
         if isinstance(value, np.ndarray):
             return _coerce_array_from_numpy(value, typ, elem, path)
         if (
@@ -363,12 +364,15 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
             return EastArray(elem, [_coerce(it, elem, f"{path}[{i}]", type_ctx) for i, it in enumerate(value)])
         raise EastTypeError(f"expected Array or list, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Set":
-        elem = typ["value"]
+        elem = _close_recursive_refs(typ["value"], type_ctx) if type_ctx else typ["value"]
         if isinstance(value, (EastSet, set, frozenset, list, tuple)):
             return EastSet(elem, [_coerce(it, elem, f"{path}{{{i}}}", type_ctx) for i, it in enumerate(value)])
         raise EastTypeError(f"expected Set or iterable, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Dict":
         dt = typ["value"]
+        if type_ctx:
+            dt = {"key": _close_recursive_refs(dt["key"], type_ctx),
+                  "value": _close_recursive_refs(dt["value"], type_ctx)}
         if isinstance(value, (dict, EastDict)):
             result: EastDict = EastDict(dt["key"], dt["value"])
             for k, v in value.items():

@@ -33,6 +33,13 @@ from east cimport _eastc
 
 from datetime import UTC
 from datetime import datetime as DateTime
+from datetime import timedelta as TimeDelta
+
+# Decode datetimes by epoch arithmetic, not fromtimestamp: Windows'
+# fromtimestamp rejects pre-epoch (negative) values with EINVAL, and the
+# arithmetic is exact for integer milliseconds where the float division
+# was not.
+_EPOCH_UTC = DateTime(1970, 1, 1, tzinfo=UTC)
 
 import numpy as np
 import os
@@ -501,7 +508,7 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
 
     elif kind == _eastc.EAST_TYPE_DATETIME:
         millis = val.data.datetime
-        return DateTime.fromtimestamp(millis / 1000.0, tz=UTC)
+        return _EPOCH_UTC + TimeDelta(milliseconds=millis)
 
     elif kind == _eastc.EAST_TYPE_BLOB:
         return EastBlob((<char*>val.data.blob.data)[:val.data.blob.len])
@@ -1827,18 +1834,27 @@ class EastArrayProxy(EastArray):
     __slots__ = ("_c_ptr", "_c_elem_type_ptr")
 
     def __init__(self, element_type, items=None):
-        # User construction: allocate a live east-c array from birth, bulk-push.
+        # User construction: allocate a live east-c array from birth.
         cdef _eastc.EastType *elem_c
+        cdef _eastc.EastType *arr_t
         cdef _eastc.EastValue *arr
         object.__setattr__(self, "element_type", element_type)
         object.__setattr__(self, "_iteration_lock", 0)
         elem_c = py_type_to_c(element_type)
-        arr = _eastc.east_array_new(elem_c)
+        if items is not None and not isinstance(items, (list, tuple)):
+            items = list(items)
+        if items:
+            # One conversion for the whole batch: elements that share a python
+            # object (aliased inner containers) share ONE C value, exactly as
+            # a compiled NewArray preserves aliasing. Per-item pushes each ran
+            # their own conversion and silently split the aliases.
+            arr_t = _eastc.east_array_type(elem_c)
+            arr = py_value_to_c(list(items), arr_t)
+            _eastc.east_type_release(arr_t)
+        else:
+            arr = _eastc.east_array_new(elem_c)
         self._c_ptr = <uintptr_t>arr
         self._c_elem_type_ptr = <uintptr_t>elem_c
-        if items is not None:
-            for item in items:
-                _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
 
     @staticmethod
     def _wrap(element_type, c_ptr, c_elem_type_ptr):
