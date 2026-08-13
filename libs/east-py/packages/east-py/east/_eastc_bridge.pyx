@@ -1652,6 +1652,34 @@ cpdef object c_type_ptr_to_py_type(uintptr_t ptr):
     return _c_type_tag_to_py_type(<_eastc.EastType*>ptr)
 
 
+def c_function_value_type(uintptr_t fn_val_ptr):
+    """The declared Function/AsyncFunction EastType of a C function value, or None.
+
+    Reads the signature a decoded function wrapper (EAST_C_HANDLE_ATTR)
+    carries C-side but never surfaced to python. Backs type_of's
+    declared-type-first path (#476).
+    """
+    cdef _eastc.EastValue* v = <_eastc.EastValue*>fn_val_ptr
+    if v == NULL or v.kind != _eastc.EAST_VAL_FUNCTION:
+        return None
+    cdef _eastc.EastCompiledFn* cf = v.data.function.compiled
+    if cf == NULL:
+        return None
+    if cf.fn_type != NULL:
+        return _c_type_tag_to_py_type(cf.fn_type)
+    # beast2-decoded functions defer IR conversion and never stamp fn_type;
+    # the declared type rides the source IR Function node's "type" field —
+    # an EastTypeType value, so (homoiconically) its decode IS the py type.
+    cdef _eastc.EastValue* tv
+    if cf.source_ir != NULL and cf.source_ir.kind == _eastc.EAST_VAL_VARIANT:
+        tv = _eastc.east_struct_get_field(cf.source_ir.data.variant.value, b"type")
+        if tv != NULL:
+            if _eastc.east_type_type == NULL:
+                _eastc.east_type_of_type_init()
+            return c_value_to_py(tv, _eastc.east_type_type)
+    return None
+
+
 def canonicalize_type(object py_type):
     """Normalize a type value to the canonical in-process form.
 
