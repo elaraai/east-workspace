@@ -216,8 +216,8 @@ syntax, fastest first:
 **Tracing rules** (what makes a lambda "pure" enough to trace):
 
 - Reference only the lambda's parameters, plain scalar constants
-  (closure floats/ints/strings are baked — same value per element either
-  way), East types/values (`east_null` included), the `East` builtin
+  (closure floats/ints/strings/datetimes are baked — same value per
+  element either way), East types/values (`east_null` included), the `East` builtin
   namespace, `where`/`some`/`none`, **precompiled `kernel()` results**
   (dual-mode: they re-trace from their source, at any nesting depth,
   #470), and — two wrapper levels deep, enough for helper lambdas that
@@ -242,9 +242,17 @@ syntax, fastest first:
   truncation toward zero, NOT python's floored `//` — and `/` is Float
   division. Struct fields read as attributes or items
   (`r.price` / `r["price"]` — both trace, and both work on real rows).
-- Each eager call re-traces (compilation is tens of µs — amortised over the
-  loop); hoist a `kernel(...)` if you call the same lambda in a tight
-  python loop.
+- Traces are CACHED (#422): an eager callback whose code object, captured
+  bindings and declared signature match a previous call reuses the compiled
+  kernel — so the per-group aggregate shape,
+  `group_to_arrays(key).to_array(lambda k, es: {…aggregates over es…})`,
+  traces each inner lambda once, not once per group (this exact shape
+  measured 145 s of pure re-tracing before the cache). ⚠️ A lambda whose
+  CAPTURES change per call (`lambda r: r.v > g` inside a loop over `g`)
+  re-traces every time, because each capture value bakes into a different
+  kernel — hoist a `kernel(...)` and pass the varying value as a bound
+  parameter instead. When in doubt, `eager_stats()` (lever 6 below) shows
+  whether a hot loop is tracing or trampolining per call.
 
 ### Maximum performance — the levers, ranked
 
@@ -527,7 +535,8 @@ Task → What do you need?
     │   │   │            .try_parse(T) -> Option<T> (strict whole-string parse; none on any failure)
     │   │   ├─ DateTime → .get_year/month/day_of_month/day_of_week/hour/minute/second/millisecond() ·
     │   │   │              .to_epoch_milliseconds() · .add_/subtract_{milliseconds,seconds,minutes,hours,days,weeks}(n) ·
-    │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD")
+    │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD") ·
+    │   │   │              python datetime literals lift as DateTime constants (unwrap_or defaults, where branches, captures)
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) typed from context: the kernel's declared

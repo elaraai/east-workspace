@@ -98,11 +98,11 @@ def _kernel_out_type(fn, param_types=None):
     if param_types is None or not callable(fn):
         return None
     try:
-        from east.kernel import _type_traceable, trace
+        from east.kernel import _trace_out_type, _type_traceable
 
         if not _type_traceable(fn):
             return None      # impure callback — the caller samples
-        return trace(fn, list(param_types))[1]
+        return _trace_out_type(fn, list(param_types))
     except Exception:       # untraceable callback — the caller samples
         return None
 
