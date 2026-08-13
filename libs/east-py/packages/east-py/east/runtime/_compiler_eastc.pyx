@@ -547,6 +547,8 @@ def call_builtin(str name, list type_params, list args, object output_type):
     cdef uintptr_t fn_ptr
     cdef object py_result
     cdef list declared
+    cdef _eastc.PlatformRegistry* saved_platform
+    cdef _eastc.BuiltinRegistry* saved_builtins
     # Keeps traced kernels alive until their function values are released.
     cdef list native_holds = []
 
@@ -655,7 +657,18 @@ def call_builtin(str name, list type_params, list args, object output_type):
         bfn = _eastc.builtin_registry_get(_builtins, <const char*>name_bytes, c_tps, ntp)
         if bfn == NULL:
             raise ValueError(f"Unknown east-c builtin: {name}")
-        result = bfn(c_args, nargs)
+        # Install the funnel's registries as the thread context for the
+        # invocation, exactly as east_call does around a compiled body. A
+        # builtin that CONSTRUCTS function values (BlobDecodeBeast2) wires
+        # them to the thread-current registries — invoked bare, they would
+        # capture NULL and the decoded function would crash on first call
+        # (#476 B).
+        _eastc.east_get_thread_context(&saved_platform, &saved_builtins)
+        _eastc.east_set_thread_context(saved_platform, _builtins)
+        try:
+            result = bfn(c_args, nargs)
+        finally:
+            _eastc.east_set_thread_context(saved_platform, saved_builtins)
 
         if result == NULL:
             err = _eastc.east_builtin_get_error()
@@ -693,13 +706,14 @@ def call_builtin(str name, list type_params, list args, object output_type):
 
 # ─── Common compile from C IR value ──────────────────────────────────────
 
-cdef object _compile_from_c_ir_val(_eastc.EastValue* c_ir_val, list platform_list, bint is_async):
+cdef object _compile_from_c_ir_val(_eastc.EastValue* c_ir_val, list platform_list, bint is_async,
+                                   object py_ir=None):
     """Compile from a C IR value — shared by JSON and East text paths."""
     cdef _eastc.IRNode* ir_node = _eastc.east_ir_from_value(c_ir_val)
     if ir_node == NULL:
         _eastc.east_value_release(c_ir_val)
         raise RuntimeError("east_ir_from_value returned NULL — invalid IR")
-    return _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+    return _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async, py_ir)
 
 
 # ─── Compile from a homoiconic IR value (no serialization round-trip) ─────
@@ -721,14 +735,20 @@ cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint 
     """Compile East IR from a homoiconic IR value (an EastVariant conforming
     to IRType) — the python value converts straight to a C value and
     east_ir_from_value builds the IR tree, with no serialization round-trip.
-    This is the kernel tracer's path (#398)."""
+    This is the kernel tracer's path (#398).
+
+    The IR value is attached to the compiled callable's ``_east_ir`` (#476):
+    it is the serialization fallback's source, and dropping it here made
+    east-py unable to serialize its own compiled kernels.
+    """
     _ensure_runtime()
     cdef _eastc.EastValue* c_ir_val = py_value_to_c(ir_value, _ensure_c_ir_type())
-    return _compile_from_c_ir_val(c_ir_val, platform_list, is_async)
+    return _compile_from_c_ir_val(c_ir_val, platform_list, is_async, ir_value)
 
 
 cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir_val,
-                                   list platform_list, bint is_async):
+                                   list platform_list, bint is_async,
+                                   object py_ir=None):
     """Compile from an already-decoded IRNode — shared compilation path.
 
     Takes ownership of the caller's ir_node reference: east_compile retains
@@ -776,7 +796,7 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
     if fn_val == NULL or fn_val.kind != _eastc.EAST_VAL_FUNCTION:
         if fn_val != NULL:
             _eastc.east_value_release(fn_val)
-        return _make_callable(wrapper, platform, c_ir_val, None)
+        return _make_callable(wrapper, platform, c_ir_val, py_ir)
 
     cdef _eastc.EastCompiledFn* compiled = fn_val.data.function.compiled
     if compiled == NULL:
@@ -791,7 +811,7 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
 
     cdef _eastc.EastType* fn_type = wrapper.ir.type
 
-    return _make_callable_from_value(fn_val, wrapper, platform, c_ir_val, None, is_async, fn_type)
+    return _make_callable_from_value(fn_val, wrapper, platform, c_ir_val, py_ir, is_async, fn_type)
 
 
 # ─── Compile from JSON (fast path — no Python round-trip) ────────────────

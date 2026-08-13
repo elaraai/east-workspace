@@ -544,6 +544,7 @@ cdef extern from "east/compiler.h":
     PlatformRegistry *east_current_platform()
     BuiltinRegistry *east_current_builtins()
     void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b)
+    void east_get_thread_context(PlatformRegistry **out_p, BuiltinRegistry **out_b)
     void east_set_source_map(const EastSourceMap *sm)
     void east_source_map_free(EastSourceMap *sm)
 

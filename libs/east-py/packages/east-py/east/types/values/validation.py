@@ -269,6 +269,37 @@ def type_of(value: EastValue, nodes_visited: set[int] | None = None) -> EastType
     if isinstance(value, EastDict):
         return DictType(value.key_type, value.value_type)
 
+    # --- function-ish values: declared-type-first (#476) ---
+    # Every east-py function-ish object carries its signature; read it before
+    # refusing. An EastFunction declares input/output types directly; a
+    # compiled kernel's handle exposes them; a decoded C function wrapper
+    # carries its C value whose compiled fn holds the declared type.
+    from east.types.values.structural import EastFunction
+
+    if isinstance(value, EastFunction):
+        from east.types.types import FunctionType
+
+        return FunctionType(list(value.input_types), value.output_type)
+    if callable(value):
+        handle = getattr(value, "_eastc_handle", None)
+        if handle is not None:
+            import asyncio
+
+            from east.types.types import AsyncFunctionType, FunctionType
+
+            inputs = handle.get_input_types()
+            output = handle.get_output_type()
+            if asyncio.iscoroutinefunction(value):
+                return AsyncFunctionType(inputs, output)
+            return FunctionType(inputs, output)
+        c_handle = getattr(value, "_east_c_handle", None)
+        if c_handle is not None:
+            from east._eastc_bridge import c_function_value_type
+
+            declared = c_function_value_type(c_handle)
+            if declared is not None:
+                return declared
+
     # --- recursing / structural values: guard against reference cycles ---
     if nodes_visited is None:
         nodes_visited = set()
