@@ -476,7 +476,7 @@ def cy_compare_for(type_val, type_ctx=None):
         return resolved
 
     if is_function_type(type_val) or is_async_function_type(type_val):
-        return lambda _x, _y: 0
+        return lambda _x, _y, _ctx=None: 0
 
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 
@@ -708,7 +708,7 @@ def cy_equal_for(type_val, type_ctx=None):
         return resolved
 
     if is_function_type(type_val) or is_async_function_type(type_val):
-        return lambda _x, _y: True
+        return lambda _x, _y, _ctx=None: True
 
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 

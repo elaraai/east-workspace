@@ -426,7 +426,7 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
     if is_function_type(type_val) or is_async_function_type(type_val):
         # Functions are always considered equal for equality comparison
-        return lambda _x, _y: True
+        return lambda _x, _y, _ctx=None: True
 
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 
@@ -914,7 +914,7 @@ def compare_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
     if is_function_type(type_val) or is_async_function_type(type_val):
         # Functions are always considered equal for comparison
-        return lambda _x, _y: 0
+        return lambda _x, _y, _ctx=None: 0
 
     raise RuntimeError(f"Unknown type encountered during type printing: {type_val.type}")
 

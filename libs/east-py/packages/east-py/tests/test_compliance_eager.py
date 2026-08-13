@@ -58,15 +58,14 @@ FUNNEL_ONLY = frozenset({
 })
 
 KNOWN_DIFFS: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
-    ('kernel', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary — #476',
-        frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
-    ('trampoline', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary — #476',
-        frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
+    # Traced mode materialises callbacks through the tracer's reconstruction,
+    # so a function value serialized in traced mode encodes the RECONSTRUCTED
+    # body — the tracer-fidelity differential this mode exists to measure.
+    # Byte-golden comparisons against the program's own closure therefore
+    # differ here (and only here: kernel and trampoline are byte-identical).
     ('traced', 'Blob__Beast_v2_'): (
-        'beast-codec function/recursive value shapes at the py boundary — #476',
-        frozenset({'Beast v2 - Array of functions', 'Beast v2 - Function capturing array', 'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Recursive type with render callback and children', 'Beast v2 - Simple function (no captures)', 'Beast v2 - UI component with onClick returning self type'})),
+        'traced-mode function serialization encodes the tracer reconstruction — the mode differential',
+        frozenset({'Beast v2 - Function with capture', 'Beast v2 - Function with multiple captures', 'Beast v2 - Simple function (no captures)'})),
     ('kernel', 'East'): (
         'value aliasing and recursive-type print parity — #478',
         frozenset({'Nested array aliases', 'Recursive type - EastTypeType'})),

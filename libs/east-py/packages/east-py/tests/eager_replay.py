@@ -47,7 +47,6 @@ from typing import Any
 
 from east.ir.builders import (
     ir_block,
-    ir_function,
     ir_let,
     ir_new_array,
     ir_new_dict,
@@ -83,15 +82,55 @@ from east.utils.ordering import (
 
 _decode_ir = decode_json_for(IRType)
 
+# The current file's compiled program — loaded exactly as the compiled
+# runners load it (compile_from_json: wrapper decode, source-map install,
+# platform-signature validation) and held so the file's source map stays
+# installed while the replay interprets the same IR. One entry: each load
+# replaces the previous file's program.
+_PROGRAM_KEEPALIVE: dict[str, Any] = {}
+
+
+def _load_program(data: bytes) -> Any:
+    """``compile_from_json`` with inert test-harness platform impls — the
+    program is loaded, never called (the replay interprets its IR). Closures
+    the replay creates while it is held reference the program's source map
+    (compiler.c stamps the current map), so their errors resolve original
+    source locations and their beast2 encodings embed the same stack deltas
+    as any compiled runner's closures."""
+    from east.runtime.compiler import compile_from_json
+    from east.runtime.platform import PlatformFunction
+    from east.types.types import AsyncFunctionType, NullType, StringType
+    from tests.test_compliance import _freeze_platform
+
+    def noop(*_args: Any) -> None:
+        return None
+
+    # Declared types mirror the TS declarations (libs/east/test/platforms.spec.ts),
+    # same as test_compliance's harness — the compile-time signature check
+    # rejects a drifted mirror.
+    platform = [
+        PlatformFunction(name="describe", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=noop),
+        PlatformFunction(name="test", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=noop),
+        PlatformFunction(name="testPass", inputs=[], output=NullType, type="sync", fn=noop),
+        PlatformFunction(name="testFail", inputs=[StringType], output=NullType, type="sync", fn=noop),
+        *_freeze_platform(),
+    ]
+    is_async = b'"AsyncFunction"' in data[:100]
+    return compile_from_json(data, platform, is_async=is_async)
+
 
 def load_ir(path: str | Path) -> EastVariant:
     """The exported file's ``ir`` member, decoded through the standard
     serialization layer into the homoiconic IR value."""
+    data = Path(path).read_bytes()
+    _PROGRAM_KEEPALIVE.clear()  # release the previous file's map first
+    with contextlib.suppress(BaseException):
+        _PROGRAM_KEEPALIVE[str(path)] = _load_program(data)
     # Explicit utf-8: the corpus is utf-8 JSON with non-ASCII string
     # literals, and windows' locale default (cp1252) mojibakes them — the
     # replay then encodes the mangled literals and every Blob/String
     # byte-comparison diverges.
-    raw = _pyjson.loads(Path(path).read_text(encoding="utf-8"))
+    raw = _pyjson.loads(data.decode("utf-8"))
     return _decode_ir(_pyjson.dumps(raw["ir"]))
 
 
@@ -273,7 +312,11 @@ def _baked_node(clo: Closure) -> Any:
     p = clo.payload
     captures = list(p["captures"])
     if not captures:
-        return ir_function(p["type"], [], list(p["parameters"]), p["body"])
+        # The node IS the capture-free form — pass it through untouched.
+        # Rebuilding via ir_function() dropped its loc_id, so the compiled
+        # closure's encoded IR diverged from the program's own closure by
+        # exactly that varint.
+        return clo.node
 
     def let_value(var: Any) -> Any:
         captured = clo.env.get(var.value["name"])
