@@ -86,7 +86,11 @@ _decode_ir = decode_json_for(IRType)
 def load_ir(path: str | Path) -> EastVariant:
     """The exported file's ``ir`` member, decoded through the standard
     serialization layer into the homoiconic IR value."""
-    raw = _pyjson.loads(Path(path).read_text())
+    # Explicit utf-8: the corpus is utf-8 JSON with non-ASCII string
+    # literals, and windows' locale default (cp1252) mojibakes them — the
+    # replay then encodes the mangled literals and every Blob/String
+    # byte-comparison diverges.
+    raw = _pyjson.loads(Path(path).read_text(encoding="utf-8"))
     return _decode_ir(_pyjson.dumps(raw["ir"]))
 
 
