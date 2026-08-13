@@ -1827,18 +1827,27 @@ class EastArrayProxy(EastArray):
     __slots__ = ("_c_ptr", "_c_elem_type_ptr")
 
     def __init__(self, element_type, items=None):
-        # User construction: allocate a live east-c array from birth, bulk-push.
+        # User construction: allocate a live east-c array from birth.
         cdef _eastc.EastType *elem_c
+        cdef _eastc.EastType *arr_t
         cdef _eastc.EastValue *arr
         object.__setattr__(self, "element_type", element_type)
         object.__setattr__(self, "_iteration_lock", 0)
         elem_c = py_type_to_c(element_type)
-        arr = _eastc.east_array_new(elem_c)
+        if items is not None and not isinstance(items, (list, tuple)):
+            items = list(items)
+        if items:
+            # One conversion for the whole batch: elements that share a python
+            # object (aliased inner containers) share ONE C value, exactly as
+            # a compiled NewArray preserves aliasing. Per-item pushes each ran
+            # their own conversion and silently split the aliases.
+            arr_t = _eastc.east_array_type(elem_c)
+            arr = py_value_to_c(list(items), arr_t)
+            _eastc.east_type_release(arr_t)
+        else:
+            arr = _eastc.east_array_new(elem_c)
         self._c_ptr = <uintptr_t>arr
         self._c_elem_type_ptr = <uintptr_t>elem_c
-        if items is not None:
-            for item in items:
-                _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
 
     @staticmethod
     def _wrap(element_type, c_ptr, c_elem_type_ptr):

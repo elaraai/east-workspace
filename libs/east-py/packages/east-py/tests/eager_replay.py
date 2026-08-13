@@ -496,10 +496,6 @@ class EagerEvaluator:
                 return KernelExpr(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
             return EastVariant(p["case"], val)
         if kind == "NewArray":
-            # coerce_to is the type-DRIVEN constructor (it derives child types
-            # itself, so Recursive markers stay bound); function-bearing
-            # element types construct directly — coercion rightly refuses to
-            # conjure function values, but Closures serialize via _east_ir
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
             if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
@@ -507,11 +503,12 @@ class EagerEvaluator:
 
                 et = child_type(t)
                 return KernelExpr(_k_new_array(t, [self._klift(v, et).ir for v in vals]), t)
-            if _mentions_function(t):
-                return EastArray(child_type(t), vals)
-            from east.types.coercion import coerce_to
-
-            return coerce_to(vals, t)
+            # Direct construction: the evaluated values are already East-typed
+            # (the IR is), and the constructor's batch conversion preserves
+            # element aliasing — a coerce_to detour re-canonicalizes each
+            # element into an independent copy, splitting aliases a compiled
+            # NewArray keeps.
+            return EastArray(child_type(t), vals)
         if kind == "NewSet":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
