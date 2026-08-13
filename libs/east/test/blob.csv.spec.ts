@@ -22,6 +22,7 @@ await describe("Blob (CSV)", (test) => {
   assert.examples(test, {
     blobDecodeCsv: ex.blobDecodeCsv,
     blobDecodeCsvDefaults: ex.blobDecodeCsvDefaults,
+    blobDecodeCsvSkipShortRows: ex.blobDecodeCsvSkipShortRows,
   });
 
   test("decodeCsv - simple struct with header", $ => {
@@ -371,6 +372,48 @@ await describe("Blob (CSV)", (test) => {
       BlobType
     ));
     $(assert.throws(csv.decodeCsv(T), /missing required column 'age'/));
+  });
+
+  // T3b: empty input with a header expected gets its own error, not a
+  // misleading missing-required-column pointer at the schema
+  test("decodeCsv - error message for empty input", $ => {
+    const T = StructType({ name: StringType, age: IntegerType });
+    const csv = $.let(East.value(new Uint8Array(0), BlobType));
+    $(assert.throws(csv.decodeCsv(T), /empty input \(no header row\)/));
+  });
+
+  // T3c: a present-but-empty header row is distinguished from no input
+  test("decodeCsv - error message for empty header row", $ => {
+    const T = StructType({ name: StringType, age: IntegerType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("\nAlice,30"),
+      BlobType
+    ));
+    $(assert.throws(csv.decodeCsv(T), /empty header row/));
+  });
+
+  // T3d: ragged rows still error without skipShortRows
+  test("decodeCsv - short row errors by default", $ => {
+    const T = StructType({ name: StringType, age: IntegerType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("name,age\nAlice,30\nshort"),
+      BlobType
+    ));
+    $(assert.throws(csv.decodeCsv(T), /row has 1 fields, expected at least 2/));
+  });
+
+  // T3e: rows short of only Option columns decode (none-fill) and are
+  // never dropped, with or without skipShortRows
+  test("decodeCsv - short-of-optional-only rows decode under skipShortRows", $ => {
+    const T = StructType({ name: StringType, age: VariantType({ none: NullType, some: IntegerType }) });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("name,age\nAlice,30\nBob"),
+      BlobType
+    ));
+    const result = $.let(csv.decodeCsv(T, { skipShortRows: true }));
+    $(assert.equal(result.size(), 2n));
+    $(assert.equal(result.get(1n).name, "Bob"));
+    $(assert.equal(result.get(1n).age.getTag(), "none"));
   });
 
   // T4: empty field decodes as empty string for a required String column

@@ -234,7 +234,9 @@ export class BlobExpr extends Expr<BlobType> {
    * column is an error. For defensive ingestion, `defaults` maps column
    * names to CSV-text fallback values applied when a present field fails to
    * decode or a column is absent from the header (constant-fill), e.g.
-   * `defaults: new Map([["price", "0.0"]])`.
+   * `defaults: new Map([["price", "0.0"]])`, and `skipShortRows: true` drops
+   * ragged rows with too few fields for the required columns instead of
+   * erroring.
    *
    * @example
    * ```ts

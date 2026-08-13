@@ -44,6 +44,16 @@ export type CsvParseOptions = {
   nullStrings?: string[];
   /** Skip rows that are entirely empty (default: true) */
   skipEmptyLines?: boolean;
+  /**
+   * Skip ragged (short) rows instead of erroring (default: false).
+   *
+   * A short row is one with too few fields to reach every non-Option column.
+   * Machine-generated exports commonly carry a few ragged lines; with this on
+   * they are dropped, matching the tolerance of tools like python's
+   * `csv.reader`. Rows short of only Option trailing columns decode either
+   * way (`none` fill) and are never dropped.
+   */
+  skipShortRows?: boolean;
   /** Trim whitespace from field values (default: false) */
   trimFields?: boolean;
   /** Map CSV headers to struct field names */
@@ -57,8 +67,7 @@ export type CsvParseOptions = {
    * to decode (unparseable text, or a null-string match on a required
    * column) and when the column is absent from the header entirely
    * (constant-fill — which also lifts the missing-required-column error).
-   * Rows with too few fields still error: ragged-row handling is a separate
-   * concern.
+   * Rows with too few fields still error unless `skipShortRows` is set.
    */
   defaults?: Map<string, string>;
 };
@@ -99,6 +108,7 @@ export const CsvParseConfigType = StructType({
   hasHeader: OptionType(BooleanType),
   nullStrings: OptionType(ArrayTypeConstructor(StringType)),
   skipEmptyLines: OptionType(BooleanType),
+  skipShortRows: OptionType(BooleanType),
   trimFields: OptionType(BooleanType),
   columnMapping: OptionType(DictType(StringType, StringType)),
   strict: OptionType(BooleanType),
@@ -145,6 +155,7 @@ export function csvParseOptionsToValue(options?: CsvParseOptions): ValueTypeOf<C
     hasHeader: options?.hasHeader !== undefined ? variant("some", options.hasHeader) : variant("none", null),
     nullStrings: options?.nullStrings !== undefined ? variant("some", options.nullStrings) : variant("none", null),
     skipEmptyLines: options?.skipEmptyLines !== undefined ? variant("some", options.skipEmptyLines) : variant("none", null),
+    skipShortRows: options?.skipShortRows !== undefined ? variant("some", options.skipShortRows) : variant("none", null),
     trimFields: options?.trimFields !== undefined ? variant("some", options.trimFields) : variant("none", null),
     columnMapping: columnMappingValue !== undefined ? variant("some", columnMappingValue) : variant("none", null),
     strict: options?.strict !== undefined ? variant("some", options.strict) : variant("none", null),
@@ -179,6 +190,9 @@ export function resolveParseConfig(config: ValueTypeOf<CsvParseConfigType>): Req
     hasHeader: config.hasHeader.type === "some" ? config.hasHeader.value : true,
     nullStrings: config.nullStrings.type === "some" ? config.nullStrings.value : [],
     skipEmptyLines: config.skipEmptyLines.type === "some" ? config.skipEmptyLines.value : true,
+    // Optional-chained like `defaults`: config values encoded before the
+    // field existed simply resolve to the default.
+    skipShortRows: config.skipShortRows?.type === "some" ? config.skipShortRows.value : false,
     trimFields: config.trimFields.type === "some" ? config.trimFields.value : false,
     columnMapping: config.columnMapping.type === "some" ? new Map(config.columnMapping.value) : new Map(),
     strict: config.strict.type === "some" ? config.strict.value : false,
@@ -605,13 +619,14 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
     hasHeader: true,
     nullStrings: [] as string[],
     skipEmptyLines: true,
+    skipShortRows: false,
     trimFields: false,
     columnMapping: new Map<string, string>(),
     strict: false,
     defaults: new Map<string, string>(),
   };
 
-  const { delimiter, quoteChar, escapeChar, hasHeader, nullStrings, skipEmptyLines, trimFields, columnMapping, strict, defaults } = resolved;
+  const { delimiter, quoteChar, escapeChar, hasHeader, nullStrings, skipEmptyLines, skipShortRows, trimFields, columnMapping, strict, defaults } = resolved;
 
   // Pre-build field info array (like Beast does). Each column's default text
   // is parsed once, with the same field decoder used for data (so trim and
@@ -648,7 +663,16 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
     // Parse header row
     let headers: string[];
     if (hasHeader) {
+      // Degenerate inputs get their own errors — otherwise an empty header
+      // index trips the missing-required-column check below, which points
+      // at the schema when the real problem is that there was no input.
+      if (offset >= blob.length) {
+        throw new CsvError("empty input (no header row)");
+      }
       const headerResult = parseRow(blob, offset, delimiter, quoteChar, escapeChar);
+      if (isEmptyRow(headerResult.fields)) {
+        throw new CsvError("empty header row");
+      }
       headers = headerResult.fields.map(h => columnMapping.get(h) ?? h);
       offset = headerResult.newOffset;
     } else {
@@ -685,6 +709,17 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
       headerIndex: headerToIndex.get(name) ?? null,
     }));
 
+    // The field count a row must reach for every non-Option column — the
+    // same rows the ragged branch below errors on. Defaults don't rescue
+    // short rows (they apply to unparseable fields and header-absent
+    // columns), so a defaulted column still counts here.
+    let minRequiredFields = 0;
+    for (const { isOptional, headerIndex } of decoders) {
+      if (headerIndex !== null && !isOptional && headerIndex >= minRequiredFields) {
+        minRequiredFields = headerIndex + 1;
+      }
+    }
+
     // Parse data rows
     const result: any[] = [];
     let rowNum = 1;
@@ -695,6 +730,11 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
       offset = rowResult.newOffset;
 
       if (skipEmptyLines && isEmptyRow(rowFields)) {
+        if (rowResult.isEnd) break;
+        continue;
+      }
+
+      if (skipShortRows && rowFields.length < minRequiredFields) {
         if (rowResult.isEnd) break;
         continue;
       }

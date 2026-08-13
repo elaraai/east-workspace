@@ -168,10 +168,60 @@ def test_invalid_default_errors_up_front():
 
 def test_defaults_do_not_mask_short_rows():
     """Ragged rows stay an error — defaults cover decode failures and absent
-    columns only (ragged-row handling is tracked separately)."""
+    columns only (skip_short_rows is the ragged-row lever)."""
     cfg = csv_parse_config(defaults={"b": "z"})
     with pytest.raises(ValueError, match="row has 1 fields"):
         EastBlob(b"a,b\nonly\n").decode_csv(ROW, cfg)
+
+
+# ─── ragged rows (issue #253) ──────────────────────────────────────────────
+
+
+def test_short_rows_error_by_default():
+    with pytest.raises(ValueError, match="row has 1 fields, expected at least 2"):
+        EastBlob(b"a,b\n1,2\nshort\n").decode_csv(ROW)
+
+
+def test_skip_short_rows_drops_ragged_rows():
+    cfg = csv_parse_config(skip_short_rows=True)
+    rows = EastBlob(b"a,b\n1,2\nshort\n3,4\n").decode_csv(ROW, cfg)
+    assert [(r["a"], r["b"]) for r in rows] == [("1", "2"), ("3", "4")]
+
+
+def test_skip_short_rows_keeps_rows_short_of_optional_columns():
+    row = StructType([("a", StringType), ("b", OptionType(StringType))])
+    cfg = csv_parse_config(skip_short_rows=True)
+    rows = EastBlob(b"a,b\n1,2\nsolo\n").decode_csv(row, cfg)
+    assert len(rows) == 2
+    assert rows[1]["a"] == "solo"
+    assert is_east_variant(rows[1]["b"]) and rows[1]["b"].type == "none"
+
+
+def test_skip_short_rows_still_drops_short_of_defaulted_column():
+    """Defaults apply to unparseable fields and header-absent columns, not to
+    short rows — a defaulted column still counts toward row arity."""
+    cfg = csv_parse_config(skip_short_rows=True, defaults={"b": "z"})
+    rows = EastBlob(b"a,b\n1,2\nonly\n").decode_csv(ROW, cfg)
+    assert [(r["a"], r["b"]) for r in rows] == [("1", "2")]
+
+
+# ─── degenerate input (issue #65) ──────────────────────────────────────────
+
+
+def test_empty_input_reports_empty_input_not_missing_column():
+    with pytest.raises(ValueError, match=r"empty input \(no header row\)"):
+        EastBlob(b"").decode_csv(ROW)
+
+
+def test_empty_header_row_reports_empty_header():
+    with pytest.raises(ValueError, match="empty header row"):
+        EastBlob(b"\n1,2\n").decode_csv(ROW)
+
+
+def test_empty_input_without_header_decodes_empty_array():
+    cfg = csv_parse_config(has_header=False)
+    rows = EastBlob(b"").decode_csv(ROW, cfg)
+    assert len(rows) == 0
 
 
 # ─── encode/decode round trip ──────────────────────────────────────────────

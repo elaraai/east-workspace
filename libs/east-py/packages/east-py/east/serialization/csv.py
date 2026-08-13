@@ -45,6 +45,7 @@ CsvParseConfigType: EastType = StructType(
         ("hasHeader", OptionType(BooleanType)),
         ("nullStrings", OptionType(ArrayType(StringType))),
         ("skipEmptyLines", OptionType(BooleanType)),
+        ("skipShortRows", OptionType(BooleanType)),
         ("trimFields", OptionType(BooleanType)),
         ("columnMapping", OptionType(DictType(StringType, StringType))),
         ("strict", OptionType(BooleanType)),
@@ -113,6 +114,7 @@ class ResolvedParseConfig(NamedTuple):
     has_header: bool = True
     null_strings: frozenset[str] = frozenset()
     skip_empty_lines: bool = True
+    skip_short_rows: bool = False
     trim_fields: bool = False
     column_mapping: dict[str, str] | None = None
     strict: bool = False
@@ -161,6 +163,7 @@ def resolve_parse_config(config: Any) -> ResolvedParseConfig:
         has_header=_get_option_value(data.get("hasHeader"), True),
         null_strings=frozenset(null_strings_val) if null_strings_val is not None else frozenset(),
         skip_empty_lines=_get_option_value(data.get("skipEmptyLines"), True),
+        skip_short_rows=_get_option_value(data.get("skipShortRows"), False),
         trim_fields=_get_option_value(data.get("trimFields"), False),
         column_mapping=dict(column_mapping_val) if column_mapping_val else None,
         strict=_get_option_value(data.get("strict"), False),
@@ -205,6 +208,7 @@ def csv_parse_config(
     has_header: bool | None = None,
     null_strings: list[str] | None = None,
     skip_empty_lines: bool | None = None,
+    skip_short_rows: bool | None = None,
     trim_fields: bool | None = None,
     column_mapping: dict[str, str] | None = None,
     strict: bool | None = None,
@@ -225,6 +229,9 @@ def csv_parse_config(
         has_header: Whether the first row is a header (default ``True``).
         null_strings: Field texts to treat as null (default ``[]``).
         skip_empty_lines: Skip rows whose fields are all empty (default ``True``).
+        skip_short_rows: Skip ragged rows with too few fields to reach every
+            non-Option column, instead of erroring (default ``False``). Rows
+            short of only Option trailing columns decode either way.
         trim_fields: Trim surrounding whitespace from each field (default ``False``).
         column_mapping: Map of CSV header name to struct field name.
         strict: Error on columns not present in the struct (default ``False``).
@@ -246,6 +253,7 @@ def csv_parse_config(
         "hasHeader": _opt(has_header),
         "nullStrings": _opt(null_strings),
         "skipEmptyLines": _opt(skip_empty_lines),
+        "skipShortRows": _opt(skip_short_rows),
         "trimFields": _opt(trim_fields),
         "columnMapping": _opt(column_mapping),
         "strict": _opt(strict),

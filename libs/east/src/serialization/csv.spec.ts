@@ -450,6 +450,108 @@ describe('decodeCsvFor', () => {
     });
   });
 
+  describe('ragged rows', () => {
+    const T = StructType({ name: StringType, age: IntegerType });
+
+    test('should error on a short row by default', () => {
+      const decode = decodeCsvFor(T);
+      const csv = encoder.encode("name,age\nAlice,30\nshort\nBob,25");
+
+      assert.throws(() => decode(csv), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("row has 1 fields, expected at least 2");
+      });
+    });
+
+    test('should skip short rows with skipShortRows', () => {
+      const config = csvParseOptionsToValue({ skipShortRows: true });
+      const decode = decodeCsvFor(T, config);
+      const csv = encoder.encode("name,age\nAlice,30\nshort\nBob,25");
+
+      assert.deepEqual(decode(csv), [
+        { name: "Alice", age: 30n },
+        { name: "Bob", age: 25n },
+      ]);
+    });
+
+    test('should skip a trailing short row (no final newline)', () => {
+      const config = csvParseOptionsToValue({ skipShortRows: true });
+      const decode = decodeCsvFor(T, config);
+      const csv = encoder.encode("name,age\nAlice,30\nshort");
+
+      assert.deepEqual(decode(csv), [{ name: "Alice", age: 30n }]);
+    });
+
+    test('should not drop rows short of only optional columns', () => {
+      const OptT = StructType({ name: StringType, age: OptionType(IntegerType) });
+      const config = csvParseOptionsToValue({ skipShortRows: true });
+      const decode = decodeCsvFor(OptT, config);
+      const csv = encoder.encode("name,age\nAlice,30\nBob");
+
+      assert.deepEqual(decode(csv), [
+        { name: "Alice", age: some(30n) },
+        { name: "Bob", age: none },
+      ]);
+    });
+
+    test('should drop rows short of a defaulted column', () => {
+      // Defaults apply to unparseable fields and header-absent columns, not
+      // to short rows — a defaulted column still counts toward row arity
+      const config = csvParseOptionsToValue({
+        skipShortRows: true,
+        defaults: new Map([["age", "0"]]),
+      });
+      const decode = decodeCsvFor(T, config);
+      const csv = encoder.encode("name,age\nAlice,30\nBob");
+
+      assert.deepEqual(decode(csv), [{ name: "Alice", age: 30n }]);
+    });
+
+    test('should drop a quoted row that parses to a single field', () => {
+      // The quoted comma does not split — the row is one field, short of
+      // the required age column, and is dropped
+      const config = csvParseOptionsToValue({ skipShortRows: true });
+      const decode = decodeCsvFor(T, config);
+      const csv = encoder.encode("name,age\n\"only,one\"\nAlice,30");
+
+      assert.deepEqual(decode(csv), [{ name: "Alice", age: 30n }]);
+    });
+  });
+
+  describe('degenerate input', () => {
+    const T = StructType({ name: StringType, age: IntegerType });
+
+    test('should report empty input, not a missing column, for a 0-byte blob', () => {
+      const decode = decodeCsvFor(T);
+
+      assert.throws(() => decode(encoder.encode("")), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("empty input (no header row)");
+      });
+    });
+
+    test('should report empty input for a BOM-only blob', () => {
+      const decode = decodeCsvFor(T);
+
+      assert.throws(() => decode(new Uint8Array([0xEF, 0xBB, 0xBF])), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("empty input (no header row)");
+      });
+    });
+
+    test('should report an empty header row', () => {
+      const decode = decodeCsvFor(T);
+
+      assert.throws(() => decode(encoder.encode("\nAlice,30")), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("empty header row");
+      });
+    });
+
+    test('should decode empty input to an empty array without a header', () => {
+      const config = csvParseOptionsToValue({ hasHeader: false });
+      const decode = decodeCsvFor(T, config);
+
+      assert.deepEqual(decode(encoder.encode("")), []);
+    });
+  });
+
   describe('error handling', () => {
     test('should error on missing required column', () => {
       const T = StructType({ name: StringType, age: IntegerType });
