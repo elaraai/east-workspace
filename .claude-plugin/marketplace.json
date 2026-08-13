@@ -10,7 +10,7 @@
       "name": "east",
       "source": "./libs/east-claude-plugin",
       "description": "East programming language ecosystem - types, expressions, Node.js/Python runtimes, UI components, and durable execution",
-      "version": "1.0.61",
+      "version": "1.0.62",
       "author": {
         "name": "Elara AI",
         "email": "support@elara.ai"
