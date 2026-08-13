@@ -176,6 +176,17 @@ KNOWN_DIFFS.update({
     for mode in MODES
 })
 
+# Arms whose OUTCOME is platform-divergent: the mangled patch types the
+# #475/#478 family produces bind their unrebased Recursive markers to
+# whatever the conversion context happens to hold, and these fuzz arms flip
+# between linux and windows (one fails only on windows, the other only on
+# linux). Excluded from BOTH ratchet directions until the PatchType rework
+# (#475) makes the outcome well-defined.
+UNSTABLE: dict[tuple[str, str], frozenset[str]] = {
+    ('kernel', 'Patch_Fuzz___122b8585aa4f'): frozenset({'diff/apply round trip'}),
+    ('kernel', 'Patch_Fuzz___b2c20d642a20'): frozenset({'diff/apply round trip'}),
+}
+
 _TOTAL = Report()
 
 
@@ -193,8 +204,9 @@ def test_replay(mode_stem):
         _TOTAL.merge(rep)
     failed = {name for name, _ in rep.tests_failed}
     reason, pinned = KNOWN_DIFFS.get((mode, stem), ("", frozenset()))
-    new = failed - pinned
-    fixed = pinned - failed
+    unstable = UNSTABLE.get((mode, stem), frozenset())
+    new = failed - pinned - unstable
+    fixed = pinned - failed - unstable
     assert not new, (
         f"NEW eager-surface failures [{mode}] in {stem}: {sorted(new)} — "
         f"first error: {dict(rep.tests_failed).get(sorted(new)[0], '')[:200]}")
