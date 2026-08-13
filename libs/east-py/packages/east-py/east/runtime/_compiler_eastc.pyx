@@ -633,12 +633,20 @@ def call_builtin(str name, list type_params, list args, object output_type):
                         # Name the builtin, the slot and the declared type —
                         # the raw conversion error alone ("an integer is
                         # required") does not say which argument was wrong.
-                        from east.serialization.east_printer import print_east
-                        from east.types.type_of_type import EastTypeType
+                        # Printing the type is itself a conversion that can
+                        # fail on the same shape that got us here, so it must
+                        # degrade to a placeholder, never recurse into another
+                        # round of error formatting.
+                        try:
+                            from east.serialization.east_printer import print_east
+                            from east.types.type_of_type import EastTypeType
+                            printed = print_east(declared[i], EastTypeType)
+                        except Exception:
+                            printed = "<type>"
                         raise TypeError(
                             f"{name} argument {i}: {type(args[i]).__name__} value does "
                             f"not convert to the declared slot type "
-                            f"{print_east(declared[i], EastTypeType)} — {conv_err}"
+                            f"{printed} — {conv_err}"
                         ) from conv_err
 
         c_out = py_type_to_c(output_type)

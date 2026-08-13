@@ -1174,14 +1174,30 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
 
 # ─── py_value_to_c ────────────────────────────────────────────────────────
 
+# Non-reentrancy latch for _c_type_str: printing a type runs a fresh
+# py→C conversion of its EastTypeType value, and if THAT conversion fails,
+# its error message formats via _c_type_str again — each level descends
+# without ever raising past a guard, so the mutual recursion only ends at
+# C-stack exhaustion (a hard SIGSEGV on Windows' 1 MiB stack). One level of
+# pretty-printing is all an error message needs; nested levels degrade to
+# the placeholder.
+cdef bint _in_type_str = False
+
+
 cdef str _c_type_str(_eastc.EastType *t):
     """Readable form of a C type for error messages (error paths only)."""
+    global _in_type_str
+    if _in_type_str:
+        return "<type>"
+    _in_type_str = True
     try:
         from east.serialization.east_printer import print_east
         from east.types.type_of_type import EastTypeType
         return print_east(_c_type_tag_to_py_type(t), EastTypeType)
     except BaseException:
         return "<type>"
+    finally:
+        _in_type_str = False
 
 
 cdef void _check_proxy_type(uintptr_t got_ptr, _eastc.EastType *want, str what) except *:
