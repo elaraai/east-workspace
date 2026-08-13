@@ -2546,7 +2546,7 @@ class EastSet(Generic[T]):
         if t2 is None:
             t2 = _ev.type_of(proj(next(iter(self)))) if len(self) else self.element_type
         zero = _numeric_zero_for(t2)
-        return self.group_fold(key, lambda _k: zero, lambda acc, el: acc + proj(el))
+        return self.group_reduce(key, lambda _k: zero, lambda acc, el: acc + proj(el))
 
     def group_mean(self, key: Any, fn: Any = None) -> EastDict:
         """Float mean per group (sum, count and the division all native)."""
@@ -2564,18 +2564,18 @@ class EastSet(Generic[T]):
         t2 = self.element_type if fn is None else (
             _kernel_out_type(fn) or _kernel_out_type(fn, [self.element_type]) or _ev.type_of(fn(next(iter(self)))))
         proj = _float_proj(fn, t2)
-        sums = self.group_fold(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
+        sums = self.group_reduce(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
         counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
         sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
         return sums
 
     def group_every(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for all members (native)."""
-        return self.group_fold(key, lambda _k: True, lambda acc, el: acc & pred(el))
+        return self.group_reduce(key, lambda _k: True, lambda acc, el: acc & pred(el))
 
     def group_some(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for any member (native)."""
-        return self.group_fold(key, lambda _k: False, lambda acc, el: acc | pred(el))
+        return self.group_reduce(key, lambda _k: False, lambda acc, el: acc | pred(el))
 
     def group_to_arrays(self, key: Any, value: Any = None) -> EastDict:
         """Arrays of members/values per group key (native via to_array)."""
@@ -2589,7 +2589,7 @@ class EastSet(Generic[T]):
         """Dicts of ``key2 -> value`` per group key (native via to_array)."""
         return self.to_array().group_to_dicts(key, key2, value, combine)
 
-    def group_fold(self, key: Any, initial: Any, fold: Any) -> EastDict:
+    def group_reduce(self, key: Any, initial: Any, fold: Any) -> EastDict:
         """Group elements by ``key(element)`` and fold within each group (east-c SetGroupFold).
 
         Key and accumulator types are inferred by sampling the first element.
@@ -2630,6 +2630,25 @@ class EastSet(Generic[T]):
         return _call_builtin(
             "SetGroupFold", [self.element_type, k2, t2], [self, key_cb, init_cb, fold_cb], DictType(k2, t2)
         )
+
+    def group_fold(self, key: Any, initial: Any, fold: Any) -> EastDict:
+        """Deprecated alias for :meth:`group_reduce` (issue #535).
+
+        The grouped fold had two names — TS ``groupReduce`` on every
+        container, east-py ``group_reduce`` on Array but ``group_fold`` on
+        Set/Dict — so a call ported by name worked on an Array and raised
+        ``AttributeError`` on a Set. The operation is unchanged; only the
+        spelling moves.
+        """
+        import warnings
+
+        warnings.warn(
+            "EastSet.group_fold is deprecated: the grouped fold is spelled "
+            "group_reduce on every container (TS groupReduce). See issue #535.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.group_reduce(key, initial, fold)
 
     def __repr__(self) -> str:
         """Return East text format representation."""
@@ -3041,7 +3060,7 @@ class EastDict(Generic[K, V]):
             else:
                 t2 = self.value_type
         zero = _numeric_zero_for(t2)
-        return self.group_fold(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
+        return self.group_reduce(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
 
     def group_mean(self, key_fn: Any, fn: Any = None) -> EastDict:
         """Float mean per group (sum, count and the division all native)."""
@@ -3069,18 +3088,18 @@ class EastDict(Generic[K, V]):
             proj = fn if fn is not None else (lambda _k, v: v)
         else:
             raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
-        sums = self.group_fold(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
+        sums = self.group_reduce(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
         counts = self.group_size(key_fn).map(lambda c: East.Integer.to_float(c), out=FloatType)
         sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
         return sums
 
     def group_every(self, key_fn: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred(key, value)`` holds for all entries."""
-        return self.group_fold(key_fn, lambda _k: True, lambda acc, k, v: acc & pred(k, v))
+        return self.group_reduce(key_fn, lambda _k: True, lambda acc, k, v: acc & pred(k, v))
 
     def group_some(self, key_fn: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred(key, value)`` holds for any entry."""
-        return self.group_fold(key_fn, lambda _k: False, lambda acc, k, v: acc | pred(k, v))
+        return self.group_reduce(key_fn, lambda _k: False, lambda acc, k, v: acc | pred(k, v))
 
     def group_to_arrays(self, key_fn: Any, value_fn: Any = None) -> EastDict:
         """Arrays of ``value_fn(key, value)`` per group (native via to_array).
@@ -3902,7 +3921,7 @@ class EastDict(Generic[K, V]):
         combine_cb = EastFunction(_combine_cb(combine, k2), [v2, v2, k2], v2)
         return _call_builtin("DictFlattenToDict", [self.key_type, self.value_type, k2, v2], [self, map_cb, combine_cb], DictType(k2, v2))
 
-    def group_fold(self, key_fn: Any, init_fn: Any, fold_fn: Any, key_out: EastType | None = None, acc_out: EastType | None = None) -> EastDict:
+    def group_reduce(self, key_fn: Any, init_fn: Any, fold_fn: Any, key_out: EastType | None = None, acc_out: EastType | None = None) -> EastDict:
         """Group entries by a derived key and fold each group (east-c DictGroupFold).
 
         Args:
@@ -3949,6 +3968,25 @@ class EastDict(Generic[K, V]):
         init_cb = EastFunction(init_fn, [k2], t2)
         fold_cb = EastFunction(lambda acc, v, k: fold_fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
         return _call_builtin("DictGroupFold", [self.key_type, self.value_type, k2, t2], [self, key_cb, init_cb, fold_cb], DictType(k2, t2))
+
+    def group_fold(self, key_fn: Any, init_fn: Any, fold_fn: Any, key_out: EastType | None = None, acc_out: EastType | None = None) -> EastDict:
+        """Deprecated alias for :meth:`group_reduce` (issue #535).
+
+        The grouped fold had two names — TS ``groupReduce`` on every
+        container, east-py ``group_reduce`` on Array but ``group_fold`` on
+        Set/Dict — so a call ported by name worked on an Array and raised
+        ``AttributeError`` on a Dict. The operation is unchanged; only the
+        spelling moves.
+        """
+        import warnings
+
+        warnings.warn(
+            "EastDict.group_fold is deprecated: the grouped fold is spelled "
+            "group_reduce on every container (TS groupReduce). See issue #535.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.group_reduce(key_fn, init_fn, fold_fn, key_out=key_out, acc_out=acc_out)
 
     @classmethod
     def generate(

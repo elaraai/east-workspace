@@ -2052,9 +2052,9 @@ class Beast2DictFile(Beast2File):
                 _merge_partial(result, part, combine)
         return result if result is not None else EastDict(self.key_type, self.value_type)
 
-    def group_fold(self, key_fn: Any, init_fn: Any, fold_fn: Any,
-                   key_out: Any = None, acc_out: Any = None):
-        """``EastDict.group_fold`` — each segment's fold SEEDS its init from
+    def group_reduce(self, key_fn: Any, init_fn: Any, fold_fn: Any,
+                     key_out: Any = None, acc_out: Any = None):
+        """``EastDict.group_reduce`` — each segment's fold SEEDS its init from
         the running per-group accumulators, so every entry folds exactly
         once, in key order: the eager result, float ordering included."""
         from east.types.values.collections import EastDict
@@ -2063,8 +2063,8 @@ class Beast2DictFile(Beast2File):
         for segment in self._disjoint_segments():
             seeded = init_fn if result is None else (
                 lambda gk, _acc=result, _init=init_fn: _acc.get_or_default(gk, _init(gk)))
-            part = segment.group_fold(key_fn, seeded, fold_fn,
-                                      key_out=key_out, acc_out=acc_out)
+            part = segment.group_reduce(key_fn, seeded, fold_fn,
+                                        key_out=key_out, acc_out=acc_out)
             if result is None:
                 result = part
                 key_out = part.key_type
@@ -2077,13 +2077,29 @@ class Beast2DictFile(Beast2File):
             key_out if key_out is not None else self.key_type,
             acc_out if acc_out is not None else self.value_type)
 
+    def group_fold(self, key_fn: Any, init_fn: Any, fold_fn: Any,
+                   key_out: Any = None, acc_out: Any = None):
+        """Deprecated alias for :meth:`group_reduce` (issue #535), mirroring
+        the ``EastDict`` alias."""
+        import warnings
+
+        warnings.warn(
+            "Beast2DictFile.group_fold is deprecated: the grouped fold is "
+            "spelled group_reduce on every container (TS groupReduce). See "
+            "issue #535.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.group_reduce(key_fn, init_fn, fold_fn,
+                                 key_out=key_out, acc_out=acc_out)
+
     def group_size(self, key_fn: Any):
         """``EastDict.group_size`` — count per group."""
         return self.to_dict(key_fn, lambda _k, _v: 1, lambda a, b, _key: a + b)
 
     def group_sum(self, key_fn: Any, fn: Any = None):
         """``EastDict.group_sum`` — element-order-exact via the seeded
-        :meth:`group_fold`."""
+        :meth:`group_reduce`."""
         import east.types.values as _ev
 
         proj = fn if fn is not None else (lambda _k, v: v)
@@ -2094,11 +2110,11 @@ class Beast2DictFile(Beast2File):
         else:
             t2 = self.value_type
         zero: Any = 0 if t2.type == "Integer" else 0.0
-        return self.group_fold(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
+        return self.group_reduce(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
 
     def group_mean(self, key_fn: Any, fn: Any = None):
         """``EastDict.group_mean`` — the eager sum/count/divide composition
-        over the seeded :meth:`group_fold`."""
+        over the seeded :meth:`group_reduce`."""
         import east.types.values as _ev
         from east.namespace import East
         from east.types.types import FloatType
@@ -2123,7 +2139,7 @@ class Beast2DictFile(Beast2File):
             proj = fn if fn is not None else (lambda _k, v: v)
         else:
             raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
-        sums = self.group_fold(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
+        sums = self.group_reduce(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
         counts = self.group_size(key_fn).map(lambda c: East.Integer.to_float(c), out=FloatType)
         # Nothing to divide on the empty path — and its degenerate inferred
         # types would make the (never-run) combine fail to trace, which the
@@ -2134,13 +2150,13 @@ class Beast2DictFile(Beast2File):
 
     def group_every(self, key_fn: Any, pred: Any):
         """``EastDict.group_every`` — per group: all entries satisfy."""
-        return self.group_fold(key_fn, lambda _k: True,
-                               lambda acc, k, v: acc & pred(k, v))
+        return self.group_reduce(key_fn, lambda _k: True,
+                                 lambda acc, k, v: acc & pred(k, v))
 
     def group_some(self, key_fn: Any, pred: Any):
         """``EastDict.group_some`` — per group: any entry satisfies."""
-        return self.group_fold(key_fn, lambda _k: False,
-                               lambda acc, k, v: acc | pred(k, v))
+        return self.group_reduce(key_fn, lambda _k: False,
+                                 lambda acc, k, v: acc | pred(k, v))
 
     def group_to_arrays(self, key_fn: Any, value_fn: Any):
         """``EastDict.group_to_arrays`` — per-segment groups merged by
@@ -2493,8 +2509,8 @@ class Beast2SetFile(Beast2File):
         return result if result is not None else EastDict(
             self.element_type, self.element_type)
 
-    def group_fold(self, key: Any, initial: Any, fold: Any):
-        """``EastSet.group_fold`` — each segment's fold SEEDS its init from
+    def group_reduce(self, key: Any, initial: Any, fold: Any):
+        """``EastSet.group_reduce`` — each segment's fold SEEDS its init from
         the running per-group accumulators: every element folds once, in
         East order, so the result is exactly the eager one."""
         from east.types.values.collections import EastDict
@@ -2503,7 +2519,7 @@ class Beast2SetFile(Beast2File):
         for segment in self._disjoint_segments():
             seeded = initial if result is None else (
                 lambda gk, _acc=result, _init=initial: _acc.get_or_default(gk, _init(gk)))
-            part = segment.group_fold(key, seeded, fold)
+            part = segment.group_reduce(key, seeded, fold)
             if result is None:
                 result = part
             else:
@@ -2513,13 +2529,27 @@ class Beast2SetFile(Beast2File):
         return result if result is not None else EastDict(
             self.element_type, self.element_type)
 
+    def group_fold(self, key: Any, initial: Any, fold: Any):
+        """Deprecated alias for :meth:`group_reduce` (issue #535), mirroring
+        the ``EastSet`` alias."""
+        import warnings
+
+        warnings.warn(
+            "Beast2SetFile.group_fold is deprecated: the grouped fold is "
+            "spelled group_reduce on every container (TS groupReduce). See "
+            "issue #535.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.group_reduce(key, initial, fold)
+
     def group_size(self, key: Any):
         """``EastSet.group_size`` — count per group."""
         return self.to_dict(key, lambda _el: 1, combine=lambda a, b, _k: a + b)
 
     def group_sum(self, key: Any, fn: Any = None):
         """``EastSet.group_sum`` — element-order-exact via the seeded
-        :meth:`group_fold`."""
+        :meth:`group_reduce`."""
         import east.types.values as _ev
         from east.types.values.collections import _kernel_out_type
 
@@ -2530,7 +2560,7 @@ class Beast2SetFile(Beast2File):
             t2 = _ev.type_of(proj(next(iter(first)))) \
                 if first is not None and len(first) else self.element_type
         zero: Any = 0 if t2.type == "Integer" else 0.0
-        return self.group_fold(key, lambda _k: zero, lambda acc, el: acc + proj(el))
+        return self.group_reduce(key, lambda _k: zero, lambda acc, el: acc + proj(el))
 
     def group_mean(self, key: Any, fn: Any = None):
         """``EastSet.group_mean`` — the eager sum/count/divide composition."""
@@ -2551,7 +2581,7 @@ class Beast2SetFile(Beast2File):
                     return EastDict(self.element_type, self.element_type)
                 t2 = _ev.type_of(fn(next(iter(first))))
         proj = _float_proj(fn, t2)
-        sums = self.group_fold(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
+        sums = self.group_reduce(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
         counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
         # Nothing to divide on the empty path — and its degenerate inferred
         # types would make the (never-run) combine fail to trace, which the
@@ -2562,11 +2592,11 @@ class Beast2SetFile(Beast2File):
 
     def group_every(self, key: Any, pred: Any):
         """``EastSet.group_every`` — per group: all members satisfy."""
-        return self.group_fold(key, lambda _k: True, lambda acc, el: acc & pred(el))
+        return self.group_reduce(key, lambda _k: True, lambda acc, el: acc & pred(el))
 
     def group_some(self, key: Any, pred: Any):
         """``EastSet.group_some`` — per group: any member satisfies."""
-        return self.group_fold(key, lambda _k: False, lambda acc, el: acc | pred(el))
+        return self.group_reduce(key, lambda _k: False, lambda acc, el: acc | pred(el))
 
     def group_to_arrays(self, key: Any, value: Any = None):
         """``EastSet.group_to_arrays`` — per-segment groups merged by native

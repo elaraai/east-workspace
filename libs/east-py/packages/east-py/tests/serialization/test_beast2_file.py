@@ -568,7 +568,7 @@ DICT_COMPUTE_CASES = [
     ("flatten_to_set", lambda c: c.flatten_to_set(lambda k, v: EastSet(StringType, [k]))),
     ("flatten_to_dict", lambda c: c.flatten_to_dict(
         lambda k, v: EastDict(StringType, FloatType, {k: v}))),
-    ("group_fold", lambda c: c.group_fold(
+    ("group_reduce", lambda c: c.group_reduce(
         lambda k, v: k[:2], lambda _k: 0.0, lambda a, k, v: a + v)),
     ("group_size", lambda c: c.group_size(lambda k, v: k[:2])),
     ("group_sum", lambda c: c.group_sum(lambda k, v: k[:2])),
@@ -664,8 +664,34 @@ def test_dict_compute_with_variant_keys(tmp_path):
     with open_beast2_file(path, dt) as d:
         table = d.load()
         assert d.reduce(0.0, lambda a, k, v: a + v) == table.reduce(0.0, lambda a, k, v: a + v)
-        got = d.group_fold(lambda k, v: k.type, lambda _k: 0.0, lambda a, k, v: a + v)
-        want = table.group_fold(lambda k, v: k.type, lambda _k: 0.0, lambda a, k, v: a + v)
+        got = d.group_reduce(lambda k, v: k.type, lambda _k: 0.0, lambda a, k, v: a + v)
+        want = table.group_reduce(lambda k, v: k.type, lambda _k: 0.0, lambda a, k, v: a + v)
+        assert dict(got.items()) == dict(want.items())
+
+
+def test_file_group_fold_aliases_warn_and_delegate(tmp_path):
+    """The #535 rename reaches the file surface: `group_fold` on the Dict and
+    Set flavors warns and answers exactly like `group_reduce`."""
+    dict_path = tmp_path / "alias_d.beast2"
+    write_beast2_file(dict_path, DictType(StringType, FloatType),
+                      EastDict(StringType, FloatType,
+                               {f"k{i:02d}": float(i) for i in range(9)}),
+                      segment_rows=3)
+    with open_beast2_file(dict_path) as d:
+        want = d.group_reduce(lambda k, v: k[:2], lambda _k: 0.0,
+                              lambda a, k, v: a + v)
+        with pytest.warns(DeprecationWarning, match="group_reduce"):
+            got = d.group_fold(lambda k, v: k[:2], lambda _k: 0.0,
+                               lambda a, k, v: a + v)
+        assert dict(got.items()) == dict(want.items())
+
+    set_path = tmp_path / "alias_s.beast2"
+    write_beast2_file(set_path, SetType(IntegerType),
+                      EastSet(IntegerType, range(9)), segment_rows=3)
+    with open_beast2_file(set_path) as s:
+        want = s.group_reduce(lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)
+        with pytest.warns(DeprecationWarning, match="group_reduce"):
+            got = s.group_fold(lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)
         assert dict(got.items()) == dict(want.items())
 
 
@@ -691,7 +717,7 @@ SET_COMPUTE_CASES = [
         lambda el: EastArray(IntegerType, [el, el])))),
     ("flatten_to_set", lambda c: c.flatten_to_set(
         lambda el: EastSet(IntegerType, [el, el + 1000]))),
-    ("group_fold", lambda c: c.group_fold(
+    ("group_reduce", lambda c: c.group_reduce(
         lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)),
     ("group_size", lambda c: c.group_size(lambda el: el % 3)),
     ("group_sum", lambda c: c.group_sum(lambda el: el % 3)),

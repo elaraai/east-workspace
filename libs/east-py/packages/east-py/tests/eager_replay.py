@@ -955,7 +955,7 @@ _ROWS: dict[str, Any] = {
     "SetReduce": lambda ev, n, a: a[0].reduce(a[2], _cb(ev, a[1])),
     # SetScan mirrors SetReduce's (set, fn, init) argument order (#524).
     "SetScan": lambda ev, n, a: a[0].scan(a[2], _cb(ev, a[1])),
-    "SetGroupFold": lambda ev, n, a: a[0].group_fold(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    "SetGroupFold": lambda ev, n, a: a[0].group_reduce(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
     "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
@@ -1002,7 +1002,7 @@ _ROWS: dict[str, Any] = {
     "DictToArray": lambda ev, n, a: a[0].to_array(_dict_kv(ev, a[1])),
     "DictToSet": lambda ev, n, a: a[0].to_set(_dict_kv(ev, a[1])),
     "DictToDict": lambda ev, n, a: a[0].to_dict(_dict_kv(ev, a[1]), _dict_kv(ev, a[2]), _cb(ev, a[3])),
-    "DictGroupFold": lambda ev, n, a: a[0].group_fold(
+    "DictGroupFold": lambda ev, n, a: a[0].group_reduce(
         _dict_kv(ev, a[1]), _cb(ev, a[2]), _acc_kv3(ev, a[3])),
     "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_dict_kv(ev, a[1])),
     "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_dict_kv(ev, a[1])),
