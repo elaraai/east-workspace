@@ -86,7 +86,11 @@ _decode_ir = decode_json_for(IRType)
 def load_ir(path: str | Path) -> EastVariant:
     """The exported file's ``ir`` member, decoded through the standard
     serialization layer into the homoiconic IR value."""
-    raw = _pyjson.loads(Path(path).read_text())
+    # Explicit utf-8: the corpus is utf-8 JSON with non-ASCII string
+    # literals, and windows' locale default (cp1252) mojibakes them — the
+    # replay then encodes the mangled literals and every Blob/String
+    # byte-comparison diverges.
+    raw = _pyjson.loads(Path(path).read_text(encoding="utf-8"))
     return _decode_ir(_pyjson.dumps(raw["ir"]))
 
 
@@ -632,18 +636,33 @@ class EagerEvaluator:
         if not self._bake_safe(p["captures"]):
             self.report.routes[("<captures-by-ref>", "interpreted")] += 1
             clo.native = False
-            return lambda *args: self.call(clo, list(args))
+
+            def interpreted(*args):
+                return self.call(clo, list(args))
+
+            # A deliberate python path (mutable captures interpret by
+            # reference) — the push-down's loud contract skips it.
+            interpreted._east_trace_fallback = True
+            return interpreted
         if self.mode == "traced":
             traced = self._traced_callback(clo)
             if traced is not None:
                 return traced
         compiled = self._compile_closure(clo)
+        # The compiled callable's native handle is the real path; its
+        # RE-TRACE runs the replay interpreter (python branches), so when
+        # the native handle is refused (signature adaptation) the loud
+        # contract must not fire on the interpreter — declare it.
+        compiled._east_trace_fallback = True
         if self.mode == "trampoline":
             n = len(p["parameters"])
 
             def hidden(*args: Any) -> Any:
                 return compiled(*args[:n])
 
+            # NOT declared python-only: its re-trace succeeds through the
+            # compiled dual-path, and serialize-shaped tests need the traced
+            # native function value.
             return hidden
         return compiled
 
@@ -688,6 +707,10 @@ class EagerEvaluator:
         dual.bind = compiled.bind
         dual._east_compiled = compiled
         dual._east_retrace = replay
+        # The native handle is the real path; the retrace is the interpreter,
+        # so when native resolution is refused the loud push-down contract
+        # must fall back silently rather than raise on harness machinery.
+        dual._east_trace_fallback = True
         return dual
 
     def _replay_fn(self, clo: Closure) -> Any:
@@ -699,6 +722,10 @@ class EagerEvaluator:
                 env.define(var.value["name"], proxy)
             return self.eval(p["body"], env)
 
+        # Interpreter-backed: whether this replay traces depends on the IR
+        # body, so its failures must keep the silent fallback — it is the
+        # harness's own machinery, not a user callback.
+        replay._east_trace_fallback = True
         return replay
 
     def _traced_callback(self, clo: Closure) -> Any | None:
@@ -1067,7 +1094,14 @@ def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
         return a
     cb = ev.make_callback(a)
     a.native = False
-    return lambda k, v: cb(v, k)
+
+    def swapped(k, v):
+        return cb(v, k)
+
+    # A deliberate python adapter over a native callable (declared non-native
+    # above) — the push-down's loud contract skips it.
+    swapped._east_trace_fallback = True
+    return swapped
 
 
 def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
@@ -1076,7 +1110,14 @@ def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
         return a
     cb = ev.make_callback(a)
     a.native = False
-    return lambda acc, k, v: cb(acc, v, k)
+
+    def swapped(acc, k, v):
+        return cb(acc, v, k)
+
+    # A deliberate python adapter over a native callable (declared non-native
+    # above) — the push-down's loud contract skips it.
+    swapped._east_trace_fallback = True
+    return swapped
 
 
 def _acc_kv3(ev: EagerEvaluator, a: Any) -> Any:

@@ -139,14 +139,19 @@ cdef object _try_push_down_py(object east_fn):
 
     Returns the compiled kernel callable (whose function value can then be
     passed straight to the builtin — IR push-down), or None to use the
-    per-element trampoline. Never raises.
+    per-element trampoline. A ``KernelTraceError`` propagates: an ELIGIBLE
+    callback that failed to trace must surface loudly, never fall back
+    silently (try_push_down's contract).
     """
+    from east.kernel import KernelTraceError
     try:
         from east.kernel import try_push_down
         result = try_push_down(east_fn)
         if result is not None:
             _eager_counters["pushdown_traced"] += 1
         return result
+    except KernelTraceError:
+        raise
     except BaseException:
         return None
 

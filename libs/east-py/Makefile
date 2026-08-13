@@ -84,9 +84,13 @@ test-export:
 
 QUIET_FLAG = $(if $(EAST_QUIET),-q)
 
+# The compliance script runs the corpus with per-file subprocess isolation;
+# the pytest sweep is the WHOLE tests/ tree — kernel/tracer suites, the
+# eager-replay differential and its ratchets included (#531: these were
+# dormant while only tests/serialization ran).
 test-east-py:
 	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
-	cd packages/east-py && uv run pytest tests/serialization -q --no-cov
+	cd packages/east-py && uv run pytest tests -q --no-cov
 
 test-east-py-cli:
 	cd packages/east-py-cli && uv run pytest tests -q --no-cov

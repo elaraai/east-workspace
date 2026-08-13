@@ -1415,30 +1415,21 @@ def test_a_set_union_still_takes_no_combine():
         kernel(_G_SET, lambda s: s.union(EastSet(IntegerType, [9]), lambda a, b: a))
 
 
-# Keywords an eager method accepts that its traced twin does not. Two kinds:
+# Keywords an eager method accepts that its traced twin does not.
 #
-# * a parameter NAME difference (traced `fn` where eager says `pred`/`key`/
-#   `value_fn`) — a positional call behaves identically, only a keyword call
-#   differs;
-# * a genuinely missing `out=`/`key_out=`/`acc_out=` type pin. A kernel always
-#   knows its types so the pin is redundant, but passing it raises TypeError
-#   and the enclosing loop silently drops to the per-element python path —
-#   the same defect `to_set` had, fixed in #525 phase 4.
-#
-# Tracked in #536. RATCHET: this list may only ever SHRINK.
+# #536 closed the sweep: the `out=`/`key_out=`/`value_out=`/`acc_out=` pins
+# are now accepted AND thread into the callback's trace as its expected type
+# (so a pinned callback can build a general variant, #541), and the
+# `pred`/`key`/`value_fn` name differences are aligned. RATCHET: this list
+# may only ever SHRINK — a new gap fails here.
 _KNOWN_KEYWORD_GAPS = {
-    "Array.every": {"pred"}, "Array.some": {"pred"},
-    "Array.map": {"out"}, "Array.filter_map": {"out"}, "Array.map_reduce": {"out"},
-    "Array.flatten_to_array": {"out"}, "Array.flatten_to_set": {"out"},
-    "Set.every": {"pred"}, "Set.some": {"pred"}, "Set.to_array": {"key"},
-    "Set.map": {"out"}, "Set.filter_map": {"out"},
-    "Set.flatten_to_array": {"out"}, "Set.flatten_to_set": {"out"},
-    "Dict.every": {"pred"}, "Dict.some": {"pred"}, "Dict.get": {"default"},
-    "Dict.map": {"out"}, "Dict.filter_map": {"out"}, "Dict.map_reduce": {"out"},
-    "Dict.to_array": {"out"}, "Dict.to_dict": {"key_out", "value_out"},
-    "Dict.group_fold": {"acc_out", "key_out"},
-    "Dict.group_to_arrays": {"value_fn"}, "Dict.group_to_sets": {"value_fn"},
-    "Dict.group_to_dicts": {"value_fn"},
+    # Deliberate semantic difference, not a naming gap: the eager
+    # `Dict.get(k, default=None)` is a python-boundary convenience returning
+    # the default when the key is absent; the traced `get` errors on a
+    # missing key, and `get_or_default` is the traced spelling (see the
+    # SKILL's sharp edges). Accepting `default=` would silently change
+    # missing-key semantics between the paths.
+    "Dict.get": {"default"},
 }
 
 

@@ -201,7 +201,7 @@ def test_skill_documents_the_exact_traced_surface():
     import re
     from pathlib import Path
 
-    skill = (Path(__file__).parent.parent / "SKILL.md").read_text()
+    skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
     for tag in ("Array", "Set", "Dict"):
         m = re.search(rf"- \*\*{tag}\*\*: (.*?)(?=\n   - \*\*|\n\n)", skill, re.S)
         assert m, f"SKILL.md lost the {tag} traced-surface bullet"

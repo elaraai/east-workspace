@@ -660,6 +660,14 @@ class KernelExpr:
     def __getattr__(self, name: str) -> KernelExpr:
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
+        if name.startswith("_east_"):
+            # Internal capability probes (`getattr(x, "_east_c_paged", None)`
+            # and friends) must see a missing attribute, not a trace error.
+            raise AttributeError(name)
+        if name == "type" and self.east_type.type == "Variant":
+            # The eager EastVariant's `.type` tag attribute — the traced twin
+            # is get_tag(), so the one spelling works on both paths.
+            return self.get_tag()
         if self.east_type.type in _TRACED_SURFACE:
             # A method miss on a collection-typed expression: name the traced
             # surface instead of the misleading "field access on a non-struct
@@ -672,6 +680,25 @@ class KernelExpr:
         return self.field(name)
 
     def __getitem__(self, name: Any) -> KernelExpr:
+        if isinstance(name, slice) and self.east_type.type in ("Array", "String"):
+            # `arr[a:b]` / `s[a:b]` — the eager slicing spellings, traced as
+            # ArraySlice / StringSubstring. Python's from-the-end negatives
+            # and steps have no East twin.
+            if name.step is not None:
+                raise _trace_bail("stepped slice")
+            start = name.start if name.start is not None else 0
+            if (isinstance(start, int) and start < 0) or \
+                    (isinstance(name.stop, int) and name.stop < 0):
+                raise _trace_bail("negative slice bound")
+            if self.east_type.type == "String":
+                if name.stop is None:
+                    return self._with_bound_receiver(
+                        lambda recv: recv.substring(start, recv.length()))
+                return self.substring(start, name.stop)
+            if name.stop is None:
+                return self._with_bound_receiver(
+                    lambda recv: recv.slice(start, recv.size()))
+            return self.slice(start, name.stop)
         if self.east_type.type in ("Array", "Dict") and not isinstance(name, str):
             # `split(data, FM)[n]` / `table[key_expr]` — same as .get() (#393).
             return self.get(name)
@@ -1408,36 +1435,41 @@ class KernelExpr:
             raise KernelTraceError(f".{op}() on {self.east_type.type} (needs Array)")
         return self.east_type.value
 
-    def map(self, fn: Any) -> KernelExpr:
+    def map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
         """Traced map, shaped like the eager methods: Array → Array of
         ``fn(element)`` (``fn(element, index)`` also accepted), Set → Dict of
         element to ``fn(element)`` (SetMap), Dict → Dict with mapped values and
-        the keys kept (DictMap, ``fn(value)`` or ``fn(value, key)``)."""
+        the keys kept (DictMap, ``fn(value)`` or ``fn(value, key)``). ``out``
+        pins the mapped element type AND types the callback's trace, so the
+        callback can build a general variant (#536, #541)."""
         from east.types.types import ArrayType as _ArrayType
         from east.types.types import DictType as _DictType
 
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType])
+            node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType], out_hint=out)
+            self._check_out(".map()", out_t, out)
             return KernelExpr(
                 _builtin("ArrayMap", _ArrayType(out_t), [elem_t, out_t], [self.ir, node]),
                 _ArrayType(out_t),
             )
         if tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1)
-            out = _DictType(elem_t, out_t)
+            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1, out_hint=out)
+            self._check_out(".map()", out_t, out)
+            out_d = _DictType(elem_t, out_t)
             return KernelExpr(
-                _builtin("SetMap", out, [elem_t, out_t], [self.ir, node]), out
+                _builtin("SetMap", out_d, [elem_t, out_t], [self.ir, node]), out_d
             )
         if tag == "Dict":
             kv = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [kv["value"], kv["key"]])
-            out = _DictType(kv["key"], out_t)
+            node, out_t = _trace_inner_fn(fn, [kv["value"], kv["key"]], out_hint=out)
+            self._check_out(".map()", out_t, out)
+            out_d = _DictType(kv["key"], out_t)
             return KernelExpr(
-                _builtin("DictMap", out, [kv["key"], kv["value"], out_t], [self.ir, node]),
-                out,
+                _builtin("DictMap", out_d, [kv["key"], kv["value"], out_t], [self.ir, node]),
+                out_d,
             )
         raise KernelTraceError(f".map() on {tag}")
 
@@ -1451,14 +1483,14 @@ class KernelExpr:
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType])
+            node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType], out_hint=BooleanType)
             if out_t.type != "Boolean":
                 raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
             out = _ArrayType(elem_t)
             return KernelExpr(_builtin("ArrayFilter", out, [elem_t], [self.ir, node]), out)
         if tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1)
+            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1, out_hint=BooleanType)
             if out_t.type != "Boolean":
                 raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
             out = _SetType(elem_t)
@@ -1466,7 +1498,8 @@ class KernelExpr:
         if tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2
+                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2,
+                out_hint=BooleanType
             )
             if out_t.type != "Boolean":
                 raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
@@ -1481,7 +1514,7 @@ class KernelExpr:
         elem_t = self._array_elem("fold")
         init = _lift(initial)
         acc_t = init.east_type
-        node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType])
+        node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType], out_hint=acc_t)
         if out_t != acc_t:
             raise KernelTraceError(
                 f".fold() step returns {out_t.type}, accumulator is {acc_t.type}"
@@ -1505,7 +1538,7 @@ class KernelExpr:
         acc_t = init.east_type
         if tag == "Array":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType])
+            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType], out_hint=acc_t)
             if out_t != acc_t:
                 raise KernelTraceError(
                     f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
@@ -1516,7 +1549,7 @@ class KernelExpr:
             )
         if tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2)
+            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2, out_hint=acc_t)
             if out_t != acc_t:
                 raise KernelTraceError(
                     f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
@@ -1530,7 +1563,8 @@ class KernelExpr:
             # The builtin's callback signature is (acc, value, key); the user
             # fn takes (acc, key, value) like the eager method.
             node, out_t = _trace_inner_fn(
-                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3
+                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3,
+                out_hint=acc_t
             )
             if out_t != acc_t:
                 raise KernelTraceError(
@@ -1545,21 +1579,21 @@ class KernelExpr:
             )
         raise KernelTraceError(f".scan() on {tag}")
 
-    def some(self, fn: Any = None) -> KernelExpr:
+    def some(self, pred: Any = None) -> KernelExpr:
         """Traced any-element predicate (native short-circuiting FirstMap scan).
 
-        Without ``fn`` the elements — a Dict's VALUES — must be Boolean, like
-        the eager ``some()``.
+        Without ``pred`` the elements — a Dict's VALUES — must be Boolean,
+        like the eager ``some()`` (whose keyword this mirrors, #536).
         """
-        return self._quantifier("some", fn)
+        return self._quantifier("some", pred)
 
-    def every(self, fn: Any = None) -> KernelExpr:
+    def every(self, pred: Any = None) -> KernelExpr:
         """Traced all-elements predicate (native short-circuiting FirstMap scan).
 
-        Without ``fn`` the elements — a Dict's VALUES — must be Boolean, like
-        the eager ``every()``.
+        Without ``pred`` the elements — a Dict's VALUES — must be Boolean,
+        like the eager ``every()`` (whose keyword this mirrors, #536).
         """
-        return self._quantifier("every", fn)
+        return self._quantifier("every", pred)
 
     def _quantifier(self, op: str, fn: Any) -> KernelExpr:
         """some/every as a FirstMap probe that yields ``some(True)`` on the
@@ -1639,14 +1673,15 @@ class KernelExpr:
         acc_t = init.east_type
         if tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2)
+            node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2, out_hint=acc_t)
             builtin, tps, args = "SetReduce", [elem_t, acc_t], [self.ir, node, init.ir]
         elif tag == "Dict":
             kv = self.east_type.value
             # The builtin's slot is (acc, value, key); the user fn takes
             # (acc, key, value), matching the eager Dict callbacks.
             node, out_t = _trace_inner_fn(
-                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3
+                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3,
+                out_hint=acc_t
             )
             builtin = "DictReduce"
             tps = [kv["key"], kv["value"], acc_t]
@@ -1990,18 +2025,21 @@ class KernelExpr:
     # kernel language's iteration constructs — a missing one bounds what a
     # single kernel can express (the two-stage flatten split).
 
-    def _option_callback(self, fn: Any, param_types: list, declared: int) -> tuple:
-        node, out_t = _trace_inner_fn(fn, param_types, declared=declared)
+    def _option_callback(self, fn: Any, param_types: list, declared: int,
+                         out: EastType | None = None) -> tuple:
+        hint = _option_type(out) if out is not None else None
+        node, out_t = _trace_inner_fn(fn, param_types, declared=declared, out_hint=hint)
         if not _is_option(out_t):
             raise KernelTraceError(
                 f"callback must return some(...)/none, got {out_t.type}"
             )
         return node, _option_inner(out_t)
 
-    def filter_map(self, fn: Any) -> KernelExpr:
+    def filter_map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
         """Traced filter+map in one pass: Array → Array of unwrapped ``some``
         values; Set → Dict of kept element to value; Dict → Dict of kept key
-        to value (``fn(key, value)``)."""
+        to value (``fn(key, value)``). ``out`` pins the kept value type and
+        types the callback's ``some`` payload (#536)."""
         from east.types.types import ArrayType as _ArrayType
         from east.types.types import DictType as _DictType
 
@@ -2009,50 +2047,56 @@ class KernelExpr:
         if tag == "Array":
             elem_t = self.east_type.value
             node, inner_t = self._option_callback(
-                lambda el, _i: fn(el), [elem_t, IntegerType], 2)
-            out = _ArrayType(inner_t)
+                lambda el, _i: fn(el), [elem_t, IntegerType], 2, out)
+            self._check_out(".filter_map()", inner_t, out)
+            out_a = _ArrayType(inner_t)
             return KernelExpr(
-                _builtin("ArrayFilterMap", out, [elem_t, inner_t], [self.ir, node]), out
+                _builtin("ArrayFilterMap", out_a, [elem_t, inner_t], [self.ir, node]), out_a
             )
         if tag == "Set":
             elem_t = self.east_type.value
-            node, inner_t = self._option_callback(fn, [elem_t], 1)
-            out = _DictType(elem_t, inner_t)
+            node, inner_t = self._option_callback(fn, [elem_t], 1, out)
+            self._check_out(".filter_map()", inner_t, out)
+            out_d = _DictType(elem_t, inner_t)
             return KernelExpr(
-                _builtin("SetFilterMap", out, [elem_t, inner_t], [self.ir, node]), out
+                _builtin("SetFilterMap", out_d, [elem_t, inner_t], [self.ir, node]), out_d
             )
         if tag == "Dict":
             kv = self.east_type.value
             node, inner_t = self._option_callback(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], 2)
-            out = _DictType(kv["key"], inner_t)
+                lambda v, k: fn(k, v), [kv["value"], kv["key"]], 2, out)
+            self._check_out(".filter_map()", inner_t, out)
+            out_d = _DictType(kv["key"], inner_t)
             return KernelExpr(
-                _builtin("DictFilterMap", out, [kv["key"], kv["value"], inner_t],
+                _builtin("DictFilterMap", out_d, [kv["key"], kv["value"], inner_t],
                          [self.ir, node]),
-                out,
+                out_d,
             )
         raise KernelTraceError(f".filter_map() on {tag}")
 
-    def flatten_to_array(self, fn: Any) -> KernelExpr:
+    def flatten_to_array(self, fn: Any, out: EastType | None = None) -> KernelExpr:
         """Traced flatten: concatenate the arrays ``fn`` produces per element
         (per entry for a Dict, ``fn(key, value)``) — the operation whose
-        absence forced two-stage kernels with a materialised intermediate."""
+        absence forced two-stage kernels with a materialised intermediate.
+        ``out`` pins the flattened ELEMENT type and types the callback's
+        trace (#536)."""
         from east.types.types import ArrayType as _ArrayType
 
+        hint = _ArrayType(out) if out is not None else None
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2)
+                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2, out_hint=hint)
             builtin, tps = "ArrayFlattenToArray", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1)
+            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1, out_hint=hint)
             builtin, tps = "SetFlattenToArray", [elem_t]
         elif tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
             builtin, tps = "DictFlattenToArray", [kv["key"], kv["value"]]
         else:
             raise KernelTraceError(f".flatten_to_array() on {tag}")
@@ -2060,27 +2104,31 @@ class KernelExpr:
             raise KernelTraceError(
                 f".flatten_to_array() callback must return an Array, got {out_t.type}")
         inner_t = out_t.value
-        out = _ArrayType(inner_t)
-        return KernelExpr(_builtin(builtin, out, [*tps, inner_t], [self.ir, node]), out)
+        self._check_out(".flatten_to_array()", inner_t, out)
+        out_a = _ArrayType(inner_t)
+        return KernelExpr(_builtin(builtin, out_a, [*tps, inner_t], [self.ir, node]), out_a)
 
-    def flatten_to_set(self, fn: Any) -> KernelExpr:
-        """Traced flatten into a set: union the sets ``fn`` produces."""
+    def flatten_to_set(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+        """Traced flatten into a set: union the sets ``fn`` produces. ``out``
+        pins the flattened ELEMENT type and types the callback's trace
+        (#536)."""
         from east.types.types import SetType as _SetType
 
+        hint = _SetType(out) if out is not None else None
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2)
+                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2, out_hint=hint)
             builtin, tps = "ArrayFlattenToSet", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1)
+            node, out_t = _trace_inner_fn(fn, [elem_t], declared=1, out_hint=hint)
             builtin, tps = "SetFlattenToSet", [elem_t]
         elif tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
             builtin, tps = "DictFlattenToSet", [kv["key"], kv["value"]]
         else:
             raise KernelTraceError(f".flatten_to_set() on {tag}")
@@ -2088,12 +2136,14 @@ class KernelExpr:
             raise KernelTraceError(
                 f".flatten_to_set() callback must return a Set, got {out_t.type}")
         inner_t = out_t.value
-        out = _SetType(inner_t)
-        return KernelExpr(_builtin(builtin, out, [*tps, inner_t], [self.ir, node]), out)
+        self._check_out(".flatten_to_set()", inner_t, out)
+        out_s = _SetType(inner_t)
+        return KernelExpr(_builtin(builtin, out_s, [*tps, inner_t], [self.ir, node]), out_s)
 
-    def map_reduce(self, map_fn: Any, reduce_fn: Any) -> KernelExpr:
+    def map_reduce(self, map_fn: Any, reduce_fn: Any, out: EastType | None = None) -> KernelExpr:
         """Traced map-then-pairwise-combine (errors at run time on empty, like
-        the eager method). Dict's ``map_fn`` takes ``(key, value)``."""
+        the eager method). Dict's ``map_fn`` takes ``(key, value)``. ``out``
+        pins the mapped type and types the map callback's trace (#536)."""
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
@@ -2101,20 +2151,22 @@ class KernelExpr:
             # `_idx_cb`, so an (element, index) map_fn is a supported eager
             # call and must trace too (#525).
             map_node, t2 = _trace_inner_fn(
-                _with_index(map_fn), [elem_t, IntegerType], declared=2)
+                _with_index(map_fn), [elem_t, IntegerType], declared=2, out_hint=out)
             builtin, tps = "ArrayMapReduce", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
-            map_node, t2 = _trace_inner_fn(map_fn, [elem_t], declared=1)
+            map_node, t2 = _trace_inner_fn(map_fn, [elem_t], declared=1, out_hint=out)
             builtin, tps = "SetMapReduce", [elem_t]
         elif tag == "Dict":
             kv = self.east_type.value
             map_node, t2 = _trace_inner_fn(
-                lambda v, k: map_fn(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda v, k: map_fn(k, v), [kv["value"], kv["key"]], declared=2,
+                out_hint=out)
             builtin, tps = "DictMapReduce", [kv["key"], kv["value"]]
         else:
             raise KernelTraceError(f".map_reduce() on {tag}")
-        reduce_node, r_out = _trace_inner_fn(reduce_fn, [t2, t2], declared=2)
+        self._check_out(".map_reduce()", t2, out)
+        reduce_node, r_out = _trace_inner_fn(reduce_fn, [t2, t2], declared=2, out_hint=t2)
         if r_out != t2:
             raise KernelTraceError(
                 f".map_reduce() reduce returns {r_out.type}, mapped values are {t2.type}")
@@ -2161,81 +2213,73 @@ class KernelExpr:
         return self._key_error_node(
             t2, k2, "Cannot insert duplicate key ", " into dict")
 
-    def to_dict(self, key: Any, value: Any = None, combine: Any = None) -> KernelExpr:
+    def to_dict(self, key: Any, value: Any = None, combine: Any = None,
+                key_out: EastType | None = None,
+                value_out: EastType | None = None) -> KernelExpr:
         """Traced ArrayToDict / DictToDict, shaped like the eager methods:
         Array keys by ``key(element)`` with ``value(element)`` (the element
         itself when omitted); Dict re-keys with ``key(key, value)`` /
         ``value(key, value)``. Without ``combine`` a duplicate key ERRORS, like
-        the eager method and TypeScript — it does not keep the later value."""
+        the eager method and TypeScript — it does not keep the later value.
+        ``key_out`` / ``value_out`` pin the produced key/value types and type
+        the projections' traces (#536)."""
         from east.types.types import DictType as _DictType
 
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
             key_node, k2 = _trace_inner_fn(
-                lambda el, _i: key(el), [elem_t, IntegerType], declared=2)
+                lambda el, _i: key(el), [elem_t, IntegerType], declared=2,
+                out_hint=key_out)
             val = value if value is not None else (lambda el: el)
             val_node, t2 = _trace_inner_fn(
-                lambda el, _i: val(el), [elem_t, IntegerType], declared=2)
-            if combine is None:
-                combine_node = self._duplicate_key_node(t2, k2)
-            else:
-                combine_node, c_out = _trace_inner_fn(
-                    _with_key_arg(combine), [t2, t2, k2], declared=3)
-                if c_out != t2:
-                    raise KernelTraceError(
-                        f".to_dict() combine returns {c_out.type}, values are {t2.type}")
-            out = _DictType(k2, t2)
-            return KernelExpr(
-                _builtin("ArrayToDict", out, [elem_t, k2, t2],
-                         [self.ir, key_node, val_node, combine_node]),
-                out,
-            )
-        if tag == "Dict":
+                lambda el, _i: val(el), [elem_t, IntegerType], declared=2,
+                out_hint=value_out)
+        elif tag == "Dict":
             kv = self.east_type.value
             key_node, k2 = _trace_inner_fn(
-                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2,
+                out_hint=key_out)
             if value is None:
                 val_node, t2 = _trace_inner_fn(
-                    lambda v, _k: v, [kv["value"], kv["key"]], declared=2)
+                    lambda v, _k: v, [kv["value"], kv["key"]], declared=2,
+                    out_hint=value_out)
             else:
                 val_node, t2 = _trace_inner_fn(
-                    lambda v, k: value(k, v), [kv["value"], kv["key"]], declared=2)
-            if combine is None:
-                combine_node = self._duplicate_key_node(t2, k2)
-            else:
-                combine_node, c_out = _trace_inner_fn(
-                    _with_key_arg(combine), [t2, t2, k2], declared=3)
-                if c_out != t2:
-                    raise KernelTraceError(
-                        f".to_dict() combine returns {c_out.type}, values are {t2.type}")
-            out = _DictType(k2, t2)
-            return KernelExpr(
-                _builtin("DictToDict", out, [kv["key"], kv["value"], k2, t2],
-                         [self.ir, key_node, val_node, combine_node]),
-                out,
-            )
-        if tag == "Set":
+                    lambda v, k: value(k, v), [kv["value"], kv["key"]], declared=2,
+                    out_hint=value_out)
+        elif tag == "Set":
             elem_t = self.east_type.value
-            key_node, k2 = _trace_inner_fn(key, [elem_t], declared=1)
+            key_node, k2 = _trace_inner_fn(key, [elem_t], declared=1, out_hint=key_out)
             if value is None:
                 raise KernelTraceError(".to_dict() on a Set needs a value fn(element)")
-            val_node, t2 = _trace_inner_fn(value, [elem_t], declared=1)
-            if combine is None:
-                combine_node = self._duplicate_key_node(t2, k2)
-            else:
-                combine_node, c_out = _trace_inner_fn(
-                    _with_key_arg(combine), [t2, t2, k2], declared=3)
-                if c_out != t2:
-                    raise KernelTraceError(
-                        f".to_dict() combine returns {c_out.type}, values are {t2.type}")
-            out = _DictType(k2, t2)
+            val_node, t2 = _trace_inner_fn(value, [elem_t], declared=1,
+                                           out_hint=value_out)
+        else:
+            raise KernelTraceError(f".to_dict() on {tag}")
+        self._check_out(".to_dict() key", k2, key_out)
+        self._check_out(".to_dict() value", t2, value_out)
+        if combine is None:
+            combine_node = self._duplicate_key_node(t2, k2)
+        else:
+            combine_node, c_out = _trace_inner_fn(
+                _with_key_arg(combine), [t2, t2, k2], declared=3, out_hint=t2)
+            if c_out != t2:
+                raise KernelTraceError(
+                    f".to_dict() combine returns {c_out.type}, values are {t2.type}")
+        out = _DictType(k2, t2)
+        if tag == "Array":
+            args = [self.ir, key_node, val_node, combine_node]
             return KernelExpr(
-                _builtin("SetToDict", out, [elem_t, k2, t2],
-                         [self.ir, key_node, val_node, combine_node]),
-                out,
-            )
-        raise KernelTraceError(f".to_dict() on {tag}")
+                _builtin("ArrayToDict", out, [self.east_type.value, k2, t2], args), out)
+        if tag == "Dict":
+            kv = self.east_type.value
+            args = [self.ir, key_node, val_node, combine_node]
+            return KernelExpr(
+                _builtin("DictToDict", out, [kv["key"], kv["value"], k2, t2], args), out)
+        args = [self.ir, key_node, val_node, combine_node]
+        return KernelExpr(
+            _builtin("SetToDict", out, [self.east_type.value, k2, t2], args), out)
 
     def flatten_to_dict(self, fn: Any, combine: Any = None) -> KernelExpr:
         """Traced flatten into a dict: merge the dicts ``fn`` produces.
@@ -2273,7 +2317,7 @@ class KernelExpr:
             combine_node = self._duplicate_key_node(v2, k2)
         else:
             combine_node, c_out = _trace_inner_fn(
-                _with_key_arg(combine), [v2, v2, k2], declared=3)
+                _with_key_arg(combine), [v2, v2, k2], declared=3, out_hint=v2)
             if c_out != v2:
                 raise KernelTraceError(
                     f".flatten_to_dict() combine returns {c_out.type}, values are {v2.type}")
@@ -2335,30 +2379,37 @@ class KernelExpr:
         """Traced distinct elements (ArrayToSet with the identity key)."""
         return self.to_set()
 
-    def to_array(self, fn: Any = None) -> KernelExpr:
+    def to_array(self, fn: Any = None, out: EastType | None = None, *,
+                 key: Any = None) -> KernelExpr:
         """Traced SetToArray / DictToArray: elements (or projections) in East
-        order; a Dict projects with ``fn(key, value)`` (required)."""
+        order; a Dict projects with ``fn(key, value)`` (required). ``key`` is
+        the eager Set spelling of the projection; ``out`` pins the projected
+        element type and types the projection's trace (#536)."""
         from east.types.types import ArrayType as _ArrayType
 
+        if fn is None and key is not None:
+            fn = key
         tag = self.east_type.type
         if tag == "Set":
             elem_t = self.east_type.value
             proj = fn if fn is not None else (lambda el: el)
-            node, t2 = _trace_inner_fn(proj, [elem_t], declared=1)
-            out = _ArrayType(t2)
+            node, t2 = _trace_inner_fn(proj, [elem_t], declared=1, out_hint=out)
+            self._check_out(".to_array()", t2, out)
+            out_a = _ArrayType(t2)
             return KernelExpr(
-                _builtin("SetToArray", out, [elem_t, t2], [self.ir, node]), out
+                _builtin("SetToArray", out_a, [elem_t, t2], [self.ir, node]), out_a
             )
         if tag == "Dict":
             if fn is None:
                 raise KernelTraceError(".to_array() on a Dict needs a projection fn(key, value)")
             kv = self.east_type.value
             node, t2 = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2)
-            out = _ArrayType(t2)
+                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=out)
+            self._check_out(".to_array()", t2, out)
+            out_a = _ArrayType(t2)
             return KernelExpr(
-                _builtin("DictToArray", out, [kv["key"], kv["value"], t2], [self.ir, node]),
-                out,
+                _builtin("DictToArray", out_a, [kv["key"], kv["value"], t2], [self.ir, node]),
+                out_a,
             )
         raise KernelTraceError(f".to_array() on {tag}")
 
@@ -2398,43 +2449,52 @@ class KernelExpr:
     # Set/Dict have no group_maximum/group_minimum because their eager
     # surfaces do not either.
 
-    def _group_fold_parts(self, op: str, key: Any) -> tuple:
+    def _group_fold_parts(self, op: str, key: Any,
+                          key_out: EastType | None = None) -> tuple:
         """``(builtin, type-param prefix, key node, K2, element param types)``
         for the container's GroupFold, with the container's own callback
-        shape."""
+        shape. ``key_out`` pins and types the key projection (#536)."""
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
-            key_node, k2 = _trace_inner_fn(_with_index(key), [elem_t, IntegerType], declared=2)
+            key_node, k2 = _trace_inner_fn(_with_index(key), [elem_t, IntegerType],
+                                           declared=2, out_hint=key_out)
             return "ArrayGroupFold", [elem_t], key_node, k2, [elem_t, IntegerType]
         if tag == "Set":
             elem_t = self.east_type.value
-            key_node, k2 = _trace_inner_fn(key, [elem_t], declared=1)
+            key_node, k2 = _trace_inner_fn(key, [elem_t], declared=1, out_hint=key_out)
             return "SetGroupFold", [elem_t], key_node, k2, [elem_t]
         if tag == "Dict":
             kv = self.east_type.value
             # The builtin's key slot is (value, key); the user fn takes
             # (key, value), like every other eager Dict callback.
             key_node, k2 = _trace_inner_fn(
-                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2,
+                out_hint=key_out)
             return ("DictGroupFold", [kv["key"], kv["value"]], key_node, k2,
                     [kv["value"], kv["key"]])
         raise KernelTraceError(f".{op}() on {tag}")
 
-    def _group_fold(self, op: str, key: Any, init: Any, fold: Any) -> KernelExpr:
+    def _group_fold(self, op: str, key: Any, init: Any, fold: Any,
+                    key_out: EastType | None = None,
+                    acc_out: EastType | None = None) -> KernelExpr:
         """The shared grouped fold behind every ``group_*`` method."""
         from east.types.types import DictType as _DictType
 
-        builtin, tps, key_node, k2, elem_params = self._group_fold_parts(op, key)
-        init_node, acc_t = _trace_inner_fn(init, [k2], declared=1)
+        builtin, tps, key_node, k2, elem_params = self._group_fold_parts(op, key, key_out)
+        self._check_out(f".{op}() key", k2, key_out)
+        init_node, acc_t = _trace_inner_fn(init, [k2], declared=1, out_hint=acc_out)
+        self._check_out(f".{op}() accumulator", acc_t, acc_out)
         if self.east_type.type == "Dict":
             fold_node, out_t = _trace_inner_fn(
-                lambda a, v, k: fold(a, k, v), [acc_t, *elem_params], declared=3)
+                lambda a, v, k: fold(a, k, v), [acc_t, *elem_params], declared=3,
+                out_hint=acc_t)
         else:
             fold_node, out_t = _trace_inner_fn(
                 _with_acc_index(fold) if self.east_type.type == "Array" else fold,
                 [acc_t, *elem_params],
-                declared=3 if self.east_type.type == "Array" else 2)
+                declared=3 if self.east_type.type == "Array" else 2,
+                out_hint=acc_t)
         if out_t != acc_t:
             raise KernelTraceError(
                 f".{op}() step returns {out_t.type}, the accumulator from "
@@ -2458,16 +2518,19 @@ class KernelExpr:
             )
         return self._group_fold("group_reduce", key, init, fold)
 
-    def group_fold(self, key: Any, init: Any, fold: Any) -> KernelExpr:
+    def group_fold(self, key: Any, init: Any, fold: Any,
+                   key_out: EastType | None = None,
+                   acc_out: EastType | None = None) -> KernelExpr:
         """Traced SetGroupFold / DictGroupFold: a Dict from the group key to
         the folded accumulator. Set steps take ``fold(acc, element)``, Dict
         steps ``fold(acc, key, value)``. An Array's spelling is
-        :meth:`group_reduce`."""
+        :meth:`group_reduce`. ``key_out`` / ``acc_out`` pin the group key /
+        accumulator types and type the projections' traces (#536)."""
         if self.east_type.type == "Array":
             raise KernelTraceError(
                 ".group_fold() on Array — an Array groups with .group_reduce()"
             )
-        return self._group_fold("group_fold", key, init, fold)
+        return self._group_fold("group_fold", key, init, fold, key_out, acc_out)
 
     def _grouped(self, op: str, key: Any, init: Any, fold: Any) -> KernelExpr:
         """Dispatch to the container's own grouped-fold spelling."""
@@ -2664,21 +2727,26 @@ class KernelExpr:
 
         return self._group_fold(op, key, init, step)
 
-    def group_to_arrays(self, key: Any, value: Any = None) -> KernelExpr:
+    def group_to_arrays(self, key: Any, value: Any = None, *,
+                        value_fn: Any = None) -> KernelExpr:
         """Traced arrays of ``value(...)`` per group key.
 
         Without ``value`` the elements themselves — a Dict's VALUES — are
         collected, which on an Array is exactly :meth:`group_by`.
+        ``value_fn`` is the eager Dict spelling of the same projection (#536).
         """
-        return self._group_collect("group_to_arrays", key, value, "Array")
+        return self._group_collect("group_to_arrays", key,
+                                   value if value is not None else value_fn, "Array")
 
-    def group_to_sets(self, key: Any, value: Any = None) -> KernelExpr:
+    def group_to_sets(self, key: Any, value: Any = None, *,
+                      value_fn: Any = None) -> KernelExpr:
         """Traced sets of ``value(...)`` per group key; duplicates within a
-        group collapse."""
-        return self._group_collect("group_to_sets", key, value, "Set")
+        group collapse. ``value_fn`` is the eager Dict spelling (#536)."""
+        return self._group_collect("group_to_sets", key,
+                                   value if value is not None else value_fn, "Set")
 
     def group_to_dicts(self, key: Any, key2: Any, value: Any = None,
-                       combine: Any = None) -> KernelExpr:
+                       combine: Any = None, *, value_fn: Any = None) -> KernelExpr:
         """Traced nested dicts — ``key2(...) -> value(...)`` per group key.
 
         Without ``combine`` a duplicate INNER key errors at run time, matching
@@ -2687,7 +2755,8 @@ class KernelExpr:
         """
         from east.types.types import DictType as _DictType
 
-        proj, v_t = self._group_value_projection("group_to_dicts", value)
+        proj, v_t = self._group_value_projection(
+            "group_to_dicts", value if value is not None else value_fn)
         k2proj, k2_t = self._group_value_projection("group_to_dicts", key2)
         acc_t = _DictType(k2_t, v_t)
         add_args: list = []
@@ -2695,7 +2764,7 @@ class KernelExpr:
             add_name = "DictInsert"
         else:
             node, c_out = _trace_inner_fn(
-                _with_key_arg(combine), [v_t, v_t, k2_t], declared=3)
+                _with_key_arg(combine), [v_t, v_t, k2_t], declared=3, out_hint=v_t)
             if c_out != v_t:
                 raise KernelTraceError(
                     f".group_to_dicts() combine returns {c_out.type}, "
@@ -2948,7 +3017,8 @@ class KernelExpr:
             if ks.east_type != _SetType(kv["key"]):
                 raise KernelTraceError(
                     ".get_keys() takes a Set of this dict's key type")
-            fill_node, f_out = _trace_inner_fn(fill, [kv["key"]], declared=1)
+            fill_node, f_out = _trace_inner_fn(fill, [kv["key"]], declared=1,
+                                               out_hint=kv["value"])
             if f_out != kv["value"]:
                 raise KernelTraceError(
                     f".get_keys() fill returns {f_out.type}, values are {kv['value'].type}")
@@ -2991,7 +3061,7 @@ class KernelExpr:
                 v_t, k_t, "Key ", " exists in both dictionaries")
         else:
             merge_node, c_out = _trace_inner_fn(
-                _with_key_arg(combine), [v_t, v_t, k_t], declared=3)
+                _with_key_arg(combine), [v_t, v_t, k_t], declared=3, out_hint=v_t)
             if c_out != v_t:
                 raise KernelTraceError(
                     f".union() combine returns {c_out.type}, values are {v_t.type}")
@@ -3105,6 +3175,23 @@ class KernelExpr:
         return KernelExpr(node, out_t)
 
     # ── operations that cannot be traced (fail loud, fall back) ─────────
+    # Every python protocol point with a NON-RAISING default must appear
+    # here: an unlisted one silently constant-folds trace-time state into
+    # the result (#530's f-string). `__repr__` stays usable for diagnostics.
+
+    def __str__(self) -> str:
+        raise KernelTraceError(
+            "f-strings / str() cannot be traced into an East kernel — the "
+            "expression proxy would constant-fold into the result. Build "
+            "strings with `+` concatenation, or let the method fall back"
+        )
+
+    def __format__(self, format_spec: str) -> str:
+        raise KernelTraceError(
+            "f-strings / format() cannot be traced into an East kernel — the "
+            "expression proxy would constant-fold into the result. Build "
+            "strings with `+` concatenation, or let the method fall back"
+        )
 
     def __bool__(self) -> bool:
         raise _trace_bail("if/and/or/not")
@@ -3216,12 +3303,17 @@ def _fresh_name() -> str:
     return f"__n{next(_fresh_names)}"
 
 
-def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None) -> tuple[Any, EastType]:
+def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None,
+                    out_hint: EastType | None = None) -> tuple[Any, EastType]:
     """Trace an inner (nested) lambda into a Function IR node.
 
     ``param_types`` is the builtin's full callback signature (e.g. map takes
     ``(element, index)``); a lambda declaring fewer parameters simply ignores
-    the tail. Returns ``(Function node, traced output type)``.
+    the tail. ``out_hint`` types the traced body — a declared callback output
+    slot (a filter's Boolean, a fold step's accumulator) or a caller's
+    ``out=`` pin — which is what lets a callback build a general variant or a
+    ``where`` over variant branches (#541, #536). Returns
+    ``(Function node, traced output type)``.
     """
     arity = declared
     if arity is None:
@@ -3243,7 +3335,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
         raise
     except Exception as e:  # pragma: no cover - message carries the cause
         raise KernelTraceError(f"inner lambda is not traceable: {e}") from e
-    body = _lift(result)
+    body = _lift(result, hint=out_hint)
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     fn_t = FunctionType(list(param_types), body.east_type)
     node = _capturing_fn(fn_t, params, body.ir)
@@ -3961,7 +4053,17 @@ def try_push_down(east_fn: Any) -> Any | None:
 
     ``east_fn`` is an ``EastFunction`` (python callable + declared East
     signature). Returns a native callable (carrying ``_eastc_handle``), or
-    ``None`` to use the per-element python path. Never raises.
+    ``None`` to use the per-element python path.
+
+    An ELIGIBLE callback — one that passes the purity gate and so LOOKS
+    native — that then fails to trace RAISES the ``KernelTraceError``
+    instead of silently trampolining: the fallback's only symptom is that
+    the job takes hours (#524), and every named trace failure has a traced
+    spelling the error message points at. A lambda doing genuine python
+    work fails the purity gate and keeps the silent fallback — that path is
+    its contract. A callback that traces to a type other than its declared
+    output still falls back silently: the declared type may be SAMPLED (the
+    #450 family), so a disagreement there is not proof of a mistake.
 
     A callback that already IS a precompiled kernel — directly, or recorded
     on its wrapper by ``_mark_kernel`` — resolves through the bridge's
@@ -3980,6 +4082,29 @@ def try_push_down(east_fn: Any) -> Any | None:
             return native
     except Exception:
         pass
+    # A callable declared `_east_trace_fallback = True` keeps the OLD
+    # silent-fallback contract: its trace is attempted (a pure body still
+    # goes native), and a failure falls back to the per-element python path
+    # instead of raising — the eager implementation's own accumulation
+    # helpers/adapters and test-harness wrappers, whose python paths are
+    # deliberate. The declaration is transitive through closure cells
+    # (bounded): a probe or argument-reorder adapter wrapping a declared
+    # callable inherits it. Tracked for nativisation on #543; not a user
+    # surface.
+    def _trace_fallback(fn: Any, depth: int = 3) -> bool:
+        if getattr(fn, "_east_trace_fallback", False):
+            return True
+        if depth == 0:
+            return False
+        for cell in getattr(fn, "__closure__", None) or ():
+            try:
+                c = cell.cell_contents
+            except ValueError:  # an unassigned cell
+                continue
+            if callable(c) and _trace_fallback(c, depth - 1):
+                return True
+        return False
+
     try:
         if not _eligible(east_fn.fn):
             return None
@@ -3990,6 +4115,14 @@ def try_push_down(east_fn: Any) -> Any | None:
         from east.runtime.compiler import compile_from_value
 
         return compile_from_value(ir_value)
+    except KernelTraceError:
+        # The loud contract: a pure-looking callback that fails to trace
+        # raises — its silent fallback's only symptom is that the job takes
+        # hours (#524). Genuinely-python lambdas fail the purity gate above
+        # and keep their fallback; deliberate python paths carry the marker.
+        if _trace_fallback(east_fn.fn):
+            return None
+        raise
     except Exception:
         return None
 

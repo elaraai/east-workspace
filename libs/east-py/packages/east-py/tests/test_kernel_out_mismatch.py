@@ -34,6 +34,7 @@ from east import (
     EastError,
     EastTypeError,
     IntegerType,
+    KernelTraceError,
     OptionType,
     StringType,
     StructType,
@@ -170,10 +171,13 @@ def test_plain_lambda_returning_a_mislabelled_array_is_refused(rows):
 
 def test_wrong_input_kernel_does_not_run_native(rows):
     """Output matches, inputs do not: running native would read elements as
-    the wrong type. It must fall back and fail loudly instead."""
+    the wrong type. The failure is loud and EARLY now — the signature check
+    refuses the native value, the re-trace against the real element type
+    names the missing field, and the push-down's loud contract raises it
+    (previously the wrong kernel silently trampolined to a runtime error)."""
     other = StructType([("zz", StringType)])
     k = kernel(other, lambda r: r["zz"])
-    with pytest.raises(EastError):
+    with pytest.raises(KernelTraceError, match="no field 'zz'"):
         rows.map(k, out=StringType)
 
 

@@ -651,6 +651,21 @@ that still run python, so you can reason about cost and semantics:
   immutable) — copy first` — call `.copy()` to derive a mutable value.
   Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
   through the proxy; frozen collections compare by value under `Is`.
+- **A pure-looking callback that cannot trace RAISES** — everywhere, eager
+  paths included. A lambda that passes the purity gate but fails to trace
+  (an f-string, which would constant-fold the proxy into the result; an
+  off-surface method) raises a named `KernelTraceError` pointing at the
+  traced spelling, instead of silently dropping the loop to the
+  per-element python path (whose only symptom is that the job takes
+  hours). Genuinely-python lambdas fail the purity gate and keep their
+  python fallback — that path is their contract. Build traced strings
+  with `+` concatenation.
+- **The traced twins accept the eager keywords** — `out=` (`map`,
+  `filter_map`, `map_reduce`, `flatten_to_array/set`, `to_array`, `to_set`),
+  `key_out=`/`value_out=` (`to_dict`), `key_out=`/`acc_out=` (`group_fold`),
+  `pred=`, `key=`, `value_fn=` — and an `out=`-family pin also TYPES the
+  callback's trace, so a pinned callback can build a general variant
+  (`variant(case, payload)`) without any other context.
 
 ## Core Concepts
 

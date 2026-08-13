@@ -118,9 +118,18 @@ jobs:
         working-directory: libs/east-py
         run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
-      - name: Run east-py serialization tests
+      # The WHOLE tests/ tree — kernel/tracer suites, the eager-replay
+      # differential and its ratchets included (#531: these were dormant
+      # while only tests/serialization ran). The exported IR is staged into
+      # the temp dir the corpus-driven suites read (python's gettempdir, so
+      # the path agrees with the MSYS-rewritten one on Windows).
+      - name: Run east-py tests (full pytest sweep)
         working-directory: libs/east-py/packages/east-py
-        run: uv run pytest tests/serialization -q --no-cov
+        env:
+          IR_SRC: ${{ github.workspace }}/ir-east
+        run: |
+          uv run python -c "import os, shutil, tempfile, pathlib; d = pathlib.Path(tempfile.gettempdir()) / 'east-test-ir'; d.mkdir(parents=True, exist_ok=True); [shutil.copy(p, d) for p in pathlib.Path(os.environ['IR_SRC']).glob('*.json')]"
+          uv run pytest tests -q --no-cov
 
       # Runner streaming execution (--emit / --stream) through run_program,
       # against the checked-in cross-runner IR fixtures (#507).
