@@ -54,7 +54,7 @@ over `list`/`dict`/`set` → convert back to an East output. If the logic is
 East-expressible (mapping, filtering, grouping, joining, reducing, set/dict
 algebra), do the whole thing in East so every intermediate stays an east-c value
 produced by an east-c method — never materialised, never manually looped. In
-particular, prefer the declarative reducers (`fold`/`map_reduce`/`group_fold`/
+particular, prefer the declarative reducers (`fold`/`map_reduce`/`group_reduce`/
 `to_dict(..., combine=…)`) over *any* hand-rolled accumulation loop: the reducer
 makes **one** native call that iterates and accumulates in C, whereas a manual
 loop — Python **or** repeated `EastRef`/`EastDict` updates — pays a separate FFI
@@ -141,13 +141,15 @@ syntax, fastest first:
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_dict` `to_set` `union` `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
-     `copy` `size` `has` `reduce` `sum` `mean` `every` `some` `group_fold`
+     `copy` `size` `has` `reduce` `sum` `mean` `every` `some` `group_reduce`
+     (`group_fold` = deprecated alias, #535)
      `group_size` `group_sum` `group_mean` `group_every` `group_some`
      `group_to_arrays` `group_to_sets` `group_to_dicts`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_set` `to_dict` `union` `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
-     `try_get` `reduce` `sum` `mean` `every` `some` `group_fold` `group_size`
+     `try_get` `reduce` `sum` `mean` `every` `some` `group_reduce`
+     (`group_fold` = deprecated alias, #535) `group_size`
      `group_sum` `group_mean` `group_every` `group_some` `group_to_arrays`
      `group_to_sets` `group_to_dicts` `[key_expr]`
 
@@ -460,20 +462,20 @@ Task → What do you need?
     │   │   ├─ Per-element → map(fn)→Dict · filter(pred) · filter_map(fn)→Dict · first_map(fn) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · scan(init, fn) (running fold → Array) · map_reduce(fn, reduce) ❗empty ·
     │   │   │            sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
-    │   │   ├─ Group → group_fold(key, init, fold) · group_size(key) · group_sum(key, fn=) · group_mean(key, fn=) ·
+    │   │   ├─ Group → group_reduce(key, init, fold) (`group_fold` = deprecated alias #535) · group_size(key) · group_sum(key, fn=) · group_mean(key, fn=) ·
     │   │   │            group_every/some(key, pred) · group_to_arrays/sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
     │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=) ❗dup w/o combine
     │   │   ├─ Flatten → flatten_to_array(fn, out=) · flatten_to_set(fn, out=) · flatten_to_dict(fn, combine=) ❗dup w/o combine
     │   │   └─ Mutate (in place) → add · insert ❗exists · try_insert(v)→bool · remove · delete ❗missing ·
     │   │                          try_delete(v)→bool · discard · clear · copy()
-    │   ├─ Dict<K,V>  (callbacks: map=fn(v)|fn(v,k) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
+    │   ├─ Dict<K,V>  (callbacks: map=fn(v)|fn(v,k) · filter/first_map/to_*/flatten_*/group_reduce=fn(k,v) · reduce=fn(acc,k,v))
     │   │   ├─ Access → d[k] · get(k, default=None) · get_or_default(k, d) · try_get(k) · has(k) · len() ·
     │   │   │            keys()/values()/items() (python views — TS's `keys` is keys_set())
     │   │   ├─ Combine → union(other, combine=) ❗shared key w/o combine (pure; `merge` = deprecated alias #527) · union_in_place(other, combine=) · merge_key(key, value, update, initial=) (ONE key, in place) · get_keys(keys, fill)
     │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · scan(init, fn) (running fold → Array, key order) ·
     │   │   │            map_reduce(map_fn, reduce_fn, out=) ❗empty · sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
-    │   │   ├─ Group → group_fold(key_fn, init_fn, fold_fn) · group_size(key_fn) · group_sum(key_fn, fn=) ·
+    │   │   ├─ Group → group_reduce(key_fn, init_fn, fold_fn) (`group_fold` = deprecated alias #535) · group_size(key_fn) · group_sum(key_fn, fn=) ·
     │   │   │            group_mean(key_fn, fn=) · group_every/some(key_fn, pred) ·
     │   │   │            group_to_arrays/sets(key_fn, value_fn) · group_to_dicts(key_fn, key2_fn, value_fn, combine=)
     │   │   ├─ Flatten → flatten_to_array(fn) · flatten_to_set(fn) · flatten_to_dict(fn, combine=) ❗dup w/o combine
@@ -663,7 +665,7 @@ that still run python, so you can reason about cost and semantics:
   with `+` concatenation.
 - **The traced twins accept the eager keywords** — `out=` (`map`,
   `filter_map`, `map_reduce`, `flatten_to_array/set`, `to_array`, `to_set`),
-  `key_out=`/`value_out=` (`to_dict`), `key_out=`/`acc_out=` (`group_fold`),
+  `key_out=`/`value_out=` (`to_dict`), `key_out=`/`acc_out=` (`group_reduce`),
   `pred=`, `key=`, `value_fn=` — and an `out=`-family pin also TYPES the
   callback's trace, so a pinned callback can build a general variant
   (`variant(case, payload)`) without any other context.
@@ -779,14 +781,14 @@ Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration
 | Algebra (vs another set) | `union(other)` · `intersect(other)` · `diff(other)` · `sym_diff(other)` · `is_subset(other) -> bool` · `is_superset_of(other) -> bool` · `is_disjoint(other) -> bool` |
 | Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` (duplicate key errors without `combine`) · `for_each(fn(el)) -> None` |
 | Reduce | `reduce(initial, fn(acc, el))` · `scan(initial, fn(acc, el)) -> Array` (running fold in East order) · `map_reduce(fn(el), reduce(a,b))` (raises on empty) · `sum(fn=None)` · `mean(fn=None) -> float` · `every(pred=None)` · `some(pred=None)` (native short-circuit) |
-| Group | `group_fold(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` |
+| Group | `group_reduce(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` (#535) |
 | Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine=None)` (duplicate key errors without `combine`) — **pin `out`; the no-`out` inference path is broken** |
 | Mutate (in place) | `add(item)` · `insert(value)` (errors if present) · `try_insert(value) -> bool` (True if newly added) · `remove(item)` · `delete(value)` (errors if absent) · `try_delete(value) -> bool` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
 
 ### EastDict — complete method surface
 
 Mutable, **East-sorted by key**. `.key_type` / `.value_type`. **Callback arities differ:**
-`map` takes `fn(value)` (no key); `filter`/`first_map`/`to_*`/`flatten_to_*`/`group_fold`/`map_reduce`
+`map` takes `fn(value)` (no key); `filter`/`first_map`/`to_*`/`flatten_to_*`/`group_reduce`/`map_reduce`
 and the predicates/projections of `every`/`some`/`sum`/`mean` take `fn(key, value)`;
 `reduce` takes `fn(acc, key, value)`; collision `combine` is
 `combine(existing, incoming, key)` — for `union`/`union_in_place`/`merge` a 2-arg
@@ -801,7 +803,7 @@ in `other`'s values; `merge_key` takes a single differently-typed value.
 | Combine | `union(other, combine=None) -> Dict` (NEW dict, both inputs untouched; a shared key errors without `combine`) · `union_in_place(other, combine=None) -> None` · `merge_all(other, merge(existing, incoming[, key]), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys; **generic in `other`'s value type** — only the KEYS must match) · `merge_key(key, value, update(existing, incoming[, key]), initial=None) -> None` (ONE key, in place; `value` may be a different type — TS's `DictExpr.merge`) · `get_keys(keys: Set, fill(k)) -> Dict` · ⚠️ `merge(other, combine=None)` is the DEPRECATED alias of `union` (#527) |
 | Per-entry | `map(fn(value), out=None)` (a two-arg `fn(value, key)` also accepted) · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
 | Reduce | `reduce(initial, fn(acc, key, value))` · `scan(initial, fn(acc, key, value)) -> Array` (running fold in key order) · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) · `sum(fn(key, value)=None)` · `mean(fn(key, value)=None) -> float` · `every(pred(key, value)=None) -> bool` · `some(pred(key, value)=None) -> bool` (native short-circuit) |
-| Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` |
+| Group | `group_reduce(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` (#535) |
 | Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Convert | `keys_set() -> Set` · `to_array(fn(key, value), out=None)` · `to_set(fn(key, value), out=None)` · `to_dict(key_fn, value_fn, combine(existing, incoming, new_key), key_out=None, value_out=None)` · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` (errors if present) · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` (`update`/`swap`/`delete` error on a missing key) · `pop(k, *default)` · `clear()` |

@@ -54,7 +54,8 @@ What traces (#393 expanded this to the whole builtin surface):
   ``diff`` / ``sym_diff`` / ``is_subset`` / ``is_superset_of`` /
   ``is_disjoint``) / ``copy`` /
   ``size`` / ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
-  ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
+  ``group_reduce`` (``group_fold`` = deprecated alias, #535) /
+  ``group_size`` / ``group_sum`` / ``group_mean`` /
   ``group_every`` / ``group_some`` / ``group_to_arrays`` /
   ``group_to_sets`` / ``group_to_dicts``;
   Dict: ``map`` / ``filter`` / ``filter_map`` / ``first_map`` /
@@ -63,7 +64,8 @@ What traces (#393 expanded this to the whole builtin surface):
   ``union`` / ``keys_set`` / ``get_keys`` /
   ``copy`` / ``get`` / ``get_or_default`` / ``try_get`` / ``size`` /
   ``has`` / ``reduce`` / ``sum`` / ``mean`` / ``every`` / ``some`` /
-  ``group_fold`` / ``group_size`` / ``group_sum`` / ``group_mean`` /
+  ``group_reduce`` (``group_fold`` = deprecated alias, #535) /
+  ``group_size`` / ``group_sum`` / ``group_mean`` /
   ``group_every`` / ``group_some`` / ``group_to_arrays`` /
   ``group_to_sets`` / ``group_to_dicts``.
   The reductions (``sum`` / ``mean`` / ``maximum`` / ``minimum`` /
@@ -561,8 +563,9 @@ _TRACED_SURFACE = {
         "is_disjoint", "copy", "size", "has",
         # reductions (#525 phase 1)
         "reduce", "sum", "mean", "every", "some",
-        # group_* (#525 phase 3)
-        "group_fold", "group_size", "group_sum", "group_mean",
+        # group_* (#525 phase 3; group_reduce primary since #535,
+        # group_fold = deprecated alias)
+        "group_reduce", "group_fold", "group_size", "group_sum", "group_mean",
         "group_every", "group_some",
         # group_to_* (#525 phase 3b)
         "group_to_arrays", "group_to_sets", "group_to_dicts",
@@ -575,8 +578,9 @@ _TRACED_SURFACE = {
         "size", "has", "get", "get_or_default", "try_get",
         # reductions (#525 phase 1)
         "reduce", "sum", "mean", "every", "some",
-        # group_* (#525 phase 3)
-        "group_fold", "group_size", "group_sum", "group_mean",
+        # group_* (#525 phase 3; group_reduce primary since #535,
+        # group_fold = deprecated alias)
+        "group_reduce", "group_fold", "group_size", "group_sum", "group_mean",
         "group_every", "group_some",
         # group_to_* (#525 phase 3b)
         "group_to_arrays", "group_to_sets", "group_to_dicts",
@@ -2447,10 +2451,10 @@ class KernelExpr:
     # ── group_* (#525 phase 3) ──────────────────────────────────────────
     # The grouped fold is the primitive; everything else composes from it,
     # exactly as the eager methods do, so a whole aggregate is ONE compiled
-    # kernel. Names mirror the eager twins per container — Array spells the
-    # general fold `group_reduce`, Set and Dict spell it `group_fold` — and
-    # Set/Dict have no group_maximum/group_minimum because their eager
-    # surfaces do not either.
+    # kernel. The general fold is spelled `group_reduce` on every container
+    # (TS `groupReduce` parity, #535); `group_fold` survives on Set/Dict as
+    # a deprecated alias. Set/Dict have no group_maximum/group_minimum
+    # because their eager surfaces do not either.
 
     def _group_fold_parts(self, op: str, key: Any,
                           key_out: EastType | None = None) -> tuple:
@@ -2510,29 +2514,41 @@ class KernelExpr:
             out,
         )
 
-    def group_reduce(self, key: Any, init: Any, fold: Any) -> KernelExpr:
-        """Traced ArrayGroupFold: a Dict from ``key(element)`` to the value
-        ``fold`` accumulates from ``init(group_key)``. The Array spelling of
-        the grouped fold; Set and Dict spell it :meth:`group_fold`."""
-        if self.east_type.type != "Array":
-            raise KernelTraceError(
-                f".group_reduce() on {self.east_type.type} — a Set or Dict "
-                "groups with .group_fold()"
-            )
-        return self._group_fold("group_reduce", key, init, fold)
+    def group_reduce(self, key: Any, init: Any, fold: Any,
+                     key_out: EastType | None = None,
+                     acc_out: EastType | None = None) -> KernelExpr:
+        """Traced Array/Set/DictGroupFold: a Dict from the group key to the
+        value ``fold`` accumulates from ``init(group_key)`` — the one grouped
+        fold, spelled the same on every container (#535). Array steps take
+        ``fold(acc, element)`` (``fold(acc, element, index)`` also accepted),
+        Set steps ``fold(acc, element)``, Dict steps ``fold(acc, key, value)``.
+        ``key_out`` / ``acc_out`` pin the group key / accumulator types and
+        type the projections' traces (#536)."""
+        return self._group_fold("group_reduce", key, init, fold, key_out, acc_out)
 
     def group_fold(self, key: Any, init: Any, fold: Any,
                    key_out: EastType | None = None,
                    acc_out: EastType | None = None) -> KernelExpr:
-        """Traced SetGroupFold / DictGroupFold: a Dict from the group key to
-        the folded accumulator. Set steps take ``fold(acc, element)``, Dict
-        steps ``fold(acc, key, value)``. An Array's spelling is
-        :meth:`group_reduce`. ``key_out`` / ``acc_out`` pin the group key /
-        accumulator types and type the projections' traces (#536)."""
+        """Deprecated Set/Dict alias for :meth:`group_reduce` (issue #535).
+
+        The grouped fold had two names — TS ``groupReduce`` everywhere,
+        east-py ``group_reduce`` on Array but ``group_fold`` on Set/Dict — so
+        a call ported by name worked on one container and raised on the next.
+        The operation is unchanged; only the spelling moves.
+        """
         if self.east_type.type == "Array":
             raise KernelTraceError(
                 ".group_fold() on Array — an Array groups with .group_reduce()"
             )
+        import warnings
+
+        warnings.warn(
+            f"East{self.east_type.type}.group_fold is deprecated: the grouped "
+            "fold is spelled group_reduce on every container (TS groupReduce). "
+            "See issue #535.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self._group_fold("group_fold", key, init, fold, key_out, acc_out)
 
     def _grouped(self, op: str, key: Any, init: Any, fold: Any) -> KernelExpr:

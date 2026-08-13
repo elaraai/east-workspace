@@ -139,9 +139,9 @@ def test_to_dict_key_and_value_outs_type_the_projections():
     assert {k.type for k in got} == {"vessel"}
 
 
-def test_group_fold_key_out_types_a_variant_group_key():
+def test_group_reduce_key_out_types_a_variant_group_key():
     d = EastDict(StringType, IntegerType, {"a": 1, "ADDED": 2})
-    got = d.group_fold(
+    got = d.group_reduce(
         lambda k, _v: where(k == "ADDED", variant("added", east_null),
                             variant("vessel", k)),
         lambda _gk: 0,

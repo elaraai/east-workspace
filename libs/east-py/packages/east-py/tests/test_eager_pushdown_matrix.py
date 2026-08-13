@@ -125,7 +125,7 @@ SET_CASES = {
 DICT_CASES = {
     "union":           lambda d, c: d.union(d, c["comb"]),
     "mean":            lambda d, c: d.mean(c["dv"]),
-    "group_fold":      lambda d, c: d.group_fold(
+    "group_reduce":    lambda d, c: d.group_reduce(
         c["dg"], lambda _k: 0.0, lambda acc, k, v: acc + v),
     "group_size":      lambda d, c: d.group_size(c["dg"]),
     "group_sum":       lambda d, c: d.group_sum(c["dg"], c["dv"]),

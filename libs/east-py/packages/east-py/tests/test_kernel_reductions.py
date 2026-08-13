@@ -678,10 +678,10 @@ def test_mean_over_a_filtered_projection_is_one_kernel():
 # ── group_* (#525 phase 3) ───────────────────────────────────────────────────
 #
 # The grouped fold is the primitive and everything else composes from it, so a
-# whole aggregate is ONE compiled kernel. Names mirror the eager twins per
-# container: Array spells the general fold `group_reduce`, Set and Dict spell it
-# `group_fold`, and Set/Dict have no group_maximum/group_minimum because their
-# eager surfaces do not either.
+# whole aggregate is ONE compiled kernel. The general fold is spelled
+# `group_reduce` on every container (TS `groupReduce` parity, #535);
+# `group_fold` survives on Set/Dict as a deprecated alias. Set/Dict have no
+# group_maximum/group_minimum because their eager surfaces do not either.
 
 _G_SET = SetType(IntegerType)
 
@@ -746,8 +746,8 @@ def test_array_group_matches_eager(traced, eager):
 @pytest.mark.parametrize(
     ("traced", "eager"),
     [
-        (lambda s: s.group_fold(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e),
-         lambda s: s.group_fold(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)),
+        (lambda s: s.group_reduce(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e),
+         lambda s: s.group_reduce(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)),
         (lambda s: s.group_size(lambda e: e % 3), lambda s: s.group_size(lambda e: e % 3)),
         (lambda s: s.group_sum(lambda e: e % 3), lambda s: s.group_sum(lambda e: e % 3)),
         (lambda s: s.group_mean(lambda e: e % 3), lambda s: s.group_mean(lambda e: e % 3)),
@@ -767,9 +767,9 @@ def test_set_group_matches_eager(traced, eager):
 @pytest.mark.parametrize(
     ("traced", "eager"),
     [
-        (lambda d: d.group_fold(lambda k, v: k.substring(0, 2), lambda _k: 0.0,
-                                lambda acc, k, v: acc + v),
-         lambda d: d.group_fold(lambda k, v: k[:2], lambda _k: 0.0, lambda acc, k, v: acc + v)),
+        (lambda d: d.group_reduce(lambda k, v: k.substring(0, 2), lambda _k: 0.0,
+                                  lambda acc, k, v: acc + v),
+         lambda d: d.group_reduce(lambda k, v: k[:2], lambda _k: 0.0, lambda acc, k, v: acc + v)),
         (lambda d: d.group_size(lambda k, v: k.substring(0, 2)),
          lambda d: d.group_size(lambda k, v: k[:2])),
         (lambda d: d.group_sum(lambda k, v: k.substring(0, 2)),
@@ -789,15 +789,38 @@ def test_dict_group_matches_eager(traced, eager):
     _same_dict(_native(traced, D_SF, d), eager(d))
 
 
-def test_group_fold_and_group_reduce_are_container_specific():
-    """Each container exposes the name its EAGER twin uses — a traced name
-    with no eager counterpart is the divergence #526/#527 were about."""
-    # a Set has no group_reduce — the error points at its own spelling
-    with pytest.raises(KernelTraceError, match="group_fold"):
-        kernel(_G_SET, lambda s: s.group_reduce(lambda e: e, lambda _k: 0, lambda acc, e: acc))
-    # ...and an Array has no group_fold
+def test_group_reduce_is_the_one_spelling_and_group_fold_is_the_alias():
+    """#535: `group_reduce` works on every container; `group_fold` survives on
+    Set/Dict as a deprecated alias (both paths warn) and still has no Array
+    spelling — the eager surface never had one, and inventing it would spread
+    the deprecated name."""
+    # group_reduce now traces on a Set (it used to point at group_fold)
+    s = _set_i()
+    want = s.group_reduce(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)
+    got = _native(lambda x: x.group_reduce(lambda e: e % 3, lambda _k: 0,
+                                           lambda acc, e: acc + e), _G_SET, s)
+    _same_dict(got, want)
+    # the alias answers identically and TELLS you where it went — eager...
+    with pytest.warns(DeprecationWarning, match="group_reduce"):
+        aliased = s.group_fold(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)
+    _same_dict(aliased, want)
+    # ...and traced (the warning fires at trace time)
+    with pytest.warns(DeprecationWarning, match="group_reduce"):
+        traced_alias = kernel(_G_SET, lambda x: x.group_fold(
+            lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e))
+    _same_dict(traced_alias(s), want)
+    # the Dict alias warns too
+    d = _dict_kf()
+    with pytest.warns(DeprecationWarning, match="group_reduce"):
+        d_alias = d.group_fold(lambda k, v: k[:2], lambda _k: 0.0,
+                               lambda acc, k, v: acc + v)
+    _same_dict(d_alias, d.group_reduce(lambda k, v: k[:2], lambda _k: 0.0,
+                                       lambda acc, k, v: acc + v))
+    # an Array still has no group_fold
     with pytest.raises(KernelTraceError, match="group_reduce"):
         kernel(A_ROW, lambda a: a.group_fold(lambda r: r.g, lambda _k: 0, lambda acc, r: acc))
+    with pytest.raises(AttributeError):
+        _rows().group_fold(lambda r: r["g"], lambda _k: 0, lambda acc, r: acc)
 
 
 def test_group_extremes_are_array_only_like_eager():
@@ -889,9 +912,9 @@ _EMPTY_ARRAY_CASES = [
 ]
 
 _EMPTY_SET_CASES = [
-    ("group_fold", "Integer", "Integer",
-     lambda s: s.group_fold(lambda e: e.length(), lambda _k: 0, lambda acc, e: acc + 1),
-     lambda s: s.group_fold(lambda e: e.length(), lambda _k: 0, lambda acc, e: acc + 1)),
+    ("group_reduce", "Integer", "Integer",
+     lambda s: s.group_reduce(lambda e: e.length(), lambda _k: 0, lambda acc, e: acc + 1),
+     lambda s: s.group_reduce(lambda e: e.length(), lambda _k: 0, lambda acc, e: acc + 1)),
     # Set<String> counted to Integer: the degenerate bail said Dict<String,String>
     ("group_size", "String", "Integer",
      lambda s: s.group_size(lambda e: e), lambda s: s.group_size(lambda e: e)),
@@ -909,9 +932,9 @@ _EMPTY_SET_CASES = [
 _EMPTY_DICT_CASES = [
     # a BOOLEAN group key over a Dict<String,Float>, so BOTH type parameters
     # differ from the source — the degenerate bail leaked both
-    ("group_fold", "Boolean", "Float",
-     lambda d: d.group_fold(lambda k, v: v > 5.0, lambda _k: 0.0, lambda acc, k, v: acc + v),
-     lambda d: d.group_fold(lambda k, v: v > 5.0, lambda _k: 0.0, lambda acc, k, v: acc + v)),
+    ("group_reduce", "Boolean", "Float",
+     lambda d: d.group_reduce(lambda k, v: v > 5.0, lambda _k: 0.0, lambda acc, k, v: acc + v),
+     lambda d: d.group_reduce(lambda k, v: v > 5.0, lambda _k: 0.0, lambda acc, k, v: acc + v)),
     ("group_size", "Boolean", "Integer",
      lambda d: d.group_size(lambda k, v: v > 5.0), lambda d: d.group_size(lambda k, v: v > 5.0)),
     ("group_sum", "Boolean", "Float",
@@ -1056,10 +1079,10 @@ def test_an_untypeable_callback_on_empty_input_falls_back_per_parameter():
 def test_the_group_seed_really_receives_its_group_key(tag):
     """`init(group_key)` is documented to receive the KEY, and nothing pinned it.
 
-    Every other `group_reduce`/`group_fold` case seeds from a constant
-    (`lambda _k: 0`), so an implementation that passed the wrong thing — or
-    nothing — would leave the whole suite green. Seed each group FROM its key
-    so the result can only be right if the key arrived.
+    Every other `group_reduce` case seeds from a constant (`lambda _k: 0`),
+    so an implementation that passed the wrong thing — or nothing — would
+    leave the whole suite green. Seed each group FROM its key so the result
+    can only be right if the key arrived.
     """
     if tag == "array":
         rows = _rows()
@@ -1071,17 +1094,17 @@ def test_the_group_seed_really_receives_its_group_key(tag):
                                  lambda acc, r: acc + 1)
     elif tag == "set":
         s = _set_i()
-        got = _native(lambda x: x.group_fold(lambda e: e % 3, lambda k: k * 100,
-                                             lambda acc, e: acc + e),
+        got = _native(lambda x: x.group_reduce(lambda e: e % 3, lambda k: k * 100,
+                                               lambda acc, e: acc + e),
                       _G_SET, s)
-        want = s.group_fold(lambda e: e % 3, lambda k: k * 100, lambda acc, e: acc + e)
+        want = s.group_reduce(lambda e: e % 3, lambda k: k * 100, lambda acc, e: acc + e)
     else:
         d = _dict_kf()
-        got = _native(lambda x: x.group_fold(lambda k, v: v, lambda k: k * 1000.0,
-                                             lambda acc, k, v: acc + v),
+        got = _native(lambda x: x.group_reduce(lambda k, v: v, lambda k: k * 1000.0,
+                                               lambda acc, k, v: acc + v),
                       D_SF, d)
-        want = d.group_fold(lambda k, v: v, lambda k: k * 1000.0,
-                            lambda acc, k, v: acc + v)
+        want = d.group_reduce(lambda k, v: v, lambda k: k * 1000.0,
+                              lambda acc, k, v: acc + v)
     _same_dict(got, want)
     # ...and the seed must actually have moved the answer off the constant
     assert any(v != 0 for v in dict(got.items()).values())
