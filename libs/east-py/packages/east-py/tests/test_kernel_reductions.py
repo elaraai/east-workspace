@@ -360,7 +360,7 @@ def _builtin_count(traced, param_type, builtin):
     from east.serialization.json import encode_json_for
     from east.types.type_of_type import IRType
 
-    ir, _out = trace(traced, [param_type])
+    ir, _out, _binds = trace(traced, [param_type])
     encoded = encode_json_for(IRType)(ir)
     text = encoded.decode() if isinstance(encoded, bytes) else encoded
     return text.count(f'"{builtin}"')
@@ -381,7 +381,7 @@ def _builtin_count_inside_callbacks(traced, param_type, builtin):
     from east.kernel import trace
     from east.types.values import is_east_struct, is_east_variant
 
-    ir, _out = trace(traced, [param_type])
+    ir, _out, _binds = trace(traced, [param_type])
     hits = 0
 
     def walk(node, in_callback):

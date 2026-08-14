@@ -28,13 +28,13 @@ FT = FunctionType([IntegerType], IntegerType)
 
 
 def test_compile_from_value_attaches_the_source_ir():
-    ir, _ = trace(lambda x: x + 1, [IntegerType])
+    ir, _, _binds = trace(lambda x: x + 1, [IntegerType])
     fn = compile_from_value(ir)
     assert fn._east_ir is ir
 
 
 def test_a_compiled_function_round_trips_through_beast2():
-    ir, _ = trace(lambda x: x + 1, [IntegerType])
+    ir, _, _binds = trace(lambda x: x + 1, [IntegerType])
     fn = compile_from_value(ir)
     blob = call_builtin("BlobEncodeBeast2", [FT], [fn], BlobType)
     assert len(blob.data) > 0
@@ -59,7 +59,7 @@ def test_type_of_reads_declared_function_signatures():
     assert type_of(ef) == FT
 
     # A compiled kernel exposes it via its handle.
-    ir, _ = trace(lambda x: x + 1, [IntegerType])
+    ir, _, _binds = trace(lambda x: x + 1, [IntegerType])
     fn = compile_from_value(ir)
     assert type_of(fn) == FT
 

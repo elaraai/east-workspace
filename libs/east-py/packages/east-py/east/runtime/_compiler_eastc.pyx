@@ -24,7 +24,7 @@ from east._platform_bridge cimport register_platform_functions
 
 import asyncio
 
-from east.runtime.errors import EastError
+from east.runtime.errors import EastError, NonRetraceableCallError
 
 # Attribute name used to attach source IR to compiled functions.
 EAST_IR_ATTR = "_east_ir"
@@ -294,6 +294,48 @@ def native_kernel_for(object east_fn):
     thing to every consumer. Returns the native callable or None.
     """
     return _native_kernel_for(east_fn)
+
+
+def hold_function_value(uintptr_t fn_val_ptr):
+    """Retain an EAST_VAL_FUNCTION pointer as a bindable hold (#561).
+
+    The Call-lowering path records a traced call's callee by its C function
+    value; the returned hold carries ``_east_c_handle``, which the
+    Function-typed conversion fast-path (``_py_function_to_c``) passes
+    straight through at bind time. Released when the hold is collected.
+    """
+    cdef _eastc.EastValue* fv = <_eastc.EastValue*>fn_val_ptr
+    if fv == NULL or fv.kind != _eastc.EAST_VAL_FUNCTION:
+        raise ValueError("hold_function_value: not a function value")
+    _eastc.east_value_retain(fv)
+
+    class _FnValueHold:
+        __slots__ = ("_east_c_handle", "_released")
+
+        def __init__(self):
+            self._east_c_handle = fn_val_ptr
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_handle)
+
+    return _FnValueHold()
+
+
+def _try_lower_call(object handle, tuple args):
+    """Lower a proxy-argument call on a compiled function to traced Call IR.
+
+    The cold path behind a wrapper's ``NonRetraceableCallError``: asked
+    before re-raising, so a traced lambda calling this function splices a
+    native Call instead of failing (#561). Returns the traced expression or
+    None (no active trace / a shape lowering declines).
+    """
+    from east.kernel import _lower_compiled_call
+    return _lower_compiled_call(getattr(handle, "_fn_val", 0), handle._input_types,
+                                handle._output_type, args)
 
 
 def foreign_function_value(object east_fn):
@@ -1186,18 +1228,28 @@ def bind_kernel(object kernel_callable, tuple bound_values):
     from east.types.values import is_value_of
     for j in range(n_bound):
         expected = c_type_ptr_to_py_type(input_ptrs[first + j])
-        # SUBSUMPTION, not structural equality of a content-inferred type:
-        # ``type_of`` on a variant can only see the case the value holds, so
-        # an Option-bearing struct (a ``none`` field infers as a degenerate
-        # none-only variant) would never compare equal to its declared type —
-        # making such structs unbindable however they were built (#558 B).
-        # ``is_value_of`` asks the right question: does the VALUE conform to
-        # the DECLARED parameter type.
-        if not is_value_of(bound_values[j], expected):
+        # Declared-type equality first: O(1) for typed collections (their
+        # element types are carried, not inferred from contents — the #399
+        # zero-copy contract must not pay a per-element validation walk), and
+        # the only sound check for function values, whose contents cannot be
+        # inspected (#561). SUBSUMPTION via ``is_value_of`` — does the VALUE
+        # conform to the DECLARED parameter type — remains the fallback for
+        # everything content inference cannot prove: ``type_of`` on a variant
+        # can only see the case the value holds, so an Option-bearing struct
+        # (a ``none`` field infers as a degenerate none-only variant) never
+        # compares equal to its declared type (#558 B).
+        try:
             got = type_of(bound_values[j])
+        except TypeError:
+            got = None
+        if got is not None and got == expected:
+            continue
+        if not is_value_of(bound_values[j], expected):
+            shown = print_east(got, EastTypeType) if got is not None \
+                else type(bound_values[j]).__name__
             raise TypeError(
                 f"bind() value {j} has East type "
-                f"{print_east(got, EastTypeType)}, parameter {first + j} "
+                f"{shown}, parameter {first + j} "
                 f"expects {print_east(expected, EastTypeType)}"
             )
 
@@ -1276,8 +1328,16 @@ def bind_kernel(object kernel_callable, tuple bound_values):
     bound_handle = _EastCBoundHandle()
 
     def bound_fn(*args):
-        return _eastc_call(bound_handle._compiled, bound_handle._input_types,
-                           bound_handle._output_type, args)
+        try:
+            return _eastc_call(bound_handle._compiled, bound_handle._input_types,
+                               bound_handle._output_type, args)
+        except NonRetraceableCallError:
+            # Called with trace proxies: lower to a native IR Call in the
+            # surrounding trace instead of failing (#561).
+            lowered = _try_lower_call(bound_handle, args)
+            if lowered is None:
+                raise
+            return lowered
 
     object.__setattr__(bound_fn, "_eastc_handle", bound_handle)
     # Keep the inner kernel callable and the bound python values alive: the
@@ -1386,8 +1446,16 @@ cdef object _make_callable_from_value(_eastc.EastValue* fn_val,
         return eastc_fn_async
     else:
         def eastc_fn(*args):
-            return _eastc_call(handle._compiled, handle._input_types,
-                               handle._output_type, args)
+            try:
+                return _eastc_call(handle._compiled, handle._input_types,
+                                   handle._output_type, args)
+            except NonRetraceableCallError:
+                # Called with trace proxies: lower to a native IR Call in the
+                # surrounding trace instead of failing (#561).
+                lowered = _try_lower_call(handle, args)
+                if lowered is None:
+                    raise
+                return lowered
 
         object.__setattr__(eastc_fn, EAST_IR_ATTR, py_ir)
         object.__setattr__(eastc_fn, EAST_CAPTURES_ATTR, {})
@@ -1437,9 +1505,10 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
             if heap_allocated:
                 free(c_args)
             # Cold path: if the failing argument is a trace-time proxy, the
-            # caller is a traced lambda trying to RE-TRACE this compiled
-            # function — name that instead of the opaque conversion error,
-            # and give try_push_down a cause it can decline-and-fall-back on.
+            # caller is a traced lambda calling this compiled function —
+            # lower the call to a native IR Call in the surrounding trace
+            # (#561); when lowering declines, name the actual problem and
+            # give try_push_down a cause it can decline-and-fall-back on.
             from east.kernel import KernelExpr as _KernelExpr
             found_proxy = False
             for j in range(nargs):
@@ -1447,7 +1516,11 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
                     found_proxy = True
                     break
             if found_proxy:
-                from east.runtime.errors import NonRetraceableCallError
+                from east.kernel import _lower_compiled_call
+                lowered = _lower_compiled_call(val_ptr, input_type_ptrs,
+                                               output_type_ptr, args)
+                if lowered is not None:
+                    return lowered
                 raise NonRetraceableCallError(
                     "a compiled/bound East function cannot be re-traced inside "
                     "another trace — call it from python (per-element), or pass "

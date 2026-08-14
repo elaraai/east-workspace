@@ -796,11 +796,13 @@ class EagerEvaluator:
         p = clo.payload
         param_types = [self.canon(v.value["type"]) for v in p["parameters"]]
         try:
-            ir_value_, _out = trace(self._replay_fn(clo), param_types)
+            ir_value_, _out, binds = trace(self._replay_fn(clo), param_types)
         except (KernelTraceError, _Unsupported) as e:
             self.report.untraceable[str(e)[:80]] += 1
             return None
-        return compile_from_value(ir_value_)
+        compiled_cb = compile_from_value(ir_value_)
+        # Called compiled functions ride as hidden trailing parameters (#561).
+        return compiled_cb.bind(*binds) if binds else compiled_cb
 
     # ── builtin dispatch ──
 
