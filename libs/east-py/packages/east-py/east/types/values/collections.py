@@ -997,10 +997,11 @@ class EastArray(MutableSequence, Generic[T]):
         Returns:
             None.
         """
+        from east.kernel import _sequence_effect
         from east.types.types import IntegerType, NullType
 
-        run = (lambda el, idx: (fn(el, idx), east_null)[1]) if _callback_arity(fn, 1) >= 2 \
-            else (lambda el, idx: (fn(el), east_null)[1])
+        run = (lambda el, idx: _sequence_effect(fn(el, idx))) if _callback_arity(fn, 1) >= 2 \
+            else (lambda el, idx: _sequence_effect(fn(el)))
         callback = EastFunction(run, [self.element_type, IntegerType], NullType)
         _call_builtin("ArrayForEach", [self.element_type, NullType], [self, callback], NullType)
 
@@ -2123,9 +2124,10 @@ class EastSet(Generic[T]):
         Args:
             fn: ``fn(element)``; its return value is discarded.
         """
+        from east.kernel import _sequence_effect
         from east.types.types import NullType
 
-        callback = EastFunction(lambda el: (fn(el), east_null)[1], [self.element_type], NullType)
+        callback = EastFunction(lambda el: _sequence_effect(fn(el)), [self.element_type], NullType)
         _call_builtin("SetForEach", [self.element_type, NullType], [self, callback], NullType)
 
     def to_array(self, key: Any = None) -> EastArray:
@@ -3566,9 +3568,10 @@ class EastDict(Generic[K, V]):
                 key order under East's total ordering. Its return value is
                 ignored.
         """
+        from east.kernel import _sequence_effect
         from east.types.types import NullType
 
-        callback = EastFunction(lambda v, k: (fn(k, v), east_null)[1], [self.value_type, self.key_type], NullType)
+        callback = EastFunction(lambda v, k: _sequence_effect(fn(k, v)), [self.value_type, self.key_type], NullType)
         _call_builtin("DictForEach", [self.key_type, self.value_type, NullType], [self, callback], NullType)
 
     def map(self, fn: Any, out: EastType | None = None) -> EastDict:

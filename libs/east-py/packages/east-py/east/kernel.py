@@ -3670,6 +3670,30 @@ def _k_block(t: EastType, statements: list):
     }))
 
 
+def _sequence_effect(result: Any):
+    """The ``for_each`` wrapper contract: evaluate for effect, yield null.
+
+    On the eager per-element path the callback has already RUN — its value is
+    simply discarded. On the traced path the callback returns an EXPRESSION,
+    and discarding it (the old ``(fn(el), east_null)[1]`` tuple) erased the
+    effect from the compiled loop — a pure callback emitting through the
+    runner's native sink compiled to a null body and every row was silently
+    dropped (#565). A Null-typed expression IS the body; any other type
+    sequences through a Block so the call executes and the callback still
+    types as ``-> Null``.
+    """
+    if isinstance(result, KernelExpr):
+        if result.east_type.type == "Null":
+            return result
+        from east.types.types import NullType
+
+        return KernelExpr(
+            _k_block(NullType, [result.ir, _literal(None, NullType)]), NullType)
+    from east.types.values import east_null
+
+    return east_null
+
+
 def _k_match(t: EastType, subject, cases: list):
     return EastVariant("Match", EastStruct({
         "type": t, "loc_id": 0, "variant": subject,
@@ -4187,6 +4211,10 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     if value is where or value is bool or value is isinstance or value is abs:
         return True
     if value is greatest or value is least:
+        return True
+    # kernel.py's own for_each sequencing shim (#565) — pure by construction,
+    # and the wrappers that reference it must keep pushing down.
+    if value is _sequence_effect:
         return True
     if value is KernelExpr:
         return True
