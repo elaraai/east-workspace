@@ -28,12 +28,14 @@ import {
     ArrayType,
     BooleanType,
     FunctionType,
+    IntegerType,
     OptionType,
     StringType,
     StructType,
     VariantType,
     variant,
     some,
+    none,
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
@@ -44,6 +46,7 @@ import {
     PlanDrillType,
     PlanExpandType,
     PlanRowType,
+    PlanPagedSourceType,
     PlanLaneType,
     PlanBucketEventType,
     PlanCellMarkerType,
@@ -292,10 +295,7 @@ function seriesScaffold(
     leaf: ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>>,
 ): ExprType<FunctionType<[ArrayType<StructType>], ArrayType<PlanRowType>>> {
     return East.function([ArrayType(rowType)], ArrayType(PlanRowType), ($, rows) => {
-        const matched = $.let(
-            matchedRows(rows as ExprType<ArrayType<StructType>>, rowType, match),
-            ArrayType(rowType),
-        ) as ExprType<ArrayType<StructType>>;
+        const matched = $.let(matchedRows(rows, rowType, match), ArrayType(rowType));
         if (groupBy === undefined || groupBy.length === 0 || parentFn === undefined) {
             return flatMapRowsBlock(matched, PlanRowType, leaf);
         }
@@ -554,4 +554,53 @@ export function createSeriesRows<R extends StructType>(rowType: R, rows: PlanRow
  */
 export function seriesRowType(data: ExprType<ArrayType<StructType>>): StructType {
     return (Expr.type(data) as ArrayType<StructType>).value;
+}
+
+/**
+ * The loose TS face a bound paged handle presents to the `data` prop —
+ * structural only (`page` / `total` properties, which concrete handle
+ * `StructExpr`s expose and array expressions don't); the factory's
+ * `Expr.type` dispatch is the real check.
+ */
+export interface PlanPagedHandleLike {
+    /** The handle's page method (typed precisely on the concrete handle). */
+    readonly page: unknown;
+    /** The handle's total method. */
+    readonly total: unknown;
+}
+
+/** The loose TS face of an author's paged handle (`page` / `total` fields). */
+type PagedHandleExpr = ExprType<StructType<{
+    page: FunctionType<[IntegerType, IntegerType], OptionType<ArrayType<StructType>>>;
+    total: FunctionType<[], OptionType<IntegerType>>;
+}>>;
+
+/**
+ * Derive the CANVAS-ROW paged source from an author's paged handle
+ * (`Data.bindPaged(ops)` — or any structurally matching handle): `page` is
+ * the handle's page wrapped with the series' `make`s (each window's typed
+ * domain rows become canvas rows client-side), `total` passes through.
+ * The single place the domain row type is erased.
+ *
+ * @param handle - The author's paged handle expression
+ * @param series - The canvas's series
+ * @returns A `PlanPagedSourceType` value for the root's `source` arm
+ */
+export function derivePagedSource(
+    handle: ExprType<StructType>,
+    series: PlanSeriesInput,
+): ExprType<PlanPagedSourceType> {
+    const h = handle as unknown as PagedHandleExpr;
+    const page = East.function([IntegerType, IntegerType], OptionType(ArrayType(PlanRowType)), ($, offset, limit) => {
+        const noWin = $.const(none, OptionType(ArrayType(PlanRowType)));
+        const win = $.let(h.page(offset, limit));
+        return win.match({
+            some: ($2, rows) => {
+                const built = $2.let(applySeries(series, rows as ExprType<ArrayType<StructType>>), ArrayType(PlanRowType));
+                return East.value(some(built), OptionType(ArrayType(PlanRowType)));
+            },
+            none: (_$2) => noWin,
+        });
+    });
+    return East.value({ page, total: h.total }, PlanPagedSourceType);
 }

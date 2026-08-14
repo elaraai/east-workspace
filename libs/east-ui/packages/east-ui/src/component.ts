@@ -239,7 +239,7 @@ import {
     PlanAxisType,
     PlanGrainType,
     PlanLinkType,
-    PlanRowType,
+    PlanRowsType,
     PlanTemplateType,
     PlanJourneyType,
     PlanElementRefType,
@@ -1108,7 +1108,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // and the review summary ride the recursion `node` — mirror
     // `PlanRootType` in `collections/plan/ir.ts`.
     Plan: StructType({
-        rows: ArrayType(PlanRowType),
+        // Inline rows OR the derived paged source (§3.8) — pure data both ways.
+        rows: PlanRowsType,
         // Mirror `PlanRootType.links` — the R1 link graph.
         links: ArrayType(PlanLinkType),
         axis: PlanAxisType,

@@ -1039,6 +1039,38 @@ export type PlanRowType = typeof PlanRowType;
 export type PlanRowsValue = ExprType<ArrayType<PlanRowType>>;
 
 /**
+ * The paged source of a `data` + `series` canvas — a DERIVED paged handle
+ * at the CANVAS-ROW type (`Plan Data Interface.md` §3.8). The factory
+ * builds it from the author's `Data.bindPaged` handle (or any structurally
+ * matching paged handle): `page` is the handle's page wrapped with the
+ * series' `make` functions, `total` passes through. The renderer only ever
+ * sees typed canvas-row windows — no bytes, no domain types.
+ *
+ * @property page - `(offset, limit)` → the window's canvas rows (`none` = loading; re-render retries)
+ * @property total - The source's total element count, once known
+ */
+export const PlanPagedSourceType = StructType({
+    page:  FunctionType([IntegerType, IntegerType], OptionType(ArrayType(PlanRowType))),
+    total: FunctionType([], OptionType(IntegerType)),
+});
+/** Type alias for {@link PlanPagedSourceType}. */
+export type PlanPagedSourceType = typeof PlanPagedSourceType;
+
+/**
+ * The root's rows channel — inline rows (today's path, and what the
+ * `data`+`series` inline arm collapses to), or the paged source.
+ *
+ * @property rows - The flat canvas rows, inline
+ * @property source - The derived paged source (§3.8)
+ */
+export const PlanRowsType = VariantType({
+    rows:   ArrayType(PlanRowType),
+    source: PlanPagedSourceType,
+});
+/** Type alias for {@link PlanRowsType}. */
+export type PlanRowsType = typeof PlanRowsType;
+
+/**
  * One row-library template — a kind + label card whose `make` function IS
  * the binding: it builds the live row subtree (`ArrayType(PlanRowType)` —
  * the same flattened shape every kind factory returns) from captured data

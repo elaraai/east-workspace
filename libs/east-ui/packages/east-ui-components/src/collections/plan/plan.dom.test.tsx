@@ -80,9 +80,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown }): PlanRootValue {
     return {
-        rows,
+        rows: opts?.source !== undefined ? variant("source", opts.source) : variant("rows", rows),
         links: opts?.links ?? [],
         axis: {
             window: some({ min: W27, max: W39 }),
@@ -662,6 +662,32 @@ describe("Plan expand-in-place (R2)", () => {
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
         expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
         expect(container.querySelector('[data-plan-row="l4m14"]')).toBeTruthy();
+    });
+});
+
+describe("Plan paged source (P-c)", () => {
+    test("a paged source streams windows into the canvas; an empty window ends the stream", async () => {
+        const w1 = [
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("m2", spanKind([run("r2", new Date("2026-07-13Z"), new Date("2026-07-27Z"), variant("confirmed", null))])),
+        ];
+        const calls: bigint[] = [];
+        const source = {
+            // Window 0 carries the rows; the NEXT window is empty (= end).
+            page: (offset: bigint, _limit: bigint) => {
+                calls.push(offset);
+                return offset === 0n ? some(w1) : some([]);
+            },
+            total: () => none,
+        };
+        const { container } = renderPlan(planRoot([], { source }));
+        // The loader streams the prefix in an effect — rows appear after it.
+        await screen.findByText("R1");
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="m2"]')).toBeTruthy();
+        // Sequential prefix requests at PAGE_SIZE offsets, then done.
+        expect(calls[0]).toBe(0n);
+        expect(calls.length).toBeGreaterThanOrEqual(1);
     });
 });
 

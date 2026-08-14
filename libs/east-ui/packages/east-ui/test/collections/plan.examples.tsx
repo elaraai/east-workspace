@@ -10,6 +10,7 @@ import {
     DateTimeType,
     East,
     FloatType,
+    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -990,6 +991,67 @@ export const planSeriesData = example({
             <Plan
                 axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
                 data={ops}
+                series={series}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planSeriesPaged — the paged arm: a bound handle streams typed windows
+// ============================================================================
+
+export const planSeriesPaged = example({
+    keywords: ["Plan", "data", "series", "paged", "page", "total", "handle", "bindPaged", "windows", "source", "stream", "Series"],
+    description: "The paged data arm — `data` takes a bound paged handle (the Data.bindPaged shape: page(offset, limit) → Option<Array<OpsRow>>, total() → Option<Integer>); the factory derives the canvas-row source (each window's typed rows flow through the series makes client-side) and the renderer streams windows in as a prefix — here a hermetic pure-East handle over a captured array stands in for the e3 binding",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
+            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        const OpsRow = StructType({
+            id: StringType, line: StringType,
+            kind: VariantType({
+                machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
+            }),
+        });
+        const ops = $.const([
+            { id: "L1-M03", line: "Line 1", kind: variant("machine", { runs: [
+                Plan.run({ key: "b214", start: week(28n), end: week(31n), label: "RUN · B-214", quantity: "96 t", qty: 96, state: "in-progress" }),
+            ] }) },
+            { id: "L1-M04", line: "Line 1", kind: variant("machine", { runs: [
+                Plan.run({ key: "b208", start: week(27n), end: week(30n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
+            ] }) },
+            { id: "L2-M11", line: "Line 2", kind: variant("machine", { runs: [
+                Plan.run({ key: "b241", start: week(29n), end: week(33n), label: "RUN · B-241", quantity: "92 t", qty: 92, state: "confirmed" }),
+            ] }) },
+        ], ArrayType(OpsRow));
+        // A hermetic paged handle — the Data.bindPaged SHAPE as pure East
+        // functions over the captured array: the first window carries the
+        // rows, any later window is empty (= exhausted; `none` = loading).
+        const handle = $.const({
+            page: East.function([IntegerType, IntegerType], OptionType(ArrayType(OpsRow)), ($2, o, _l) => {
+                const empty = $2.const(some(East.value([], ArrayType(OpsRow))), OptionType(ArrayType(OpsRow)));
+                return o.equal(0n).ifElse(() => some(ops), () => empty);
+            }),
+            total: East.function([], OptionType(IntegerType), (_$2) => some(3n)),
+        }, StructType({
+            page: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(OpsRow))),
+            total: FunctionType([], OptionType(IntegerType)),
+        }));
+        const series = $.const([
+            Plan.series.span(OpsRow, {
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => r.kind.unwrap("machine").runs,
+                groupBy: [r => r.line], rollup: "union", unit: "t",
+            }),
+        ], ArrayType(Plan.Types.Series(OpsRow)));
+        return (
+            <Plan
+                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
+                data={handle}
                 series={series}
             />
         );

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Plan, Text } from "@elaraai/east-ui/internal";
 import { Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -65,6 +65,7 @@ describeEast("Plan", (test) => {
         planEventRows: ex.planEventRows,
         planGroupedRows: ex.planGroupedRows,
         planSeriesData: ex.planSeriesData,
+        planSeriesPaged: ex.planSeriesPaged,
         planLibraryDnd: ex.planLibraryDnd,
     });
 
@@ -678,7 +679,7 @@ describeEast("Plan", (test) => {
                 }),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows);
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         // Span family first (L1 rollup parent + its two machines — the crew
         // row filtered out by match), then the cards family.
         $(Assert.equal(rows.length(), 4n));
@@ -706,7 +707,7 @@ describeEast("Plan", (test) => {
             Plan.series.rows(OPS_ROW, [Plan.events({ key: "ms", label: "MS" })]),
         ], ArrayType(Plan.Types.Series(OPS_ROW)));
         const p = $.let(Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: ops, series }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows);
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         $(Assert.equal(rows.length(), 2n));
         $(Assert.equal(rows.get(0n).key, "m1"));
         $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.length(), 1n));
@@ -733,7 +734,7 @@ describeEast("Plan", (test) => {
                 ]),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows);
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         $(Assert.equal(rows.length(), 3n));
         $(Assert.equal(rows.get(0n).key, "ms"));
         $(Assert.equal(rows.get(1n).key, "crews"));
@@ -741,6 +742,42 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(1n).gutter.meta.unwrap("some"), "1 rs"));
         $(Assert.equal(rows.get(2n).key, "crewA"));
         $(Assert.equal(rows.get(2n).parent.unwrap("some"), "crews"));
+    });
+
+    test("a paged data handle derives the canvas-row source — page wraps the series makes, total passes through", $ => {
+        const ops = $.const([
+            { id: "m1", line: "L1", kind: variant("machine", { runs: [
+                Plan.run({ key: "r1", start: W27, end: W29, label: "R1", state: "actual" })] }) },
+        ], ArrayType(OPS_ROW));
+        // A hermetic paged handle — pure East fns windowing the captured
+        // array (the shape Data.bindPaged produces; no platform involved).
+        const handle = $.const({
+            page: East.function([IntegerType, IntegerType], OptionType(ArrayType(OPS_ROW)), ($2, o, _l) => {
+                const noPage = $2.const(none, OptionType(ArrayType(OPS_ROW)));
+                return o.equal(0n).ifElse(() => some(ops), () => noPage);
+            }),
+            total: East.function([], OptionType(IntegerType), (_$2) => some(1n)),
+        }, StructType({
+            page: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(OPS_ROW))),
+            total: FunctionType([], OptionType(IntegerType)),
+        }));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data: handle,
+            series: [Plan.series.span(OPS_ROW, {
+                key: r => r.id, label: r => r.id,
+                runs: r => r.kind.unwrap("machine").runs,
+            })],
+        }));
+        // The stored source is the DERIVED handle at the canvas-row type.
+        const src = $.let(p.unwrap().unwrap("Plan").rows.unwrap("source"));
+        $(Assert.equal(src.total().unwrap("some"), 1n));
+        const w0 = $.let(src.page(0n, 100n));
+        $(Assert.equal(w0.unwrap("some").length(), 1n));
+        $(Assert.equal(w0.unwrap("some").get(0n).key, "m1"));
+        $(Assert.equal(w0.unwrap("some").get(0n).kind.unwrap("span").runs.length(), 1n));
+        // A window the author's handle can't serve stays none (loading).
+        $(Assert.equal(src.page(1n, 100n).hasTag("none"), true));
     });
 
     // =========================================================================

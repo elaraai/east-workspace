@@ -35,6 +35,7 @@ import { DensityProvider } from "../../contracts/density.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers } from "./context.js";
+import { usePlanPagedRows } from "./use-paged-rows.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
     initialPlanState, planReducer,
@@ -141,6 +142,15 @@ function dataExtent(rows: ReadonlyArray<PlanRowValue>): { min: Date; max: Date }
 
 /** Renders an East Plan value — the composite temporal canvas. */
 export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }: EastChakraPlanProps) {
+    // ── The rows channel: inline rows, or the derived paged source (§3.8)
+    //    streamed in as a contiguous prefix by the loader hook. ──────────────
+    const pagedSource = value.rows.type === "source" ? value.rows.value : undefined;
+    const paged = usePlanPagedRows(pagedSource);
+    const rows = useMemo(
+        () => (value.rows.type === "rows" ? value.rows.value : paged.rows),
+        [value.rows, paged.rows],
+    );
+
     // ── Slice chrome (the Table adopter pattern; chrome-only) ─────────────
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const slice = chrome !== undefined ? (chrome.slice as SliceBindValue) : undefined;
@@ -173,7 +183,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         let window: PlanWindow | undefined = sliceRange ?? axisWindow;
         let res: PlanResolution;
         if (window === undefined) {
-            const extent = dataExtent(value.rows);
+            const extent = dataExtent(rows);
             if (extent === undefined) return undefined;
             res = effectiveResolution(declaredResolution, extent);
             // Extend the fitted extent to whole periods, half-open.
@@ -185,10 +195,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const now = getSomeorUndefined(value.axis.now);
         const format = getSomeorUndefined(value.axis.format);
         return planScale(window, res, now, format);
-    }, [sliceRange, axisWindow, declaredResolution, value.rows, value.axis.now, value.axis.format]);
+    }, [sliceRange, axisWindow, declaredResolution, rows, value.axis.now, value.axis.format]);
 
     // ── The one state machine ─────────────────────────────────────────────
-    const index = useMemo(() => indexRows(value.rows), [value.rows]);
+    const index = useMemo(() => indexRows(rows), [rows]);
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
     // rollups / aggregates / summaries; the numbers are computed here.
     const derived = useMemo(() => derivePlan(index), [index]);
