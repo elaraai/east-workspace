@@ -34,7 +34,7 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
-import { PlanScaleContext, PlanDispatchContext } from "./context.js";
+import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers } from "./context.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
     initialPlanState, planReducer,
@@ -230,19 +230,25 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             ? { kind: "links", key: ui.focus.key, family: linkFamily?.all }
             : { kind: "expand", key: ui.focus.key };
     }, [ui.focus, linkFamily]);
-    // The focused expand row's developer render — evaluated once per focus.
+    // The focused expand row's developer render — the ROOT's `expandRender`
+    // resolver called with the row ref (rows only DECLARE `{ height, axis }`),
+    // evaluated once per focus.
+    const expandRenderFn = useMemo(() => getSomeorUndefined(value.expandRender), [value.expandRender]);
     const expandBody = useMemo(() => {
-        if (ui.focus?.kind !== "expand") return null;
-        const row = index.byKey.get(ui.focus.key);
-        const expand = row !== undefined && row.expand.type === "some" ? row.expand.value : undefined;
-        if (expand === undefined) return null;
+        if (ui.focus?.kind !== "expand" || expandRenderFn === undefined) return null;
         try {
-            return expand.render();
+            return expandRenderFn({ key: ui.focus.key });
         } catch (err) {
-            console.error("[Plan] expand render failed:", err);
+            console.error("[Plan] expandRender resolver failed:", err);
             return null;
         }
-    }, [ui.focus, index]);
+    }, [ui.focus, expandRenderFn]);
+    // The generalized element resolvers (popover / hover) — threaded to the
+    // row renderers; elements invoke them lazily at interaction time.
+    const resolvers = useMemo<PlanResolvers>(() => ({
+        popover: getSomeorUndefined(value.popover),
+        hover: getSomeorUndefined(value.hover),
+    }), [value.popover, value.hover]);
 
     const scaleRef = useRef(scale);
     scaleRef.current = scale;
@@ -390,7 +396,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 active: ui.focus?.kind === "links" && ui.focus.key === v.row.key,
                 onClick: () => dispatch({ t: "focus.links", key: v.row.key }),
             }] : []),
-            ...(v.row.expand.type === "some" ? [{
+            ...(v.row.expand.type === "some" && expandRenderFn !== undefined ? [{
                 kind: "expand" as const,
                 active: ui.focus?.kind === "expand" && ui.focus.key === v.row.key,
                 onClick: () => dispatch({ t: "focus.expand", key: v.row.key }),
@@ -504,7 +510,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 );
         }
     }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
-        focusCtx, linkedKeys, linkFamily, expandBody]);
+        focusCtx, linkedKeys, linkFamily, expandRenderFn]);
 
     // R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
     // rows (their count rides beside the icon, worst hidden tone at right);
@@ -579,6 +585,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const body = (
         <PlanScaleContext.Provider value={scale}>
             <PlanDispatchContext.Provider value={dispatch}>
+            <PlanResolversContext.Provider value={resolvers}>
                 <Box
                     ref={focusBodyRef}
                     tabIndex={0}
@@ -644,6 +651,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             scale={scale} runDates={runDates} />
                     )}
                 </Box>
+            </PlanResolversContext.Provider>
             </PlanDispatchContext.Provider>
         </PlanScaleContext.Provider>
     );

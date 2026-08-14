@@ -17,24 +17,31 @@
  * on the way.
  *
  * This file holds only plain data — no UIComponent slots — so `component.ts`
- * can import it without a circular dependency. The shapes that do carry a
- * `popover` / `hovercard` / `summary` component slot (runs, bucket events,
- * chips, event marks, the row kind / row, templates, journeys, review, the
- * root) follow the container convention instead: resolved at
- * `UIComponentType` in `./index.ts`, and spelled inline with the recursion
- * `node` in the `Plan` arm of `component.ts`, mirror comments keeping the
- * two in lockstep (every factory-built value is subtype-checked against the
- * arm when the `Plan` variant is constructed, so drift fails the specs).
+ * can import it without a circular dependency. Since the data-interface
+ * redesign (`Plan Data Interface.md` §3.2/§3.3) that includes the WHOLE row
+ * vocabulary: elements (runs, bucket events, chips, event marks, decisions),
+ * the row kind, the row itself, templates and journeys carry **no
+ * `UIComponentType` and no per-element UI embeds** — rich surfaces resolve
+ * through the ROOT's `popover` / `hover` / `expandRender` functions over
+ * {@link PlanElementRefType} / row refs (the `journeys` pattern), so a row is
+ * a storable, pageable dataset element. Only the root, review and the
+ * resolver signatures stay UIComponent-coupled (`./ir.ts`, mirrored inline
+ * with the recursion `node` in the `Plan` arm of `component.ts` — every
+ * factory-built value is subtype-checked against the arm when the `Plan`
+ * variant is constructed, so drift fails the specs).
  *
  * @packageDocumentation
  */
 
 import {
+    type ExprType,
     type SubtypeExprOrValue,
     ArrayType,
     BooleanType,
     DateTimeType,
     FloatType,
+    FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -43,11 +50,16 @@ import {
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
+import { IconType } from "../../display/icon/types.js";
+import { ColorSchemeType } from "../../style/scheme.js";
+import { EventStateType } from "../../contracts/states.js";
+import { ApprovalStateType } from "../../contracts/approval.js";
 import { TickFormatType } from "../../format/types.js";
 import { TimeResolutionType, type TimeResolutionLiteral } from "../../contracts/time.js";
 import { ValueFormatType } from "../../contracts/format.js";
 import { ChartDomainType, ChartTickValuesType } from "../../charts/spec/index.js";
 import { MatrixFillType } from "../matrix/types.js";
+import { TableAggregateType } from "../table/types.js";
 import { DensityType } from "../../style/interaction.js";
 
 // ============================================================================
@@ -659,6 +671,32 @@ export const PlanCellClickEventType = StructType({ row: StringType, at: DateTime
 export type PlanCellClickEventType = typeof PlanCellClickEventType;
 
 /**
+ * One canvas element, by reference — the subject of the root's generalized
+ * `popover` / `hover` resolvers (`Plan Data Interface.md` §3.3). Every arm
+ * reuses its click-event payload, so each ref carries the row key plus the
+ * element key; one resolver function covers every element kind.
+ *
+ * @remarks
+ * Span decision diamonds ride the `mark` arm (mark keys are unique per row).
+ * A resolver returning `none` for a ref opens no surface — per-element
+ * presence is the author's decision, made lazily at interaction time.
+ *
+ * @property run - A span run bar (`{ row, run }`)
+ * @property event - A bucket-event tile (`{ row, event }`)
+ * @property chip - A cards chip (`{ row, chip }`)
+ * @property mark - An event-row mark or span decision diamond (`{ row, mark }`)
+ * @property cell - A heat / table / weight / segment bucket cell (`{ row, at }`)
+ */
+export const PlanElementRefType = VariantType({
+    run:   PlanRunClickEventType,
+    event: PlanEventClickEventType,
+    chip:  PlanChipClickEventType,
+    mark:  PlanMarkClickEventType,
+    cell:  PlanCellClickEventType,
+});
+export type PlanElementRefType = typeof PlanElementRefType;
+
+/**
  * The `onGroupToggle` payload — a group strip was expanded or collapsed
  * (fires after the in-place swap).
  *
@@ -771,6 +809,273 @@ export type PlanExpandAxisType = typeof PlanExpandAxisType;
 
 /** String-literal shorthand for {@link PlanExpandAxisType}. */
 export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
+
+// ============================================================================
+// Elements + rows — the data-only row vocabulary (pageable dataset shapes)
+// ============================================================================
+
+/**
+ * One span run — a continuous `[start, end)` state-run bar
+ * (`"RUN · B-214 · 96 t"`). Runs are quantity-bearing states, not tasks: no
+ * dependency arrows, no critical path.
+ *
+ * @remarks
+ * `quantity` is the displayed `.q` suffix (`"96 t"`); `qty` is the optional
+ * numeric twin the renderer sums into parent rollup bands — display and
+ * arithmetic deliberately separate. `state` is the shared `EventStateType`
+ * lifecycle driving the bar recipe; `status: warning` adds the `.stuck`
+ * warn ring; `moved` collapses same-status churn to a `moved ×k` counter.
+ * Rich click/hover surfaces resolve through the ROOT's `popover` / `hover`
+ * functions with the `run` arm of {@link PlanElementRefType}.
+ */
+export const PlanRunType = StructType({
+    key: StringType,
+    start: DateTimeType,
+    end: DateTimeType,
+    label: StringType,
+    quantity: OptionType(StringType),
+    qty: OptionType(FloatType),
+    state: EventStateType,
+    status: OptionType(StatusValueType),
+    moved: OptionType(IntegerType),
+    icon: OptionType(IconType),
+});
+/** Type alias for {@link PlanRunType}. */
+export type PlanRunType = typeof PlanRunType;
+
+/**
+ * One decision mark — the ◇/◆ diamond sitting on the run transition it
+ * fires (`applied` fills it). Decision detail resolves through the root's
+ * `popover` with the `mark` arm of {@link PlanElementRefType}.
+ */
+export const PlanDecisionMarkType = StructType({
+    key: StringType,
+    at: DateTimeType,
+    applied: BooleanType,
+});
+/** Type alias for {@link PlanDecisionMarkType}. */
+export type PlanDecisionMarkType = typeof PlanDecisionMarkType;
+
+/**
+ * One bucket-event tile — the full Planner point-event grammar carried over
+ * whole (everything `PlannerEventType` had except the slot-coordinate
+ * variant — the axis is always the shared time scale — and `endSlot` —
+ * multi-bucket spans are span rows).
+ *
+ * @remarks
+ * `label: none` ⇒ the resting look — a ✓ chip for confirmed/actual, the
+ * dashed `plan` chip for proposed. `icon` with `label: none` ⇒ an icon-only
+ * tile. In a laned row, `lane: none` is the mixed grammar — the tile takes
+ * the full cell across lanes. Rich surfaces resolve through the root's
+ * `popover` / `hover` with the `event` arm of {@link PlanElementRefType}.
+ */
+export const PlanBucketEventType = StructType({
+    key: StringType,
+    at: DateTimeType,
+    lane: OptionType(StringType),
+    label: OptionType(StringType),
+    icon: OptionType(IconType),
+    state: EventStateType,
+    tone: OptionType(StatusValueType),
+    color: OptionType(StringType),
+    colorPalette: OptionType(ColorSchemeType),
+    stretch: OptionType(PlanStretchType),
+    content: OptionType(PlanContentType),
+    animation: OptionType(PlanAnimationType),
+});
+/** Type alias for {@link PlanBucketEventType}. */
+export type PlanBucketEventType = typeof PlanBucketEventType;
+
+/**
+ * One cards chip — a Roster shift chip spanning whole buckets. `confirmed`
+ * renders the brand-tint chip, proposals dashed (`+64h`),
+ * `proposed(removed)` the warn strikethrough, `estimated` the faint ghost a
+ * tap would accept. Chip detail resolves through the root's `popover` with
+ * the `chip` arm of {@link PlanElementRefType}.
+ */
+export const PlanChipType = StructType({
+    key: StringType,
+    from: DateTimeType,
+    to: DateTimeType,
+    label: StringType,
+    state: EventStateType,
+    icon: OptionType(IconType),
+});
+/** Type alias for {@link PlanChipType}. */
+export type PlanChipType = typeof PlanChipType;
+
+/**
+ * One event-row mark — ● milestone · ◇/◆ decision · ▲ exception at an
+ * instant. Clusters collapse to `◇ ×3` in the renderer; labels print when
+ * there is room. `icon` swaps the kind's default glyph for an FA icon
+ * (12px, still kind-coloured) — hosts choose the glyph, never the geometry.
+ * Mark detail resolves through the root's `popover` with the `mark` arm of
+ * {@link PlanElementRefType}.
+ */
+export const PlanEventMarkType = StructType({
+    key: StringType,
+    at: DateTimeType,
+    kind: PlanEventMarkKindType,
+    icon: OptionType(IconType),
+    label: OptionType(StringType),
+});
+/** Type alias for {@link PlanEventMarkType}. */
+export type PlanEventMarkType = typeof PlanEventMarkType;
+
+/**
+ * One bucket-row lane — a sub-slot within each column cell (`AM`/`PM`).
+ * `label: none` renders an unlabelled lane strip.
+ */
+export const PlanLaneType = StructType({
+    key: StringType,
+    label: OptionType(StringType),
+});
+/** Type alias for {@link PlanLaneType}. */
+export type PlanLaneType = typeof PlanLaneType;
+
+/**
+ * A row's expand-in-place declaration (R2) — pure data: the row grows and
+ * the ROOT's `expandRender` resolver builds the mounted body when the
+ * `expand` control fires. `height` is the developer region's minimum, a CSS
+ * px size (`none` ⇒ the renderer default); `axis` chooses how the shared
+ * grid + now-line run through the focused row's own plot.
+ */
+export const PlanExpandType = StructType({
+    height: OptionType(StringType),
+    axis: PlanExpandAxisType,
+});
+/** Type alias for {@link PlanExpandType}. */
+export type PlanExpandType = typeof PlanExpandType;
+
+/**
+ * The eight-arm row kind — `group · span · buckets · chart · heat · table ·
+ * cards · events` — each keeping its source component's rendered surface.
+ *
+ * @remarks
+ * `span` positions continuously (real datetimes, may cross bucket edges);
+ * `buckets` / `heat` / `table` / `cards` quantise to the bucket grid;
+ * `chart` draws per-bucket and continuous marks; `events` places instant
+ * marks; `group` is the heterogeneous container whose collapsed form is
+ * its `summary` heat strip.
+ */
+export const PlanRowKindType = VariantType({
+    group: StructType({
+        summary: OptionType(PlanHeatCellsType),
+        summaryAggregate: OptionType(PlanAggregateType),
+        collapsed: OptionType(BooleanType),
+    }),
+    span: StructType({
+        runs: ArrayType(PlanRunType),
+        decisions: ArrayType(PlanDecisionMarkType),
+        ports: ArrayType(PlanPortType),
+        rollup: OptionType(PlanRollupType),
+        unit: OptionType(StringType),
+    }),
+    buckets: StructType({
+        lanes: ArrayType(PlanLaneType),
+        events: ArrayType(PlanBucketEventType),
+        markers: ArrayType(PlanCellMarkerType),
+    }),
+    chart: StructType({
+        layers: ArrayType(PlanChartLayerType),
+        left: OptionType(PlanChartAxisType),
+        right: OptionType(PlanChartAxisType),
+        height: PlanChartHeightType,
+        /** Height the EXPANDED state opens to, a CSS px size like every
+         *  component height (`"120px"`; `none` ⇒ the 88px default). */
+        expandedHeight: OptionType(StringType),
+        expandable: OptionType(BooleanType),
+    }),
+    heat: StructType({
+        cells: PlanHeatCellsType,
+        aggregate: OptionType(PlanAggregateType),
+    }),
+    table: StructType({
+        series: ArrayType(PlanTableSeriesType),
+        split: PlanTableSplitType,
+        aggregate: OptionType(TableAggregateType),
+        format: OptionType(TickFormatType),
+        emphasis: PlanTableEmphasisType,
+    }),
+    cards: StructType({
+        chips: ArrayType(PlanChipType),
+    }),
+    events: StructType({
+        marks: ArrayType(PlanEventMarkType),
+    }),
+});
+/** Type alias for {@link PlanRowKindType}. */
+export type PlanRowKindType = typeof PlanRowKindType;
+
+/**
+ * One flat canvas row — a pure-data, storable, pageable dataset element
+ * (no `UIComponentType`, no `FunctionType`).
+ *
+ * @remarks
+ * Rows are flat, in depth-first order; `parent` keys encode the tree
+ * (depth structurally unlimited — the Table `groupBy` guarantee). `pinned`
+ * rows render above the virtualised body under the ruler; `height` is a
+ * fixed CSS-px override; `status` the quiet gutter dot; `approval` the
+ * review verdict (rendered only with the root's review chrome); `drill`
+ * the in-place 96px expansion payload; `expand` the R2 declaration (the
+ * render itself is the root's `expandRender` resolver).
+ */
+export const PlanRowType = StructType({
+    key: StringType,
+    parent: OptionType(StringType),
+    gutter: PlanGutterType,
+    kind: PlanRowKindType,
+    pinned: OptionType(BooleanType),
+    height: OptionType(StringType),
+    status: OptionType(StatusValueType),
+    approval: OptionType(ApprovalStateType),
+    drill: OptionType(PlanDrillType),
+    expand: OptionType(PlanExpandType),
+});
+/** Type alias for {@link PlanRowType}. */
+export type PlanRowType = typeof PlanRowType;
+
+/** The flattened-subtree shape every kind factory returns. */
+export type PlanRowsValue = ExprType<ArrayType<PlanRowType>>;
+
+/**
+ * One row-library template — a kind + label card whose `make` function IS
+ * the binding: it builds the live row subtree (`ArrayType(PlanRowType)` —
+ * the same flattened shape every kind factory returns) from captured data
+ * and bind-handles, so a dropped row is live immediately. Templates are
+ * plain East data: a host can store the library in a dataset.
+ */
+export const PlanTemplateType = StructType({
+    key: StringType,
+    label: StringType,
+    sublabel: OptionType(StringType),
+    kind: PlanTemplateKindType,
+    icon: OptionType(IconType),
+    make: FunctionType([], ArrayType(PlanRowType)),
+});
+/** Type alias for {@link PlanTemplateType}. */
+export type PlanTemplateType = typeof PlanTemplateType;
+
+/**
+ * The K8 journey overlay — one item's story: ancestors above, descendants
+ * below, quantity ribbons between run edges, decision diamonds on the
+ * transitions. Item families are domain data the canvas cannot derive, so
+ * the ITEM grain and the drilled row's `open item journey →` resolve
+ * through the root's `journeys` behavior prop at interaction time.
+ */
+export const PlanJourneyType = StructType({
+    title: StringType,
+    rows: ArrayType(StructType({
+        key: StringType,
+        label: StringType,
+        sublabel: OptionType(StringType),
+        runs: ArrayType(PlanRunType),
+    })),
+    ribbons: ArrayType(PlanJourneyRibbonType),
+    decisions: ArrayType(PlanDecisionMarkType),
+});
+/** Type alias for {@link PlanJourneyType}. */
+export type PlanJourneyType = typeof PlanJourneyType;
 
 // ============================================================================
 // TypeScript input interfaces (UIComp-free)

@@ -60,8 +60,6 @@ import {
     type PlanAxisSideLiteral,
     PlanBreachType,
     PlanRollupType,
-} from "./types.js";
-import {
     PlanRunType,
     PlanDecisionMarkType,
     PlanBucketEventType,
@@ -70,7 +68,7 @@ import {
     PlanLaneType,
     PlanRowKindType,
     type PlanRowsValue,
-} from "./ir.js";
+} from "./types.js";
 import { createHeatCells, resolveTag, type PlanHeatCellsOptions } from "./builders.js";
 import {
     type PlanRowBaseInput,

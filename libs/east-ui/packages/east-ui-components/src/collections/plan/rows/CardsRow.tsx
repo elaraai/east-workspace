@@ -10,13 +10,14 @@
  * dashed · `proposed(removed)` warn strikethrough · estimated ghost).
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
+import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale } from "../context.js";
-import { runStateKey, withOverlays } from "./SpanRow.js";
+import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { runStateKey } from "./SpanRow.js";
+import { ElementOverlays } from "./ElementOverlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type CardsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "cards" }>["value"];
@@ -54,9 +55,11 @@ export function CardsRow({ rowKey, kind, styles, storageKey }: CardsRowProps) {
                     </Box>
                 );
                 return (
-                    <Box as="span" key={chip.key} display="contents">
-                        {withOverlays(node, chip.popover, undefined, `${storageKey}.${chip.key}`)}
-                    </Box>
+                    <ElementOverlays key={chip.key}
+                        elementRef={variant("chip", { row: rowKey, chip: chip.key }) as PlanElementRefValue}
+                        storageKey={`${storageKey}.${chip.key}`}>
+                        {node}
+                    </ElementOverlays>
                 );
             })}
         </>

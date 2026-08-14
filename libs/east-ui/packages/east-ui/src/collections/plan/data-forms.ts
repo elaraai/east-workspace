@@ -43,15 +43,13 @@ import {
     type PlanAggregateLiteral,
     type PlanHeatCellsType,
     type PlanTableCellType,
-} from "./types.js";
-import {
     PlanExpandType,
     PlanRunType,
     PlanDecisionMarkType,
     PlanRowKindType,
     PlanRowType,
     type PlanRowsValue,
-} from "./ir.js";
+} from "./types.js";
 import { createHeatCells, resolveTag, type PlanHeatCellsOptions } from "./builders.js";
 import { PlanPortType } from "./types.js";
 import { rootsOf, applyRowOverrides, groupParentFn, type PlanGroupParentFn } from "./assemble.js";

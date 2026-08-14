@@ -9,15 +9,17 @@
  * and quantity ports. The §4.3 run-state truth table maps `EventStateType` to
  * the recipe `bar` slot's `data-state` axis; `status: warning` adds the
  * `.stuck` warn ring; a run ending past the window keeps its true geometry and
- * mask-fades (`data-runoff`) — never a fabricated end.
+ * mask-fades (`data-runoff`) — never a fabricated end. Popovers / hovercards
+ * resolve through the root's generalized resolvers ({@link ElementOverlays});
+ * decision diamonds ride the `mark` arm of the element ref.
  */
 
-import { useMemo, type ReactNode } from "react";
-import { Box, HoverCard, Popover, Portal } from "@chakra-ui/react";
-import { type ValueTypeOf } from "@elaraai/east";
+import { useMemo } from "react";
+import { Box } from "@chakra-ui/react";
+import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { EastChakraComponent } from "../../../component.js";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { ElementOverlays } from "./ElementOverlays.js";
 import type { DerivedBand } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -36,64 +38,7 @@ export function runStateKey(state: RunValue["state"]): "obs" | "appr" | "prop" |
     }
 }
 
-/** Wrap an element with its optional popover (click) / hovercard (hover). */
-export function withOverlays(
-    node: ReactNode,
-    popover: RunValue["popover"],
-    hovercard: RunValue["hovercard"] | undefined,
-    storageKey: string,
-): ReactNode {
-    const pop = popover.type === "some" ? popover.value : undefined;
-    const hover = hovercard !== undefined && hovercard.type === "some" ? hovercard.value : undefined;
-    if (pop === undefined && hover === undefined) return node;
-    const hoverBody = hover !== undefined ? (
-        <Portal>
-            <HoverCard.Positioner>
-                <HoverCard.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
-                    <EastChakraComponent value={hover} storageKey={`${storageKey}.hovercard`} />
-                </HoverCard.Content>
-            </HoverCard.Positioner>
-        </Portal>
-    ) : null;
-    const popBody = pop !== undefined ? (
-        <Portal>
-            <Popover.Positioner>
-                <Popover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
-                    <Popover.Body padding={0}>
-                        <EastChakraComponent value={pop} storageKey={`${storageKey}.popover`} />
-                    </Popover.Body>
-                </Popover.Content>
-            </Popover.Positioner>
-        </Portal>
-    ) : null;
-    if (pop !== undefined && hover !== undefined) {
-        return (
-            <Popover.Root positioning={{ placement: "top" }}>
-                <HoverCard.Root openDelay={150} positioning={{ placement: "top" }}>
-                    <Popover.Trigger asChild>
-                        <HoverCard.Trigger asChild>{node}</HoverCard.Trigger>
-                    </Popover.Trigger>
-                    {hoverBody}
-                </HoverCard.Root>
-                {popBody}
-            </Popover.Root>
-        );
-    }
-    if (hover !== undefined) {
-        return (
-            <HoverCard.Root openDelay={150} positioning={{ placement: "top" }}>
-                <HoverCard.Trigger asChild>{node}</HoverCard.Trigger>
-                {hoverBody}
-            </HoverCard.Root>
-        );
-    }
-    return (
-        <Popover.Root positioning={{ placement: "top" }}>
-            <Popover.Trigger asChild>{node}</Popover.Trigger>
-            {popBody}
-        </Popover.Root>
-    );
-}
+
 
 export interface SpanRowProps {
     rowKey: string;
@@ -148,9 +93,11 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                     </Box>
                 );
                 return (
-                    <Box as="span" key={run.key} display="contents">
-                        {withOverlays(bar, run.popover, run.hovercard, `${storageKey}.${run.key}`)}
-                    </Box>
+                    <ElementOverlays key={run.key}
+                        elementRef={variant("run", { row: rowKey, run: run.key }) as PlanElementRefValue}
+                        storageKey={`${storageKey}.${run.key}`}>
+                        {bar}
+                    </ElementOverlays>
                 );
             })}
             {rollBands.map((band, i) => {
@@ -182,9 +129,11 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         onClick={(e) => e.stopPropagation()} cursor="pointer" />
                 );
                 return (
-                    <Box as="span" key={dec.key} display="contents">
-                        {withOverlays(diamond, dec.popover, undefined, `${storageKey}.${dec.key}`)}
-                    </Box>
+                    <ElementOverlays key={dec.key}
+                        elementRef={variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue}
+                        storageKey={`${storageKey}.${dec.key}`}>
+                        {diamond}
+                    </ElementOverlays>
                 );
             })}
         </>

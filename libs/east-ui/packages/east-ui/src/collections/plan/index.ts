@@ -70,8 +70,7 @@ import {
     PlanJourneyRibbonType,
     PlanLinkType,
     PlanExpandAxisType,
-} from "./types.js";
-import {
+    PlanElementRefType,
     PlanExpandType,
     PlanRunType,
     PlanDecisionMarkType,
@@ -83,10 +82,9 @@ import {
     PlanRowType,
     PlanTemplateType,
     PlanJourneyType,
-    PlanReviewType,
-    PlanRootType,
     type PlanRowsValue,
-} from "./ir.js";
+} from "./types.js";
+import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
     createAxis,
     createRun,
@@ -186,11 +184,7 @@ export {
     PlanLinkType,
     PlanExpandAxisType,
     type PlanExpandAxisLiteral,
-} from "./types.js";
-
-// ── Public surface — re-exported from the split modules ─────────────────────
-
-export {
+    PlanElementRefType,
     PlanExpandType,
     PlanRunType,
     PlanDecisionMarkType,
@@ -202,10 +196,12 @@ export {
     PlanRowType,
     PlanTemplateType,
     PlanJourneyType,
-    PlanReviewType,
-    PlanRootType,
     type PlanRowsValue,
-} from "./ir.js";
+} from "./types.js";
+
+// ── Public surface — re-exported from the split modules ─────────────────────
+
+export { PlanReviewType, PlanRootType } from "./ir.js";
 export {
     resolvePlanEventState,
     type PlanIconInput,
@@ -451,6 +447,8 @@ export interface PlanNamespace {
         ChipClickEvent: typeof PlanChipClickEventType;
         /** The `onCellClick` payload. */
         CellClickEvent: typeof PlanCellClickEventType;
+        /** One canvas element by reference — the `popover` / `hover` resolvers' subject. */
+        ElementRef: typeof PlanElementRefType;
         /** The `onGroupToggle` payload. */
         GroupToggleEvent: typeof PlanGroupToggleEventType;
         /** One status-footer item. */
@@ -553,6 +551,7 @@ export const Plan: PlanNamespace = {
         MarkClickEvent: PlanMarkClickEventType,
         ChipClickEvent: PlanChipClickEventType,
         CellClickEvent: PlanCellClickEventType,
+        ElementRef: PlanElementRefType,
         GroupToggleEvent: PlanGroupToggleEventType,
         FooterItem: PlanFooterItemType,
         Style: PlanStyleType,

@@ -13,14 +13,38 @@
  */
 
 import { createContext, useContext } from "react";
+import { type ValueTypeOf } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
 import type { PlanScale } from "./scale.js";
 import type { PlanEvent } from "./plan-state.js";
+
+/** One decoded element ref — the generalized resolvers' subject. */
+export type PlanElementRefValue = ValueTypeOf<typeof Plan.Types.ElementRef>;
+
+/** A decoded element resolver (the root's `popover` / `hover` some-value). */
+export type PlanElementResolver =
+    Extract<ValueTypeOf<typeof Plan.Types.Root>["popover"], { type: "some" }>["value"];
+
+/**
+ * The root's generalized element resolvers, decoded — rows invoke them
+ * lazily at interaction time with the clicked/hovered element's ref; a
+ * `none` result opens no surface (`Plan Data Interface.md` §3.3).
+ */
+export interface PlanResolvers {
+    /** The click-popover resolver, when declared. */
+    popover?: PlanElementResolver | undefined;
+    /** The hovercard resolver, when declared. */
+    hover?: PlanElementResolver | undefined;
+}
 
 /** The shared scale, provided once by the canvas. */
 export const PlanScaleContext = createContext<PlanScale | null>(null);
 
 /** The interaction dispatch channel (the one `useReducer` dispatch). */
 export const PlanDispatchContext = createContext<(e: PlanEvent) => void>(() => undefined);
+
+/** The element-resolver channel (empty when the root declares none). */
+export const PlanResolversContext = createContext<PlanResolvers>({});
 
 /**
  * The shared scale — throws when mounted outside a Plan (row components are
@@ -41,4 +65,13 @@ export function usePlanScale(): PlanScale {
  */
 export function usePlanDispatch(): (e: PlanEvent) => void {
     return useContext(PlanDispatchContext);
+}
+
+/**
+ * The root's generalized element resolvers.
+ *
+ * @returns The decoded `popover` / `hover` functions (absent when undeclared)
+ */
+export function usePlanResolvers(): PlanResolvers {
+    return useContext(PlanResolversContext);
 }

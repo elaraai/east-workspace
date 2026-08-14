@@ -47,7 +47,7 @@ export const planTargetState = example({
         "slice", "brush", "horizon", "toolbar", "affordances", "journeys",
         "journey", "of", "data-driven", "accessor", "target state",
     ],
-    description: "The whole operation on one axis, data-driven — machines typed with the IR element types feed span.of (status/drill presence per row from Option fields), dock/crew/milestone datasets map through Plan.rows with the plain factories, a pinned coverage chart, a collapsed heat-strip group, slice chrome + the horizon brush, review, journeys and a status footer",
+    description: "The whole operation on one axis, data-driven — machines typed with the IR element types feed span.of (status/drill presence per row from Option fields), dock/crew/milestone datasets map through Plan.rows with the plain factories, a pinned coverage chart, a collapsed heat-strip group, slice chrome + the horizon brush, review, journeys, the generalized popover/hover resolvers over element refs, and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
         // Domain data typed WITH the IR element types (Plan.Types.Run / Chip /
         // BucketEvent / EventMark …) — presence lives in the data as Option
@@ -116,10 +116,9 @@ export const planTargetState = example({
                                  quantity: "96 t", qty: 96, state: "in-progress" }),
                       Plan.run({ key: "cln",  start: week(31n), end: week(32n), label: "CLN", state: "confirmed" }),
                       Plan.run({ key: "b221", start: week(32n), end: week(35n), label: "RUN · B-221",
-                                 quantity: "88 t", qty: 88, state: "recommended",
-                                 popover: <Text>Proposed by run 412 — fills the W32 idle window.</Text> }),
+                                 quantity: "88 t", qty: 88, state: "recommended" }),
                   ],
-                  decisions: [Plan.decision({ key: "d1", at: week(32n), applied: false, popover: <Text>Schedule B-221</Text> })],
+                  decisions: [Plan.decision({ key: "d1", at: week(32n), applied: false })],
                   ports:     [Plan.port({ at: week(31n), label: "−24 t" })] },
                 { id: "L1-M04", cap: 120.0, status: none,
                   drill: some(Plan.drill({
@@ -142,8 +141,7 @@ export const planTargetState = example({
                 { id: "L1-M07", cap: 80.0, status: some(variant("warning", null)), drill: none,
                   runs: [
                       Plan.run({ key: "b197", start: week(27n), end: week(31n), label: "HLD · B-197",
-                                 quantity: "2.6× dwell", state: "actual", status: "warning",
-                                 hovercard: <Text>Waiting on QC gate 4 — 2.6× median dwell.</Text> }),
+                                 quantity: "2.6× dwell", state: "actual", status: "warning" }),
                       Plan.run({ key: "cln", start: week(34n), end: week(36n), label: "CLN", state: "recommended" }),
                   ],
                   decisions: [], ports: [] },
@@ -199,6 +197,29 @@ export const planTargetState = example({
                 ],
                 decisions: [Plan.decision({ key: "split", at: week(33n), applied: false })],
             })));
+            // The generalized element resolvers — ONE stored popover / hover
+            // function each over Plan.Types.ElementRef (refs carry the row
+            // key on every arm); rich bodies build lazily at interaction
+            // time, and a none result opens no surface.
+            const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+                const noBody = $2.const(none, OptionType(UIComponentType));
+                return ref.match({
+                    run: (_$3, ev) => ev.run.equal("b221").ifElse(
+                        () => some(<Text>Proposed by run 412 — fills the W32 idle window.</Text>),
+                        () => noBody),
+                    mark: (_$3, ev) => ev.row.equal("L1-M03").and(() => ev.mark.equal("d1")).ifElse(
+                        () => some(<Text>Schedule B-221</Text>),
+                        () => noBody),
+                }, _$3 => noBody);
+            }));
+            const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+                const noBody = $2.const(none, OptionType(UIComponentType));
+                return ref.match({
+                    run: (_$3, ev) => ev.run.equal("b197").ifElse(
+                        () => some(<Text>Waiting on QC gate 4 — 2.6× median dwell.</Text>),
+                        () => noBody),
+                }, _$3 => noBody);
+            }));
             // Behavior props — bound once so memoized renderers keep identity.
             const onRowRef = $.const(East.function([Plan.Types.RowRef], NullType, (_$2, _r) => null));
             const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, (_$2, _e) => null));
@@ -279,6 +300,8 @@ export const planTargetState = example({
                         onRerun: onBatch,
                     }}
                     journeys={journeys}
+                    popover={popover}
+                    hover={hover}
                     onSelect={onRowRef}
                     onDrill={onRowRef}
                     onRunClick={onRunClick}
@@ -306,7 +329,7 @@ export const planTargetState = example({
 
 export const planSpanRows = example({
     keywords: ["Plan", "span", "run", "state", "estimated", "removed", "rejected", "decision", "port", "rollup", "union", "byStatus", "of", "groupBy", "nested", "bands", "unit", "group", "meta", "stacked", "gutter", "links", "link", "focus", "expand", "render"],
-    description: "Span-row configs — the proposal flavours (forecast ghost, proposed cut, declined) on a single-line value gutter, quantities with a decision diamond and a port on a stacked two-line gutter (this row also declares an expand-in-place developer render and sits in the link graph — hover it for the links/expand controls), a nested union rollup parent with a meta tag (renderer-derived ×k bands), and the span.of byStatus form inside a group strip",
+    description: "Span-row configs — the proposal flavours (forecast ghost, proposed cut, declined) on a single-line value gutter, quantities with a decision diamond and a port on a stacked two-line gutter (this row also declares expand-in-place — pure data; the root's expandRender resolver mounts the body — and sits in the link graph, so hovering it shows the links/expand controls), a nested union rollup parent with a meta tag (renderer-derived ×k bands), and the span.of byStatus form inside a group strip",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
@@ -324,15 +347,27 @@ export const planSpanRows = example({
                 Plan.run({ key: "b241", start: week(29n), end: week(33n), label: "RUN · B-241", qty: 92, state: "confirmed" }),
             ] },
         ], ArrayType(MachineRow));
-        // The R2 developer render — a utilisation chart mounted under the
-        // row's own spans when the expand control fires.
+        // The R2 developer render — the ROOT's expandRender resolver, called
+        // with the focused row's ref; ONE function serves every declaring row.
         const util = $.let(East.Array.generate(8n, MeasureRow, (_$2, i) =>
             ({ week: week(i.add(27n)), pct: i.multiply(13n).remainder(40n).toFloat().add(55.0) })));
-        const utilRender = $.const(East.function([], UIComponentType, (_$2) => (
+        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$2, _ref) => (
             <Chart layers={[Chart.Column(util, { x: r => r.week, y: r => r.pct })]} height={100} grid={false} />
         )));
+        // The generalized popover resolver — decision diamonds ride the mark
+        // arm of the element ref.
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                mark: (_$3, ev) => ev.mark.equal("d1").ifElse(
+                    () => some(<Text>Approved by run 411.</Text>),
+                    () => noBody),
+            }, _$3 => noBody);
+        }));
         return (
             <Plan
+                expandRender={expandRender}
+                popover={popover}
                 // A denser gutter (meta + value + carets) — widen it (the
                 // shared CSS-px height/width vocabulary).
                 style={{ gutterWidth: "200px" }}
@@ -370,14 +405,14 @@ export const planSpanRows = example({
                     // port, on a stacked two-line gutter (label over sub).
                     Plan.span({
                         key: "m09", label: "L1-M09", id: true, sub: "cap 120 t", stacked: true,
-                        // R2 — the expand control opens this row to 152px and
-                        // mounts the developer render under its spans.
-                        expand: { render: utilRender, height: "152px", axis: "dim" },
+                        // R2 — pure data: the declaration marks the row
+                        // expandable; the root's expandRender mounts below.
+                        expand: { height: "152px", axis: "dim" },
                         runs: [
                             Plan.run({ key: "a", start: week(27n), end: week(31n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
                             Plan.run({ key: "b", start: week(31n), end: week(34n), label: "RUN · B-231", quantity: "104 t", qty: 104, state: "recommended" }),
                         ],
-                        decisions: [Plan.decision({ key: "d1", at: week(31n), applied: true, popover: <Text>Approved by run 411.</Text> })],
+                        decisions: [Plan.decision({ key: "d1", at: week(31n), applied: true })],
                         ports: [Plan.port({ at: week(31n), label: "−24 t" })],
                     }),
                     // A nested union rollup parent — meta tags the member
@@ -420,8 +455,27 @@ export const planBucketRows = example({
             const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        // The generalized resolvers — tiles ride the event arm of the ref.
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                event: (_$3, ev) => ev.event.equal("m5").ifElse(
+                    () => some(<Text>Load 41 · 8 pallets</Text>),
+                    () => noBody),
+            }, _$3 => noBody);
+        }));
+        const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                event: (_$3, ev) => ev.event.equal("m3").ifElse(
+                    () => some(<Text>Urgent — overtime window</Text>),
+                    () => noBody),
+            }, _$3 => noBody);
+        }));
         return (
             <Plan
+                popover={popover}
+                hover={hover}
                 axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
                 rows={[
                     // Unbucketed: one slot per week column; resting tiles.
@@ -448,9 +502,9 @@ export const planBucketRows = example({
                             events: [
                                 Plan.event({ key: "m1", at: week(27n), lane: "am", state: "confirmed" }),
                                 Plan.event({ key: "m2", at: week(27n), lane: "pm", state: "confirmed", tone: "warning" }),
-                                Plan.event({ key: "m3", at: week(28n), lane: "am", state: "recommended", animation: "pulse", hovercard: <Text>Urgent — overtime window</Text> }),
+                                Plan.event({ key: "m3", at: week(28n), lane: "am", state: "recommended", animation: "pulse" }),
                                 Plan.event({ key: "m4", at: week(29n), label: "MIXED", state: "confirmed", stretch: "horizontal", content: { horizontal: "center" } }),
-                                Plan.event({ key: "m5", at: week(30n), lane: "pm", state: "recommended", icon: "truck", popover: <Text>Load 41 · 8 pallets</Text> }),
+                                Plan.event({ key: "m5", at: week(30n), lane: "pm", state: "recommended", icon: "truck" }),
                                 Plan.event({ key: "m6", at: week(31n), lane: "am", label: "QC", state: "estimated" }),
                             ],
                             markers: [Plan.marker({ at: week(29n), status: "danger", message: "capacity breach" })],
@@ -725,8 +779,18 @@ export const planCardRows = example({
             const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        // The generalized popover resolver — chips ride the chip arm.
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                chip: (_$3, ev) => ev.chip.equal("s3").ifElse(
+                    () => some(<Text>Overtime proposal.</Text>),
+                    () => noBody),
+            }, _$3 => noBody);
+        }));
         return (
             <Plan
+                popover={popover}
                 axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n), format: "D MMM" })}
                 rows={[
                     Plan.cards({
@@ -734,7 +798,7 @@ export const planCardRows = example({
                         chips: [
                             Plan.chip({ key: "s1", from: week(27n), to: week(29n), label: "80h", state: "confirmed", icon: "user-group" }),
                             Plan.chip({ key: "s2", from: week(29n), to: week(31n), label: "56h", state: "removed" }),
-                            Plan.chip({ key: "s3", from: week(31n), to: week(33n), label: "+64h", state: "recommended", popover: <Text>Overtime proposal.</Text> }),
+                            Plan.chip({ key: "s3", from: week(31n), to: week(33n), label: "+64h", state: "recommended" }),
                             Plan.chip({ key: "s4", from: week(34n), to: week(35n), label: "48h", state: "estimated" }),
                         ],
                     }),
@@ -765,8 +829,18 @@ export const planEventRows = example({
             const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        // The generalized popover resolver — event marks ride the mark arm.
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                mark: (_$3, ev) => ev.mark.equal("rel").ifElse(
+                    () => some(<Text>Go/no-go review.</Text>),
+                    () => noBody),
+            }, _$3 => noBody);
+        }));
         return (
             <Plan
+                popover={popover}
                 axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
                 rows={[
                     Plan.events({
@@ -774,7 +848,7 @@ export const planEventRows = example({
                         marks: [
                             Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
                             Plan.mark({ key: "d1", at: week(31n), kind: Plan.markKind.decision(true) }),
-                            Plan.mark({ key: "rel", at: week(33n), kind: "milestone", icon: "rocket", label: "REL 2.4", popover: <Text>Go/no-go review.</Text> }),
+                            Plan.mark({ key: "rel", at: week(33n), kind: "milestone", icon: "rocket", label: "REL 2.4" }),
                             Plan.mark({ key: "audit", at: week(35n), kind: "exception", label: "AUDIT" }),
                             Plan.mark({ key: "d2", at: week(37n), kind: Plan.markKind.decision(false), label: "×3" }),
                         ],

@@ -12,13 +12,13 @@
  */
 
 import type { MouseEvent } from "react";
-import { type ValueTypeOf } from "@elaraai/east";
+import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale } from "../context.js";
-import { withOverlays } from "./SpanRow.js";
+import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { ElementOverlays } from "./ElementOverlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type EventsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "events" }>["value"];
@@ -62,16 +62,16 @@ export function EventsRow({ rowKey, kind, styles, storageKey }: EventsRowProps) 
                             : <Box css={styles.milestoneDot} data-mark={mark.key}
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />;
                 return (
-                    <Box as="span" key={mark.key} display="contents">
-                        {withOverlays(
-                            <Box as="span" display="contents">
-                                {glyph}
-                                {label !== undefined && (
-                                    <Box css={styles.markLabel} left={`calc(${x * 100}% + 9px)`}>{label}</Box>
-                                )}
-                            </Box>,
-                            mark.popover, undefined, `${storageKey}.${mark.key}`)}
-                    </Box>
+                    <ElementOverlays key={mark.key}
+                        elementRef={variant("mark", { row: rowKey, mark: mark.key }) as PlanElementRefValue}
+                        storageKey={`${storageKey}.${mark.key}`}>
+                        <Box as="span" display="contents">
+                            {glyph}
+                            {label !== undefined && (
+                                <Box css={styles.markLabel} left={`calc(${x * 100}% + 9px)`}>{label}</Box>
+                            )}
+                        </Box>
+                    </ElementOverlays>
                 );
             })}
         </>

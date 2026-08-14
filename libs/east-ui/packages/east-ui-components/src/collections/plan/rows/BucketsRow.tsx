@@ -22,10 +22,11 @@ import {
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
-import { type ValueTypeOf } from "@elaraai/east";
+import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale } from "../context.js";
-import { runStateKey, withOverlays } from "./SpanRow.js";
+import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { runStateKey } from "./SpanRow.js";
+import { ElementOverlays } from "./ElementOverlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -86,9 +87,10 @@ function EventChip({ ev, styles, rowKey, storageKey }: {
         </Box>
     );
     return (
-        <Box as="span" display="contents">
-            {withOverlays(chip, ev.popover, ev.hovercard, `${storageKey}.${ev.key}`)}
-        </Box>
+        <ElementOverlays elementRef={variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue}
+            storageKey={`${storageKey}.${ev.key}`}>
+            {chip}
+        </ElementOverlays>
     );
 }
 

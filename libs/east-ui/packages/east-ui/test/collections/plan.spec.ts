@@ -126,22 +126,55 @@ describeEast("Plan", (test) => {
         $(Assert.equal(links.get(0n).label, "24 t"));
     });
 
-    test("rows DECLARE their expand-in-place render (R2); axis defaults keep", $ => {
-        const render = $.const(East.function([], UIComponentType, (_$2) => Text.Root("UTIL RENDER")));
+    test("rows DECLARE expand-in-place as pure data (R2); the render is the root's expandRender resolver", $ => {
         const rows = $.let(Plan.span({
             key: "m13", label: "L4-M13",
-            expand: { render, height: "152px", axis: "dim" },
+            expand: { height: "152px", axis: "dim" },
         }));
         const ex = $.let(rows.get(0n).expand.unwrap("some"));
         $(Assert.equal(ex.height.unwrap("some"), "152px"));
         $(Assert.equal(ex.axis.hasTag("dim"), true));
-        // Defaults: axis keep, height none (the renderer's 152px).
-        const dflt = $.let(Plan.span({ key: "d", label: "D", expand: { render } }));
+        // Defaults: axis keep, height none (the renderer's default) — the
+        // empty declaration just marks the row expandable.
+        const dflt = $.let(Plan.span({ key: "d", label: "D", expand: {} }));
         $(Assert.equal(dflt.get(0n).expand.unwrap("some").axis.hasTag("keep"), true));
         $(Assert.equal(dflt.get(0n).expand.unwrap("some").height.hasTag("none"), true));
         // Rows without a declaration carry none — no expand control renders.
         const bare = $.let(Plan.span({ key: "b", label: "B" }));
         $(Assert.equal(bare.get(0n).expand.hasTag("none"), true));
+    });
+
+    test("the root carries the generalized popover/hover resolvers over element refs and the expandRender", $ => {
+        // ONE stored function per surface (the journeys pattern) — refs carry
+        // the row key on every arm, so one resolver covers every element
+        // kind; returning none opens no surface.
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                run: (_$3, ev) => ev.run.equal("b214").ifElse(
+                    () => some(Text.Root("RUN DETAIL")),
+                    () => noBody),
+            }, _$3 => noBody);
+        }));
+        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$2, _ref) =>
+            Text.Root("UTIL RENDER")));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            rows: [],
+            popover,
+            expandRender,
+        }));
+        const root = $.let(p.unwrap().unwrap("Plan"));
+        // The stored popover resolves per ref: the named run opens, any other
+        // element (a chip here) resolves none — presence is lazy, per ref.
+        const runRef = $.const(variant("run", { row: "m03", run: "b214" }), Plan.Types.ElementRef);
+        const chipRef = $.const(variant("chip", { row: "crew", chip: "s1" }), Plan.Types.ElementRef);
+        $(Assert.equal(root.popover.unwrap("some")(runRef).hasTag("some"), true));
+        $(Assert.equal(root.popover.unwrap("some")(chipRef).hasTag("none"), true));
+        // Hover is independent and absent here; expandRender builds the body.
+        $(Assert.equal(root.hover.hasTag("none"), true));
+        const body = $.let(root.expandRender.unwrap("some")({ key: "m13" }), UIComponentType);
+        $(Assert.equal(body.unwrap().hasTag("Text"), true));
     });
 
     // =========================================================================

@@ -9,6 +9,9 @@
  * `chip` / `mark`), cell builders (`heatCells` / `weightCells` /
  * `segmentCells` / `tableCells`) and the Chart-layer consumption that turns
  * `Chart.*` builder results into data-only `PlanChartLayerType` values.
+ * Every element is pure data — rich click/hover surfaces resolve through
+ * the ROOT's `popover` / `hover` functions over `PlanElementRefType`
+ * (`Plan Data Interface.md` §3.3), never per-element embeds.
  *
  * @packageDocumentation
  */
@@ -31,7 +34,6 @@ import {
     none,
 } from "@elaraai/east";
 
-import { UIComponentType } from "../../component.js";
 import { TickFormatType } from "../../format/types.js";
 import { IconType, type IconName } from "../../display/icon/types.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
@@ -62,8 +64,6 @@ import {
     type PlanTableToneLiteral,
     PlanTableSeriesType,
     PlanLinkType,
-} from "./types.js";
-import {
     PlanRunType,
     PlanDecisionMarkType,
     PlanBucketEventType,
@@ -72,7 +72,7 @@ import {
     PlanLaneType,
     PlanRowType,
     type PlanRowsValue,
-} from "./ir.js";
+} from "./types.js";
 
 // ============================================================================
 // Shorthand resolvers
@@ -184,8 +184,6 @@ export function createAxis(options: PlanAxisOptions): ExprType<PlanAxisType> {
  * @property status - Optional status tint (`"warning"` ⇒ the over-dwell ring)
  * @property moved - Optional same-status churn counter (`moved ×k`)
  * @property icon - Optional leading FA glyph (10px, inherits bar text colour)
- * @property popover - Optional click-triggered rich body
- * @property hovercard - Optional rich hover preview
  */
 export interface PlanRunInput {
     /** Stable run identity (drag refs, journey ribbons). */
@@ -208,10 +206,6 @@ export interface PlanRunInput {
     moved?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional leading FA glyph (10px, inherits the bar text colour). */
     icon?: PlanIconInput;
-    /** Optional click-triggered rich body. */
-    popover?: SubtypeExprOrValue<UIComponentType>;
-    /** Optional rich hover preview (the Planner hovercard mechanism). */
-    hovercard?: SubtypeExprOrValue<UIComponentType>;
 }
 
 /**
@@ -232,8 +226,6 @@ export function createRun(input: PlanRunInput): ExprType<PlanRunType> {
         status:    input.status !== undefined ? some(resolveTag(input.status, StatusValueType)) : none,
         moved:     input.moved !== undefined ? some(typeof input.moved === "number" ? BigInt(input.moved) : input.moved) : none,
         icon:      input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
-        popover:   input.popover !== undefined ? some(input.popover) : none,
-        hovercard: input.hovercard !== undefined ? some(input.hovercard) : none,
     }, PlanRunType);
 }
 
@@ -243,7 +235,6 @@ export function createRun(input: PlanRunInput): ExprType<PlanRunType> {
  * @property key - Stable decision identity
  * @property at - The transition instant the diamond sits on
  * @property applied - `true` fills the diamond (◆)
- * @property popover - Optional click-triggered decision detail
  */
 export interface PlanDecisionInput {
     /** Stable decision identity. */
@@ -252,8 +243,6 @@ export interface PlanDecisionInput {
     at: SubtypeExprOrValue<DateTimeType>;
     /** `true` fills the diamond (◆ applied). */
     applied: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Optional click-triggered decision detail. */
-    popover?: SubtypeExprOrValue<UIComponentType>;
 }
 
 /**
@@ -267,7 +256,6 @@ export function createDecision(input: PlanDecisionInput): ExprType<PlanDecisionM
         key:     input.key,
         at:      input.at,
         applied: input.applied,
-        popover: input.popover !== undefined ? some(input.popover) : none,
     }, PlanDecisionMarkType);
 }
 
@@ -313,8 +301,6 @@ export function createPort(input: PlanPortInput): ExprType<typeof PlanPortType> 
  * @property stretch - Optional fill axis (`"horizontal"` / `"vertical"` / `"both"`)
  * @property content - Optional two-axis content alignment
  * @property animation - Optional attention animation (`"pulse"`)
- * @property popover - Optional click-triggered rich body
- * @property hovercard - Optional rich hover preview
  */
 export interface PlanBucketEventInput {
     /** Stable event identity (drag-grammar cell refs). */
@@ -346,10 +332,6 @@ export interface PlanBucketEventInput {
     };
     /** Optional attention animation (`"pulse"` honours `prefers-reduced-motion`). */
     animation?: SubtypeExprOrValue<PlanAnimationType> | PlanAnimationLiteral;
-    /** Optional click-triggered rich body. */
-    popover?: SubtypeExprOrValue<UIComponentType>;
-    /** Optional rich hover preview. */
-    hovercard?: SubtypeExprOrValue<UIComponentType>;
 }
 
 /**
@@ -378,8 +360,6 @@ export function createBucketEvent(input: PlanBucketEventInput): ExprType<PlanBuc
         stretch:      input.stretch !== undefined ? some(resolveTag(input.stretch, PlanStretchType)) : none,
         content,
         animation:    input.animation !== undefined ? some(resolveTag(input.animation, PlanAnimationType)) : none,
-        popover:      input.popover !== undefined ? some(input.popover) : none,
-        hovercard:    input.hovercard !== undefined ? some(input.hovercard) : none,
     }, PlanBucketEventType);
 }
 
@@ -498,7 +478,6 @@ export function createCellMarker(input: PlanCellMarkerInput): ExprType<typeof Pl
  * @property label - The chip text (`"80h"`, `"+64h"`)
  * @property state - The lifecycle state (string shorthand or value)
  * @property icon - Optional leading FA glyph
- * @property popover - Optional click-triggered rich body
  */
 export interface PlanChipInput {
     /** Stable chip identity (drag refs). */
@@ -513,8 +492,6 @@ export interface PlanChipInput {
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** Optional leading FA glyph (shift-type etc.). */
     icon?: PlanIconInput;
-    /** Optional click-triggered rich body. */
-    popover?: SubtypeExprOrValue<UIComponentType>;
 }
 
 /**
@@ -531,7 +508,6 @@ export function createChip(input: PlanChipInput): ExprType<PlanChipType> {
         label:   input.label,
         state:   resolvePlanEventState(input.state),
         icon:    input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
-        popover: input.popover !== undefined ? some(input.popover) : none,
     }, PlanChipType);
 }
 
@@ -543,7 +519,6 @@ export function createChip(input: PlanChipInput): ExprType<PlanChipType> {
  * @property kind - `"milestone"` / `"exception"` / `Plan.markKind.decision(applied)`
  * @property icon - Optional FA glyph swap (12px, kind-coloured)
  * @property label - Optional caption (printed when there is room)
- * @property popover - Optional click-triggered rich body
  */
 export interface PlanEventMarkInput {
     /** Stable mark identity. */
@@ -556,8 +531,6 @@ export interface PlanEventMarkInput {
     icon?: PlanIconInput;
     /** Optional caption (printed when there is room). */
     label?: SubtypeExprOrValue<StringType>;
-    /** Optional click-triggered rich body. */
-    popover?: SubtypeExprOrValue<UIComponentType>;
 }
 
 /**
@@ -573,7 +546,6 @@ export function createEventMark(input: PlanEventMarkInput): ExprType<PlanEventMa
         kind:    typeof input.kind === "string" ? East.value(variant(input.kind, null), PlanEventMarkKindType) : input.kind,
         icon:    input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
         label:   input.label !== undefined ? some(input.label) : none,
-        popover: input.popover !== undefined ? some(input.popover) : none,
     }, PlanEventMarkType);
 }
 

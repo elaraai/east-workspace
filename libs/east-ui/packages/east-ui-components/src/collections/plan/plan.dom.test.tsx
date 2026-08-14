@@ -17,6 +17,7 @@
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
@@ -26,6 +27,12 @@ import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
 
 afterEach(cleanup);
+
+// jsdom lacks ResizeObserver — the floating-ui positioner behind the
+// resolver popovers needs one; a no-op stub keeps positioning inert (the
+// slice / schematic dom-test convention).
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -38,7 +45,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
         qty: opts?.qty !== undefined ? some(opts.qty) : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
-        moved: none, icon: none, popover: none, hovercard: none,
+        moved: none, icon: none,
     };
 }
 
@@ -73,7 +80,7 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[] }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown }): PlanRootValue {
     return {
         rows,
         links: opts?.links ?? [],
@@ -87,6 +94,9 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         grain: none,
         library: [],
         journeys: none,
+        popover: opts?.popover !== undefined ? some(opts.popover) : none,
+        hover: opts?.hover !== undefined ? some(opts.hover) : none,
+        expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         review: none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
@@ -295,7 +305,7 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
         tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
         color: none, colorPalette: none,
         stretch: opts?.stretch !== undefined ? some(variant(opts.stretch, null)) : none,
-        content: none, animation: none, popover: none, hovercard: none,
+        content: none, animation: none,
     };
 }
 
@@ -451,11 +461,11 @@ describe("Plan cards rows (§4·K6)", () => {
             planRow("ops", variant("cards", {
                 chips: [
                     { key: "c1", from: new Date("2026-06-29Z"), to: new Date("2026-07-13Z"), label: "D. OKAFOR",
-                        state: variant("confirmed", null), icon: none, popover: none },
+                        state: variant("confirmed", null), icon: none },
                     { key: "c2", from: new Date("2026-07-13Z"), to: new Date("2026-07-27Z"), label: "+64h",
-                        state: variant("proposed", variant("recommended", null)), icon: none, popover: none },
+                        state: variant("proposed", variant("recommended", null)), icon: none },
                     { key: "c3", from: new Date("2026-07-27Z"), to: new Date("2026-08-10Z"), label: "L. CHEN",
-                        state: variant("proposed", variant("removed", null)), icon: none, popover: none },
+                        state: variant("proposed", variant("removed", null)), icon: none },
                 ],
             })),
         ]));
@@ -622,14 +632,14 @@ describe("Plan expand-in-place (R2)", () => {
     test("the control hides every other row; the focused row keeps its normal anatomy and the render fills below; esc returns", () => {
         const { container } = renderPlan(planRoot([
             planRow("l4m13", spanKind([run("rb", W27, new Date("2026-07-27Z"), variant("actual", null))]), {
-                expand: {
-                    render: () => variant("Text", { value: "UTIL RENDER", style: none }),
-                    height: some("152px"),
-                    axis: variant("dim", null),
-                },
+                expand: { height: some("152px"), axis: variant("dim", null) },
             }),
             planRow("l4m14", spanKind([])),
-        ]));
+        ], {
+            // The render is the ROOT's resolver, called with the row ref.
+            expandRender: (ref: { key: string }) =>
+                variant("Text", { value: `UTIL RENDER · ${ref.key}`, style: none }),
+        }));
         // Only the declaring row grows the control.
         expect(container.querySelector('[data-plan-row="l4m13"] [data-plan-control="expand"]')).toBeTruthy();
         expect(container.querySelector('[data-plan-row="l4m14"] [data-plan-control="expand"]')).toBeNull();
@@ -644,7 +654,7 @@ describe("Plan expand-in-place (R2)", () => {
         const region = container.querySelector("[data-plan-expandrender]") as HTMLElement;
         expect(region).toBeTruthy();
         expect(region.style.minHeight).toBe("152px");
-        expect(screen.getByText("UTIL RENDER")).toBeTruthy();
+        expect(screen.getByText("UTIL RENDER · l4m13")).toBeTruthy();
         expect(container.querySelector('[data-plan-row="l4m13"] [data-axis="dim"]')).toBeTruthy();
         // Every other row HIDES entirely — no rails, no context strips.
         expect(container.querySelector('[data-plan-row="l4m14"]')).toBeNull();
@@ -655,19 +665,59 @@ describe("Plan expand-in-place (R2)", () => {
     });
 });
 
+describe("Plan element resolvers (popover / hover)", () => {
+    test("the root popover resolver opens per ref — a some body for the named run, none opens nothing", async () => {
+        const refs: string[] = [];
+        const popover = (ref: { type: string; value: { row: string; run?: string } }) => {
+            refs.push(`${ref.type}:${ref.value.row}/${ref.value.run}`);
+            if (ref.type === "run" && ref.value.run === "b214") {
+                return some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
+            }
+            return none;
+        };
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([
+                run("b214", W27, new Date("2026-07-27Z"), variant("actual", null)),
+                run("other", new Date("2026-07-27Z"), new Date("2026-08-10Z"), variant("confirmed", null)),
+            ])),
+        ], { popover }));
+        const user = userEvent.setup();
+        // The none-resolving run FIRST — the resolver ran, nothing opened
+        // (lazy per-ref presence; no empty surface ever flashes).
+        await user.click(container.querySelector('[data-run="other"]')!);
+        expect(refs).toContain("run:m1/other");
+        expect(screen.queryByText("RUN DETAIL · B-214")).toBeNull();
+        // The named run resolves some — the popover opens with the body, and
+        // the ref carried the element kind + row + run keys.
+        await user.click(container.querySelector('[data-run="b214"]')!);
+        expect(await screen.findByText("RUN DETAIL · B-214")).toBeTruthy();
+        expect(refs).toContain("run:m1/b214");
+    });
+
+    test("without declared resolvers no overlay machinery mounts", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-27Z"), variant("actual", null))])),
+        ]));
+        // The bar renders bare — no popover/hovercard trigger wrappers.
+        expect(container.querySelector('[data-run="r1"]')).toBeTruthy();
+        expect(container.querySelector("[data-scope=\"popover\"]")).toBeNull();
+        expect(container.querySelector("[data-scope=\"hover-card\"]")).toBeNull();
+    });
+});
+
 describe("Plan event rows (§4·K7)", () => {
     test("milestone dots, decision diamonds (applied fills) and exception triangles mark their instants; icons swap the glyph", () => {
         const { container } = renderPlan(planRoot([
             planRow("mile", variant("events", {
                 marks: [
                     { key: "k1", at: new Date("2026-06-29Z"), kind: variant("milestone", null),
-                        icon: none, label: some("KICKOFF"), popover: none },
+                        icon: none, label: some("KICKOFF") },
                     { key: "k2", at: new Date("2026-07-13Z"), kind: variant("decision", { applied: true }),
-                        icon: none, label: none, popover: none },
+                        icon: none, label: none },
                     { key: "k3", at: new Date("2026-07-27Z"), kind: variant("exception", null),
-                        icon: none, label: none, popover: none },
+                        icon: none, label: none },
                     { key: "k4", at: new Date("2026-08-10Z"), kind: variant("milestone", null),
-                        icon: some({ prefix: "fas", name: "flag", label: none, style: none }), label: none, popover: none },
+                        icon: some({ prefix: "fas", name: "flag", label: none, style: none }), label: none },
                 ],
             })),
         ]));

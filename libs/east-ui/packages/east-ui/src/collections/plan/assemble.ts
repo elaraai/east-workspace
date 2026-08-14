@@ -27,7 +27,6 @@ import {
     none,
 } from "@elaraai/east";
 
-import { UIComponentType } from "../../component.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
 import { ApprovalStateType, type ApprovalStateLiteral } from "../../contracts/approval.js";
 import {
@@ -37,13 +36,11 @@ import {
     PlanDrillPointType,
     PlanExpandAxisType,
     type PlanExpandAxisLiteral,
-} from "./types.js";
-import {
     PlanExpandType,
     PlanRowKindType,
     PlanRowType,
     type PlanRowsValue,
-} from "./ir.js";
+} from "./types.js";
 import { resolveTag, emptyRows } from "./builders.js";
 
 // ============================================================================
@@ -117,7 +114,7 @@ export interface PlanRowBaseInput {
     approval?: SubtypeExprOrValue<ApprovalStateType> | ApprovalStateLiteral;
     /** The in-place drill expansion payload. */
     drill?: PlanDrillInput;
-    /** The expand-in-place developer render (R2) — see {@link PlanExpandInput}. */
+    /** The expand-in-place declaration (R2) — see {@link PlanExpandInput}; the render is the root's `expandRender`. */
     expand?: PlanExpandInput;
 }
 
@@ -159,28 +156,23 @@ export function createDrill(input: PlanDrillInput): ExprType<PlanDrillType> {
 }
 
 /**
- * The expand-in-place input (R2) — the developer render + its height and
- * axis treatment.
+ * The expand-in-place input (R2) — a pure-data declaration: presence marks
+ * the row expandable; the mounted body is the ROOT's `expandRender`
+ * resolver, called with the row ref when the control fires.
  *
- * @property render - The developer render — an `East.function([], UIComponentType)` building the mounted body from captured data / bind-handles
- * @property height - The expanded row height, a CSS px size (`"152px"` default; clamped to the canvas)
- * @property axis - How the shared grid + now-line run through the render (`"keep"` default / `"dim"` / `"off"`)
+ * @property height - The developer region's minimum height, a CSS px size (renderer default when omitted)
+ * @property axis - How the shared grid + now-line run through the focused row's plot (`"keep"` default / `"dim"` / `"off"`)
  */
 export interface PlanExpandInput {
-    /** The developer render — an `East.function([], UIComponentType)` building the mounted body from captured data / bind-handles. */
-    render: SubtypeExprOrValue<FunctionType<[], UIComponentType>>;
-    /** The expanded row height — a CSS px size (`"152px"` default; clamped to `canvas − strips − ruler`). */
+    /** The developer region's minimum height — a CSS px size (`"152px"`; renderer default when omitted). */
     height?: SubtypeExprOrValue<StringType>;
-    /** How the shared grid + now-line run through the render (default `"keep"`). */
+    /** How the shared grid + now-line run through the focused row's plot (default `"keep"`). */
     axis?: PlanExpandAxisLiteral | SubtypeExprOrValue<PlanExpandAxisType>;
 }
 
 /** Build the expand declaration from its input. */
 function buildExpand(input: PlanExpandInput): ExprType<PlanExpandType> {
     return East.value({
-        // Pin the exact function type (the `template.make` pattern) so the
-        // `component.ts` arm's recursion-marker slot unifies.
-        render: East.value(input.render, FunctionType([], UIComponentType)),
         height: input.height !== undefined ? some(input.height) : none,
         axis:   resolveTag(input.axis ?? "keep", PlanExpandAxisType),
     }, PlanExpandType);

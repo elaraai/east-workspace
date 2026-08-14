@@ -19,6 +19,7 @@ import {
     BooleanType,
     FunctionType,
     NullType,
+    OptionType,
     StringType,
     variant,
     some,
@@ -48,13 +49,12 @@ import {
     PlanStyleType,
     PlanTemplateKindType,
     type PlanTemplateKindLiteral,
-} from "./types.js";
-import {
+    PlanElementRefType,
     PlanRowType,
     PlanTemplateType,
     PlanJourneyType,
-    PlanReviewType,
-} from "./ir.js";
+} from "./types.js";
+import { PlanReviewType } from "./ir.js";
 import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
 import { normalizeRows, type PlanRowsInput } from "./assemble.js";
 
@@ -133,6 +133,9 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property grain - Initial grain (`"group"` / `"resource"` / `"item"`; default resource)
  * @property library - Row-library templates (`Plan.template` values)
  * @property journeys - ITEM-grain / drilled-row journey resolver (behavior prop)
+ * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
+ * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
+ * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row ref)
  * @property review - The shared review chrome (decision column + batch foot)
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
@@ -165,6 +168,16 @@ export interface PlanConfig {
     library?: SubtypeExprOrValue<PlanTemplateType>[];
     /** ITEM-grain / drilled-row journey resolver — called with an item key at interaction time. */
     journeys?: SubtypeExprOrValue<FunctionType<[StringType], PlanJourneyType>>;
+    /** Generalized click-popover resolver — called with the clicked element's
+     *  ref (`run` / `event` / `chip` / `mark` / `cell` arm, each carrying the
+     *  row key); returning `none` opens no surface. */
+    popover?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], OptionType<UIComponentType>>>;
+    /** Generalized hovercard resolver — the hover twin of `popover`. */
+    hover?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], OptionType<UIComponentType>>>;
+    /** The R2 developer render — called with the row ref when a row declaring
+     *  `expand` focuses; builds the mounted body from captured data /
+     *  bind-handles. */
+    expandRender?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], UIComponentType>>;
     /** The shared review chrome (decision column + batch foot); callbacks receive `{ key }`. */
     review?: PlanReviewConfig;
     /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
@@ -263,6 +276,15 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
         // pattern) so the arm's recursion-marker slots unify.
         journeys: config.journeys !== undefined
             ? some(East.value(config.journeys, FunctionType([StringType], PlanJourneyType)))
+            : none,
+        popover: config.popover !== undefined
+            ? some(East.value(config.popover, FunctionType([PlanElementRefType], OptionType(UIComponentType))))
+            : none,
+        hover: config.hover !== undefined
+            ? some(East.value(config.hover, FunctionType([PlanElementRefType], OptionType(UIComponentType))))
+            : none,
+        expandRender: config.expandRender !== undefined
+            ? some(East.value(config.expandRender, FunctionType([PlanRowRefType], UIComponentType)))
             : none,
         review:   config.review !== undefined ? some(buildReview(config.review, PlanReviewType)) : none,
         slice:    sliceChrome,
