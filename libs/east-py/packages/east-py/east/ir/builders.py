@@ -151,6 +151,7 @@ def ir_platform(
     async_: bool = False,
     type_parameters: list[EastTypeValue] | None = None,
     loc_id: int = 0,
+    optional: bool = False,
 ):
     """Create a Platform IR node."""
     return EastVariant("Platform", EastStruct({
@@ -160,6 +161,7 @@ def ir_platform(
         "type_parameters": EastArray(EastTypeType, type_parameters if type_parameters else []),
         "arguments": EastArray(IRType, arguments),
         "async": async_,
+        "optional": optional,
     }))
 
 
