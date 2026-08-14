@@ -6,11 +6,15 @@
 /**
  * Derive a `DataManifest` by walking an East function's IR.
  *
- * Finds every `Data.bind` / `Func.bind` / `Record.bind` platform call (the
- * walker recurses into nested `FunctionIR` bodies) and reads back its
- * statically-known arguments: the dataset path + optional patch path for
- * `Data.bind`, the function name for `Func.bind`, the record name for
- * `Record.bind`.
+ * Finds every `Data.bind` / `Data.bindPaged` / `Func.bind` / `Record.bind`
+ * platform call (the walker recurses into nested `FunctionIR` bodies) and reads
+ * back its statically-known arguments: the dataset path + optional patch path
+ * for `Data.bind`, the source path for `Data.bindPaged`, the function name for
+ * `Func.bind`, the record name for `Record.bind`.
+ *
+ * Paged sources land in their own `pages` list rather than `paths`: they are
+ * declared (so a `ui()` task's reads stay manifest-scoped) but deliberately not
+ * preloaded or polled as whole values.
  *
  * Every such argument is required to be a JS-side constant — the public
  * factories enforce this through their TS signatures and `East.value`.
@@ -28,6 +32,9 @@ import type { DataManifest } from './manifest.js';
 /** Platform-fn name we extract paths from. */
 const DATA_BIND = "data_bind";
 
+/** Platform-fn name we extract paged-source paths from. */
+const DATA_BIND_PAGED = "data_bind_paged";
+
 /** Platform-fn name we extract bound function names from. */
 const FUNCTION_BIND = "function_bind";
 
@@ -41,6 +48,7 @@ export function deriveManifest(
     const paths: TreePath[] = [];
     const functions: string[] = [];
     const records: string[] = [];
+    const pages: TreePath[] = [];
     walkIR(fn.toIR().ir, (node) => {
         if (node.type !== 'Platform') return;
         const platform = node as PlatformIR;
@@ -63,9 +71,20 @@ export function deriveManifest(
                 if (patch.type === 'some') paths.push(patch.value);
                 return;
             }
+            case DATA_BIND_PAGED: {
+                // arg[0] source TreePath. Paged sources are read by window, so
+                // they are declared here but never preloaded as whole values.
+                pages.push(constValueOf(platform.value.arguments[0] as IR) as TreePath);
+                return;
+            }
         }
     });
-    return { paths: dedupePaths(paths), functions: [...new Set(functions)], records: [...new Set(records)] };
+    return {
+        paths: dedupePaths(paths),
+        functions: [...new Set(functions)],
+        records: [...new Set(records)],
+        pages: dedupePaths(pages),
+    };
 }
 
 function dedupePaths(paths: TreePath[]): TreePath[] {

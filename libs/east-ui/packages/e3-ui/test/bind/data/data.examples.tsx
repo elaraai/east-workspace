@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from "@elaraai/east";
-import { Button, Input, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, variant, example } from "@elaraai/east";
+import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
@@ -12,6 +12,20 @@ export const thresholdInput      = e3.input('threshold',       FloatType, 50.0);
 export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant("unchanged", null));
 export const countInput          = e3.input('count', IntegerType, 0n);
 export const nameInput           = e3.input('name',  StringType,  '');
+
+/** The RAW ops row — one scheduled job per machine, as an ops dataset stores
+ *  it (batch / window / tonnage / lifecycle). Big enough in production that it
+ *  is read by window, never whole. */
+export const OpsRow = StructType({
+    id:     StringType,
+    line:   StringType,
+    batch:  StringType,
+    start:  DateTimeType,
+    end:    DateTimeType,
+    tonnes: FloatType,
+    state:  EventStateType,
+});
+export const opsInput = e3.input('ops', ArrayType(OpsRow), []);
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -134,6 +148,39 @@ export const dataBindStagedVariants = example({
                 );
             }}</Reactive>
         </VStack>
+    )),
+    inputs: [],
+});
+
+export const dataBindPagedPlan = example({
+    keywords: [
+        "Data", "bindPaged", "paged", "page", "total", "window", "windows", "Plan",
+        "canvas", "series", "collection", "large", "dataset", "Reactive", "stream",
+    ],
+    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns a `{ page, total }` handle that the canvas consumes structurally: the factory wraps `page` with the series' row-building functions, so each window's RAW rows become canvas rows client-side and the renderer streams them in as a prefix. The dataset is never fetched whole, and nothing in the UI code touches bytes, offsets or beast2",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The paged handle — the dataset's element type comes from the def,
+            // so `page(offset, limit)` is typed Option<Array<OpsRow>> with no
+            // decode step to write.
+            const paged = $.let(Data.bindPaged(opsInput));
+            // The series read the RAW row fields and derive the canvas
+            // vocabulary; they run over every window the handle serves.
+            const series = $.const([
+                Plan.series.span(OpsRow, {
+                    key: r => r.id, label: r => r.id, id: true,
+                    runs: r => [Plan.run({
+                        key: r.batch, start: r.start, end: r.end,
+                        label: East.str`RUN · ${r.batch}`,
+                        quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
+                        qty: r.tonnes, state: r.state,
+                    })],
+                    groupBy: [r => r.line], rollup: "union", unit: "t",
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            const axis = $.const(Plan.axis({ resolution: "week", resolutions: ["month", "week", "day"] }));
+            return <Plan axis={axis} data={paged} series={series} />;
+        }}</Reactive>
     )),
     inputs: [],
 });

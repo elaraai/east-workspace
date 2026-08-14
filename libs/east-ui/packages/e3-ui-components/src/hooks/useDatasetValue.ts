@@ -20,6 +20,7 @@ import {
 } from '@elaraai/east-ui-components';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { BindPlatform } from '../platform/bind-runtime.js';
+import { PagedPlatform } from '../platform/paged-runtime.js';
 import { FuncPlatform } from '../platform/func-runtime.js';
 import { RecordPlatform } from '../platform/record-runtime.js';
 import { DecisionBindPlatform } from '../decision/handle-runtime.js';
@@ -33,7 +34,7 @@ const defaultPlatformImplementations: PlatformFunction[] =
     [
         ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
         ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
-        ...BindPlatform, ...FuncPlatform, ...RecordPlatform,
+        ...BindPlatform, ...PagedPlatform, ...FuncPlatform, ...RecordPlatform,
     ];
 
 export interface UseDatasetValueOptions {

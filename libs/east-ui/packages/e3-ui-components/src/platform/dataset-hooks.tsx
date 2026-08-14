@@ -38,6 +38,11 @@ import {
     clearFunctionApi,
 } from "./func-runtime.js";
 import {
+    createDefaultPagedApi,
+    initializePagedApi,
+    clearPagedApi,
+} from "./paged-runtime.js";
+import {
     createDefaultRecordApi,
     initializeRecordApi,
     clearRecordApi,
@@ -123,6 +128,18 @@ export function ReactiveDatasetProvider({
         }
     }, [e3.apiUrl, e3.repo, e3.workspace]);
 
+    // Same wiring for `Data.bindPaged` — the paged runtime shares the workspace
+    // scope and server identity, but reads windows through its own endpoint
+    // rather than the whole-value dataset cache.
+    useMemo(() => {
+        if (e3.workspace !== undefined) {
+            initializePagedApi(
+                createDefaultPagedApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
+                e3.workspace,
+            );
+        }
+    }, [e3.apiUrl, e3.repo, e3.workspace]);
+
     // Same wiring for `Record.bind` — the record runtime reads current values
     // through the SAME dataset cache (a record is a dataset), and writes via the
     // record endpoints.
@@ -147,6 +164,7 @@ export function ReactiveDatasetProvider({
             // workspace the user has navigated away from.
             clearReactiveDatasetCache();
             clearFunctionApi();
+            clearPagedApi();
             clearRecordApi();
             cache.destroy();
             // Drop binding-registry entries for this workspace so a long
