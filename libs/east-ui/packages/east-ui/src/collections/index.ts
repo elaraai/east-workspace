@@ -48,6 +48,17 @@ export {
     type PlanReviewConfig,
     type PlanRowsInput,
     type PlanRowsValue,
+    type PlanSeriesValue,
+    type PlanSeriesInput,
+    type PlanSeriesEnvelopeConfig,
+    type PlanSpanSeriesConfig,
+    type PlanHeatSeriesConfig,
+    type PlanTableSeriesOfConfig,
+    type PlanBucketsSeriesConfig,
+    type PlanCardsSeriesConfig,
+    type PlanEventsSeriesConfig,
+    type PlanChartSeriesConfig,
+    type PlanGroupSeriesChrome,
 } from "./plan/index.js";
 export {
     Blend,

@@ -121,6 +121,18 @@ import {
     type PlanTableInput,
 } from "./factories.js";
 import { createRows, createSpanOf, createHeatOf, createTableOf } from "./data-forms.js";
+import {
+    PlanSeriesType,
+    createSeriesSpan,
+    createSeriesBuckets,
+    createSeriesChart,
+    createSeriesHeat,
+    createSeriesTable,
+    createSeriesCards,
+    createSeriesEvents,
+    createSeriesGroup,
+    createSeriesRows,
+} from "./series.js";
 import { createTemplate, createPlanRoot } from "./root.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
@@ -242,6 +254,20 @@ export {
     type PlanTableOfConfig,
 } from "./data-forms.js";
 export { type PlanTemplateInput, type PlanReviewConfig, type PlanConfig } from "./root.js";
+export {
+    PlanSeriesType,
+    type PlanSeriesValue,
+    type PlanSeriesInput,
+    type PlanSeriesEnvelopeConfig,
+    type PlanSpanSeriesConfig,
+    type PlanHeatSeriesConfig,
+    type PlanTableSeriesOfConfig,
+    type PlanBucketsSeriesConfig,
+    type PlanCardsSeriesConfig,
+    type PlanEventsSeriesConfig,
+    type PlanChartSeriesConfig,
+    type PlanGroupSeriesChrome,
+} from "./series.js";
 
 // ============================================================================
 // Namespace
@@ -303,6 +329,29 @@ export interface PlanNamespace {
     group: typeof createGroup;
     /** Data-driven rows — per-element constructor or grouped config. */
     rows: typeof createRows;
+    /** Data-driven row FAMILIES over one source (`data` + `series` props) —
+     *  each builder takes the row type first and returns a real East series
+     *  value (`Plan Data Interface.md` §3.5a). */
+    series: {
+        /** A span family (runs; groupBy rollup parents). */
+        span: typeof createSeriesSpan;
+        /** A bucket family (Planner tiles). */
+        buckets: typeof createSeriesBuckets;
+        /** A chart family (layers from each row's data). */
+        chart: typeof createSeriesChart;
+        /** A heat family (groupBy aggregate parents). */
+        heat: typeof createSeriesHeat;
+        /** A table family (groupBy subtotal parents). */
+        table: typeof createSeriesTable;
+        /** A cards family (Roster chips). */
+        cards: typeof createSeriesCards;
+        /** An events family (instant marks). */
+        events: typeof createSeriesEvents;
+        /** A group strip around child series. */
+        group: typeof createSeriesGroup;
+        /** Literal one-off chrome rows in canvas order. */
+        rows: typeof createSeriesRows;
+    };
     /** Builds one span run. */
     run: typeof createRun;
     /** Builds one decision diamond. */
@@ -437,6 +486,9 @@ export interface PlanNamespace {
         Review: typeof PlanReviewType;
         /** The keyed row-subject reference. */
         RowRef: typeof PlanRowRefType;
+        /** The series type CONSTRUCTOR — `Plan.Types.Series(RowType)` gives the
+         *  concrete variant type of one series over that row type. */
+        Series: typeof PlanSeriesType;
         /** The `onRunClick` payload. */
         RunClickEvent: typeof PlanRunClickEventType;
         /** The `onEventClick` payload. */
@@ -479,6 +531,17 @@ export const Plan: PlanNamespace = {
     events: createEvents,
     group: createGroup,
     rows: createRows,
+    series: {
+        span: createSeriesSpan,
+        buckets: createSeriesBuckets,
+        chart: createSeriesChart,
+        heat: createSeriesHeat,
+        table: createSeriesTable,
+        cards: createSeriesCards,
+        events: createSeriesEvents,
+        group: createSeriesGroup,
+        rows: createSeriesRows,
+    },
     run: createRun,
     decision: createDecision,
     port: createPort,
@@ -546,6 +609,7 @@ export const Plan: PlanNamespace = {
         ExpandAxis: PlanExpandAxisType,
         Review: PlanReviewType,
         RowRef: PlanRowRefType,
+        Series: PlanSeriesType,
         RunClickEvent: PlanRunClickEventType,
         EventClickEvent: PlanEventClickEventType,
         MarkClickEvent: PlanMarkClickEventType,

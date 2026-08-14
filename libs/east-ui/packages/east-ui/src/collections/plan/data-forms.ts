@@ -73,7 +73,7 @@ export type PlanGroupByLevel<R extends StructType> =
     | { by: PlanAccessor<R, StringType>; collapsed?: boolean };
 
 /** Normalize a groupBy level to its config form. */
-function levelConfig<R extends StructType>(level: PlanGroupByLevel<R>): { by: PlanAccessor<R, StringType>; collapsed?: boolean } {
+export function levelConfig<R extends StructType>(level: PlanGroupByLevel<R>): { by: PlanAccessor<R, StringType>; collapsed?: boolean } {
     return typeof level === "function" ? { by: level } : level;
 }
 
@@ -95,7 +95,7 @@ export interface PlanRowsGroupConfig<R extends StructType> {
 }
 
 /** One resolved groupBy level — the reified key accessor + the level's parent constructor. */
-interface PlanResolvedLevel {
+export interface PlanResolvedLevel {
     /** The reified group-key accessor (an East function call per row). */
     by: (row: ExprType<StructType>) => ExprType<StringType>;
     /** The level's shared parent constructor (see {@link groupParentFn}). */
@@ -103,7 +103,7 @@ interface PlanResolvedLevel {
 }
 
 /** Reify a level's key accessor once (fixed `String` output — no inference). */
-function reifyLevelKey(rowType: StructType, by: PlanAccessor<StructType, StringType>): PlanResolvedLevel["by"] {
+export function reifyLevelKey(rowType: StructType, by: PlanAccessor<StructType, StringType>): PlanResolvedLevel["by"] {
     const keyFn = East.function([rowType], StringType, (_$, r) => by(r));
     return (row) => keyFn(row);
 }
@@ -116,7 +116,7 @@ function reifyLevelKey(rowType: StructType, by: PlanAccessor<StructType, StringT
  * with key and members in hand, and each group is built by the level's
  * shared parent constructor over its recursively-grouped children.
  */
-function groupRows(
+export function groupRows(
     elems: ExprType<ArrayType<StructType>>,
     levels: PlanResolvedLevel[],
     makeLeaves: (subset: ExprType<ArrayType<StructType>>) => PlanRowsValue,
@@ -276,6 +276,39 @@ function ofScaffold<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     return groupRows(arr, levels, subset => flatMapRowsBlock(subset, PlanRowType, leaf), "");
 }
 
+/** The span `.of` / series PARENT kind — a rollup declaration (renderer derives bands). */
+export function spanParentKind(cfg: PlanSpanOfConfig<StructType>): ExprType<PlanRowKindType> {
+    return East.value(variant("span", {
+        runs:      [],
+        decisions: [],
+        ports:     [],
+        rollup:    some(resolveTag(cfg.rollup ?? "union", PlanRollupType)),
+        unit:      cfg.unit !== undefined ? some(cfg.unit) : none,
+    }), PlanRowKindType);
+}
+
+/** The span `.of` / series LEAF constructor — one data row to its 1-row subtree,
+ *  the envelope's Option fields injected from the accessors. */
+export function spanLeafOf(cfg: PlanSpanOfConfig<StructType>): ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>> {
+    return (_$, r) => applyRowOverrides(
+        createSpan({
+            key:   cfg.key(r),
+            label: cfg.label(r),
+            ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            runs: cfg.runs(r),
+            ...(cfg.decisions !== undefined ? { decisions: cfg.decisions(r) } : {}),
+            ...(cfg.ports !== undefined ? { ports: cfg.ports(r) } : {}),
+        }),
+        {
+            ...(cfg.sub !== undefined ? { sub: cfg.sub(r) } : {}),
+            ...(cfg.value !== undefined ? { value: cfg.value(r) } : {}),
+            ...(cfg.status !== undefined ? { status: cfg.status(r) } : {}),
+            ...(cfg.drill !== undefined ? { drill: cfg.drill(r) } : {}),
+            ...(cfg.expand !== undefined ? { expand: cfg.expand(r) } : {}),
+        },
+    );
+}
+
 /**
  * The `.of` form of {@link Plan.span} — accessor-driven span rows, grouped
  * to arbitrary depth with span-rollup parents (the parents DECLARE their
@@ -290,37 +323,7 @@ export function createSpanOf<T extends SubtypeExprOrValue<ArrayType<StructType>>
     config: PlanSpanOfConfig<RowElement<T>>,
 ): PlanRowsValue {
     const cfg = config as PlanSpanOfConfig<StructType>;
-    const parentKind = East.value(variant("span", {
-        runs:      [],
-        decisions: [],
-        ports:     [],
-        rollup:    some(resolveTag(cfg.rollup ?? "union", PlanRollupType)),
-        unit:      cfg.unit !== undefined ? some(cfg.unit) : none,
-    }), PlanRowKindType);
-    return ofScaffold(
-        data,
-        config.groupBy,
-        // The envelope's Option fields come from the ACCESSORS (the expression
-        // channel — per-row presence), injected over the assembled row.
-        (_$, r) => applyRowOverrides(
-            createSpan({
-                key:   cfg.key(r),
-                label: cfg.label(r),
-                ...(cfg.id !== undefined ? { id: cfg.id } : {}),
-                runs: cfg.runs(r),
-                ...(cfg.decisions !== undefined ? { decisions: cfg.decisions(r) } : {}),
-                ...(cfg.ports !== undefined ? { ports: cfg.ports(r) } : {}),
-            }),
-            {
-                ...(cfg.sub !== undefined ? { sub: cfg.sub(r) } : {}),
-                ...(cfg.value !== undefined ? { value: cfg.value(r) } : {}),
-                ...(cfg.status !== undefined ? { status: cfg.status(r) } : {}),
-                ...(cfg.drill !== undefined ? { drill: cfg.drill(r) } : {}),
-                ...(cfg.expand !== undefined ? { expand: cfg.expand(r) } : {}),
-            },
-        ),
-        groupParentFn(parentKind),
-    );
+    return ofScaffold(data, config.groupBy, spanLeafOf(cfg), groupParentFn(spanParentKind(cfg)));
 }
 
 /**
@@ -366,36 +369,42 @@ export interface PlanHeatOfConfig<R extends StructType> {
  * @param config - The accessors + grouping ({@link PlanHeatOfConfig})
  * @returns The flattened subtree
  */
+/** The heat `.of` / series PARENT kind — an aggregate declaration on empty scale-bearing cells. */
+export function heatParentKind(cfg: PlanHeatOfConfig<StructType>): ExprType<PlanRowKindType> {
+    return East.value(variant("heat", {
+        cells:     createHeatCells([], cfg.scale),
+        aggregate: some(resolveTag(cfg.aggregate ?? "mean", PlanAggregateType)),
+    }), PlanRowKindType);
+}
+
+/** The heat `.of` / series LEAF constructor. */
+export function heatLeafOf(cfg: PlanHeatOfConfig<StructType>): ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>> {
+    return (_$, r) => applyRowOverrides(
+        createHeat({
+            key:   cfg.key(r),
+            label: cfg.label(r),
+            cells: cfg.cells(r),
+        }),
+        {
+            ...(cfg.sub !== undefined ? { sub: cfg.sub(r) } : {}),
+            ...(cfg.value !== undefined ? { value: cfg.value(r) } : {}),
+            ...(cfg.status !== undefined ? { status: cfg.status(r) } : {}),
+        },
+    );
+}
+
 export function createHeatOf<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
     config: PlanHeatOfConfig<RowElement<T>>,
 ): PlanRowsValue {
     const cfg = config as PlanHeatOfConfig<StructType>;
     const mode = cfg.aggregate ?? "mean";
-    // The parent DECLARES its aggregation; empty cells carry the scale and
-    // the renderer derives the per-bucket values.
-    const parentKind = East.value(variant("heat", {
-        cells:     createHeatCells([], cfg.scale),
-        aggregate: some(resolveTag(mode, PlanAggregateType)),
-    }), PlanRowKindType);
     return ofScaffold(
         data,
         config.groupBy,
-        // Envelope Option fields come from the accessors (per-row presence).
-        (_$, r) => applyRowOverrides(
-            createHeat({
-                key:   cfg.key(r),
-                label: cfg.label(r),
-                cells: cfg.cells(r),
-            }),
-            {
-                ...(cfg.sub !== undefined ? { sub: cfg.sub(r) } : {}),
-                ...(cfg.value !== undefined ? { value: cfg.value(r) } : {}),
-                ...(cfg.status !== undefined ? { status: cfg.status(r) } : {}),
-            },
-        ),
+        heatLeafOf(cfg),
         // The gutter meta prints the mode's tag (works for expressions too).
-        groupParentFn(parentKind, () => some(resolveTag(mode, PlanAggregateType).getTag())),
+        groupParentFn(heatParentKind(cfg), () => some(resolveTag(mode, PlanAggregateType).getTag())),
     );
 }
 
@@ -434,29 +443,38 @@ export interface PlanTableOfConfig<R extends StructType> {
  * @param config - The accessors + grouping ({@link PlanTableOfConfig})
  * @returns The flattened subtree
  */
+/** The table `.of` / series PARENT kind — a subtotal declaration (header emphasis). */
+export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<PlanRowKindType> {
+    return East.value(variant("table", {
+        series:    [],
+        split:     variant("horizontal", null),
+        aggregate: some(resolveTag(cfg.aggregate ?? "sum", TableAggregateType)),
+        format:    cfg.format !== undefined ? some(East.value(cfg.format, TickFormatType)) : none,
+        emphasis:  variant("header", null),
+    }), PlanRowKindType);
+}
+
+/** The table `.of` / series LEAF constructor. */
+export function tableLeafOf(cfg: PlanTableOfConfig<StructType>): ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>> {
+    return (_$, r) => createTable({
+        key:   cfg.key(r),
+        label: cfg.label(r),
+        cells: cfg.cells(r),
+        ...(cfg.format !== undefined ? { format: cfg.format } : {}),
+    });
+}
+
 export function createTableOf<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
     config: PlanTableOfConfig<RowElement<T>>,
 ): PlanRowsValue {
     const cfg = config as PlanTableOfConfig<StructType>;
     const mode = cfg.aggregate ?? "sum";
-    const parentKind = East.value(variant("table", {
-        series:    [],
-        split:     variant("horizontal", null),
-        aggregate: some(resolveTag(mode, TableAggregateType)),
-        format:    cfg.format !== undefined ? some(East.value(cfg.format, TickFormatType)) : none,
-        emphasis:  variant("header", null),
-    }), PlanRowKindType);
     return ofScaffold(
         data,
         config.groupBy,
-        (_$, r) => createTable({
-            key:   cfg.key(r),
-            label: cfg.label(r),
-            cells: cfg.cells(r),
-            ...(cfg.format !== undefined ? { format: cfg.format } : {}),
-        }),
+        tableLeafOf(cfg),
         // The gutter meta prints the mode's tag (works for expressions too).
-        groupParentFn(parentKind, () => some(resolveTag(mode, TableAggregateType).getTag())),
+        groupParentFn(tableParentKind(cfg), () => some(resolveTag(mode, TableAggregateType).getTag())),
     );
 }

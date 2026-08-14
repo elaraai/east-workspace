@@ -15,12 +15,14 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
+    Expr,
     ArrayType,
     BooleanType,
     FunctionType,
     NullType,
     OptionType,
     StringType,
+    StructType,
     variant,
     some,
     none,
@@ -57,6 +59,7 @@ import {
 import { PlanReviewType } from "./ir.js";
 import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
 import { normalizeRows, type PlanRowsInput } from "./assemble.js";
+import { applySeries, seriesRowType, type PlanSeriesInput } from "./series.js";
 
 // ============================================================================
 // Templates
@@ -129,7 +132,9 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * Configuration for {@link Plan.Root} (the `<Plan>` tag's props).
  *
  * @property axis - The shared time-axis declaration (`Plan.axis`)
- * @property rows - The canvas rows — kind-factory results (flattened subtrees)
+ * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
+ * @property data - The raw data source (an `Array<R>` value/expression); pairs with `series`
+ * @property series - The row families over `data` — `Plan.series.*` values, in canvas order
  * @property grain - Initial grain (`"group"` / `"resource"` / `"item"`; default resource)
  * @property library - Row-library templates (`Plan.template` values)
  * @property journeys - ITEM-grain / drilled-row journey resolver (behavior prop)
@@ -157,8 +162,15 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
 export interface PlanConfig {
     /** The shared time-axis declaration (`Plan.axis`). */
     axis: SubtypeExprOrValue<PlanAxisType>;
-    /** The canvas rows — kind-factory results (flattened subtrees). */
-    rows: PlanRowsInput;
+    /** The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`. */
+    rows?: PlanRowsInput;
+    /** The raw data source — an `Array<R>` value or expression (a `$.let`-bound
+     *  array, `Slice.rows`, `Data.bind(...).read()`); a `Data.bindPaged` handle
+     *  takes the paged arm (P-c). Pairs with `series`. */
+    data?: SubtypeExprOrValue<ArrayType<StructType>>;
+    /** The row families over `data` — `Plan.series.*` values in canvas order
+     *  (a TS array or an East expression of `ArrayType(Plan.Types.Series(R))`). */
+    series?: PlanSeriesInput;
     /** The link graph (R1) — run-edge quantity links (`Plan.link` values, map-derivable
      *  from data); the links-focus control gathers a row's transitive family over it. */
     links?: SubtypeExprOrValue<ArrayType<PlanLinkType>>;
@@ -248,6 +260,25 @@ export interface PlanConfig {
  * behind `onDrag`; the surface only reports.
  */
 export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
+    // rows XOR data+series — one authoring channel per canvas.
+    if ((config.data !== undefined) !== (config.series !== undefined)) {
+        throw new Error("Plan: `data` and `series` come together — pass both or neither");
+    }
+    if (config.data !== undefined && config.rows !== undefined) {
+        throw new Error("Plan: pass `rows` OR `data` + `series` — not both");
+    }
+    let rowsValue: ExprType<ArrayType<PlanRowType>>;
+    if (config.data !== undefined && config.series !== undefined) {
+        const dataExpr = East.value(config.data) as ExprType<ArrayType<StructType>>;
+        const dataType = Expr.type(dataExpr) as { type: string };
+        if (dataType.type !== "Array") {
+            throw new Error("Plan: `data` must be an Array<R> value/expression — Data.bindPaged sources arrive with the paged arm (P-c)");
+        }
+        seriesRowType(dataExpr);            // asserts a struct element type
+        rowsValue = applySeries(config.series, dataExpr);
+    } else {
+        rowsValue = normalizeRows(config.rows ?? []);
+    }
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -267,7 +298,7 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
         }, SliceChromeType))
         : none;
     return East.value(variant("Plan", {
-        rows:     normalizeRows(config.rows),
+        rows:     rowsValue,
         links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
         axis:     config.axis,
         grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,

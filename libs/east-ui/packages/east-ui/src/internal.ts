@@ -91,6 +91,10 @@ export type {
     PlanSpanOfConfig, PlanHeatOfConfig, PlanTableOfConfig,
     PlanRowsGroupConfig, PlanGroupByLevel, PlanReviewConfig, PlanRowsInput,
     PlanRowsValue,
+    PlanSeriesValue, PlanSeriesInput, PlanSeriesEnvelopeConfig,
+    PlanSpanSeriesConfig, PlanHeatSeriesConfig, PlanTableSeriesOfConfig,
+    PlanBucketsSeriesConfig, PlanCardsSeriesConfig, PlanEventsSeriesConfig,
+    PlanChartSeriesConfig, PlanGroupSeriesChrome,
 } from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
 export { Sparkline } from "./charts/index.js";

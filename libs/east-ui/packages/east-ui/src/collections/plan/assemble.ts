@@ -292,17 +292,19 @@ interface PlanRowOverrides {
     status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
     drill?: SubtypeExprOrValue<OptionType<PlanDrillType>>;
     expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
+    pinned?: SubtypeExprOrValue<OptionType<BooleanType>>;
 }
 
 /** Rebuild a 1-row subtree with accessor-supplied `Option` envelope fields. */
 export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): PlanRowsValue {
     if (o.sub === undefined && o.value === undefined && o.status === undefined
-        && o.drill === undefined && o.expand === undefined) return rows;
+        && o.drill === undefined && o.expand === undefined && o.pinned === undefined) return rows;
     const sub    = o.sub    !== undefined ? East.value(o.sub, OptionType(StringType)) : undefined;
     const value  = o.value  !== undefined ? East.value(o.value, OptionType(StringType)) : undefined;
     const status = o.status !== undefined ? East.value(o.status, OptionType(StatusValueType)) : undefined;
     const drill  = o.drill  !== undefined ? East.value(o.drill, OptionType(PlanDrillType)) : undefined;
     const expand = o.expand !== undefined ? East.value(o.expand, OptionType(PlanExpandType)) : undefined;
+    const pinned = o.pinned !== undefined ? East.value(o.pinned, OptionType(BooleanType)) : undefined;
     return rows.map((_$, r) => East.value({
         key:    r.key,
         parent: r.parent,
@@ -316,7 +318,7 @@ export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): Pla
             swatches: r.gutter.swatches,
         }, PlanGutterType),
         kind:     r.kind,
-        pinned:   r.pinned,
+        pinned:   pinned ?? r.pinned,
         height:   r.height,
         status:   status ?? r.status,
         approval: r.approval,

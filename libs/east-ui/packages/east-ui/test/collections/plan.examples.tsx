@@ -15,6 +15,7 @@ import {
     OptionType,
     StringType,
     StructType,
+    VariantType,
     example,
     none,
     some,
@@ -920,6 +921,76 @@ export const planGroupedRows = example({
                         row: (_$2, r) => Plan.heat({ key: r.id, label: r.id, id: true, cells: Plan.heatCells(r.cells) }),
                     }),
                 ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planSeriesData — the data + series canvas (row families over ONE source)
+// ============================================================================
+
+export const planSeriesData = example({
+    keywords: ["Plan", "data", "series", "match", "families", "variant", "span", "cards", "group", "rows", "groupBy", "rollup", "Series", "data-driven", "accessor", "one source"],
+    description: "The data + series canvas — ONE variant-discriminated source; each Plan.series.* builder (row type first) declares a row family over it via match + accessors (span with groupBy rollup parents, cards under a series.group strip), series.rows carries literal one-off chrome, and the whole list is a $.const-bound East value typed ArrayType(Plan.Types.Series(OpsRow))",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
+            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        // The domain shape — families discriminated by a variant field (the
+        // natural ops-dataset form; the same rows page from a dataset in P-c).
+        const OpsRow = StructType({
+            id: StringType, line: StringType,
+            kind: VariantType({
+                machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
+                crew:    StructType({ chips: ArrayType(Plan.Types.Chip) }),
+            }),
+        });
+        const ops = $.const([
+            { id: "L1-M03", line: "Line 1", kind: variant("machine", { runs: [
+                Plan.run({ key: "b214", start: week(28n), end: week(31n), label: "RUN · B-214", quantity: "96 t", qty: 96, state: "in-progress" }),
+                Plan.run({ key: "b221", start: week(32n), end: week(35n), label: "RUN · B-221", quantity: "88 t", qty: 88, state: "recommended" }),
+            ] }) },
+            { id: "L1-M04", line: "Line 1", kind: variant("machine", { runs: [
+                Plan.run({ key: "b208", start: week(27n), end: week(30n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
+            ] }) },
+            { id: "L2-M11", line: "Line 2", kind: variant("machine", { runs: [
+                Plan.run({ key: "b241", start: week(29n), end: week(33n), label: "RUN · B-241", quantity: "92 t", qty: 92, state: "confirmed" }),
+            ] }) },
+            { id: "crewA", line: "Line 1", kind: variant("crew", { chips: [
+                Plan.chip({ key: "s1", from: week(27n), to: week(29n), label: "80h", state: "confirmed" }),
+                Plan.chip({ key: "s2", from: week(31n), to: week(33n), label: "+64h", state: "recommended" }),
+            ] }) },
+        ], ArrayType(OpsRow));
+        // The series — real East values bound in the body, typed by the
+        // constructor; canvas order = series order.
+        const series = $.const([
+            Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
+                Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
+                Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
+            ] })]),
+            Plan.series.span(OpsRow, {
+                match: r => r.kind.hasTag("machine"),
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => r.kind.unwrap("machine").runs,
+                groupBy: [r => r.line], rollup: "union", unit: "t",
+            }),
+            Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
+                Plan.series.cards(OpsRow, {
+                    match: r => r.kind.hasTag("crew"),
+                    key: r => r.id, label: r => r.id,
+                    chips: r => r.kind.unwrap("crew").chips,
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(OpsRow)));
+        return (
+            <Plan
+                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
+                data={ops}
+                series={series}
             />
         );
     }),

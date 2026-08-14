@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, East, FloatType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Plan, Text } from "@elaraai/east-ui/internal";
 import { Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -18,6 +18,14 @@ const END = new Date("2026-09-21T00:00:00Z");
 
 // Chart-consumption fixtures (module scope — no host helpers in East bodies).
 const SPEC_SERIES_ROW = StructType({ week: DateTimeType, pct: FloatType });
+// The data+series fixture row — families discriminated by a variant field.
+const OPS_ROW = StructType({
+    id: StringType, line: StringType,
+    kind: VariantType({
+        machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
+        crew:    StructType({ chips: ArrayType(Plan.Types.Chip) }),
+    }),
+});
 const SPEC_SERIES_DATA = [
     { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
 ];
@@ -56,6 +64,7 @@ describeEast("Plan", (test) => {
         planCardRows: ex.planCardRows,
         planEventRows: ex.planEventRows,
         planGroupedRows: ex.planGroupedRows,
+        planSeriesData: ex.planSeriesData,
         planLibraryDnd: ex.planLibraryDnd,
     });
 
@@ -637,6 +646,101 @@ describeEast("Plan", (test) => {
         $(Assert.equal(b.lanes.length(), 2n));
         $(Assert.equal(b.lanes.get(0n).label.unwrap("some"), "AM"));
         $(Assert.equal(b.lanes.get(1n).label.hasTag("none"), true));
+    });
+
+    // =========================================================================
+    // Series — the data + series canvas (P-b)
+    // =========================================================================
+
+    test("data+series: families build in series order, match filters, rollup parents declare", $ => {
+        const ops = $.const([
+            { id: "m1", line: "L1", kind: variant("machine", { runs: [
+                Plan.run({ key: "r1", start: W27, end: W29, label: "R1", state: "actual" })] }) },
+            { id: "m2", line: "L1", kind: variant("machine", { runs: [
+                Plan.run({ key: "r2", start: W28, end: W30, label: "R2", state: "confirmed" })] }) },
+            { id: "c1", line: "L1", kind: variant("crew", { chips: [
+                Plan.chip({ key: "s1", from: W27, to: W29, label: "80h", state: "confirmed" })] }) },
+        ], ArrayType(OPS_ROW));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data: ops,
+            series: [
+                Plan.series.span(OPS_ROW, {
+                    match: r => r.kind.hasTag("machine"),
+                    key: r => r.id, label: r => r.id, id: true,
+                    runs: r => r.kind.unwrap("machine").runs,
+                    groupBy: [r => r.line], rollup: "union", unit: "t",
+                }),
+                Plan.series.cards(OPS_ROW, {
+                    match: r => r.kind.hasTag("crew"),
+                    key: r => r.id, label: r => r.id,
+                    chips: r => r.kind.unwrap("crew").chips,
+                }),
+            ],
+        }));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows);
+        // Span family first (L1 rollup parent + its two machines — the crew
+        // row filtered out by match), then the cards family.
+        $(Assert.equal(rows.length(), 4n));
+        $(Assert.equal(rows.get(0n).key, "L1"));
+        $(Assert.equal(rows.get(0n).kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
+        $(Assert.equal(rows.get(0n).kind.unwrap("span").unit.unwrap("some"), "t"));
+        $(Assert.equal(rows.get(1n).key, "m1"));
+        $(Assert.equal(rows.get(1n).parent.unwrap("some"), "L1"));
+        $(Assert.equal(rows.get(2n).key, "m2"));
+        $(Assert.equal(rows.get(3n).key, "c1"));
+        $(Assert.equal(rows.get(3n).kind.unwrap("cards").chips.length(), 1n));
+    });
+
+    test("a $.const-bound series expression applies via the East fold", $ => {
+        const ops = $.const([
+            { id: "m1", line: "L1", kind: variant("machine", { runs: [
+                Plan.run({ key: "r1", start: W27, end: W29, label: "R1", state: "actual" })] }) },
+        ], ArrayType(OPS_ROW));
+        // The series list is itself an East VALUE — typed by the constructor.
+        const series = $.const([
+            Plan.series.span(OPS_ROW, {
+                key: r => r.id, label: r => r.id,
+                runs: r => r.kind.unwrap("machine").runs,
+            }),
+            Plan.series.rows(OPS_ROW, [Plan.events({ key: "ms", label: "MS" })]),
+        ], ArrayType(Plan.Types.Series(OPS_ROW)));
+        const p = $.let(Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: ops, series }));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows);
+        $(Assert.equal(rows.length(), 2n));
+        $(Assert.equal(rows.get(0n).key, "m1"));
+        $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.length(), 1n));
+        $(Assert.equal(rows.get(1n).key, "ms"));
+        $(Assert.equal(rows.get(1n).kind.hasTag("events"), true));
+    });
+
+    test("series.group wraps child families under a strip; series.rows carries literal chrome", $ => {
+        const ops = $.const([
+            { id: "crewA", line: "L1", kind: variant("crew", { chips: [
+                Plan.chip({ key: "s1", from: W27, to: W29, label: "80h", state: "confirmed" })] }) },
+        ], ArrayType(OPS_ROW));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data: ops,
+            series: [
+                Plan.series.rows(OPS_ROW, [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
+                Plan.series.group(OPS_ROW, { key: "crews", label: "Crews", meta: "1 rs" }, [
+                    Plan.series.cards(OPS_ROW, {
+                        match: r => r.kind.hasTag("crew"),
+                        key: r => r.id, label: r => r.id,
+                        chips: r => r.kind.unwrap("crew").chips,
+                    }),
+                ]),
+            ],
+        }));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows);
+        $(Assert.equal(rows.length(), 3n));
+        $(Assert.equal(rows.get(0n).key, "ms"));
+        $(Assert.equal(rows.get(1n).key, "crews"));
+        $(Assert.equal(rows.get(1n).kind.hasTag("group"), true));
+        $(Assert.equal(rows.get(1n).gutter.meta.unwrap("some"), "1 rs"));
+        $(Assert.equal(rows.get(2n).key, "crewA"));
+        $(Assert.equal(rows.get(2n).parent.unwrap("some"), "crews"));
     });
 
     // =========================================================================

@@ -1,6 +1,12 @@
 # Plan Data Interface Review — make it work like Table
 
-**Status:** review v3 · 2026-08-14 · revises `Plan Spec.md` §4/§6
+**Status:** review v4 · 2026-08-14 · revises `Plan Spec.md` §4/§6
+**v4 note:** series are REAL EAST VALUES (`PlanSeriesType(r)` — a
+`DataBindHandleType`-style type constructor; builders return variant
+values whose `make` is a typed reified function) and paging is a BIND
+concern: a new public `Data.bindPaged` sibling of `Data.bind` delivers
+TYPED pages (decode automatic in the bind impl); no blobs, no manual
+fetch code, anywhere.
 **v3 note:** v2's array-of-sources is simplified to **ONE raw data source
 + a `series` config** — each series declares one row family (a match
 predicate + a kind config) over the same source, the way Table declares
@@ -76,7 +82,7 @@ Legend — **KEEP** unchanged · **RESHAPE** same intent, new mechanism ·
 
 | Field | Verdict | Change |
 |---|---|---|
-| `rows: Array<PlanRowType>` | **RESHAPE** | Becomes `rows: variant<rows: Array<PlanRowType>, source: {data: TreePath, build}>` (§3.8) — inline unchanged for small canvases; ONE raw dataset + the config's build function otherwise. |
+| `rows: Array<PlanRowType>` | **RESHAPE** | Becomes `rows: variant<rows: Array<PlanRowType>, source: DataPagedHandleType(ArrayType(PlanRowType))>` (§3.8) — inline unchanged for small canvases; a derived paged handle at the canvas-row type otherwise. |
 | `links` | KEEP | Small root data; under paged rows the focus gather fetches progressively (§3.7). |
 | `axis / grain / slice / footer / style / Dn D / callbacks` | KEEP | — |
 | `library` (templates) | KEEP | `make` returns inline subtrees; dropped rows are host-added data by definition. |
@@ -150,17 +156,18 @@ just another series:
 There is no config object and no `.rows()` / `.paged()` calls — the tag
 takes **`data` and `series` as separate props**, exactly `Table.Root(data,
 columns)`. `data` accepts a `SubtypeExprOrValue<ArrayType<R>>` (inline —
-plain arrays, expressions, `Slice.rows`) **or** a `DatasetDef`/`TaskDef`
-(paged). Defs are plain `{path, type, kind}` objects, never East
-expressions, so the dispatch is unambiguous — the same discrimination
-`Data.bind` does. The row type comes from the data (`Expr.type` /
-`def.type`), the way Table infers its columns' field types.
+plain arrays, expressions, `Slice.rows`) **or** a `$.let`-bound
+`Data.bindPaged` handle (paged — §3.8), the way type-specific components
+already accept `Data.bind` handles (`Ontology` takes a
+`BoundValue<OntologyType>`). The
+row type comes from the data (`Expr.type`) or is declared on each series
+builder (§3.5a).
 
 ```tsx
 <Plan
-    data={ops}                 // def ⇒ paged · array/expr ⇒ inline
+    data={ops}                 // array/expr ⇒ inline · a bound paged handle ⇒ paged
     series={[
-        Plan.series.chart({                               // family: KPI charts —
+        Plan.series.chart(OpsRow, {                       // family: KPI charts —
             match: r => r.kind.hasTag("kpi"),             //   one chart ROW per
             key: r => r.id, label: r => r.name, id: true, //   matched data row,
             pinned: r => r.pinned,                        //   keys from the data
@@ -169,39 +176,63 @@ expressions, so the dispatch is unambiguous — the same discrimination
                 Chart.Line(r.kind.unwrap("kpi").points, { x: p => p.at, y: p => p.v }),
                 { breach: { below: 92 } })],
         }),
-        Plan.series.span({                                // family: machines
+        Plan.series.span(OpsRow, {                        // family: machines
             match: r => r.kind.hasTag("machine"),
             key: r => r.id, label: r => r.id, id: true,
             runs: r => r.kind.unwrap("machine").runs,
             groupBy: [r => r.line], rollup: "union", unit: "t",
         }),
         Plan.series.group({ key: "docks", label: "Docks · In" }, [
-            Plan.series.buckets({                         // family: docks, under the band
+            Plan.series.buckets(OpsRow, {                 // family: docks, under the band
                 match: r => r.kind.hasTag("dock"),
                 key: r => r.id, label: r => r.name,
                 events: r => r.kind.unwrap("dock").events,
             }),
         ]),
-        Plan.series.table({                               // family: orders
+        Plan.series.table(OpsRow, {                       // family: orders
             match: r => r.kind.hasTag("order"),
             key: r => r.id, label: r => r.name,
             cells: r => Plan.tableCells(r.kind.unwrap("order").raw),
             groupBy: [r => r.section], aggregate: "sum",
         }),
-    ],
-});
-
     ]}
     axis={Plan.axis({ resolution: "week" })}
 />
 ```
 
-Beneath both arms the factory reifies the series ONCE into the single
-stored build function (`Fn(Blob) → Array<PlanRowType>`): the inline arm
-applies it to the data expression in the value; the source arm stores
-`def.path` + the function for the renderer to run per fetched window. The
-literal `rows={[…]}` prop remains for pure hand-built canvases (mutually
-exclusive with `data`/`series`).
+The literal `rows={[…]}` prop remains for pure hand-built canvases
+(mutually exclusive with `data`/`series`).
+
+### 3.5a Series are East values
+
+Series follow the `Data.bind` handle pattern, not a host-side config
+union. `PlanSeriesType` is a type CONSTRUCTOR (the `DataBindHandleType`
+precedent — `data.ts:107`): given the row type it returns a concrete
+variant type, one arm per kind, whose `make` is a typed function:
+
+```ts
+export const PlanSeriesType = <R extends EastType>(r: R) => VariantType({
+    span:    StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
+    buckets: StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
+    // …chart / heat / table / cards / events / group…
+    rows:    StructType({ rows: ArrayType(PlanRowType) }),      // literal one-off chrome
+});
+```
+
+Each builder — `Plan.series.span(OpsRow, cfg)` — reifies its accessors
+ONCE (Table's per-column `valueFn` move) and returns a real East value
+(`variant("span", { make })`). Everything is typed end to end: `make` is
+`Fn(Array<OpsRow>) → Array<PlanRowType>`, built from the same leaf
+constructors and groupBy engine the `.of` forms already use. The INLINE
+arm is then exactly Table's `rows_mapped`: the factory applies each
+series' `make` to the data expression and concatenates, storing the
+resulting rows expression — one function per series, applied, never
+expanded, and **no serialization of any kind is involved**.
+
+Because series are expressions, they bind like any other East value —
+`$.const([...], ArrayType(Plan.Types.Series(OpsRow)))` in the function
+body (the constructor is exposed as `Plan.Types.Series`); never a
+module-scope JS const holding expressions.
 
 Heterogeneity lives in the DATA (a variant field discriminates families —
 the natural shape of an ops dataset), and the config mirrors it with one
@@ -219,38 +250,77 @@ mechanical:
 | `run · event · chip · mark · decision` | 5 | **Keep, slimmed** — lose their `popover` / `hovercard` inputs (UI moves to root resolvers). Names, other fields identical. |
 | `span · buckets · chart · heat · table · cards · events · group` | 8 | **Keep** — the inline factories, now also the task-side composition vocabulary. Lose per-element popover pass-through only. |
 | `span.of · heat.of · table.of · rows` | 4 | **Keep as sugar** over the new `.config` forms — same signatures, new mechanism beneath. |
-| NEW: `data` + `series` root props (+ `Plan.series.span/buckets/chart/heat/table/cards/events/group/rows`) | 9 | `Table.Root(data, columns)` applied to rows: one source prop (def ⇒ paged, expr ⇒ inline), series per row family, the whole canvas reified to one stored build function. |
+| NEW: `data` + `series` root props (+ `Plan.series.span/buckets/chart/heat/table/cards/events/group/rows`) | 9 | `Table.Root(data, columns)` applied to rows: one data prop (expr ⇒ inline, `Data.bindPaged` handle ⇒ paged), one East series value per row family (§3.5a). |
+| NEW: `Data.bindPaged` (e3-ui) + `data_page*` primitives | 1 + prims | The typed paged handle — `Data.bind`'s #106 architecture applied to windows; decode automatic in the bind impl. Reusable beyond Plan (ValueTree, Table). |
 | NEW root props: `popover · hover` (over `PlanElementRefType`) · `expandRender` | 3 | The resolver props replacing per-element UI embeds (the `journeys` pattern; naming per Schematic/Flowchart's `*Hover` resolver convention). |
 
 ### 3.5c Usage — one paged canvas, multiple row kinds, ONE source
 
 ```tsx
 // ── e3 package: ONE raw input; families discriminated by a variant field ──
-const ops = e3.input("ops", ArrayType(OpsRow), []);   // OpsRow.kind: machine|dock|order
+const OpsRow = StructType({
+    id: StringType, line: StringType, section: StringType,
+    kind: VariantType({
+        machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
+        dock:    StructType({ events: ArrayType(Plan.Types.BucketEvent) }),
+        order:   StructType({ raw: ArrayType(StructType({ at: DateTimeType, value: OptionType(FloatType) })) }),
+    }),
+});
+const ops = e3.input("ops", ArrayType(OpsRow), []);
 
-// ── the series config, reusable as a plain const ──
-const SERIES = [/* chrome · kpi charts · machines · docks · orders */];
-
-// ── the ui() task: reference + config only; pages arrive raw, build runs locally ──
+// ── the ui() task: a reference + config; windows stream in on scroll ──
 const dash = e3.ui("plan", { ops }, _$ => (
-    <Plan
-        axis={Plan.axis({ resolution: "week", resolutions: ["week", "day"] })}
-        data={ops}                     // a DatasetDef ⇒ paged automatically
-        series={SERIES}
-        links={transfers.map((_$, t) => Plan.link({ from: t.src, fromRun: t.run,
-                                                    to: t.dst, toRun: t.dstRun,
-                                                    quantity: t.qty, label: t.label }))}
-        popover={East.function([Plan.Types.ElementRef], OptionType(UIComponentType),
-            (_$, ref) => ref.match({
-                run: (ev) => some(<Text>{East.str`Run ${ev.run} on ${ev.row}`}</Text>),
-            }, (_v) => East.value(none, OptionType(UIComponentType))))}
-    />
+    <Reactive>{$ => {
+        const paged = $.let(Data.bindPaged(ops));
+        // Series are East EXPRESSIONS — bound in the body with $.const,
+        // typed by the constructor (never a module-scope JS const, which
+        // would re-inline per use).
+        const series = $.const([
+            Plan.series.span(OpsRow, {
+                match: r => r.kind.hasTag("machine"),
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => r.kind.unwrap("machine").runs,
+                groupBy: [r => r.line], rollup: "union", unit: "t",
+            }),
+            Plan.series.group({ key: "docks", label: "Docks · In" }, [
+                Plan.series.buckets(OpsRow, {
+                    match: r => r.kind.hasTag("dock"),
+                    key: r => r.id, label: r => r.id,
+                    events: r => r.kind.unwrap("dock").events,
+                }),
+            ]),
+            Plan.series.table(OpsRow, {
+                match: r => r.kind.hasTag("order"),
+                key: r => r.id, label: r => r.id,
+                cells: r => Plan.tableCells(r.kind.unwrap("order").raw),
+                groupBy: [r => r.section], aggregate: "sum",
+            }),
+        ], ArrayType(Plan.Types.Series(OpsRow)));
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
+            const noBody = $2.const(none, OptionType(UIComponentType));
+            return ref.match({
+                run: (_$3, ev) => some(<Text>{East.str`Run ${ev.run} on ${ev.row}`}</Text>),
+            }, _$3 => noBody);
+        }));
+        return (
+            <Plan
+                axis={Plan.axis({ resolution: "week", resolutions: ["week", "day"] })}
+                data={paged}
+                series={series}
+                popover={popover}
+            />
+        );
+    }}</Reactive>
 ));
 ```
 
-Small canvas, same props: `data={fewOps} series={SERIES}` — an array or
-East expression takes the inline arm. One vocabulary, one spelling; where
-the data lives decides the wire form.
+Small canvas, same props: `data={fewOps} series={series}` — an array or
+East expression takes the inline arm. `series` is a true
+`SubtypeExprOrValue<ArrayType<PlanSeriesType(R)>>`: a `$.const`-bound
+expression as above, or a literal TS array of builder results; the
+factory applies either (an East fold internally when the list is
+dynamic). One vocabulary, one spelling; where the data lives decides the
+wire form.
 
 ### 3.6 Aggregation / rollups / summaries (V3a)
 
@@ -283,33 +353,73 @@ it loads, and the pager's `totalElements` bounds what it hasn't:
   pages (a family gather is inherently a scan); counts refine as they
   land, and hash-pinned pages make the re-focus cache-warm.
 
-### 3.8 The paged source contract
+### 3.8 The paged source contract — `Data.bindPaged`
 
-References are `Data.bind`'s vocabulary — a dataset reference IS a
-`TreePathType` on the wire; the author passes the `DatasetDef`/`TaskDef`
-as `data` and the factory takes `def.path` + `def.type` (the series
-accessors compile-check against it, the `BoundValue<T>` guarantee).
+Paging is a BIND-layer concern, not component machinery. A new public
+sibling of `Data.bind` in `e3-ui/src/bind/data.ts`:
+
+```tsx
+const ops = e3.input("ops", ArrayType(OpsRow), []);
+
+// inside the ui() task body — the handle is an East value, bound like
+// every Data.bind (never called inline in a prop); see §3.5c in full:
+const paged = $.let(Data.bindPaged(ops));
+// …
+return <Plan data={paged} series={series} axis={axis} />;
+```
+
+`Data.bindPaged(dataset)` follows `Data.bind` exactly (#106): the handle
+is a plain-data descriptor plus East-function methods over generic
+platform primitives (`data_page`, `data_page_total`, …), with **the
+dataset's own type as the type-arg** — the bound data's type is whatever
+the dataset's type is, and decode is automatic inside the bind impl
+(`datasetGetPage` + `decodeBeast2For` + content-hash pinning + the
+reactive tracker — the code already in `useDatasetPage`, relocated behind
+the primitives in `e3-ui-components` beside `BindRuntime`):
+
+```ts
+export const DataPagedHandleType = <T extends EastType>(t: T) => StructType({
+    page:   FunctionType([IntegerType, IntegerType], OptionType(t)),  // (offset, limit); none = loading, tracker re-fires
+    total:  FunctionType([], OptionType(IntegerType)),                // totalElements once known
+    status: FunctionType([], DatasetStatusType),
+    binding: DiffBindingType,                                         // the descriptor
+});
+export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPagedHandleType<T>>>;
+```
+
+The author writes no fetch code and the component stores no bytes. One
+`data` prop serves both worlds because the East type IS the discriminant:
+
+```ts
+data?: SubtypeExprOrValue<ArrayType<StructType>> | PagedValue<ArrayType<StructType>>;
+// factory: Expr.type(East.value(data)) — ArrayType ⇒ inline · handle struct ⇒ paged.
+// (So Data.bind(ops).read() lands inline — the whole value; bindPaged windows it.)
+```
+
+And the source arm stores no bespoke fetch vocabulary — it is simply a
+DERIVED paged handle at the canvas-row type (concrete, since
+`PlanRowType` is fixed):
 
 ```ts
 // IR — the root's rows field:
-PlanRowsType = VariantType({
-    rows:   ArrayType(PlanRowType),          // inline (today's path)
-    source: StructType({
-        data:  TreePathType,                 // ONE raw domain dataset
-        build: FunctionType([BlobType], ArrayType(PlanRowType)),
-        //     ^ the config's ONE stored function — decode the window as
-        //       Array<R>, run the series pipeline; evaluated by the
-        //       renderer per fetched page.
-    }),
-});
+rows: variant<
+    rows:   ArrayType(PlanRowType),                           // inline (today's path)
+    source: DataPagedHandleType(ArrayType(PlanRowType)),      // paged
+>;
 ```
 
-Renderer plumbing: `useDatasetPage` per `{offset, limit}` window,
-query-keyed by content hash with `keepPreviousData`; page bytes → `build`
-→ canvas rows, in the browser. The ordering ask (§3.7) applies to the one
-dataset: rows sorted so series membership and groupBy keys are contiguous.
-Slice narrowing stays client-side over loaded rows; server narrowing is an
-author's derived dataset, never component machinery.
+The factory derives it from the author's `DataPagedHandleType(Array<R>)`
+handle — `page` wrapped with the series `make`s, `total` / `status` /
+`binding` passed through. That wrap is the single internal point where
+`R` is erased; the renderer consumes the same standard handle interface
+as everything else (`page(offset, limit) → Option<Array<PlanRowType>>`,
+`total()` for the scrollbar estimate). The ordering ask
+(§3.7) applies to the one dataset: rows sorted so series membership and
+groupBy keys are contiguous. Slice narrowing stays client-side over
+loaded rows; server narrowing is an author's derived dataset, never
+component machinery. (Impl note: new platform primitives must be added to
+the two hard-coded e3-ui-components arrays — `UITaskPreview` +
+`useDatasetValue` — as well as the registry.)
 
 ### 3.9 Table-kind series, links focus, expand, brush, ruler, footer
 
@@ -329,16 +439,16 @@ the requested model and is the correct one; this review adopts it fully.
 1. **P-a — data-only rows:** strip UI/Function embeds from `PlanRowType`
    (3.2/3.3), add the root resolvers, migrate examples/fixtures. This is
    the breaking core and is independent of paging.
-2. **P-b — series reification:** the `data` + `series` root props; the
-   series pipeline reifies once into the stored build function;
-   `.of`/`Plan.rows` become single-series sugar. Spec tests assert the
-   stored function identity (one fn, applied — never expanded) and that
-   the build round-trips page bytes.
-3. **P-c — the source entries:** `rows` becomes the ordered entry list
-   (inline | source) with client-side `build` evaluation over
-   `useDatasetPage` windows (`keepPreviousData`), partial aggregates, and
-   the progressive links-focus fetch. An in-memory page-server stub keeps
-   the showcase and dom tests hermetic.
+2. **P-b — series as East values (inline):** `PlanSeriesType(r)` + the
+   `Plan.series.*` builders (typed `make`, reified once) + the `data` +
+   `series` root props with typed inline application; `.of` forms become
+   single-series sugar over the same leaf constructors + groupBy engine.
+   Pure east-ui; no paging involvement.
+3. **P-c — `Data.bindPaged` + the source arm:** the paged handle + its
+   `data_page*` primitives and impl (e3-ui / e3-ui-components), the Plan
+   source arm composed from handle + series, renderer window loop with
+   partial aggregates and the progressive links-focus fetch. An in-memory
+   impl stub keeps the showcase and dom tests hermetic.
 4. **P-d — e3 example:** a real `ui()` task over raw inputs through the
    extension's local server; the ordering contract documented; decimation
    (when render density demands it) as an authored derived dataset, never

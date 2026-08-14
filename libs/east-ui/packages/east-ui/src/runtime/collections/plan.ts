@@ -71,6 +71,7 @@ export const Plan: {
     events: typeof PlanFactory.events;
     group: typeof PlanFactory.group;
     rows: typeof PlanFactory.rows;
+    series: typeof PlanFactory.series;
     run: typeof PlanFactory.run;
     decision: typeof PlanFactory.decision;
     port: typeof PlanFactory.port;
@@ -107,6 +108,7 @@ export const Plan: {
         events: PlanFactory.events,
         group: PlanFactory.group,
         rows: PlanFactory.rows,
+        series: PlanFactory.series,
         run: PlanFactory.run,
         decision: PlanFactory.decision,
         port: PlanFactory.port,
