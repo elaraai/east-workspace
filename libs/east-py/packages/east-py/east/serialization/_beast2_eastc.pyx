@@ -10,9 +10,10 @@
 All beast2 serialization goes through east-c. No Python fallback.
 """
 
-from libc.stdint cimport int32_t, uint8_t
+from libc.stdint cimport int32_t, uint8_t, uintptr_t
 from libc.stddef cimport size_t
 from libc.stdlib cimport free, malloc
+from cpython.ref cimport Py_DECREF, Py_INCREF
 
 from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
@@ -516,6 +517,248 @@ cdef class _Beast2PagesCore:
             _eastc.east_beast2_pages_free(self._p)
         if self._type != NULL:
             _eastc.east_type_release(self._type)
+
+
+# ─── Native emit accumulator (issue #560, phase 2) ────────────────────────
+#
+# The per-row half of the streamTask emit sink: an east-c foreign function
+# value whose invoke does the compare + append in C — zero python per row —
+# calling back into python only at the batch boundaries (flush a segment,
+# spill a run, demote to buffered mode). The python side (_EmitSink in
+# east-py-cli) keeps every policy decision: file management, byte-adaptive
+# batch sizing, spill/merge, and the run/tail bookkeeping — so the output
+# bytes are decided by exactly the arithmetic it always ran.
+
+
+cdef _eastc.EvalResult _emit_accum_invoke(_eastc.EastCompiledFn* self,
+                                          _eastc.EastValue** args, size_t n) noexcept with gil:
+    """The foreign-function entry east-c calls once per emitted row."""
+    cdef _EmitAccumCore core = <_EmitAccumCore>self.invoke_userdata
+    return core._accept(args, n)
+
+
+cdef void _emit_accum_release(void* ud) noexcept with gil:
+    Py_DECREF(<object>ud)
+
+
+cdef class _EmitAccumCore:
+    """C-side row accumulator behind a streamTask ``emit`` (issue #560).
+
+    ``kind``: 0 = array, 1 = set, 2 = dict. Rows append into C-backed arrays
+    in arrival order; Set/Dict emission tracks the ascending watermark with
+    ``east_value_compare`` and raises the duplicate-key error in C. When the
+    current batch reaches ``limit`` rows the ``flush`` callback runs (mode 0,
+    ascending) or ``spill`` runs (mode 1, buffered); the first out-of-order
+    key runs ``demote`` once and flips to buffered mode. The callbacks drain
+    the rows with :meth:`take_batch` — a zero-copy proxy wrap.
+    """
+
+    cdef int kind
+    cdef public int mode          # 0 ascending, 1 buffered
+    cdef size_t limit
+    cdef size_t run_cap
+    cdef size_t count
+    cdef public size_t emitted
+    cdef _eastc.EastValue* _elems  # array/set rows, or dict KEYS
+    cdef _eastc.EastValue* _vals   # dict VALUES (NULL otherwise)
+    cdef _eastc.EastValue* _last_key
+    cdef _eastc.EastType* _elem_t  # retained: element (or key) type
+    cdef _eastc.EastType* _val_t   # retained: dict value type (or NULL)
+    cdef object _flush_cb
+    cdef object _demote_cb
+    cdef object _spill_cb
+    cdef object _fn_hold
+
+    def __cinit__(self, int kind, object emit_types, object limit, object run_cap,
+                  object flush_cb, object demote_cb, object spill_cb):
+        _ensure_eastc_runtime()
+        self.kind = kind
+        self.mode = 0
+        self.limit = <size_t>limit
+        self.run_cap = <size_t>run_cap
+        self.count = 0
+        self.emitted = 0
+        self._flush_cb = flush_cb
+        self._demote_cb = demote_cb
+        self._spill_cb = spill_cb
+        self._elem_t = py_type_to_c(emit_types[0])
+        self._elems = _eastc.east_array_new(self._elem_t)
+        if kind == 2:
+            self._val_t = py_type_to_c(emit_types[1])
+            self._vals = _eastc.east_array_new(self._val_t)
+
+    def __dealloc__(self):
+        if self._elems != NULL:
+            _eastc.east_value_release(self._elems)
+        if self._vals != NULL:
+            _eastc.east_value_release(self._vals)
+        if self._last_key != NULL:
+            _eastc.east_value_release(self._last_key)
+        if self._elem_t != NULL:
+            _eastc.east_type_release(self._elem_t)
+        if self._val_t != NULL:
+            _eastc.east_type_release(self._val_t)
+
+    cdef _eastc.EvalResult _duplicate(self, _eastc.EastValue* key):
+        """The duplicate-key refusal, message-identical to the python sink."""
+        cdef char* printed = _eastc.east_print_value(key, self._elem_t)
+        noun = "Dict" if self.kind == 2 else "Set"
+        part = "key" if self.kind == 2 else "element"
+        shown = ""
+        if printed != NULL:
+            shown = ": " + (<bytes>printed).decode("utf-8", "replace")
+            free(printed)
+        msg = (f"beast2 v5: duplicate {noun} {part} emitted{shown} — "
+               f"{noun} {part}s must be unique").encode("utf-8")
+        return _eastc.eval_error(<const char*>msg)
+
+    cdef _eastc.EvalResult _accept(self, _eastc.EastValue** args, size_t n):
+        cdef size_t need = 2 if self.kind == 2 else 1
+        cdef _eastc.EastValue* key
+        cdef int order
+        if n < need:
+            return _eastc.eval_error("emit: missing argument")
+        key = args[0]
+        if self.mode == 0 and self.kind != 0:
+            if self._last_key != NULL:
+                order = _eastc.east_value_compare(self._last_key, key)
+                if order == 0:
+                    return self._duplicate(key)
+                if order > 0:
+                    # First out-of-order key: hand the ascending prefix to
+                    # python (flush + finalize + demote to run #0), then
+                    # buffer from here on.
+                    try:
+                        self._demote_cb()
+                    except BaseException as e:
+                        msg = f"emit demote failed: {e}".encode("utf-8")
+                        return _eastc.eval_error(<const char*>msg)
+                    self.mode = 1
+                    if self._last_key != NULL:
+                        _eastc.east_value_release(self._last_key)
+                        self._last_key = NULL
+            if self.mode == 0:
+                if self._last_key != NULL:
+                    _eastc.east_value_release(self._last_key)
+                self._last_key = key
+                _eastc.east_value_retain(key)
+        _eastc.east_array_push(self._elems, args[0])
+        if self.kind == 2:
+            _eastc.east_array_push(self._vals, args[1])
+        self.count += 1
+        self.emitted += 1
+        cdef size_t threshold = self.limit if self.mode == 0 else self.run_cap
+        if threshold > 0 and self.count >= threshold:
+            try:
+                if self.mode == 0:
+                    self._flush_cb()
+                else:
+                    self._spill_cb()
+            except BaseException as e:
+                msg = f"emit flush failed: {e}".encode("utf-8")
+                return _eastc.eval_error(<const char*>msg)
+        return _eastc.eval_ok(_eastc.east_null())
+
+    def emit(self, *args):
+        """The python-boundary entry: marshal one row and run the same C
+        acceptance path the compiled body uses."""
+        cdef _eastc.EastValue* c_args[2]
+        cdef size_t n = len(args)
+        cdef _eastc.EvalResult r
+        if n == 0 or (self.kind == 2 and n < 2):
+            raise TypeError("emit: missing argument")
+        c_args[0] = py_value_to_c(args[0], self._elem_t)
+        if self.kind == 2:
+            try:
+                c_args[1] = py_value_to_c(args[1], self._val_t)
+            except BaseException:
+                _eastc.east_value_release(c_args[0])
+                raise
+        r = self._accept(c_args, 2 if self.kind == 2 else 1)
+        _eastc.east_value_release(c_args[0])
+        if self.kind == 2:
+            _eastc.east_value_release(c_args[1])
+        if r.status != _eastc.EVAL_OK and r.status != _eastc.EVAL_RETURN:
+            from east.runtime.errors import EastError
+            msg = r.error_message.decode("utf-8") if r.error_message != NULL \
+                else "emit failed"
+            _eastc.eval_result_free(&r)
+            raise EastError(msg, [])
+        if r.value != NULL:
+            _eastc.east_value_release(r.value)
+
+    def set_limit(self, object limit):
+        """Update the ascending-mode flush threshold (byte-adaptive sizing
+        lives python-side; this carries each refinement back)."""
+        self.limit = <size_t>limit
+
+    def pending(self):
+        """Rows accumulated since the last drain."""
+        return self.count
+
+    def take_batch(self):
+        """Drain the accumulated rows as C-backed arrays (zero-copy wraps):
+        ``(elements,)`` for array/set sinks, ``(keys, values)`` for dict."""
+        cdef _eastc.EastType* arr_t
+        elems = None
+        vals = None
+        arr_t = _eastc.east_array_type(self._elem_t)
+        try:
+            elems = c_value_to_py(self._elems, arr_t)
+        finally:
+            _eastc.east_type_release(arr_t)
+        _eastc.east_value_release(self._elems)
+        self._elems = _eastc.east_array_new(self._elem_t)
+        if self.kind == 2:
+            arr_t = _eastc.east_array_type(self._val_t)
+            try:
+                vals = c_value_to_py(self._vals, arr_t)
+            finally:
+                _eastc.east_type_release(arr_t)
+            _eastc.east_value_release(self._vals)
+            self._vals = _eastc.east_array_new(self._val_t)
+        self.count = 0
+        if self.kind == 2:
+            return (elems, vals)
+        return (elems,)
+
+    def function_value(self, object emit_types):
+        """The East function value backing ``emit``: its invoke is this
+        accumulator's C entry, and its declared type is
+        ``FunctionType(emit_types, NullType)`` so signature introspection
+        answers. The returned hold carries ``_east_c_handle`` (the
+        conversion fast-path attribute) and keeps this core alive."""
+        from east.types.types import FunctionType, NullType
+
+        cdef _eastc.EastType* fn_t = py_type_to_c(FunctionType(list(emit_types), NullType))
+        Py_INCREF(self)  # held by the C value; released by _emit_accum_release
+        cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
+            <_eastc.EastInvokeFn>_emit_accum_invoke, <void*>self,
+            _emit_accum_release, fn_t)
+        _eastc.east_type_release(fn_t)
+        if fv == NULL:
+            raise MemoryError()
+        cdef uintptr_t fv_ptr = <uintptr_t>fv
+        core = self
+
+        class _EmitFnHold:
+            __slots__ = ("_east_c_handle", "_core", "_released")
+
+            def __init__(self):
+                self._east_c_handle = fv_ptr
+                self._core = core
+                self._released = False
+
+            def __del__(self):
+                if self._released:
+                    return
+                self._released = True
+                from east.runtime._compiler_eastc import _proxy_value_release
+                _proxy_value_release(self._east_c_handle)
+
+        hold = _EmitFnHold()
+        self._fn_hold = None  # the hold owns the value; the core need not
+        return hold
 
 
 def _beast2_read_type(object data):

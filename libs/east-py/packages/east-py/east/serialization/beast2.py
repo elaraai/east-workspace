@@ -745,7 +745,7 @@ def _refuse_mutation(name: str):
     must refuse — silently mutating a temporary in-memory conversion (what
     the inherited method would do) is the failure mode this prevents."""
 
-    def refuse(self, *_args, **_kwargs):
+    def refuse(_self, *_args, **_kwargs):
         from east.runtime.errors import EastError
 
         raise EastError(
