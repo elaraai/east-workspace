@@ -11,6 +11,22 @@ need to raise EastError.
 from east.types.values import EastArray
 
 
+class NonRetraceableCallError(TypeError):
+    """A compiled/bound East function was invoked with trace-time proxies.
+
+    Raised when a traced lambda calls an already-compiled East function value
+    (a ``kernel(...)`` ``.bind`` result, a runner-supplied ``FunctionType``
+    input such as a streamTask ``emit``) — its body cannot be re-traced, so
+    the call cannot splice into the surrounding kernel.
+
+    ``try_push_down`` treats this cause as "decline and fall back": the eager
+    method runs its per-element python path, which is the documented contract
+    for a callback that cannot trace. An explicit ``kernel(...)`` still raises
+    loudly, carrying this message instead of the former opaque
+    ``bad argument type for built-in operation``.
+    """
+
+
 class EastError(Exception):
     """Exception for East errors that preserves IR source locations.
 

@@ -1303,11 +1303,21 @@ class KernelExpr:
             handler = cases[c["name"]]
             raw = handler(KernelExpr(var, c["type"])) if callable(handler) else handler
             results.append((c["name"], var, raw))
-        # settle the shared output type from the first traced result
+        # Settle the shared output type from ANY arm that can state one
+        # without a hint — a raw KernelExpr, OR a `some(...)` result, which
+        # arrives as an EastVariant WRAPPING a traced payload (the constructor
+        # is a value builder, not an expression). Recognising only the bare
+        # KernelExpr left `out_t` unset whenever the only typed arm was
+        # `some(expr)`, so the sibling `none` arm raised "needs a type from
+        # context" — the exact pairing `where(...)` types fine (#558 D).
         out_t = None
         for _, _, raw in results:
             if isinstance(raw, KernelExpr):
                 out_t = raw.east_type
+                break
+            if (isinstance(raw, EastVariant) and raw.type == "some"
+                    and isinstance(raw.value, KernelExpr)):
+                out_t = _option_type(raw.value.east_type)
                 break
         case_nodes = []
         for name, var, raw in results:
@@ -3683,6 +3693,53 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
 
     scope_walk(top, set())
 
+    # A node whose EVERY occurrence sits inside a conditional arm (an IfElse
+    # case body / else body, a Match case body, a catch/finally) must NOT
+    # hoist to the top of the kernel: the hoisted Let evaluates it
+    # unconditionally, so a guarded PARTIAL operation — `d[k]` under
+    # `where(d.has(k), …)` — raises on the very path the guard excludes
+    # (#558 A). Sharing the value through one python variable is what makes
+    # the node multiply-referenced, so the natural guarded-build spelling
+    # was precisely the one that crashed. An occurrence on any
+    # unconditional path keeps the hoist (predicates themselves, and the
+    # #525 loop-invariant receivers, are unaffected).
+    uncond_seen: set[int] = set()
+    cond_seen: set[int] = set()
+
+    def cond_walk(node, conditional):
+        i = id(node)
+        seen = cond_seen if conditional else uncond_seen
+        if i in seen or (conditional and i in uncond_seen):
+            return
+        seen.add(i)
+        if node.type == "IfElse":
+            payload = node.value
+            for n, case in enumerate(payload["ifs"]):
+                # the first predicate always evaluates; later predicates only
+                # when every earlier one was false, and every body only when
+                # its predicate held
+                cond_walk(case["predicate"], conditional or n > 0)
+                cond_walk(case["body"], True)
+            cond_walk(payload["else_body"], True)
+            return
+        if node.type == "Match":
+            payload = node.value
+            cond_walk(payload["variant"], conditional)
+            for case in payload["cases"]:
+                cond_walk(case["variable"], True)
+                cond_walk(case["body"], True)
+            return
+        if node.type == "TryCatch":
+            payload = node.value
+            cond_walk(payload["try_body"], conditional)
+            for f in ("catch_body", "message", "stack", "finally_body"):
+                cond_walk(payload[f], True)
+            return
+        for child in _node_children(node):
+            cond_walk(child, conditional)
+
+    cond_walk(top, False)
+
     def free_vars(node, bound):
         if node.type == "Variable":
             name = node.value["name"]
@@ -3716,6 +3773,8 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
     for i, n in counts.items():
         if n < 2:
             continue
+        if i not in uncond_seen:
+            continue          # every occurrence is branch-guarded — see above
         fv = free_vars(keep[i], set())
         if fv <= param_names and not (fv & scope[i]):
             hoistable[i] = _fresh_name()
@@ -4304,6 +4363,8 @@ def try_push_down(east_fn: Any) -> Any | None:
                 return True
         return False
 
+    from east.runtime.errors import NonRetraceableCallError
+
     key = _trace_cache_key(east_fn.fn, (
         tuple(_type_key(t) for t in east_fn.input_types),
         _type_key(east_fn.output_type)))
@@ -4334,13 +4395,27 @@ def try_push_down(east_fn: Any) -> Any | None:
         from east.runtime.compiler import compile_from_value
 
         return remember(compile_from_value(ir_value))
-    except KernelTraceError:
+    except KernelTraceError as exc:
         # The loud contract: a pure-looking callback that fails to trace
         # raises — its silent fallback's only symptom is that the job takes
         # hours (#524). Genuinely-python lambdas fail the purity gate above
         # and keep their fallback; deliberate python paths carry the marker.
         if _trace_fallback(east_fn.fn):
             return remember(None)
+        # A lambda that CALLS an already-compiled East function (a `.bind`
+        # result, a runner-supplied FunctionType input such as a streamTask
+        # `emit`) cannot trace BY CONSTRUCTION — the python path is what
+        # calling a native function per element means, so declining is the
+        # documented contract, not a silent performance cliff. Raising here
+        # turned every `for_each(lambda e: emit(...))` under the e3 runner
+        # into a hard failure (#558 C). Explicit `kernel(...)` still raises.
+        cause = exc.__cause__
+        for _ in range(4):
+            if cause is None:
+                break
+            if isinstance(cause, NonRetraceableCallError):
+                return remember(None)
+            cause = cause.__cause__
         raise
     except Exception:
         return None

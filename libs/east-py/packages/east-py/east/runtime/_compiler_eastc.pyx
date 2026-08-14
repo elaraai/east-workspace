@@ -1183,10 +1183,18 @@ def bind_kernel(object kernel_callable, tuple bound_values):
     from east.serialization.east_printer import print_east
     from east.types.type_of_type import EastTypeType
     from east.types.values import type_of
+    from east.types.values import is_value_of
     for j in range(n_bound):
         expected = c_type_ptr_to_py_type(input_ptrs[first + j])
-        got = type_of(bound_values[j])
-        if got != expected:
+        # SUBSUMPTION, not structural equality of a content-inferred type:
+        # ``type_of`` on a variant can only see the case the value holds, so
+        # an Option-bearing struct (a ``none`` field infers as a degenerate
+        # none-only variant) would never compare equal to its declared type —
+        # making such structs unbindable however they were built (#558 B).
+        # ``is_value_of`` asks the right question: does the VALUE conform to
+        # the DECLARED parameter type.
+        if not is_value_of(bound_values[j], expected):
+            got = type_of(bound_values[j])
             raise TypeError(
                 f"bind() value {j} has East type "
                 f"{print_east(got, EastTypeType)}, parameter {first + j} "
@@ -1428,6 +1436,23 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
                 _eastc.east_value_release(c_args[j])
             if heap_allocated:
                 free(c_args)
+            # Cold path: if the failing argument is a trace-time proxy, the
+            # caller is a traced lambda trying to RE-TRACE this compiled
+            # function — name that instead of the opaque conversion error,
+            # and give try_push_down a cause it can decline-and-fall-back on.
+            from east.kernel import KernelExpr as _KernelExpr
+            found_proxy = False
+            for j in range(nargs):
+                if isinstance(args[j], _KernelExpr):
+                    found_proxy = True
+                    break
+            if found_proxy:
+                from east.runtime.errors import NonRetraceableCallError
+                raise NonRetraceableCallError(
+                    "a compiled/bound East function cannot be re-traced inside "
+                    "another trace — call it from python (per-element), or pass "
+                    "it directly to the eager method (native pass-through)"
+                )
             raise
 
     result = _eastc.east_call(compiled, c_args, nargs)
@@ -1528,6 +1553,23 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
                 _eastc.east_value_release(c_args[j])
             if heap_allocated:
                 free(c_args)
+            # Cold path: if the failing argument is a trace-time proxy, the
+            # caller is a traced lambda trying to RE-TRACE this compiled
+            # function — name that instead of the opaque conversion error,
+            # and give try_push_down a cause it can decline-and-fall-back on.
+            from east.kernel import KernelExpr as _KernelExpr
+            found_proxy = False
+            for j in range(nargs):
+                if isinstance(args[j], _KernelExpr):
+                    found_proxy = True
+                    break
+            if found_proxy:
+                from east.runtime.errors import NonRetraceableCallError
+                raise NonRetraceableCallError(
+                    "a compiled/bound East function cannot be re-traced inside "
+                    "another trace — call it from python (per-element), or pass "
+                    "it directly to the eager method (native pass-through)"
+                )
             raise
 
     result = _eastc.east_call(compiled, c_args, nargs)
