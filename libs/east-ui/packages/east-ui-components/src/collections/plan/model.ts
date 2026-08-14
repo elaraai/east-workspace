@@ -220,7 +220,12 @@ export function rowHeight(
             return eh ?? CHART_EXPANDED_H;
         }
         case "heat": return floor(HEAT_ROW_H);
-        case "table": return floor(TABLE_H);
+        case "table": {
+            // A vertical multi-series stack grows the row (~11px per line).
+            const n = kind.value.series.length;
+            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(TABLE_H, 6 + n * 11));
+            return floor(TABLE_H);
+        }
         case "buckets": {
             // Laned rows grow — the Planner cell grid: 22px min cells,
             // 2px gaps, 3px lane padding (§4·K2).
@@ -242,6 +247,14 @@ export function rowHeight(
 type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
+type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
+
+/** A table row's AGGREGABLE cells — its `rollup: some(true)` series, else
+ *  the first (parents derive their subtotals from these). */
+export function tableRollupCells(series: readonly TableSeriesValue[]): readonly TableCellValue[] {
+    const s = series.find((x) => x.rollup.type === "some" && x.rollup.value) ?? series[0];
+    return s?.cells ?? [];
+}
 
 /** One derived rollup band (`×k · qty`, pessimistic state). */
 export interface DerivedBand {
@@ -431,7 +444,7 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
     };
     const resolvedTableCells = (row: PlanRowValue): readonly TableCellValue[] => {
         if (row.kind.type !== "table") return [];
-        const own = row.kind.value.cells;
+        const own = tableRollupCells(row.kind.value.series);
         if (own.length > 0) return own;
         return tableCells.get(row.key) ?? [];
     };
@@ -450,7 +463,7 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
                 children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type));
         }
         if (kind.type === "table" && kind.value.aggregate.type === "some"
-            && kind.value.cells.length === 0 && children.length > 0) {
+            && tableRollupCells(kind.value.series).length === 0 && children.length > 0) {
             tableCells.set(row.key, deriveTableCells(
                 children.flatMap(resolvedTableCells),
                 kind.value.aggregate.value.type));

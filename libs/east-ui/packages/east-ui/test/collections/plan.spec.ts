@@ -308,18 +308,47 @@ describeEast("Plan", (test) => {
         const kind = $.let(rows.get(0n).kind.unwrap("table"));
         // The parent carries the declaration; the renderer derives the cells
         // and prints every numeral through the shared `TickFormatType` spec.
-        $(Assert.equal(kind.cells.length(), 0n));
+        $(Assert.equal(kind.series.length(), 0n));
+        $(Assert.equal(kind.split.hasTag("horizontal"), true));
         $(Assert.equal(kind.aggregate.unwrap("some").hasTag("sum"), true));
         const format = $.let(kind.format.unwrap("some").unwrap("number"));
         $(Assert.equal(format.maximumFractionDigits.unwrap("some"), 0n));
-        // Leaf cells carry raw values — text and tone are renderer-derived
-        // (explicit overrides stay `none` from the builder).
-        const leafA = $.let(rows.get(1n).kind.unwrap("table").cells);
+        // The `cells` sugar wraps into ONE unstyled series; leaf cells carry
+        // raw values — text and tone are renderer-derived (explicit
+        // overrides stay `none` from the builder).
+        const leafA = $.let(rows.get(1n).kind.unwrap("table").series.get(0n).cells);
         $(Assert.equal(leafA.get(1n).value.unwrap("some"), -4.0));
         $(Assert.equal(leafA.get(1n).text.hasTag("none"), true));
         $(Assert.equal(leafA.get(1n).tone.hasTag("none"), true));
-        const leafB = $.let(rows.get(2n).kind.unwrap("table").cells);
+        $(Assert.equal(rows.get(1n).kind.unwrap("table").series.get(0n).tone.hasTag("none"), true));
+        const leafB = $.let(rows.get(2n).kind.unwrap("table").series.get(0n).cells);
         $(Assert.equal(leafB.get(1n).value.hasTag("none"), true));
+    });
+
+    test("multi-series table rows declare per-position style ONCE; cells stay raw", $ => {
+        const rows = $.let(Plan.table({
+            key: "flow", label: "Flow", split: "vertical",
+            format: Format.Number({ maximumFractionDigits: 0n }),
+            series: [
+                Plan.tableSeries({ strong: true, rollup: true,
+                    cells: Plan.tableCells([{ at: W27, value: some(96.0) }]) }),
+                Plan.tableSeries({ tone: "muted",
+                    format: Format.Number({ signDisplay: "always" }),
+                    cells: Plan.tableCells([{ at: W27, value: some(-8.0) }]) }),
+            ],
+        }));
+        const kind = $.let(rows.get(0n).kind.unwrap("table"));
+        $(Assert.equal(kind.split.hasTag("vertical"), true));
+        $(Assert.equal(kind.series.length(), 2n));
+        const s0 = $.let(kind.series.get(0n));
+        $(Assert.equal(s0.strong.unwrap("some"), true));
+        $(Assert.equal(s0.rollup.unwrap("some"), true));
+        $(Assert.equal(s0.format.hasTag("none"), true));
+        $(Assert.equal(s0.cells.get(0n).value.unwrap("some"), 96.0));
+        const s1 = $.let(kind.series.get(1n));
+        $(Assert.equal(s1.tone.unwrap("some").hasTag("muted"), true));
+        $(Assert.equal(s1.format.unwrap("some").unwrap("number").signDisplay.unwrap("some").hasTag("always"), true));
+        $(Assert.equal(s1.cells.get(0n).value.unwrap("some"), -8.0));
     });
 
     test("tableCells carries raw values with renderer-owned text and tone", $ => {

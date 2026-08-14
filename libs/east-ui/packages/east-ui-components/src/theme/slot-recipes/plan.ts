@@ -50,7 +50,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart",
         // bucket rows (K2), cards rows (K6), event rows (K7), table rows (K5)
         "cell", "tile", "laneLabel", "markerIcon", "cardChip",
-        "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText",
+        "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText", "tableCellPart",
         // overlays
         "nowLine", "cursorLine", "cursorChip",
     ],
@@ -961,8 +961,19 @@ export const planSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             whiteSpace: "nowrap",
             zIndex: 2,
-            "&[data-tone='neg']":   { color: "{colors.status.neg}" },
-            "&[data-tone='muted']": { color: "fg.subtle" },
+            // Multi-series part layouts — side by side, or stacked lines.
+            "&[data-split='horizontal']": {
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "6px",
+            },
+            "&[data-split='vertical']": {
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: "1px",
+                lineHeight: "11px",
+            },
             "[data-emphasis='footer'] &": { fontWeight: "semibold", color: "fg.default" },
             "[data-emphasis='header'] &": {
                 fontSize: "8.5px",
@@ -971,6 +982,14 @@ export const planSlotRecipe = defineSlotRecipe({
                 textTransform: "uppercase",
                 color: "fg.subtle",
             },
+        },
+        // One value position inside a table cell — tone derives per cell
+        // (neg / em-dash) or from the SERIES' declaration; `strong` is the
+        // series' weight emphasis.
+        tableCellPart: {
+            "&[data-tone='neg']":   { color: "{colors.status.neg}" },
+            "&[data-tone='muted']": { color: "fg.subtle" },
+            "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
         },
         // ── Overlays ──
         nowLine: {

@@ -87,6 +87,7 @@ export const Plan: {
     segmentCells: typeof PlanFactory.segmentCells;
     segment: typeof PlanFactory.segment;
     tableCells: typeof PlanFactory.tableCells;
+    tableSeries: typeof PlanFactory.tableSeries;
     layer: typeof PlanFactory.layer;
     fixed: typeof PlanFactory.fixed;
     template: typeof PlanFactory.template;
@@ -122,6 +123,7 @@ export const Plan: {
         segmentCells: PlanFactory.segmentCells,
         segment: PlanFactory.segment,
         tableCells: PlanFactory.tableCells,
+        tableSeries: PlanFactory.tableSeries,
         layer: PlanFactory.layer,
         fixed: PlanFactory.fixed,
         template: PlanFactory.template,

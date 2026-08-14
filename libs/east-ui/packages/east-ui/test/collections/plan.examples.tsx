@@ -607,8 +607,8 @@ export const planHeatRows = example({
 });
 
 export const planTableRows = example({
-    keywords: ["Plan", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "of", "groupBy", "nested", "depth", "em-dash", "neg", "group", "meta", "gutter"],
-    description: "Table-row configs — three-level nesting under a two-line parent gutter (Despatches → Program A → order leaves; every declared level derives its subtotal from the level below), a footer-emphasis net line with a negative tone and the muted em-dash, and the table.of accessor form inside a group strip (section/program parents print their aggregate-tag meta)",
+    keywords: ["Plan", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "of", "groupBy", "nested", "depth", "em-dash", "neg", "group", "meta", "gutter", "series", "tableSeries", "split", "horizontal", "vertical", "multi-value", "strong", "muted", "rollup"],
+    description: "Table-row configs — three-level nesting under a two-line parent gutter (Despatches → Program A → order leaves; every declared level derives its subtotal from the level below), a footer-emphasis net line with a negative tone and the muted em-dash, multi-series cells (per-POSITION style declared once per series — a strong actual beside a muted signed Δ, horizontal; and a vertical stack that grows the row), and the table.of accessor form inside a group strip (section/program parents print their aggregate-tag meta)",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
@@ -661,6 +661,41 @@ export const planTableRows = example({
                             { at: week(27n), value: some(22.0) }, { at: week(28n), value: some(-26.0) },
                             { at: week(29n), value: none },
                         ]),
+                    }),
+                    // MULTI-SERIES cells — per-POSITION style declared ONCE on
+                    // the series (wire-lean: cells stay raw floats). A strong
+                    // actual beside its muted, always-signed plan Δ.
+                    Plan.table({
+                        key: "actplan", label: "Act · Δ plan", sub: "t/wk", stacked: true,
+                        format: Format.Number({ maximumFractionDigits: 0n }),
+                        series: [
+                            Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(raw) }),
+                            Plan.tableSeries({
+                                tone: "muted",
+                                format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                                cells: Plan.tableCells(East.Array.generate(12n, RawCell, (_$2, i) => ({
+                                    at: week(i.add(27n)),
+                                    value: i.remainder(4n).equal(3n).ifElse(
+                                        () => none,
+                                        () => some(i.toFloat().multiply(1.5).subtract(8.0))),
+                                }))),
+                            }),
+                        ],
+                    }),
+                    // The VERTICAL split stacks the positions; the row grows.
+                    Plan.table({
+                        key: "inout", label: "In / out", split: "vertical",
+                        format: Format.Number({ maximumFractionDigits: 0n }),
+                        series: [
+                            Plan.tableSeries({ cells: Plan.tableCells(raw) }),
+                            Plan.tableSeries({
+                                tone: "muted",
+                                cells: Plan.tableCells(East.Array.generate(12n, RawCell, (_$2, i) => ({
+                                    at: week(i.add(27n)),
+                                    value: some(i.toFloat().multiply(-3.0).subtract(12.0)),
+                                }))),
+                            }),
+                        ],
                     }),
                     // The accessor form inside a group strip: two groupBy
                     // levels — subtotal parents per discovered section, then

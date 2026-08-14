@@ -78,6 +78,24 @@ describe("Plan rowHeight (§8)", () => {
         expect(rowHeight(visible(row(chart(variant("fixed", "140px"), some("96px")))), false, new Set())).toBe(140);
     });
 
+    test("vertical multi-series table rows grow per stacked line", () => {
+        const two = variant("table", {
+            series: [
+                { cells: [], format: none, tone: none, strong: none, rollup: none },
+                { cells: [], format: none, tone: none, strong: none, rollup: none },
+            ],
+            split: variant("vertical", null),
+            aggregate: none, format: none, emphasis: variant("body", null),
+        });
+        expect(rowHeight(visible(row(two)), false, new Set())).toBe(28);       // 6 + 2×11
+        const flat = variant("table", {
+            series: [{ cells: [], format: none, tone: none, strong: none, rollup: none }],
+            split: variant("vertical", null),
+            aggregate: none, format: none, emphasis: variant("body", null),
+        });
+        expect(rowHeight(visible(row(flat)), false, new Set())).toBe(24);      // single series never grows
+    });
+
     test("laned bucket rows grow to fit their stacked lane cells", () => {
         const laned = variant("buckets", {
             lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
@@ -266,7 +284,10 @@ describe("Plan derived heat / table aggregates", () => {
 
     test("declared parents nest — a grandparent aggregates its children's DERIVED cells", () => {
         const tableKind = (cells: unknown[], aggregate: boolean) => variant("table", {
-            cells,
+            series: cells.length > 0
+                ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
+                : [],
+            split: variant("horizontal", null),
             aggregate: aggregate ? some(variant("sum", null)) : none,
             format: none,
             emphasis: variant("body", null),

@@ -443,7 +443,8 @@ export function createTableOf<T extends SubtypeExprOrValue<ArrayType<StructType>
     const cfg = config as PlanTableOfConfig<StructType>;
     const mode = cfg.aggregate ?? "sum";
     const parentKind = East.value(variant("table", {
-        cells:     [],
+        series:    [],
+        split:     variant("horizontal", null),
         aggregate: some(resolveTag(mode, TableAggregateType)),
         format:    cfg.format !== undefined ? some(East.value(cfg.format, TickFormatType)) : none,
         emphasis:  variant("header", null),

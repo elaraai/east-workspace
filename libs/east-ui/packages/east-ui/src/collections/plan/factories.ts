@@ -43,6 +43,9 @@ import {
     PlanAggregateType,
     type PlanTableEmphasisLiteral,
     PlanTableEmphasisType,
+    PlanTableSeriesType,
+    PlanTableSplitType,
+    type PlanTableSplitLiteral,
     PlanChartAxisType,
     PlanChartHeightType,
     type PlanChartHeightLiteral,
@@ -526,8 +529,15 @@ export function createHeat(input: PlanHeatInput): PlanRowsValue {
  * @property rows - Nested child subtrees
  */
 export interface PlanTableInput extends PlanRowBaseInput {
-    /** The row's cells (`Plan.tableCells` result); omit with `rows` + `aggregate` to compute subtotals. */
+    /** The row's cells (`Plan.tableCells` result) — sugar for ONE unstyled
+     *  series; omit with `rows` + `aggregate` to compute subtotals. */
     cells?: SubtypeExprOrValue<ArrayType<PlanTableCellType>>;
+    /** Multi-series cells — one `Plan.tableSeries` per value position, each
+     *  with its own cells + per-position style (exclusive with `cells`). */
+    series?: SubtypeExprOrValue<ArrayType<PlanTableSeriesType>>;
+    /** Part layout when several series render — `"horizontal"` (default,
+     *  side by side) / `"vertical"` (stacked lines; the row grows). */
+    split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
     /** Subtotal mode over children — `"sum"` / `"mean"` / `"min"` / `"max"` / `"count"`, or a `TableAggregateType` expression. */
     aggregate?: SubtypeExprOrValue<TableAggregateType> | TableAggregateLiteral;
     /** Numeral format for the row's values + derived subtotals — a `Format.*` spec (the shared `TickFormatType`). */
@@ -547,14 +557,29 @@ export interface PlanTableInput extends PlanRowBaseInput {
  * @returns The flattened subtree (parent first, children re-parented)
  */
 export function createTable(input: PlanTableInput): PlanRowsValue {
+    if (input.cells !== undefined && input.series !== undefined) {
+        throw new Error("Plan.table: pass `cells` (sugar for one plain series) OR `series` — not both");
+    }
     const aggregateOpt = () => input.aggregate !== undefined
         ? some(resolveTag(input.aggregate, TableAggregateType))
         : none;
     const emphasisOf = () => resolveTag(input.emphasis ?? "body", PlanTableEmphasisType);
     const formatOpt = () => input.format !== undefined ? some(East.value(input.format, TickFormatType)) : none;
+    // The stored form is ALWAYS series — `cells` wraps into one unstyled
+    // series, so the renderer has a single representation.
+    const seriesOf = () => input.series !== undefined
+        ? East.value(input.series, ArrayType(PlanTableSeriesType))
+        : (input.cells !== undefined
+            ? East.value([East.value({
+                cells:  East.value(input.cells, ArrayType(PlanTableCellType)),
+                format: none, tone: none, strong: none, rollup: none,
+            }, PlanTableSeriesType)], ArrayType(PlanTableSeriesType))
+            : East.value([], ArrayType(PlanTableSeriesType)));
+    const splitOf = () => resolveTag(input.split ?? "horizontal", PlanTableSplitType);
     if (input.rows === undefined) {
         const kind = East.value(variant("table", {
-            cells: input.cells !== undefined ? East.value(input.cells, ArrayType(PlanTableCellType)) : East.value([], ArrayType(PlanTableCellType)),
+            series:    seriesOf(),
+            split:     splitOf(),
             aggregate: aggregateOpt(),
             format:    formatOpt(),
             emphasis:  emphasisOf(),
@@ -564,7 +589,8 @@ export function createTable(input: PlanTableInput): PlanRowsValue {
     // A nesting parent DECLARES its subtotal mode + format; the renderer
     // derives the per-bucket cells from the children.
     const kind = East.value(variant("table", {
-        cells: input.cells !== undefined ? East.value(input.cells, ArrayType(PlanTableCellType)) : East.value([], ArrayType(PlanTableCellType)),
+        series:    seriesOf(),
+        split:     splitOf(),
         aggregate: some(resolveTag(input.aggregate ?? "sum", TableAggregateType)),
         format:    formatOpt(),
         emphasis:  emphasisOf(),

@@ -43,6 +43,7 @@ import {
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
+import { TickFormatType } from "../../format/types.js";
 import { TimeResolutionType, type TimeResolutionLiteral } from "../../contracts/time.js";
 import { ValueFormatType } from "../../contracts/format.js";
 import { ChartDomainType, ChartTickValuesType } from "../../charts/spec/index.js";
@@ -525,6 +526,44 @@ export const PlanTableCellType = StructType({
     tone:  OptionType(PlanTableToneType),
 });
 export type PlanTableCellType = typeof PlanTableCellType;
+
+/** String-literal shorthand for {@link PlanTableToneType}. */
+export type PlanTableToneLiteral = "neg" | "muted";
+
+/**
+ * How a multi-series table row lays its per-bucket values out — side by side
+ * (`horizontal`, the default) or stacked lines (`vertical`; the row grows to
+ * fit the stack).
+ *
+ * @property horizontal - Values print side by side in the right-aligned cell
+ * @property vertical - Values stack as lines (the row grows)
+ */
+export const PlanTableSplitType = VariantType({ horizontal: NullType, vertical: NullType });
+export type PlanTableSplitType = typeof PlanTableSplitType;
+
+/** String-literal shorthand for {@link PlanTableSplitType}. */
+export type PlanTableSplitLiteral = "horizontal" | "vertical";
+
+/**
+ * One value series of a table row — its own raw cells plus the POSITION's
+ * style declarations. Style is declared ONCE per series (wire-lean — never
+ * replicated per cell); the cells stay raw values, with the same rare
+ * per-cell `text`/`tone` overrides a single-series cell has.
+ *
+ * @property cells - The series' per-bucket cells (raw values)
+ * @property format - Numeral format override for this series (`none` ⇒ the row's `format`)
+ * @property tone - Default tone for the series' values (per-cell tones and derived neg/muted win)
+ * @property strong - Semibold emphasis for this series' values
+ * @property rollup - `true` ⇒ this series feeds declared parent aggregation (default: the first series)
+ */
+export const PlanTableSeriesType = StructType({
+    cells:  ArrayType(PlanTableCellType),
+    format: OptionType(TickFormatType),
+    tone:   OptionType(PlanTableToneType),
+    strong: OptionType(BooleanType),
+    rollup: OptionType(BooleanType),
+});
+export type PlanTableSeriesType = typeof PlanTableSeriesType;
 
 /**
  * A table row's emphasis — body, header (caption-styled numerals) or footer

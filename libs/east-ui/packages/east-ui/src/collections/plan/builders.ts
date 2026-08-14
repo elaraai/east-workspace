@@ -32,6 +32,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { TickFormatType } from "../../format/types.js";
 import { IconType, type IconName } from "../../display/icon/types.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
 import { ColorSchemeType, type ColorSchemeLiteral } from "../../style/scheme.js";
@@ -57,6 +58,9 @@ import {
     PlanSegmentCellType,
     PlanHeatCellsType,
     PlanTableCellType,
+    PlanTableToneType,
+    type PlanTableToneLiteral,
+    PlanTableSeriesType,
     PlanLinkType,
 } from "./types.js";
 import {
@@ -678,6 +682,47 @@ export function createSegment(input: PlanSegmentInput): ExprType<typeof PlanSegm
         weight: input.weight,
         label:  input.label !== undefined ? some(input.label) : none,
     }, PlanSegmentType);
+}
+
+/**
+ * Flat input for {@link Plan.tableSeries} — one value series of a
+ * multi-series table row. Style is declared ONCE here, per position (never
+ * per cell — the wire-lean contract); the cells stay raw values.
+ *
+ * @property cells - The series' cells (a `Plan.tableCells` result / `PlanTableCellType` values)
+ * @property format - Numeral format override for this series (else the row's `format`)
+ * @property tone - Default tone for the series' values (`"muted"` de-emphasises a plan column)
+ * @property strong - Semibold emphasis for this series' values
+ * @property rollup - `true` ⇒ this series feeds declared parent aggregation (default: the first)
+ */
+export interface PlanTableSeriesInput {
+    /** The series' cells (a `Plan.tableCells` result / `PlanTableCellType` values). */
+    cells: SubtypeExprOrValue<ArrayType<PlanTableCellType>>;
+    /** Numeral format override for THIS series — a `Format.*` spec (else the row's `format`). */
+    format?: SubtypeExprOrValue<TickFormatType>;
+    /** Default tone for the series' values; per-cell tones and the derived neg/em-dash win. */
+    tone?: SubtypeExprOrValue<PlanTableToneType> | PlanTableToneLiteral;
+    /** Semibold emphasis for this series' values. */
+    strong?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** `true` ⇒ this series feeds declared parent aggregation (default: the first series). */
+    rollup?: SubtypeExprOrValue<BooleanType> | boolean;
+}
+
+/**
+ * Builds one table-row value series (see {@link Plan.table}'s `series`) —
+ * per-position style declared once, raw cells beneath it.
+ *
+ * @param input - The series configuration ({@link PlanTableSeriesInput})
+ * @returns An East expression of {@link PlanTableSeriesType}
+ */
+export function createTableSeries(input: PlanTableSeriesInput): ExprType<PlanTableSeriesType> {
+    return East.value({
+        cells:  East.value(input.cells, ArrayType(PlanTableCellType)),
+        format: input.format !== undefined ? some(East.value(input.format, TickFormatType)) : none,
+        tone:   input.tone !== undefined ? some(resolveTag(input.tone, PlanTableToneType)) : none,
+        strong: input.strong !== undefined ? some(input.strong) : none,
+        rollup: input.rollup !== undefined ? some(input.rollup) : none,
+    }, PlanTableSeriesType);
 }
 
 /**

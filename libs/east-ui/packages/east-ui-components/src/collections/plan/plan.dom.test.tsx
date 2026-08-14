@@ -352,26 +352,31 @@ function tableCell(at: Date, v: number | undefined, text?: string) {
     };
 }
 
+// The stored table form is ALWAYS series — this wraps plain cells the way
+// the factory's `cells` sugar does (one unstyled series).
+function tableKindOf(cells: unknown[], opts?: { aggregate?: boolean; emphasis?: string }) {
+    return variant("table", {
+        series: cells.length > 0
+            ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
+            : [],
+        split: variant("horizontal", null),
+        aggregate: opts?.aggregate === true ? some(variant("sum", null)) : none,
+        format: none,
+        emphasis: variant(opts?.emphasis ?? "body", null),
+    });
+}
+
 describe("Plan table rows (§4·K5)", () => {
     test("numerals format renderer-side with derived tones; declared parents derive subtotals; emphasis rides the row", () => {
         const { container } = renderPlan(planRoot([
-            planRow("net", variant("table", {
-                cells: [], aggregate: some(variant("sum", null)), format: none,
-                emphasis: variant("footer", null),
-            })),
-            planRow("wk", variant("table", {
-                cells: [
-                    tableCell(new Date("2026-06-29Z"), 96),
-                    tableCell(new Date("2026-07-06Z"), -4),
-                    tableCell(new Date("2026-07-13Z"), undefined),
-                    tableCell(new Date("2026-07-20Z"), 7, "seven"),   // explicit text override
-                ],
-                aggregate: none, format: none, emphasis: variant("body", null),
-            }), { parent: "net" }),
-            planRow("wk2", variant("table", {
-                cells: [tableCell(new Date("2026-06-29Z"), 54)],
-                aggregate: none, format: none, emphasis: variant("body", null),
-            }), { parent: "net" }),
+            planRow("net", tableKindOf([], { aggregate: true, emphasis: "footer" })),
+            planRow("wk", tableKindOf([
+                tableCell(new Date("2026-06-29Z"), 96),
+                tableCell(new Date("2026-07-06Z"), -4),
+                tableCell(new Date("2026-07-13Z"), undefined),
+                tableCell(new Date("2026-07-20Z"), 7, "seven"),   // explicit text override
+            ]), { parent: "net" }),
+            planRow("wk2", tableKindOf([tableCell(new Date("2026-06-29Z"), 54)]), { parent: "net" }),
         ]));
         const wkRow = container.querySelector('[data-plan-row="wk"]')!;
         // Negatives tone `neg`, missing values the muted em-dash — derived
@@ -384,16 +389,41 @@ describe("Plan table rows (§4·K5)", () => {
         expect(netRow.getAttribute("data-emphasis")).toBe("footer");
     });
 
+    test("multi-series cells join by bucket with per-position style declarations", () => {
+        const mkSeries = (cells: unknown[], opts?: { tone?: string; strong?: boolean }) => ({
+            cells,
+            format: none,
+            tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
+            strong: opts?.strong !== undefined ? some(opts.strong) : none,
+            rollup: none,
+        });
+        const { container } = renderPlan(planRoot([
+            planRow("flow", variant("table", {
+                series: [
+                    mkSeries([tableCell(new Date("2026-06-29Z"), 96)], { strong: true }),
+                    mkSeries([tableCell(new Date("2026-06-29Z"), 12)], { tone: "muted" }),
+                ],
+                split: variant("horizontal", null),
+                aggregate: none, format: none, emphasis: variant("body", null),
+            })),
+        ]));
+        const cell = container.querySelector('[data-plan-row="flow"] [data-split="horizontal"]')!;
+        expect(cell).toBeTruthy();
+        const parts = cell.querySelectorAll("span");
+        expect(parts).toHaveLength(2);
+        // Series order holds; part 0 wears the strong declaration.
+        expect(parts[0]!.textContent).toBe("96");
+        expect(parts[0]!.hasAttribute("data-strong")).toBe(true);
+        // The POSITIVE second value wears the series' muted tone (derived
+        // neg/em-dash would win over it per cell).
+        expect(parts[1]!.getAttribute("data-tone")).toBe("muted");
+    });
+
     test("a kind parent's whole gutter toggles its subtree (group-strip convention); its plot still selects", () => {
         const { container } = renderPlan(planRoot([
-            planRow("net", variant("table", {
-                cells: [], aggregate: some(variant("sum", null)), format: none,
-                emphasis: variant("body", null),
-            }), { gutter: gutter("net", { meta: "sum" }) }),
-            planRow("wk", variant("table", {
-                cells: [tableCell(new Date("2026-06-29Z"), 96)],
-                aggregate: none, format: none, emphasis: variant("body", null),
-            }), { parent: "net" }),
+            planRow("net", tableKindOf([], { aggregate: true }),
+                { gutter: gutter("net", { meta: "sum" }) }),
+            planRow("wk", tableKindOf([tableCell(new Date("2026-06-29Z"), 96)]), { parent: "net" }),
         ]));
         const netRow = () => container.querySelector('[data-plan-row="net"]')!;
         expect(container.querySelector('[data-plan-row="wk"]')).toBeTruthy();

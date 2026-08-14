@@ -30,6 +30,7 @@ export {
     type PlanChipInput,
     type PlanEventMarkInput,
     type PlanSegmentInput,
+    type PlanTableSeriesInput,
     type PlanTemplateInput,
     type PlanDrillInput,
     type PlanExpandInput,

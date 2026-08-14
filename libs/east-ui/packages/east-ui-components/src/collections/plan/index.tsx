@@ -53,7 +53,7 @@ import { HeatCells } from "./rows/HeatRow.js";
 import { BucketsRow } from "./rows/BucketsRow.js";
 import { CardsRow } from "./rows/CardsRow.js";
 import { EventsRow } from "./rows/EventsRow.js";
-import { TableRowCells } from "./rows/TableRow.js";
+import { TableRowCells, plainSeries } from "./rows/TableRow.js";
 import { PlanToolbar } from "./shell/Toolbar.js";
 import { HorizonBrush } from "./shell/HorizonBrush.js";
 import { FocusBar } from "./shell/FocusBar.js";
@@ -123,7 +123,7 @@ function dataExtent(rows: ReadonlyArray<PlanRowValue>): { min: Date; max: Date }
                 break;
             }
             case "table":
-                for (const c of kind.value.cells) see(c.at);
+                for (const s of kind.value.series) for (const c of s.cells) see(c.at);
                 break;
             case "cards":
                 for (const c of kind.value.chips) { see(c.from); see(c.to); }
@@ -473,14 +473,17 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 );
             case "table": {
                 // A declared-aggregate parent renders its derived subtotal
-                // cells; every numeral prints through the row's shared format.
-                const cells = derived.tableCells.get(v.row.key) ?? kind.value.cells;
+                // cells as ONE plain series; leaf rows render their declared
+                // series (per-position style, raw cells).
+                const derivedCells = derived.tableCells.get(v.row.key);
                 const emphasis = kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type;
                 return (
                     <RowShell {...shellBase} height={h} emphasis={emphasis}
                         caret={hasChildren ? { collapsed: v.collapsed } : undefined}
                         onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <TableRowCells rowKey={v.row.key} cells={cells}
+                        <TableRowCells rowKey={v.row.key}
+                            series={derivedCells !== undefined ? plainSeries(derivedCells) : kind.value.series}
+                            split={kind.value.split.type}
                             format={getSomeorUndefined(kind.value.format)} styles={styles} />
                     </RowShell>
                 );

@@ -53,6 +53,8 @@ import {
     PlanAggregateType,
     PlanTableToneType,
     PlanTableCellType,
+    PlanTableSeriesType,
+    PlanTableSplitType,
     PlanTableEmphasisType,
     PlanEventMarkKindType,
     PlanRowRefType,
@@ -101,6 +103,7 @@ import {
     createSegmentCells,
     createSegment,
     createTableCells,
+    createTableSeries,
     createLink,
 } from "./builders.js";
 import { createDrill } from "./assemble.js";
@@ -160,7 +163,11 @@ export {
     PlanAggregateType,
     type PlanAggregateLiteral,
     PlanTableToneType,
+    type PlanTableToneLiteral,
     PlanTableCellType,
+    PlanTableSeriesType,
+    PlanTableSplitType,
+    type PlanTableSplitLiteral,
     PlanTableEmphasisType,
     type PlanTableEmphasisLiteral,
     PlanEventMarkKindType,
@@ -212,6 +219,7 @@ export {
     type PlanEventMarkInput,
     type PlanHeatCellsOptions,
     type PlanSegmentInput,
+    type PlanTableSeriesInput,
     type PlanLinkInput,
 } from "./builders.js";
 export { type PlanDrillInput, type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput } from "./assemble.js";
@@ -331,6 +339,8 @@ export interface PlanNamespace {
     segment: typeof createSegment;
     /** Builds formatted per-bucket table cells from raw values. */
     tableCells: typeof createTableCells;
+    /** Builds one table-row value series (per-position style, raw cells). */
+    tableSeries: typeof createTableSeries;
     /** Wraps a Chart layer with the Plan-only channels (axis / breach / series). */
     layer: typeof createLayer;
     /** Pins a chart row to an explicit pixel height. */
@@ -399,6 +409,10 @@ export interface PlanNamespace {
         Aggregate: typeof PlanAggregateType;
         /** One table cell. */
         TableCell: typeof PlanTableCellType;
+        /** One table-row value series (cells + per-position style). */
+        TableSeries: typeof PlanTableSeriesType;
+        /** The multi-series part layout (horizontal / vertical). */
+        TableSplit: typeof PlanTableSplitType;
         /** The table-cell tone. */
         TableTone: typeof PlanTableToneType;
         /** The table-row emphasis. */
@@ -483,6 +497,7 @@ export const Plan: PlanNamespace = {
     segmentCells: createSegmentCells,
     segment: createSegment,
     tableCells: createTableCells,
+    tableSeries: createTableSeries,
     layer: createLayer,
     fixed: createFixedHeight,
     template: createTemplate,
@@ -517,6 +532,8 @@ export const Plan: PlanNamespace = {
         Segment: PlanSegmentType,
         Aggregate: PlanAggregateType,
         TableCell: PlanTableCellType,
+        TableSeries: PlanTableSeriesType,
+        TableSplit: PlanTableSplitType,
         TableTone: PlanTableToneType,
         TableEmphasis: PlanTableEmphasisType,
         Chip: PlanChipType,
