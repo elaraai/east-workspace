@@ -13,8 +13,10 @@ import * as examples from '@elaraai/e3-ui/examples/bind/data/data';
 import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 
-const { thresholdInput, countInput, nameInput } = examples;
+const { thresholdInput, countInput, nameInput, opsInput } = examples;
 
 export default await buildShowcasePackage('data', pkgInfo.version, examples, {
-    extras: [thresholdInput, countInput, nameInput],
+    // `opsInput` backs the `Data.bindPaged` example — without it the deployed
+    // workspace has no `ops` dataset and the paged canvas has nothing to window.
+    extras: [thresholdInput, countInput, nameInput, opsInput],
 });

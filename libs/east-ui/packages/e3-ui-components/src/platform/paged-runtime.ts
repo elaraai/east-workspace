@@ -30,6 +30,8 @@
 
 import {
     East,
+    SortedMap,
+    compareFor,
     fromEastTypeValue,
     IntegerType,
     OptionType,
@@ -37,7 +39,7 @@ import {
     variant,
     type EastTypeValue,
 } from "@elaraai/east";
-import { type PlatformFunction } from "@elaraai/east/internal";
+import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
 import {
     registerReactiveTracker,
@@ -149,9 +151,19 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
     // Compiled-handle cache (issue #106 perf): buildHandle compiles 2
     // East.functions per bind, and binds re-run every reactive frame. The
-    // method IR is a pure function of the source path, and the methods resolve
-    // api/workspace LIVE, so a cached handle still re-binds. Cleared on clear().
-    private readonly handleCache = new Map<string, Record<string, unknown>>();
+    // method IR is a pure function of (sourceType, sourcePath), and the methods
+    // resolve api/workspace LIVE, so a cached handle still re-binds.
+    //
+    // Keyed by TYPE first, then path — never by path alone. The window decoder
+    // is baked from `sourceType`, so a path re-bound at a different type (a
+    // redeployed dataset whose schema changed, inside a live session) must not
+    // hand back the handle compiled against the old type. Structural key for
+    // the same reason `bind-runtime` uses one: every bind builds a fresh
+    // `EastTypeValue` from IR, so a by-identity cache would miss every render.
+    private readonly handleCache = new SortedMap<EastTypeValue, Map<string, Record<string, unknown>>>(
+        undefined,
+        compareFor(EastTypeType),
+    );
 
     /** Monotonic clock seam so tests can drive the retry gate. */
     protected now(): number {
@@ -313,8 +325,14 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      */
     buildHandle(sourceType: EastTypeValue, path: TreePath): Record<string, unknown> {
         const pathKey = datasetPathToString(path);
-        const cached = this.handleCache.get(pathKey);
-        if (cached) return cached;
+        let byPath = this.handleCache.get(sourceType);
+        if (byPath) {
+            const hit = byPath.get(pathKey);
+            if (hit) return hit;
+        } else {
+            byPath = new Map<string, Record<string, unknown>>();
+            this.handleCache.set(sourceType, byPath);
+        }
 
         const T = fromEastTypeValue(sourceType);
         // A single literal `Value` IR node for the captured path (the
@@ -337,7 +355,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 platform,
             ),
         };
-        this.handleCache.set(pathKey, handle);
+        byPath.set(pathKey, handle);
         return handle;
     }
 
@@ -415,9 +433,9 @@ export function createScopedPagedPlatform(pages: readonly TreePath[]): PlatformF
 export interface InMemoryPagedSource {
     /** The dataset path this source answers for. */
     path: TreePath;
-    /** The dataset's East type (a collection type). */
-    type: EastTypeValue;
-    /** Encode one window's elements to beast2 bytes — the server's job. */
+    /** Encode one window's elements to beast2 bytes — the server's job. The
+     *  closure carries the collection type, so the source needs no separate
+     *  type field. */
     encode: (elements: unknown[]) => Uint8Array;
     /** The whole source, as elements. */
     elements: unknown[];

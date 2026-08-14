@@ -78,7 +78,7 @@ test("#106 — write() round-trips and re-binds to the DECODER's api", async () 
 });
 
 test("#106 — createScopedBindPlatform ships the backing primitives (e3 ui() task decode path)", () => {
-    const manifest = { paths: [sourcePath], functions: [], records: [] } as unknown as DataManifest;
+    const manifest = { paths: [sourcePath], functions: [], records: [], pages: [] } as unknown as DataManifest;
     const names = new Set(createScopedBindPlatform(manifest).map(p => p.name));
     for (const name of [
         "data_bind", "data_read", "data_source", "data_write", "data_write_and_start",

@@ -38,10 +38,13 @@ import {
     createInMemoryFunctionApi,
     initializeRecordApi,
     createInMemoryRecordApi,
+    initializePagedApi,
+    createInMemoryPagedApi,
     datasetCacheKey,
     type DatasetApi,
     type InMemoryFunctionDef,
     type InMemoryRecordDef,
+    type InMemoryPagedSource,
 } from '@elaraai/e3-ui-components';
 import { mountSnapshot } from '../../../scripts/snapshot-app.tsx';
 
@@ -166,6 +169,23 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     for (const f of seedFunctions(mod)) fns.set(f.name, f);
     for (const f of FALLBACK_FUNCTIONS) if (!fns.has(f.name)) fns.set(f.name, f);
     initializeFunctionApi(createInMemoryFunctionApi([...fns.values()]), WORKSPACE);
+
+    // Offline `Data.bindPaged` windows over the same seeded inputs. A paged
+    // source is served BY WINDOW out of the input's own default value, so an
+    // example that binds one renders (as an empty-but-live canvas when the
+    // default is `[]`) instead of throwing "no workspace configured".
+    const pagedSources: InMemoryPagedSource[] = [];
+    for (const value of Object.values(mod)) {
+        if (!isSeedableInput(value)) continue;
+        if ((value.type as { type: string }).type !== 'Array') continue;
+        const encode = encodeBeast2For(value.type);
+        pagedSources.push({
+            path: value.path,
+            encode: (elements) => encode(elements as never),
+            elements: [...(value.default as unknown[])],
+        });
+    }
+    initializePagedApi(createInMemoryPagedApi(pagedSources), WORKSPACE);
 
     // Offline `Record.bind` impls — seeds each record's initial state into the
     // cache (so `read()` resolves) and stands in for the mutation backend.
