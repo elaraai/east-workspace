@@ -306,7 +306,7 @@ static void gc_destroy_contents(EastValue *v)
             east_beast2_pages_free(v->data.paged.pages);
             v->data.paged.pages = NULL;
         }
-        east_free(v->data.paged.data);
+        if (v->data.paged.owns_data) east_free(v->data.paged.data);
         v->data.paged.data = NULL;
         east_value_release(v->data.paged.hydrated);
         v->data.paged.hydrated = NULL;

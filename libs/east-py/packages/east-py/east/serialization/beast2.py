@@ -60,6 +60,11 @@ from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]
     encode_beast2_with_header_for,
 )
 
+# The file classes subclass the eager collection classes (#560), so the
+# import is structural, not a convenience — kept at module level (the
+# _beast2_eastc import above already loads east.types.values, so no cycle).
+from east.types.values.collections import EastArray, EastDict, EastSet  # noqa: E402
+
 
 def _check_segmented(collection_type) -> str:
     kind = getattr(collection_type, "type", None)
@@ -469,8 +474,14 @@ def _merge_partial(acc, part, combine) -> None:
         values = part.to_array(lambda _k, v: v, out=acc.value_type)
         acc.update_many(keys, values)
 
-#: Managed segment size (rows per segment) when the caller doesn't override.
+#: Managed cap on rows per segment when the caller doesn't override.
 _TARGET_SEGMENT_ROWS = 8192
+
+#: Managed wire-byte target per segment (#560): the managed writer batches
+#: toward this many bytes of output, capped at ``_TARGET_SEGMENT_ROWS``
+#: elements — so pathologically wide rows still produce right-sized segments
+#: instead of a fixed row grain whose decoded size is unbounded.
+_TARGET_SEGMENT_BYTES = 2 * 1024 * 1024
 
 
 class Beast2File:
@@ -478,9 +489,18 @@ class Beast2File:
 
     Opened by :func:`open_beast2_file`, which returns the root-kind flavor
     (:class:`Beast2ArrayFile`, :class:`Beast2DictFile`, :class:`Beast2SetFile`)
-    so the file mirrors its collection's read surface. The file is mmapped —
-    bytes enter the OS page cache per accessed frame and are never resident as
-    process memory; only decoded segments are.
+    — each a SUBCLASS of its eager collection class (``EastArray`` /
+    ``EastDict`` / ``EastSet``), so the file IS a first-class, read-only
+    East collection value (#560): it answers ``isinstance``/``type_of``,
+    feeds every eager method (the streamed compute family below at one
+    segment of decoded memory; anything else through ordinary iteration),
+    binds into kernels by reference (``kernel(...).bind(file)`` — keyed
+    reads inside the compiled body answer from the pager, one frame per
+    hit/miss), and passes straight into compiled function calls. Mutation
+    raises. The file is mmapped — bytes enter the OS page cache per
+    accessed frame and are never resident as process memory; only decoded
+    segments are, through a byte-budgeted cache (``EAST_PAGED_CACHE_BYTES``
+    tunes it).
 
     Every access decodes at most one segment unless documented otherwise
     (``load()`` decodes them all — into one collection, still one segment of
@@ -493,6 +513,7 @@ class Beast2File:
         self._file = open(self.path, "rb")  # noqa: SIM115 — the file object owns the handle
         self._mm: mmap.mmap | None = None
         self._pages: Beast2Pages | None = None
+        self._lazy = None
         try:
             size = os.fstat(self._file.fileno()).st_size
             if size < 8:
@@ -528,9 +549,35 @@ class Beast2File:
                 # (segments()/load()); anything else is a real error.
                 if "no index" not in str(exc):
                     raise
+            if self._pages is not None and self._pages.self_contained:
+                # The pager-backed C VALUE behind the kernel-bind and
+                # compiled-argument seams (#560): a borrowed view over the
+                # mmap (no byte copy), opened FROZEN so a compiled body's
+                # mutating builtins refuse with the uniform cross-runtime
+                # error rather than mutating a hidden hydrated copy. None
+                # when the element shape is gated (Ref/function values) —
+                # those seams then fall back to the eager conversion.
+                from east.runtime._compiler_eastc import open_paged_value_view
+
+                self._lazy = open_paged_value_view(self.collection_type, self._mm,
+                                                   frozen=True)
         except BaseException:
             self.close()
             raise
+
+    @property
+    def _east_c_paged(self):
+        """The lazy C value's pointer — the by-pointer pass-through seam the
+        compiled-call and ``bind`` argument conversions read (#505/#560)."""
+        if self._lazy is None:
+            raise AttributeError("_east_c_paged")
+        return self._lazy._east_c_paged
+
+    @property
+    def _east_c_paged_type(self):
+        if self._lazy is None:
+            raise AttributeError("_east_c_paged_type")
+        return self._lazy._east_c_paged_type
 
     # ----- lifecycle -------------------------------------------------------
 
@@ -540,13 +587,27 @@ class Beast2File:
         return self._mm is None and self._pages is None
 
     def close(self) -> None:
-        """Release the pager, the mapping, and the file. Idempotent.
+        """Release the lazy value, the pager, the mapping, and the file.
+        Idempotent.
+
+        A file whose lazy value is still bound into a kernel or compiled
+        call DEFERS instead: the call returns with the file open (the bound
+        kernel's reads borrow the mapping — closing it would leave the
+        native callee reading unmapped memory), and everything releases
+        when the last bound reference is collected. Drop the bound kernels
+        first to close eagerly.
 
         Raises:
             BufferError: When something still borrows the mapping — an
                 unexhausted :meth:`segments` iterator is the usual cause;
                 exhaust or drop it first.
         """
+        if self._lazy is not None:
+            from east.runtime._compiler_eastc import paged_value_ref_count
+
+            if paged_value_ref_count(self._lazy._east_c_paged) > 1:
+                return  # deferred: a bind still reads through the mapping
+            self._lazy = None
         self._pages = None
         if self._mm is not None:
             try:
@@ -580,6 +641,14 @@ class Beast2File:
             )
         return self._pages
 
+    def __repr__(self) -> str:
+        # NOT the eager collections' element dump — a file can hold millions
+        # of rows, and a debugger repr must never decode them all.
+        state = "closed" if self.closed else (
+            f"{self._pages.element_count} elements" if self._pages is not None
+            else "no index")
+        return f"<{type(self).__name__} {self.path!r} ({state})>"
+
     # ----- file-only members (every root kind) -----------------------------
 
     @property
@@ -597,7 +666,7 @@ class Beast2File:
         """Whether segments decode independently (requires the index)."""
         return self._require_pages().self_contained
 
-    def segments(self):
+    def _iter_segments(self):
         """Yield one decoded collection per segment, in stream order.
 
         O(one segment) of decoded memory; process each batch with the native
@@ -613,6 +682,25 @@ class Beast2File:
                 yield segment
         finally:
             del core
+
+    def segments(self):
+        """Deprecated alias for the internal segment stream (issue #560).
+
+        The file IS its collection value now — reach for the eager methods
+        (which stream segments internally), keyed reads, or ``load()``;
+        per-segment batch processing that genuinely needs the raw stream can
+        keep using this during migration.
+        """
+        import warnings
+
+        warnings.warn(
+            "Beast2File.segments() is deprecated: the file is a first-class "
+            "collection value — use its eager methods, keyed reads, or "
+            "load(). See issue #560.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._iter_segments()
 
     def load(self):
         """Decode the whole collection, entirely inside east-c.
@@ -651,8 +739,36 @@ class Beast2File:
             yield core.segment_disjoint(i)
 
 
-class Beast2ArrayFile(Beast2File):
-    """A beast2 v5 Array file, mirroring the ``EastArray`` read surface."""
+def _refuse_mutation(name: str):
+    """A mutator stub for the file-backed collection classes: the file is a
+    read-only VIEW, so every in-place operation the eager base class offers
+    must refuse — silently mutating a temporary in-memory conversion (what
+    the inherited method would do) is the failure mode this prevents."""
+
+    def refuse(self, *_args, **_kwargs):
+        from east.runtime.errors import EastError
+
+        raise EastError(
+            f"cannot mutate a beast2 file-backed collection ({name}) — it is "
+            "a read-only view of the file; load() a mutable in-memory copy "
+            "first",
+            [],
+        )
+
+    refuse.__name__ = name
+    refuse.__qualname__ = f"Beast2File.{name}"
+    refuse.__doc__ = (
+        "Refused: a beast2 file is a read-only view of its file (issue #560); "
+        "``load()`` a mutable in-memory copy to mutate."
+    )
+    return refuse
+
+
+class Beast2ArrayFile(Beast2File, EastArray):
+    """A beast2 v5 Array file: a first-class, read-only ``EastArray`` value
+    mirroring the eager read surface (#560). Mutators raise; methods without
+    a segment-streamed override here run the inherited eager path through
+    ordinary iteration."""
 
     @property
     def element_type(self):
@@ -814,7 +930,7 @@ class Beast2ArrayFile(Beast2File):
     def __iter__(self):
         """Yield elements in row order, one segment resident at a time
         (python-boundary convenience — stream :meth:`segments` for scans)."""
-        for segment in self.segments():
+        for segment in self._iter_segments():
             yield from segment
 
     def map(self, fn: Any, out: Any = None):
@@ -826,7 +942,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.map(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -843,7 +959,7 @@ class Beast2ArrayFile(Beast2File):
 
         result: Any = EastArray(self.element_type, [])
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             result.extend(segment.filter(_shift_idx(predicate, base)))
             base += len(segment)
         return result
@@ -855,7 +971,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.filter_map(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -873,7 +989,7 @@ class Beast2ArrayFile(Beast2File):
         from east.types.values.structural import EastVariant
 
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             hit = segment.first_map(_shift_idx(fn, base), out=out)
             if hit.type == "some":
                 return hit
@@ -886,7 +1002,7 @@ class Beast2ArrayFile(Beast2File):
         the eager left fold's."""
         acc = initial
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             acc = segment.fold(acc, _shift_acc_idx(fn, base))
             base += len(segment)
         return acc
@@ -903,7 +1019,7 @@ class Beast2ArrayFile(Beast2File):
         result: Any = EastArray(_ev.type_of(initial), [])
         acc = initial
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.scan(acc, _shift_acc_idx(fn, base))
             if len(part):
                 acc = part[len(part) - 1]
@@ -919,7 +1035,7 @@ class Beast2ArrayFile(Beast2File):
         acc = None
         seeded = False
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             if not seeded:
                 acc = segment.map_reduce(map_fn, reduce_fn, out=out)
                 seeded = True
@@ -955,7 +1071,7 @@ class Beast2ArrayFile(Beast2File):
 
         acc = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             if acc is None:
                 acc = segment.sum(_shift_idx(fn, base))
             else:
@@ -1009,7 +1125,7 @@ class Beast2ArrayFile(Beast2File):
         base = 0
         proj = None
         p_wants = False
-        for segment in self.segments():
+        for segment in self._iter_segments():
             if proj is None:
                 t2 = self.element_type if fn is None else (
                     _kernel_out_type(fn)
@@ -1040,7 +1156,7 @@ class Beast2ArrayFile(Beast2File):
 
         candidates = []
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             candidates.append(segment.maximum(_shift_idx(by, base)))
             base += len(segment)
         if not candidates:
@@ -1055,7 +1171,7 @@ class Beast2ArrayFile(Beast2File):
 
         candidates = []
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             candidates.append(segment.minimum(_shift_idx(by, base)))
             base += len(segment)
         if not candidates:
@@ -1070,7 +1186,7 @@ class Beast2ArrayFile(Beast2File):
                 raise TypeError("every() without a predicate needs Boolean elements")
             pred = lambda el: el  # noqa: E731
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             if not segment.every(_shift_idx(pred, base)):
                 return False
             base += len(segment)
@@ -1083,7 +1199,7 @@ class Beast2ArrayFile(Beast2File):
                 raise TypeError("some() without a predicate needs Boolean elements")
             pred = lambda el: el  # noqa: E731
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             if segment.some(_shift_idx(pred, base)):
                 return True
             base += len(segment)
@@ -1096,7 +1212,7 @@ class Beast2ArrayFile(Beast2File):
         from east.types.values.structural import EastVariant
 
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             hit = segment.find_first(target, key=key)
             if hit.type == "some":
                 return EastVariant("some", hit.value + base)
@@ -1110,7 +1226,7 @@ class Beast2ArrayFile(Beast2File):
 
         result: Any = EastArray(IntegerType, [])
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             local = segment.find_all(value, by=_shift_idx(by, base))
             if base:
                 local = local.map(lambda i, *, _b=base: i + _b, out=IntegerType)
@@ -1137,7 +1253,7 @@ class Beast2ArrayFile(Beast2File):
         groups = None    # Set<k2> — every group key the file contains
         k2 = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             shifted_key = _shift_idx(key, base)
             pairs, k2, _pair_t = segment._find_index_pairs(
                 shifted_key, value, _shift_idx(by, base), base)
@@ -1177,7 +1293,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment._group_find_extreme_pairs(
                 _shift_idx(key, base), _shift_idx(by, base), want_max)
             pair_t = part.value_type
@@ -1211,7 +1327,7 @@ class Beast2ArrayFile(Beast2File):
         from east.types.construct import none as _none
         from east.types.construct import some as _some
 
-        n = len(self) if self.indexed else sum(len(s) for s in self.segments())
+        n = len(self) if self.indexed else sum(len(s) for s in self._iter_segments())
         if n == 0:
             return _none
         return _some(self.find_first(self.maximum(by), key=by).unwrap("some"))
@@ -1221,7 +1337,7 @@ class Beast2ArrayFile(Beast2File):
         from east.types.construct import none as _none
         from east.types.construct import some as _some
 
-        n = len(self) if self.indexed else sum(len(s) for s in self.segments())
+        n = len(self) if self.indexed else sum(len(s) for s in self._iter_segments())
         if n == 0:
             return _none
         return _some(self.find_first(self.minimum(by), key=by).unwrap("some"))
@@ -1235,7 +1351,7 @@ class Beast2ArrayFile(Beast2File):
 
         prev_key = None
         t2 = None
-        for segment in self.segments():
+        for segment in self._iter_segments():
             if not segment.is_sorted(key):
                 return False
             first = segment[0]
@@ -1253,7 +1369,7 @@ class Beast2ArrayFile(Beast2File):
         """``EastArray.for_each`` — streams the segments; ``fn`` sees global
         indices when it takes ``(el, idx)``."""
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             segment.for_each(_shift_idx(fn, base))
             base += len(segment)
 
@@ -1263,7 +1379,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.to_set(_shift_idx(key, base))
             base += len(segment)
             if result is None:
@@ -1285,7 +1401,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.to_dict(
                 _shift_idx(key, base),
                 value=_shift_idx(value, base) if value is not None else None,
@@ -1307,7 +1423,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.group_by(_shift_idx(key, base))
             base += len(segment)
             if result is None:
@@ -1328,7 +1444,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             seeded = init if result is None else (
                 lambda gk, _acc=result, _init=init: _acc.get_or_default(gk, _init(gk)))
             part = segment.group_reduce(
@@ -1374,7 +1490,7 @@ class Beast2ArrayFile(Beast2File):
             # file must not fall back to the element type (#450/#525).
             t2 = _kernel_out_type(fn) or _kernel_out_type(fn, _elem_in(fn, self.element_type))
             if t2 is None:
-                first = next(iter(self.segments()), None)
+                first = next(iter(self._iter_segments()), None)
                 t2 = _ev.type_of(_call_elem(fn, first[0])) \
                     if first is not None and len(first) else self.element_type
         if t2.type == "Integer":
@@ -1408,7 +1524,7 @@ class Beast2ArrayFile(Beast2File):
         else:
             t2 = _kernel_out_type(fn) or _kernel_out_type(fn, _elem_in(fn, self.element_type))
             if t2 is None:
-                first = next(iter(self.segments()), None)
+                first = next(iter(self._iter_segments()), None)
                 if first is None or not len(first):
                     from east.types.values.collections import EastDict
 
@@ -1437,7 +1553,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.group_maximum(_shift_idx(key, base), by=_shift_idx(by, base))
             base += len(segment)
             if result is None:
@@ -1455,7 +1571,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.group_minimum(_shift_idx(key, base), by=_shift_idx(by, base))
             base += len(segment)
             if result is None:
@@ -1491,7 +1607,7 @@ class Beast2ArrayFile(Beast2File):
             return self.group_by(key)
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.group_to_arrays(_shift_idx(key, base), _shift_idx(value, base))
             base += len(segment)
             if result is None:
@@ -1509,7 +1625,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.group_to_sets(_shift_idx(key, base), _shift_idx(value, base))
             base += len(segment)
             if result is None:
@@ -1540,7 +1656,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.group_to_dicts(
                 _shift_idx(key, base), _shift_idx(key2, base),
                 _shift_idx(value, base) if value is not None else None, combine)
@@ -1560,7 +1676,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.flatten_to_array(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -1578,7 +1694,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.flatten_to_set(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -1597,7 +1713,7 @@ class Beast2ArrayFile(Beast2File):
 
         result = None
         base = 0
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.flatten_to_dict(_shift_idx(fn, base), combine)
             base += len(segment)
             if result is None:
@@ -1614,7 +1730,7 @@ class Beast2ArrayFile(Beast2File):
         from east.types.values.collections import EastArray
 
         parts: Any = EastArray(StringType, [])
-        for segment in self.segments():
+        for segment in self._iter_segments():
             parts.append(segment.string_join(separator))
         return parts.string_join(separator)
 
@@ -1626,7 +1742,7 @@ class Beast2ArrayFile(Beast2File):
         from east.types.values.collections import EastArray
 
         collected: dict[str, list] = {}
-        for segment in self.segments():
+        for segment in self._iter_segments():
             for name, col in segment.to_columns(fields).items():
                 collected.setdefault(name, []).append(col)
         if not collected:
@@ -1645,7 +1761,7 @@ class Beast2ArrayFile(Beast2File):
 
         out_type = out if out is not None else self.element_type
         result = None
-        for segment in self.segments():
+        for segment in self._iter_segments():
             part = segment.map_batches(fn, out=out_type, batch_size=batch_size)
             if result is None:
                 result = part
@@ -1655,14 +1771,15 @@ class Beast2ArrayFile(Beast2File):
             self.element_type, []).map_batches(fn, out=out_type, batch_size=batch_size)
 
 
-class Beast2DictFile(Beast2File):
-    """A beast2 v5 Dict file, mirroring the ``EastDict`` read surface.
+class Beast2DictFile(Beast2File, EastDict):
+    """A beast2 v5 Dict file: a first-class, read-only ``EastDict`` value
+    mirroring the eager read surface (#560). Mutators raise.
 
     Keyed point reads decode only the owning segment: east-c binary-searches
     the segment *fences* (each segment's first key, decoded from a bounded
-    probe of its frame and cached) to pick the segment, decodes it through a
-    small shared LRU, and answers from the in-segment b-tree. The wire
-    contract guarantees disjoint ascending segments; a corrupt (or
+    probe of its frame and cached) to pick the segment, decodes it through
+    the byte-budgeted shared cache, and answers from the in-segment b-tree.
+    The wire contract guarantees disjoint ascending segments; a corrupt (or
     pre-contract) blob that violates it raises ``segments are not disjoint
     ascending key ranges`` instead of reporting false misses.
     """
@@ -1686,7 +1803,7 @@ class Beast2DictFile(Beast2File):
         from east.types.values.collections import EastSet
 
         out: Any = EastSet(self.key_type)
-        for segment in self.segments():
+        for segment in self._iter_segments():
             out.union_in_place(segment.keys_set())
         return out
 
@@ -1695,7 +1812,7 @@ class Beast2DictFile(Beast2File):
         at a time. A python-boundary convenience: every pair crosses into
         python — fine for small results, never the scan idiom for large files
         (stream :meth:`segments` and process each batch natively instead)."""
-        for segment in self.segments():
+        for segment in self._iter_segments():
             yield from segment.items()
 
     def keys(self):
@@ -2218,8 +2335,9 @@ class Beast2DictFile(Beast2File):
             self.key_type, DictType(self.key_type, self.value_type))
 
 
-class Beast2SetFile(Beast2File):
-    """A beast2 v5 Set file, mirroring the ``EastSet`` read surface.
+class Beast2SetFile(Beast2File, EastSet):
+    """A beast2 v5 Set file: a first-class, read-only ``EastSet`` value
+    mirroring the eager read surface (#560). Mutators raise.
 
     Membership decodes only the owning segment, found by a binary search
     over the segment fences — the same machinery as
@@ -2234,7 +2352,7 @@ class Beast2SetFile(Beast2File):
     def __iter__(self):
         """Yield elements in stream order, one segment resident at a time
         (python-boundary convenience — stream :meth:`segments` for scans)."""
-        for segment in self.segments():
+        for segment in self._iter_segments():
             yield from segment
 
     def has(self, value: Any) -> bool:
@@ -2728,12 +2846,37 @@ class Beast2SetFile(Beast2File):
         return all(segment.is_disjoint(other) for segment in self._disjoint_segments())
 
 
+# Every in-place operation the eager base classes offer refuses on the file
+# classes — the file is a read-only view, and the inherited method would
+# otherwise mutate a throwaway in-memory conversion, silently. Derived
+# python-protocol mutators (MutableSequence's `+=` runs through `extend`)
+# route through these and refuse too.
+for _mutator in ("append", "extend", "insert", "pop", "remove", "clear",
+                 "reverse", "sort", "__setitem__", "__delitem__"):
+    setattr(Beast2ArrayFile, _mutator, _refuse_mutation(_mutator))
+for _mutator in ("add", "discard", "remove", "clear", "insert", "delete",
+                 "try_insert", "try_delete", "union_in_place"):
+    setattr(Beast2SetFile, _mutator, _refuse_mutation(_mutator))
+for _mutator in ("__setitem__", "__delitem__", "insert", "get_or_insert",
+                 "insert_or_update", "update", "swap", "delete", "try_delete",
+                 "pop", "clear", "update_many", "merge_key", "merge_all",
+                 "union_in_place"):
+    setattr(Beast2DictFile, _mutator, _refuse_mutation(_mutator))
+del _mutator
+
 _FILE_KINDS = {"Array": Beast2ArrayFile, "Set": Beast2SetFile, "Dict": Beast2DictFile}
 
 
 class Beast2FileWriter:
     """Managed write access: hand it rows, batches, or whole collections in
     any mix; it re-batches into target-sized segments and writes the index.
+
+    The managed batching is BYTE-adaptive (#560): a small probe encode seeds
+    the rows-per-segment estimate toward ``_TARGET_SEGMENT_BYTES`` of wire
+    output (never above ``_TARGET_SEGMENT_ROWS`` elements), refined from real
+    output as segments flush — segment size is a memory bound at read time,
+    and a fixed row grain leaves it unbounded for wide rows. An explicit
+    ``segment_rows`` pins the old row-grain batching instead.
 
     Opened by ``open_beast2_file(path, T, mode="w")`` (or use
     :func:`write_beast2_file` for a value you already hold whole). Append-only
@@ -2749,15 +2892,19 @@ class Beast2FileWriter:
         """The declared root collection type (Array/Set/Dict)."""
         self.path = os.fspath(path)
         """The file being written."""
-        self._target = _TARGET_SEGMENT_ROWS if segment_rows is None else int(segment_rows)
-        if self._target <= 0:
+        self._rows_override = None if segment_rows is None else int(segment_rows)
+        if self._rows_override is not None and self._rows_override <= 0:
             raise ValueError(f"segment_rows must be positive, got {segment_rows}")
+        self._codec = codec
+        self._next_rows: int | None = None
+        self._rows_written = 0
         self._file = open(self.path, "wb")  # noqa: SIM115 — the writer owns the handle
         try:
             self._writer = Beast2Writer(collection_type, self._file, codec=codec)
         except BaseException:
             self._file.close()
             raise
+        self._header_len = self._file.tell()
         self._closed = False
 
     @property
@@ -2786,11 +2933,54 @@ class Beast2FileWriter:
         n = len(batch)
         if n == 0:
             return
-        if n <= 2 * self._target:
-            self._writer.write(batch)
+        if self._rows_override is not None:
+            if n <= 2 * self._rows_override:
+                self._writer.write(batch)
+                return
+            chunk = self._chunker(batch)
+            for i in range(0, n, self._rows_override):
+                self._writer.write(chunk(i, min(i + self._rows_override, n)))
             return
-        for chunk in self._chunks(batch, n):
-            self._writer.write(chunk)
+        # Byte-adaptive managed batching (#560): probe once for the average
+        # wire size, then refine from real output as segments flush.
+        chunk = None
+        if self._next_rows is None:
+            import io
+
+            chunk = self._chunker(batch)
+            probe_n = min(n, _PAGED_PROBE_BATCH)
+            scratch = io.BytesIO()
+            probe_writer = Beast2Writer(self.collection_type, scratch,
+                                        codec=self._codec)
+            header = scratch.tell()
+            probe_writer.write(chunk(0, probe_n) if probe_n < n else batch)
+            avg = max(1.0, (scratch.tell() - header) / probe_n)
+            self._next_rows = max(1, min(_TARGET_SEGMENT_ROWS,
+                                         int(_TARGET_SEGMENT_BYTES / avg)))
+        if n <= 2 * self._next_rows:
+            self._writer.write(batch)
+            self._rows_written += n
+            self._refine()
+            return
+        if chunk is None:
+            chunk = self._chunker(batch)
+        i = 0
+        while i < n:
+            j = min(n, i + self._next_rows)
+            self._writer.write(chunk(i, j))
+            self._rows_written += j - i
+            i = j
+            self._refine()
+
+    def _refine(self) -> None:
+        """Move the rows-per-segment estimate toward the byte target using
+        the writer's ACTUAL output (header included — a slight average
+        overestimate that only makes segments marginally smaller)."""
+        if self._rows_written <= 0:
+            return
+        avg = max(1.0, (self.bytes_written - self._header_len) / self._rows_written)
+        self._next_rows = max(1, min(_TARGET_SEGMENT_ROWS,
+                                     int(_TARGET_SEGMENT_BYTES / avg)))
 
     def close(self) -> None:
         """Write the terminator, index and footer, then close the file.
@@ -2828,38 +3018,36 @@ class Beast2FileWriter:
             return EastSet(self.collection_type.value, batch)
         return batch
 
-    def _chunks(self, batch, n: int):
-        """Split an oversized batch into target-sized segments, natively.
+    def _chunker(self, batch):
+        """A ``chunk(i, j)`` range extractor over ``batch``, natively.
 
-        Arrays slice; Sets go through one ordered array; Dicts go through one
-        ordered pair array rebuilt per chunk with the bulk ``update_many``
-        path. Chunk boundaries follow the collection's sorted order, so the
-        segments stay key-disjoint — the shape W2's keyed reads require.
+        Arrays slice; Sets go through one ordered array; Dicts go through
+        ordered key/value arrays rebuilt per chunk with the bulk
+        ``update_many`` path. Chunk boundaries follow the collection's
+        sorted order, so the segments stay key-disjoint — the shape W2's
+        keyed reads require.
         """
         kind = self.collection_type.type
         if kind == "Array":
-            for i in range(0, n, self._target):
-                yield batch.slice(i, min(i + self._target, n))
-            return
+            return batch.slice
         if kind == "Set":
             ordered = batch.to_array()
-            for i in range(0, n, self._target):
-                yield ordered.slice(i, min(i + self._target, n)).to_set()
-            return
-        from east.types.types import StructType
-        from east.types.values.collections import EastDict
 
+            def set_chunk(i: int, j: int):
+                return ordered.slice(i, j).to_set()
+
+            return set_chunk
         kt = self.collection_type.value["key"]
         vt = self.collection_type.value["value"]
-        pair_t = StructType([("k", kt), ("v", vt)])
-        pairs = batch.to_array(lambda k, v: {"k": k, "v": v}, out=pair_t)
-        for i in range(0, n, self._target):
-            chunk = pairs.slice(i, min(i + self._target, n))
-            keys = chunk.map(lambda p: p["k"], out=kt)
-            values = chunk.map(lambda p: p["v"], out=vt)
+        keys = batch.to_array(lambda k, _v: k, out=kt)
+        values = batch.to_array(lambda _k, v: v, out=vt)
+
+        def dict_chunk(i: int, j: int):
             rebuilt: Any = EastDict(kt, vt)
-            rebuilt.update_many(keys, values)
-            yield rebuilt
+            rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
+            return rebuilt
+
+        return dict_chunk
 
 
 def open_beast2_file(path, collection_type=None, mode: str = "r", *,

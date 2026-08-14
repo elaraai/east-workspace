@@ -669,24 +669,37 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
  *  check with a real error instead of silently resolving a cross-segment
  *  backref to an empty placeholder. Wrong data is worse than no data.  */
 
-/* Decoded segments kept hot for the element and keyed paths (#481 W2). */
-#define B2V5_PAGES_LRU 4
+/* Decoded segments kept hot for the element and keyed paths (#481 W2). The
+ * window is budgeted in BYTES of decompressed frame — not a slot count — so
+ * wide-row tables stay bounded no matter what row grain they were written at
+ * (#560): each cached segment is weighted by its frame's decompressed length
+ * (an O(1) read from the frame header), and insertion evicts LRU entries
+ * until the new one fits. The newest segment always caches, even alone over
+ * budget, so repeated point reads into one hot segment stay warm. */
+#define B2V5_PAGES_CACHE_BYTES_DEFAULT (64u * 1024 * 1024)
+
+typedef struct {
+    size_t idx;
+    EastValue *seg; /* owned */
+    size_t bytes;   /* decompressed frame length — the budget weight */
+    uint64_t tick;
+} B2V5CacheEntry;
 
 struct Beast2Pages {
     const uint8_t *data; /* borrowed — caller keeps it alive and unchanged */
     size_t len;
-    EastType *type;       /* retained decode type */
-    EastSourceMap sm;     /* owned (header) */
-    B2V5Index index;      /* owned */
-    size_t *cumulative;   /* prefix sums of index.counts; NULL when count == 0 */
-    EastValue **fences;   /* lazily decoded first element/key per segment (owned) */
-    bool fences_verified; /* strict ascent checked (first keyed read) */
-    bool frozen;          /* frozen open: every decoded segment/fence is branded */
-    struct {
-        size_t idx;
-        EastValue *seg; /* owned; NULL = empty slot */
-        uint64_t tick;
-    } lru[B2V5_PAGES_LRU];
+    EastType *type;        /* retained decode type */
+    EastSourceMap sm;      /* owned (header) */
+    B2V5Index index;       /* owned */
+    size_t *cumulative;    /* prefix sums of index.counts; NULL when count == 0 */
+    EastValue **fences;    /* lazily decoded first element/key per segment (owned) */
+    bool fences_verified;  /* strict ascent checked (first keyed read) */
+    bool frozen;           /* frozen open: every decoded segment/fence is branded */
+    B2V5CacheEntry *cache; /* dynamic; cache_count entries live */
+    size_t cache_count;
+    size_t cache_cap;
+    size_t cache_bytes;  /* sum of live entry weights */
+    size_t cache_budget; /* bytes; EAST_PAGED_CACHE_BYTES overrides the default */
     uint64_t lru_tick;
 };
 
@@ -762,7 +775,20 @@ Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *ty
             p->cumulative[i] = running;
         }
     }
+
+    p->cache_budget = (size_t)B2V5_PAGES_CACHE_BYTES_DEFAULT;
+    const char *env = getenv("EAST_PAGED_CACHE_BYTES");
+    if (env && *env) {
+        char *end = NULL;
+        unsigned long long budget = strtoull(env, &end, 10);
+        if (end && *end == '\0') p->cache_budget = (size_t)budget;
+    }
     return p;
+}
+
+void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
+{
+    if (p) p->cache_budget = bytes;
 }
 
 size_t east_beast2_pages_segment_count(Beast2Pages *p)
@@ -874,33 +900,61 @@ done:
     return result;
 }
 
-/* Fetch segment i through the pager's small shared LRU. Returns a RETAINED
- * value (caller releases); the cache keeps its own reference. Only the
- * element and keyed paths route through here — the public segment() stays a
- * fresh decode, so a caller mutating its result cannot poison the cache. */
+/* Segment i's budget weight: its frame's decompressed byte length, an O(1)
+ * varint read from the frame header. 0 on a malformed header — the entry
+ * then costs nothing against the budget, and the decode itself will post
+ * the real error. */
+static size_t pages_frame_weight(Beast2Pages *p, size_t i)
+{
+    size_t off = p->index.offsets[i];
+    uint64_t codec, uncompressed_len, payload_len;
+    if (!read_varint_checked(p->data, p->len, &off, &codec) ||
+        !read_varint_checked(p->data, p->len, &off, &uncompressed_len) ||
+        !read_varint_checked(p->data, p->len, &off, &payload_len))
+        return 0;
+    return (size_t)uncompressed_len;
+}
+
+/* Fetch segment i through the pager's byte-budgeted shared cache. Returns a
+ * RETAINED value (caller releases); the cache keeps its own reference. Only
+ * the element and keyed paths route through here — the public segment()
+ * stays a fresh decode, so a caller mutating its result cannot poison the
+ * cache. */
 static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
 {
-    for (size_t k = 0; k < B2V5_PAGES_LRU; k++) {
-        if (p->lru[k].seg && p->lru[k].idx == i) {
-            p->lru[k].tick = ++p->lru_tick;
-            east_value_retain(p->lru[k].seg);
-            return p->lru[k].seg;
+    for (size_t k = 0; k < p->cache_count; k++) {
+        if (p->cache[k].idx == i) {
+            p->cache[k].tick = ++p->lru_tick;
+            east_value_retain(p->cache[k].seg);
+            return p->cache[k].seg;
         }
     }
     EastValue *seg = east_beast2_pages_segment(p, i);
     if (!seg) return NULL;
-    size_t victim = 0;
-    for (size_t k = 0; k < B2V5_PAGES_LRU; k++) {
-        if (!p->lru[k].seg) {
-            victim = k;
-            break;
-        }
-        if (p->lru[k].tick < p->lru[victim].tick) victim = k;
+
+    size_t bytes = pages_frame_weight(p, i);
+    /* Evict least-recently-used entries until the new one fits. */
+    while (p->cache_count > 0 && p->cache_bytes + bytes > p->cache_budget) {
+        size_t victim = 0;
+        for (size_t k = 1; k < p->cache_count; k++)
+            if (p->cache[k].tick < p->cache[victim].tick) victim = k;
+        east_value_release(p->cache[victim].seg);
+        p->cache_bytes -= p->cache[victim].bytes;
+        p->cache[victim] = p->cache[--p->cache_count];
     }
-    if (p->lru[victim].seg) east_value_release(p->lru[victim].seg);
-    p->lru[victim].idx = i;
-    p->lru[victim].seg = seg;
-    p->lru[victim].tick = ++p->lru_tick;
+    if (p->cache_count == p->cache_cap) {
+        size_t cap = p->cache_cap ? p->cache_cap * 2 : 8;
+        B2V5CacheEntry *grown = realloc(p->cache, cap * sizeof(*grown));
+        if (!grown) return seg; /* uncached; correctness unaffected */
+        p->cache = grown;
+        p->cache_cap = cap;
+    }
+    p->cache[p->cache_count].idx = i;
+    p->cache[p->cache_count].seg = seg;
+    p->cache[p->cache_count].bytes = bytes;
+    p->cache[p->cache_count].tick = ++p->lru_tick;
+    p->cache_count++;
+    p->cache_bytes += bytes;
     east_value_retain(seg); /* the cache's reference */
     return seg;
 }
@@ -959,8 +1013,9 @@ EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
 void east_beast2_pages_free(Beast2Pages *p)
 {
     if (!p) return;
-    for (size_t k = 0; k < B2V5_PAGES_LRU; k++)
-        if (p->lru[k].seg) east_value_release(p->lru[k].seg);
+    for (size_t k = 0; k < p->cache_count; k++)
+        east_value_release(p->cache[k].seg);
+    free(p->cache);
     if (p->fences) {
         for (size_t i = 0; i < p->index.count; i++)
             if (p->fences[i]) east_value_release(p->fences[i]);
@@ -1431,6 +1486,23 @@ static bool lazy_shape_safe(const EastType *type, bool frozen)
     }
 }
 
+/* Post the shape-gate refusal for a type that must decode eagerly instead:
+ * the plain gate (#516) excludes every element shape East can mutate in
+ * place or observe by identity; the frozen gate (#539) collapses to the
+ * Ref/function exclusions. */
+static bool lazy_shape_gate(const EastType *type, bool frozen)
+{
+    if (!type || lazy_shape_safe(type, frozen)) return true;
+    east_builtin_error(frozen
+                           ? "beast2 v5: frozen lazy paged values need element shapes without a "
+                             "Ref (an identity cell) or function values (captured state) — such "
+                             "shapes must decode eagerly"
+                           : "beast2 v5: lazy paged values need value-semantic element shapes — "
+                             "an element containing an Array/Set/Dict/Ref (mutable in place) or a "
+                             "Vector/Matrix/function (identity-compared) must decode eagerly");
+    return false;
+}
+
 static EastValue *open_paged_common(uint8_t *data, size_t len, EastType *type, bool frozen)
 {
     Beast2Pages *pages = east_beast2_pages_new(data, len, type);
@@ -1458,12 +1530,7 @@ EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
     /* Shape gate (#516): element shapes East can mutate in place (or observe
      * by identity) must not be served as fresh pager decodes — the caller
      * falls back to the eager whole decode, which is always correct. */
-    if (type && !lazy_shape_safe(type, false)) {
-        east_builtin_error("beast2 v5: lazy paged values need value-semantic element shapes — "
-                           "an element containing an Array/Set/Dict/Ref (mutable in place) or a "
-                           "Vector/Matrix/function (identity-compared) must decode eagerly");
-        return NULL;
-    }
+    if (!lazy_shape_gate(type, false)) return NULL;
     return open_paged_common(data, len, type, false);
 }
 
@@ -1471,13 +1538,16 @@ EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *ty
 {
     /* The collapsed frozen gate (#539): only Ref- and function-bearing
      * element shapes still force the eager (frozen) decode. */
-    if (type && !lazy_shape_safe(type, true)) {
-        east_builtin_error("beast2 v5: frozen lazy paged values need element shapes without a "
-                           "Ref (an identity cell) or function values (captured state) — such "
-                           "shapes must decode eagerly");
-        return NULL;
-    }
+    if (!lazy_shape_gate(type, true)) return NULL;
     return open_paged_common(data, len, type, true);
+}
+
+EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t len, EastType *type, bool frozen)
+{
+    if (!lazy_shape_gate(type, frozen)) return NULL;
+    EastValue *v = open_paged_common((uint8_t *)data, len, type, frozen);
+    if (v) v->data.paged.owns_data = false;
+    return v;
 }
 
 EastValue *east_paged_hydrated(EastValue *v)

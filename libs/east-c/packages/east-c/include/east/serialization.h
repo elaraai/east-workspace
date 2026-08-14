@@ -202,6 +202,19 @@ EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type);
 // which still fall back to the eager frozen decode.
 EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *type);
 
+// Borrowed-bytes lazy open (issue #560): like east_beast2_open_paged(_frozen),
+// but the blob bytes are BORROWED — the caller keeps them alive and unchanged
+// (an mmap'd file) for the value's whole lifetime, and nothing is freed on
+// release. Never takes ownership, success or failure.
+EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t len, EastType *type,
+                                       bool frozen);
+
+// The byte budget of a pager's decoded-segment cache (issue #560): the sum of
+// cached segments' decompressed frame lengths stays at or under the budget
+// (the newest segment always caches, even alone over it). Defaults to 64 MiB;
+// the EAST_PAGED_CACHE_BYTES environment variable overrides it at open.
+void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
+
 // The eager collection behind a paged value, decoding the whole blob on
 // first use (cached on the wrapper; iteration locks carry over). Returns a
 // BORROWED value kept alive by `v` — retain to keep it past `v` — or NULL on
