@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/create-east",
-  "version": "1.0.62",
+  "version": "1.0.63",
   "description": "Scaffold a new East project (AGPL-3.0, Node-only): npm create @elaraai/east",
   "type": "module",
   "bin": {
