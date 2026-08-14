@@ -197,6 +197,22 @@ def ir_async_function(
     }))
 
 
+def ir_call(
+    typ: EastTypeValue,
+    function,
+    arguments: list,
+    loc_id: int = 0,
+):
+    """Create a Call IR node invoking ``function`` (an IR node evaluating to
+    a function value) with ``arguments``."""
+    return EastVariant("Call", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "function": function,
+        "arguments": EastArray(IRType, arguments),
+    }))
+
+
 def ir_call_async(
     typ: EastTypeValue,
     function,
@@ -390,6 +406,7 @@ __all__ = [
     "ir_platform",
     "ir_function",
     "ir_async_function",
+    "ir_call",
     "ir_call_async",
     "ir_new_ref",
     "ir_let",

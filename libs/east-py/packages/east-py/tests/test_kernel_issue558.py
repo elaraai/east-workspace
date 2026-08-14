@@ -16,11 +16,12 @@ B. `bind()` type-checked struct parameters by CONTENT inference (`type_of`),
    against the declared parameter type.
 
 C. A traced lambda calling an already-compiled East function (a `.bind`
-   result; the e3 runner's streamTask `emit`) cannot trace BY CONSTRUCTION.
-   Speculative push-down now declines and falls back to the per-element
-   python path (the ≤1.0.61 contract); an explicit `kernel(...)` still
-   raises, and the error names the actual problem instead of
-   `bad argument type for built-in operation`.
+   result; the e3 runner's streamTask `emit`) cannot re-trace the callee.
+   Speculative push-down declines and falls back to the per-element python
+   path (the ≤1.0.61 contract) — and since #561 a well-typed call LOWERS to
+   the IR Call node instead, so these lambdas now compile whole; the decline
+   (and the named error for explicit `kernel(...)`) survives for the shapes
+   lowering cannot type, and for genuinely-python callees.
 
 D. `.match()` settles its output type from ANY arm that can state one
    without a hint — including a `some(expr)` arm, which arrives as an
@@ -150,22 +151,28 @@ class TestNonRetraceableCallee:
         rows.for_each(lambda e: seen.append(sink(e["k"], e["v"])))
         assert seen == [1.0, 2.0]
 
-    def test_map_over_a_lambda_calling_a_native_fn_falls_back(self):
+    def test_map_over_a_lambda_calling_a_native_fn_still_answers(self):
+        # Since #561 this shape LOWERS to a native Call rather than falling
+        # back — the pinned contract here is that the answer is unchanged.
         sink = _native_sink()
         rows = EastArray(StructType([("k", StringType), ("v", FloatType)]),
                          [{"k": "a", "v": 1.0}])
         assert list(rows.map(lambda e: sink(e["k"], e["v"]) * 2.0)) == [2.0]
 
-    def test_explicit_kernel_still_raises_and_names_the_problem(self):
+    def test_explicit_kernel_over_a_well_typed_call_now_compiles(self):
+        # Superseded by #561: the call lowers to the IR Call node, so the
+        # explicit kernel() that used to raise now compiles and runs.
         sink = _native_sink()
-        with pytest.raises(KernelTraceError,
-                           match="cannot be re-traced"):
-            kernel([StringType], lambda s: sink(s, 1.0))
+        k = kernel([StringType], lambda s: sink(s, 1.0))
+        assert k("x") == 1.0
 
     def test_the_distinguished_error_reaches_the_cause_chain(self):
+        # An arity-mismatched call is a shape #561's lowering declines, so
+        # the #558 C loud contract — NonRetraceableCallError in the cause
+        # chain — still holds there.
         sink = _native_sink()
         try:
-            kernel([StringType], lambda s: sink(s, 1.0))
+            kernel([StringType], lambda s: sink(s))
         except KernelTraceError as e:
             cause, found = e.__cause__, False
             for _ in range(4):
@@ -176,6 +183,8 @@ class TestNonRetraceableCallee:
                     break
                 cause = cause.__cause__
             assert found, "NonRetraceableCallError missing from the cause chain"
+        else:
+            raise AssertionError("expected KernelTraceError")
 
 
 # ── D. match settles its type from a some(...) arm ──────────────────────────

@@ -54,6 +54,45 @@ EastValue = (
 # =============================================================================
 
 
+def _declared_function_type(value: EastValue) -> EastType | None:
+    """The Function/AsyncFunction type a function-ish value declares, or None.
+
+    Every east-py function-ish object carries its signature (#476): an
+    ``EastFunction`` declares input/output types directly; a compiled
+    kernel's ``_eastc_handle`` exposes them; a C function value — a decoded
+    wrapper, a bindable hold — records its declared type on the compiled fn
+    (``_east_c_handle``). Foreign wrappers built without a type (a bind or
+    arity adapter) answer None: the value IS a function, but its signature
+    is not recorded.
+    """
+    from east.types.values.structural import EastFunction
+
+    if isinstance(value, EastFunction):
+        from east.types.types import FunctionType
+
+        return FunctionType(list(value.input_types), value.output_type)
+    handle = getattr(value, "_eastc_handle", None)
+    if handle is not None:
+        import asyncio
+
+        from east.types.types import AsyncFunctionType, FunctionType
+
+        try:
+            inputs = handle.get_input_types()
+            output = handle.get_output_type()
+        except Exception:
+            return None
+        if asyncio.iscoroutinefunction(value):
+            return AsyncFunctionType(inputs, output)
+        return FunctionType(inputs, output)
+    c_handle = getattr(value, "_east_c_handle", None)
+    if c_handle is not None:
+        from east._eastc_bridge import c_function_value_type
+
+        return c_function_value_type(c_handle)
+    return None
+
+
 def is_value_of(
     value: EastValue,
     typ: EastType,
@@ -200,8 +239,19 @@ def is_value_of(
 
         return is_value_of(value, resolved_type, type_ctx, nodes_visited)
 
-    # Handle Function type
-    if typ["type"] == "Function":
+    # Handle Function / AsyncFunction types: function-ish values carry a
+    # declared signature (#476), so conformance is declared-type equality —
+    # a function value's contents cannot be inspected (#561).
+    if typ["type"] in ("Function", "AsyncFunction"):
+        declared = _declared_function_type(value)
+        if declared is not None:
+            return declared == typ
+        if getattr(value, "_east_c_handle", None) is not None:
+            # A C function value whose declared type is not recorded (a
+            # foreign/bind wrapper): the by-pointer pass-through is the
+            # caller's contract, exactly as the conversion fast-path treats
+            # it — accept rather than refuse what cannot be checked.
+            return True
         raise TypeError("JavaScript/Python functions cannot be converted to East functions")
 
     # Unknown type
@@ -272,33 +322,11 @@ def type_of(value: EastValue, nodes_visited: set[int] | None = None) -> EastType
     # --- function-ish values: declared-type-first (#476) ---
     # Every east-py function-ish object carries its signature; read it before
     # refusing. An EastFunction declares input/output types directly; a
-    # compiled kernel's handle exposes them; a decoded C function wrapper
-    # carries its C value whose compiled fn holds the declared type.
-    from east.types.values.structural import EastFunction
-
-    if isinstance(value, EastFunction):
-        from east.types.types import FunctionType
-
-        return FunctionType(list(value.input_types), value.output_type)
-    if callable(value):
-        handle = getattr(value, "_eastc_handle", None)
-        if handle is not None:
-            import asyncio
-
-            from east.types.types import AsyncFunctionType, FunctionType
-
-            inputs = handle.get_input_types()
-            output = handle.get_output_type()
-            if asyncio.iscoroutinefunction(value):
-                return AsyncFunctionType(inputs, output)
-            return FunctionType(inputs, output)
-        c_handle = getattr(value, "_east_c_handle", None)
-        if c_handle is not None:
-            from east._eastc_bridge import c_function_value_type
-
-            declared = c_function_value_type(c_handle)
-            if declared is not None:
-                return declared
+    # compiled kernel's handle exposes them; a C function value (a decoded
+    # wrapper, a bindable hold) records its declared type on the compiled fn.
+    declared = _declared_function_type(value)
+    if declared is not None:
+        return declared
 
     # --- recursing / structural values: guard against reference cycles ---
     if nodes_visited is None:

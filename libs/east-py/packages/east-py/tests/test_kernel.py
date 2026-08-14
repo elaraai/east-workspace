@@ -534,7 +534,7 @@ def test_captured_constants_hoist_once_per_kernel():
     table = EastDict(StringType, StringType, {"a": "A"})
     # trace() returns a homoiconic IR value (an EastVariant conforming to
     # IRType, #398) — assert the hoisting shape on the value tree directly.
-    ir, _t = trace(
+    ir, _t, _binds = trace(
         lambda r: table.get_or_default(r.id, "") + table.get_or_default(r.data, ""), [SROW]
     )
     # the constant becomes ONE build-time Let (identity-deduped across both
@@ -552,7 +552,7 @@ def test_hoisted_constant_inside_nested_lambda_still_binds_once():
     from east.kernel import trace
 
     table = EastDict(StringType, StringType, {"a": "A"})
-    ir, _t = trace(
+    ir, _t, _binds = trace(
         lambda r: r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
         [SROW],
     )
@@ -761,7 +761,7 @@ def test_first_map_traces_and_matches_eager():
 def test_first_map_emits_firstmap_builtin_not_fold():
     from east.kernel import trace
 
-    ir, _t = trace(
+    ir, _t, _binds = trace(
         lambda r: r.data.split("|").first_map(lambda v: where(v == "x", some(v), none)),
         [SROW],
     )
@@ -852,7 +852,7 @@ def test_shared_subexpression_binds_once():
         fields = r.data.split("|")
         return {"a": fields.get_or_default(0, ""), "b": fields.get_or_default(1, "")}
 
-    ir, _t = trace(build, [SROW])
+    ir, _t, _binds = trace(build, [SROW])
     body = ir.value["body"]
     assert body.type == "Block"
     lets = [st for st in body.value["statements"] if st.type == "Let"]
@@ -875,7 +875,7 @@ def test_loop_invariant_shared_expr_hoists_out_of_inner_lambda():
             + prefix                                                       # ... and outside
         )
 
-    ir, _t = trace(build, [SROW])
+    ir, _t, _binds = trace(build, [SROW])
     assert ir.value["body"].type == "Block"  # hoisted to the kernel body
     k = kernel([SROW], build)
     assert k({"id": "AB1", "data": "x|y"}) == "xAB,yAB" + "AB"

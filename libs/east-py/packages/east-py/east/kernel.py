@@ -100,6 +100,16 @@ What traces (#393 expanded this to the whole builtin surface):
   ``.unwrap(tag)``.
 - Struct results: return a dict literal — ``lambda r: {"a": …, "b": …}`` —
   so one kernel can emit every computed column in a single pass.
+- Calls on compiled East function VALUES lower to the IR ``Call`` node
+  (#561): a lambda that calls a ``kernel(...).bind(...)`` result, a
+  ``compile_from_*`` function, or a runner-supplied ``FunctionType`` input
+  (a streamTask ``emit``) compiles whole — the callee is hoisted as a
+  hidden trailing parameter, bound by reference after compilation, and
+  invoked natively per element. ``FunctionType`` kernel PARAMETERS are
+  callable the same way (and bindable with function values), so
+  ``kernel([T, FunctionType([T], U)], lambda x, f: f(x))`` is first-class.
+  An ``AsyncFunctionType`` value called in a sync trace raises a named
+  ``KernelTraceError``.
 
 Traced kernels must be pure: the lambda runs ONCE at trace time (exactly
 like a TypeScript ``East.function`` builder), so side effects do not repeat
@@ -252,6 +262,17 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
         return lifted
     if isinstance(value, dict):
         return _lift_struct(value, hint)
+    import asyncio
+
+    if asyncio.iscoroutine(value):
+        # An async compiled function called in the trace returned its
+        # coroutine unexecuted — name the actual problem (#561).
+        value.close()
+        raise KernelTraceError(
+            "an AsyncFunction value was called inside a sync traced kernel — "
+            "its result is a coroutine, which has no traced form; call it "
+            "from python (per-element) instead"
+        )
     raise KernelTraceError(
         f"cannot lift python value of type {type(value).__name__} into an East kernel expression"
     )
@@ -298,6 +319,89 @@ def _register_const(value: Any, expr: KernelExpr) -> KernelExpr:
     if _const_registry is None:
         return expr
     return _const_registry.register(value, expr.ir, expr.east_type)
+
+
+class _FnConstRegistry:
+    """Per-trace registry of called compiled East function values (#561).
+
+    A traced lambda that CALLS an already-compiled East function value — a
+    ``kernel(...).bind(...)`` result, a ``compile_from_*`` function, a
+    runner-supplied ``FunctionType`` input such as a streamTask ``emit`` —
+    cannot re-trace the callee (its body is native), so the call lowers to
+    the IR's ``Call`` node instead: the callee becomes a HIDDEN TRAILING
+    PARAMETER of the kernel, referenced by name at every call site, and
+    ``kernel()`` / ``try_push_down`` bind the recorded function values right
+    after compiling (the #399 machinery), so the compiled loop invokes the
+    callee natively. Entries are deduped by the callee's C function-value
+    pointer, so one sink called at N sites binds once; each entry's hold
+    retains the pointer until the bind takes its own reference.
+    """
+
+    __slots__ = ("by_ptr", "entries")
+
+    def __init__(self) -> None:
+        self.by_ptr: dict[int, str] = {}
+        self.entries: list[tuple[str, Any, EastType]] = []
+
+    def register(self, fn_val_ptr: int, hold: Any, fn_t: EastType) -> str:
+        name = _fresh_name()
+        self.by_ptr[fn_val_ptr] = name
+        self.entries.append((name, hold, fn_t))
+        return name
+
+
+# The active trace's called-function registry, managed in lockstep with
+# ``_const_registry`` by ``trace()``. None outside any trace — then a call on
+# a compiled function value declines to lower and the caller raises its
+# NonRetraceableCallError exactly as before #561.
+_fn_registry: _FnConstRegistry | None = None
+
+
+def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
+                         output_type_ptr: int, args: tuple) -> KernelExpr | None:
+    """Lower a proxy-argument call on a compiled East function to Call IR.
+
+    The cold path behind the bridge's ``NonRetraceableCallError``: the call
+    wrappers (and ``_invoke_c_function_py``) ask here before raising. Returns
+    the traced ``Call`` expression — registering the callee as a hidden
+    trailing parameter — or ``None`` to decline: no active trace, a callee
+    the pointer/type plumbing cannot describe, an arity mismatch, or an
+    argument that does not lift to the parameter's East type (the python
+    fallback path may still serve those shapes, so they keep the pre-#561
+    contract). Calling an ``AsyncFunction`` value raises the named error —
+    a sync trace has no spelling for it, fallback included.
+    """
+    if _fn_registry is None or fn_val_ptr == 0 or output_type_ptr == 0:
+        return None
+    from east._eastc_bridge import c_function_value_type, c_type_ptr_to_py_type
+
+    declared = c_function_value_type(fn_val_ptr)
+    if declared is not None and declared.type == "AsyncFunction":
+        raise KernelTraceError(
+            "an AsyncFunction value cannot be called inside a sync traced "
+            "kernel — call it from python (per-element) instead"
+        )
+    inputs = [c_type_ptr_to_py_type(p) for p in input_type_ptrs]
+    if len(args) != len(inputs):
+        return None
+    arg_exprs = []
+    try:
+        for a, t in zip(args, inputs, strict=True):
+            e = _lift(a, hint=t)
+            if e.east_type != t:
+                return None
+            arg_exprs.append(e)
+    except KernelTraceError:
+        return None
+    out_t = c_type_ptr_to_py_type(output_type_ptr)
+    fn_t = FunctionType(list(inputs), out_t)
+    name = _fn_registry.by_ptr.get(fn_val_ptr)
+    if name is None:
+        from east.runtime._compiler_eastc import hold_function_value
+
+        name = _fn_registry.register(fn_val_ptr, hold_function_value(fn_val_ptr), fn_t)
+    node = _k_call(out_t, _var(name, fn_t), [e.ir for e in arg_exprs])
+    return KernelExpr(node, out_t)
 
 
 def _lift_collection(value: Any) -> KernelExpr | None:
@@ -722,6 +826,42 @@ class KernelExpr:
         if self.east_type.type == "Dict":
             return self.get(name)
         return self.field(name)
+
+    # ── function-typed expressions are callable (IR Call, #561) ─────────
+
+    def __call__(self, *args: Any) -> KernelExpr:
+        """Call a Function-typed expression: a ``FunctionType`` kernel
+        parameter, a function-typed struct field, or any other traced
+        function value. Emits the IR ``Call`` node, so the callee — whatever
+        function value the expression evaluates to at run time — is invoked
+        natively per element."""
+        tag = self.east_type.type
+        if tag == "AsyncFunction":
+            raise KernelTraceError(
+                "an AsyncFunction value cannot be called inside a sync traced "
+                "kernel — call it from python (per-element) instead"
+            )
+        if tag != "Function":
+            raise KernelTraceError(f"calling a non-function expression ({tag})")
+        sig = self.east_type.value
+        inputs = list(sig["inputs"])
+        out_t = sig["output"]
+        if len(args) != len(inputs):
+            raise KernelTraceError(
+                f"function expression takes {len(inputs)} argument(s), "
+                f"called with {len(args)}"
+            )
+        arg_exprs = []
+        for a, t in zip(args, inputs, strict=True):
+            e = _lift(a, hint=t)
+            if e.east_type != t:
+                raise KernelTraceError(
+                    f"function argument has East type {e.east_type.type}, "
+                    f"the parameter expects {t.type}"
+                )
+            arg_exprs.append(e)
+        node = _k_call(out_t, self.ir, [e.ir for e in arg_exprs])
+        return KernelExpr(node, out_t)
 
     # ── arithmetic ─────────────────────────────────────────────────────
 
@@ -1301,7 +1441,11 @@ class KernelExpr:
         for i, c in enumerate(declared):
             var = _var(f"__t{i}", c["type"])
             handler = cases[c["name"]]
-            raw = handler(KernelExpr(var, c["type"])) if callable(handler) else handler
+            # A KernelExpr arm is a VALUE arm, not a handler — expressions
+            # became callable when Function-typed expressions gained Call
+            # lowering (#561), and invoking a non-function one would raise.
+            run = callable(handler) and not isinstance(handler, KernelExpr)
+            raw = handler(KernelExpr(var, c["type"])) if run else handler
             results.append((c["name"], var, raw))
         # Settle the shared output type from ANY arm that can state one
         # without a hint — a raw KernelExpr, OR a `some(...)` result, which
@@ -3563,6 +3707,12 @@ def _k_ifelse(t: EastType, ifs: list, else_body):
     }))
 
 
+def _k_call(t: EastType, function, arguments: list):
+    return EastVariant("Call", EastStruct({
+        "type": t, "loc_id": 0, "function": function, "arguments": list(arguments),
+    }))
+
+
 # ─── Trace-time CSE + finalize: shared subexpressions bind once (#411) ──────
 #
 # Reusing one KernelExpr object at N sites makes the traced (lazy) tree a
@@ -3601,6 +3751,7 @@ def _node_specs():
         "NewDict": ((("values", "structs", lambda: DictEntryType, ("key", "value")),), ()),
         "Match": (("variant", ("cases", "structs", lambda: MatchCaseType, ("variable", "body"))), ()),
         "IfElse": ((("ifs", "structs", lambda: IfCaseType, ("predicate", "body")), "else_body"), ()),
+        "Call": (("function", ("arguments", "list", ir)), ()),
         "TryCatch": (("try_body", "catch_body", "message", "stack", "finally_body"), ()),
         "Function": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
         "Let": (("variable", "value"), ()),
@@ -3878,8 +4029,10 @@ def _function_ir(
     return _finalize_ir(top, param_names, kernel_fn=fn_node)
 
 
-def trace(fn: Any, param_types: list[EastType], out_hint: EastType | None = None) -> tuple[Any, EastType]:
-    """Trace ``fn`` over expression proxies; return (IR value, output type).
+def trace(fn: Any, param_types: list[EastType],
+          out_hint: EastType | None = None) -> tuple[Any, EastType, list]:
+    """Trace ``fn`` over expression proxies; return
+    ``(IR value, output type, called-function binds)``.
 
     The IR value is homoiconic — an ``EastVariant`` conforming to ``IRType``
     (compile with ``compile_from_value``). Raises KernelTraceError when the
@@ -3887,12 +4040,19 @@ def trace(fn: Any, param_types: list[EastType], out_hint: EastType | None = None
     result expression — the kernel's declared ``out=`` — which is what lets
     the root build a general variant or a ``where`` over variant branches
     (#541).
+
+    The third element carries the compiled East function values the lambda
+    CALLED (#561), in hidden-trailing-parameter order: the returned IR
+    declares one extra trailing parameter per entry, and the caller must
+    ``bind(*binds)`` the compiled result so those calls resolve. Empty for
+    lambdas that call no compiled functions.
     """
-    global _const_registry
+    global _const_registry, _fn_registry
     proxies = [KernelExpr(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
     outer = _const_registry is None
     if outer:
         _const_registry = _ConstRegistry()
+        _fn_registry = _FnConstRegistry()
     try:
         try:
             result = fn(*proxies)
@@ -3902,11 +4062,16 @@ def trace(fn: Any, param_types: list[EastType], out_hint: EastType | None = None
             raise KernelTraceError(f"kernel lambda is not traceable: {e}") from e
         result = _lift(result, hint=out_hint)
         consts = _const_registry.entries if outer else []
+        fn_consts = _fn_registry.entries if outer else []
     finally:
         if outer:
             _const_registry = None
+            _fn_registry = None
     params = [_var(f"__k{i}", t) for i, t in enumerate(param_types)]
-    return _function_ir(param_types, params, result, consts), result.east_type
+    all_types = list(param_types) + [t for _name, _hold, t in fn_consts]
+    all_params = params + [_var(name, t) for name, _hold, t in fn_consts]
+    ir = _function_ir(all_types, all_params, result, consts)
+    return ir, result.east_type, [hold for _name, hold, _t in fn_consts]
 
 
 def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastType | None = None) -> Any:
@@ -3946,12 +4111,18 @@ def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastT
     types = [param_types] if isinstance(param_types, EastType) else list(param_types)
     if fn is None:
         return lambda f: kernel(types, f, out=out)
-    ir_value, out_type = trace(fn, types, out_hint=out)
+    ir_value, out_type, fn_binds = trace(fn, types, out_hint=out)
     if out is not None and out != out_type:
         raise TypeError(f"kernel output is {out_type.type}, expected {out.type}")
     from east.runtime.compiler import compile_from_value
 
     compiled = compile_from_value(ir_value)
+    if fn_binds:
+        # The lambda called compiled East function values (#561): they are
+        # hidden trailing parameters of the compiled kernel — bind them by
+        # reference so the visible signature is the declared one and every
+        # call site resolves to its native callee.
+        compiled = compiled.bind(*fn_binds)
 
     def kernel_callable(*args):
         # Dual-mode (#470): called with expression proxies — i.e. from inside
@@ -3996,6 +4167,12 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     # A kernel() result retains its source lambda and re-traces when called
     # with proxies (#470) — safe to reference at any nesting depth.
     if getattr(value, "_east_retrace", None) is not None:
+        return True
+    # A compiled East function VALUE — a `.bind` result, a `compile_from_*`
+    # function, a decoded FunctionType input: a CALL on it lowers to the IR
+    # Call node (#561), and a mere reference fails the lift loudly.
+    if getattr(value, "_eastc_handle", None) is not None or \
+            getattr(value, "_east_c_handle", None) is not None:
         return True
     if value is None or isinstance(value, (bool, int, float, str, bytes, _pydatetime)):
         return True
@@ -4199,6 +4376,13 @@ def _capture_key(value: Any, depth: int) -> tuple | None:
         # those, not the wrapper's identity.
         sub = _trace_cache_key(retrace, ("kernel",), depth - 1) if depth > 0 else None
         return None if sub is None else ("k", sub)
+    if getattr(value, "_eastc_handle", None) is not None or \
+            getattr(value, "_east_c_handle", None) is not None:
+        # A compiled East function value with no retained source (a `.bind`
+        # result, a decoded FunctionType input) is identity-bound state the
+        # key cannot capture soundly — uncacheable, so every call re-traces
+        # and re-binds the callee it actually holds (#561).
+        return None
     code = getattr(value, "__code__", None)
     if code is not None:
         if depth == 0 or getattr(value, "__self__", None) is not None:
@@ -4294,7 +4478,7 @@ def _trace_out_type(fn: Any, param_types: list[EastType]) -> EastType:
         if hit is not None:
             _out_type_memo.move_to_end(key)
             return hit
-    out = trace(fn, list(param_types))[1]
+    out = trace(fn, list(param_types))[1]  # type-only: called-fn binds unused
     if key is not None:
         _out_type_memo[key] = out
         if len(_out_type_memo) > _TRACE_MEMO_MAX:
@@ -4388,13 +4572,19 @@ def try_push_down(east_fn: Any) -> Any | None:
     try:
         if not _eligible(east_fn.fn):
             return remember(None)
-        ir_value, out_type = trace(east_fn.fn, list(east_fn.input_types),
-                                   out_hint=east_fn.output_type)
+        ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),
+                                             out_hint=east_fn.output_type)
         if out_type != east_fn.output_type:
             return remember(None)
         from east.runtime.compiler import compile_from_value
 
-        return remember(compile_from_value(ir_value))
+        native = compile_from_value(ir_value)
+        if fn_binds:
+            # Called compiled functions ride as hidden trailing parameters
+            # (#561); binding them leaves exactly the builtin's callback
+            # signature visible, so the loop and every callee run native.
+            native = native.bind(*fn_binds)
+        return remember(native)
     except KernelTraceError as exc:
         # The loud contract: a pure-looking callback that fails to trace
         # raises — its silent fallback's only symptom is that the job takes
@@ -4402,13 +4592,14 @@ def try_push_down(east_fn: Any) -> Any | None:
         # and keep their fallback; deliberate python paths carry the marker.
         if _trace_fallback(east_fn.fn):
             return remember(None)
-        # A lambda that CALLS an already-compiled East function (a `.bind`
-        # result, a runner-supplied FunctionType input such as a streamTask
-        # `emit`) cannot trace BY CONSTRUCTION — the python path is what
-        # calling a native function per element means, so declining is the
-        # documented contract, not a silent performance cliff. Raising here
-        # turned every `for_each(lambda e: emit(...))` under the e3 runner
-        # into a hard failure (#558 C). Explicit `kernel(...)` still raises.
+        # A call on an already-compiled East function normally LOWERS to the
+        # IR Call node now (#561) and never raises here. This cause survives
+        # only for the shapes lowering declines — an arity-mismatched call,
+        # an argument that does not lift to the parameter type — where the
+        # per-element python path is still the documented contract, not a
+        # silent performance cliff: raising unconditionally turned every
+        # `for_each(lambda e: emit(...))` under the e3 runner into a hard
+        # failure (#558 C). Explicit `kernel(...)` still raises for them.
         cause = exc.__cause__
         for _ in range(4):
             if cause is None:
