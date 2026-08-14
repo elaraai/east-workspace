@@ -31,7 +31,7 @@ const call = (name: string, ...args: unknown[]): unknown =>
 const cfg = { fields: new Map(), rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [] };
 const initial = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: none, visible: none, selectedIndex: none,
+    breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
 };
 const eqPred = (v: string) => variant("string", { fieldId: "id", op: variant("eq", v) });
 

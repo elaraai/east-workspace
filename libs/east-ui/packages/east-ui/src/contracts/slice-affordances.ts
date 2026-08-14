@@ -26,6 +26,8 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * | `presets` | left | curated toggle-only preset pills (`Slice.Cohort` in `toggle` mode) |
  * | `search` | right (fixed) | closed `.search` pill that opens the dropdown |
  * | `range` | right | single date-window pill |
+ * | `resolution` | right | bucket-unit segment (`WEEK · DAY`) writing the slice's shared `resolution` |
+ * | `summary` | right (trailing) | the `N of M · narrowings` line (`Slice.Summary` as chrome) |
  *
  * A cross-cutting *contract*, not a style token — it lives in `src/contracts/`
  * alongside `StateValueType`.
@@ -46,6 +48,11 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  *   beneath the cluster. Explicit only (#187) — nothing mounts a legend the
  *   author didn't list; compose `<Slice.Legend>` directly to place it
  *   anywhere else.
+ * @property resolution - The shared bucket-unit segment (`WEEK · DAY`) beside
+ *   the range pill — writes `state.resolution` so every bound time-bucketed
+ *   surface re-buckets together. Hosts with no bucketed time axis omit it.
+ * @property summary - The trailing `N of M · narrowings` line —
+ *   `Slice.Summary` mounted as chrome at the rail's right edge.
  */
 export const SliceAffordanceType = VariantType({
     filter: NullType,
@@ -56,13 +63,18 @@ export const SliceAffordanceType = VariantType({
     brush: NullType,
     presets: NullType,
     legend: NullType,
+    // Appended last: wire-order compatibility.
+    resolution: NullType,
+    summary: NullType,
 });
 
 /** Type representing slice affordance variant values. */
 export type SliceAffordanceType = typeof SliceAffordanceType;
 
 /** String literal type for slice affordances. */
-export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush" | "presets" | "legend";
+export type SliceAffordanceLiteral =
+    | "filter" | "search" | "breakdown" | "range" | "cohort" | "brush" | "presets" | "legend"
+    | "resolution" | "summary";
 
 /**
  * Creates a slice affordance variant expression.

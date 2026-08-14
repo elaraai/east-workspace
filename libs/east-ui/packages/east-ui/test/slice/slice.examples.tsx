@@ -475,6 +475,56 @@ export const sliceExpressiveFilters = example({
 });
 
 // ============================================================================
+// 7b. Resolution segment — the shared bucket unit on Slice.Range (Plan spec §8).
+//     Exercises: `resolutions={["week", "day"]}` rendering the WEEK · DAY
+//     segment beside the range pill, a seeded `Slice.state({ resolution })`,
+//     and `setResolution` re-bucketing every bound time-bucketed surface.
+// ============================================================================
+
+export const sliceResolution = example({
+    keywords: ["Slice", "Range", "resolution", "resolutions", "segment", "week", "day", "bucket", "re-bucket", "setResolution", "shared", "unit", "seg"],
+    description: "The Slice.Range resolution segment — `resolutions={[\"week\", \"day\"]}` renders the WEEK · DAY bucket-unit segment beside the range pill; the slice state is seeded `resolution: week` (the active segment), clicking a unit writes `setResolution` so every bound time-bucketed surface re-buckets together, and the Table + Summary below read the same slice",
+    fn: East.function([], UIComponentType, (_$) => {
+        const BookingType = StructType({ when: DateTimeType, route: StringType, seats: IntegerType });
+        const cfg = Slice.config(BookingType, {
+            fields: {
+                when:  { label: "Departure", format: { date: "MMM DD" } },
+                route: { label: "Route" },
+                seats: { label: "Seats" },
+            },
+            rangeFieldId: "when",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { when: new Date("2025-03-03"), route: "SYD→MEL", seats: 140n },
+                    { when: new Date("2025-03-10"), route: "SYD→BNE", seats: 96n },
+                    { when: new Date("2025-03-17"), route: "MEL→SYD", seats: 152n },
+                    { when: new Date("2025-03-24"), route: "SYD→MEL", seats: 88n },
+                    { when: new Date("2025-03-31"), route: "SYD→PER", seats: 44n },
+                ], ArrayType(BookingType));
+                const slice = $.let(Slice.bind([BookingType], "ex.slice.resolution", cfg, Slice.state({
+                    resolution: some(variant("week", null)),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([BookingType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Range slice={slice} resolutions={["week", "day"]} />
+                        <Table data={narrowed} columns={{
+                            when:  { header: "Departure" },
+                            route: { header: "Route" },
+                            seats: { header: "Seats" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
 // 8. Ops Gantt — Gantt with the `slice` chrome option.
 //    Exercises: the rail on a timeline component (filter · search · range
 //    over the row type's datetime field) and the derived-count footer.

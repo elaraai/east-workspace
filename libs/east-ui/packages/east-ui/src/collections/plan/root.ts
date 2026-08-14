@@ -1,0 +1,289 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * The Plan root — row-library templates (the binding rides `make`) and
+ * `Plan.Root`, which assembles the whole canvas value against the
+ * `component.ts` arm.
+ *
+ * @packageDocumentation
+ */
+
+import {
+    type ExprType,
+    type SubtypeExprOrValue,
+    East,
+    ArrayType,
+    BooleanType,
+    FunctionType,
+    NullType,
+    StringType,
+    variant,
+    some,
+    none,
+} from "@elaraai/east";
+
+import { UIComponentType } from "../../component.js";
+import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
+import { DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { buildReview, type ReviewConfig } from "../../contracts/review.js";
+import { DragEventType } from "../../contracts/drag.js";
+import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
+import {
+    PlanAxisType,
+    PlanGrainType,
+    type PlanGrainLiteral,
+    PlanLinkType,
+    PlanRowRefType,
+    PlanRunClickEventType,
+    PlanEventClickEventType,
+    PlanMarkClickEventType,
+    PlanChipClickEventType,
+    PlanCellClickEventType,
+    PlanGroupToggleEventType,
+    PlanFooterItemType,
+    PlanStyleType,
+    PlanTemplateKindType,
+    type PlanTemplateKindLiteral,
+} from "./types.js";
+import {
+    PlanRowType,
+    PlanTemplateType,
+    PlanJourneyType,
+    PlanReviewType,
+} from "./ir.js";
+import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
+import { normalizeRows, type PlanRowsInput } from "./assemble.js";
+
+// ============================================================================
+// Templates
+// ============================================================================
+
+/**
+ * Flat input for {@link Plan.template} — one row-library card.
+ *
+ * @property key - Template identity (drag refs)
+ * @property label - The card name (`"Chart"`)
+ * @property sublabel - The muted role line (`"utilisation %"`)
+ * @property kind - The row kind (drives the default card icon)
+ * @property icon - Optional card-icon override
+ * @property make - The binding — builds the live row subtree from captured data / bind-handles
+ */
+export interface PlanTemplateInput {
+    /** Template identity (drag refs). */
+    key: SubtypeExprOrValue<StringType>;
+    /** The card name (`"Chart"`). */
+    label: SubtypeExprOrValue<StringType>;
+    /** The muted role line (`"utilisation %"`). */
+    sublabel?: SubtypeExprOrValue<StringType>;
+    /** The row kind — drives the default FA card icon. */
+    kind: PlanTemplateKindLiteral | SubtypeExprOrValue<PlanTemplateKindType>;
+    /** Optional card-icon override. */
+    icon?: PlanIconInput;
+    /** The binding — an `East.function([], ArrayType(Plan.Types.Row))` building the live subtree from captured data / bind-handles. */
+    make: SubtypeExprOrValue<FunctionType<[], ArrayType<PlanRowType>>>;
+}
+
+/**
+ * Builds one row-library template. Templates carry their binding — `make`
+ * builds the finished subtree from captured data and bind-handles, so a
+ * dropped row is live immediately and the host's `onDrag` add-handler is one
+ * generic line (find the template, `make()`, insert).
+ *
+ * @param input - The template configuration ({@link PlanTemplateInput})
+ * @returns An East expression of {@link PlanTemplateType}
+ */
+export function createTemplate(input: PlanTemplateInput): ExprType<PlanTemplateType> {
+    return East.value({
+        key:      input.key,
+        label:    input.label,
+        sublabel: input.sublabel !== undefined ? some(input.sublabel) : none,
+        kind:     resolveTag(input.kind, PlanTemplateKindType),
+        icon:     input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
+        // Pin the exact East type (the Schematic `itemHover` / Table
+        // `expandedContent` pattern) — the widened input form erases
+        // `UIComponentType`'s nominal identity, which the `component.ts`
+        // arm's recursion-marker slots unify against.
+        make:     East.value(input.make, FunctionType([], ArrayType(PlanRowType))),
+    }, PlanTemplateType);
+}
+
+// ============================================================================
+// Root
+// ============================================================================
+
+/** The default slice affordance list (§1 toolbar). */
+const DEFAULT_PLAN_AFFORDANCES: SliceAffordanceLiteral[] =
+    ["cohort", "filter", "search", "range", "resolution", "brush", "summary"];
+
+/**
+ * The Plan review config — the shared {@link ReviewConfig} at the keyed-row
+ * subject (`{ key }`).
+ */
+export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
+
+/**
+ * Configuration for {@link Plan.Root} (the `<Plan>` tag's props).
+ *
+ * @property axis - The shared time-axis declaration (`Plan.axis`)
+ * @property rows - The canvas rows — kind-factory results (flattened subtrees)
+ * @property grain - Initial grain (`"group"` / `"resource"` / `"item"`; default resource)
+ * @property library - Row-library templates (`Plan.template` values)
+ * @property journeys - ITEM-grain / drilled-row journey resolver (behavior prop)
+ * @property review - The shared review chrome (decision column + batch foot)
+ * @property slice - Bound slice chrome (toolbar affordances)
+ * @property footer - Status-footer items
+ * @property id - DnD target identity
+ * @property sources - Library ids accepted for `add` drags
+ * @property onDrag - The shared drag funnel (every drag kind)
+ * @property canDrop - IR-level drop veto (the ⊘ stage)
+ * @property onSelect - Row click (selection)
+ * @property onDrill - Second row click (in-place drill)
+ * @property onRunClick - Span bar click
+ * @property onEventClick - Bucket tile click
+ * @property onMarkClick - Event mark / decision diamond click
+ * @property onChipClick - Cards chip click
+ * @property onCellClick - Heat / table / weight / segment cell click
+ * @property onGroupToggle - Group strip ↔ rows toggle
+ * @property onGrainChange - Grain segment change
+ * @property style - Sizing, density and gutter width
+ */
+export interface PlanConfig {
+    /** The shared time-axis declaration (`Plan.axis`). */
+    axis: SubtypeExprOrValue<PlanAxisType>;
+    /** The canvas rows — kind-factory results (flattened subtrees). */
+    rows: PlanRowsInput;
+    /** The link graph (R1) — run-edge quantity links (`Plan.link` values, map-derivable
+     *  from data); the links-focus control gathers a row's transitive family over it. */
+    links?: SubtypeExprOrValue<ArrayType<PlanLinkType>>;
+    /** Initial grain (default `"resource"`). */
+    grain?: PlanGrainLiteral | SubtypeExprOrValue<PlanGrainType>;
+    /** Row-library templates (`Plan.template` values); non-empty enables the composition affordance. */
+    library?: SubtypeExprOrValue<PlanTemplateType>[];
+    /** ITEM-grain / drilled-row journey resolver — called with an item key at interaction time. */
+    journeys?: SubtypeExprOrValue<FunctionType<[StringType], PlanJourneyType>>;
+    /** The shared review chrome (decision column + batch foot); callbacks receive `{ key }`. */
+    review?: PlanReviewConfig;
+    /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
+    slice?: {
+        /** The bound handle from `Slice.bind`. */
+        slice: SubtypeExprOrValue<SliceBindType>;
+        /** The toolbar affordances, in order. */
+        affordances?: SliceAffordanceLiteral[];
+    };
+    /** Status-footer items (`end: true` right-aligns). */
+    footer?: {
+        /** The footer text. */
+        text: SubtypeExprOrValue<StringType>;
+        /** Optional status tint. */
+        tone?: StatusValueLiteral | SubtypeExprOrValue<StatusValueType>;
+        /** Right-align the item. */
+        end?: boolean;
+    }[];
+    /** DnD target identity — names the Plan in drag-grammar cell refs. */
+    id?: string;
+    /** Library ids accepted for `add` drags (omit = no adds). */
+    sources?: string[];
+    /** The shared drag funnel — runs, chips, tiles, templates and reorders all report through it. */
+    onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** IR-level drop veto — `false` ⇒ the ⊘ invalid stage; a throwing predicate fails open. */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
+    /** Row click (selection). */
+    onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], NullType>>;
+    /** Second row click (in-place drill; `esc` collapses). */
+    onDrill?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], NullType>>;
+    /** Span bar click (`{ row, run }`). */
+    onRunClick?: SubtypeExprOrValue<FunctionType<[PlanRunClickEventType], NullType>>;
+    /** Bucket tile click (`{ row, event }`). */
+    onEventClick?: SubtypeExprOrValue<FunctionType<[PlanEventClickEventType], NullType>>;
+    /** Event mark / span decision-diamond click (`{ row, mark }`). */
+    onMarkClick?: SubtypeExprOrValue<FunctionType<[PlanMarkClickEventType], NullType>>;
+    /** Cards chip click (`{ row, chip }`). */
+    onChipClick?: SubtypeExprOrValue<FunctionType<[PlanChipClickEventType], NullType>>;
+    /** Bucket-cell click (`{ row, at }` — the bucket instant, not an index). */
+    onCellClick?: SubtypeExprOrValue<FunctionType<[PlanCellClickEventType], NullType>>;
+    /** Group strip ↔ rows toggle (fires after the in-place swap). */
+    onGroupToggle?: SubtypeExprOrValue<FunctionType<[PlanGroupToggleEventType], NullType>>;
+    /** Grain segment change (grain is Plan-local state; initial via `grain`). */
+    onGrainChange?: SubtypeExprOrValue<FunctionType<[PlanGrainType], NullType>>;
+    /** Sizing (#320), density, gutter width. */
+    style?: {
+        /** Definite height (`"fill"` fills the parent). */
+        height?: SubtypeExprOrValue<StringType>;
+        /** Max-height cap. */
+        maxHeight?: SubtypeExprOrValue<StringType>;
+        /** Row rhythm. */
+        density?: DensityLiteral | SubtypeExprOrValue<DensityType>;
+        /** Gutter width — a CSS px size (`"168px"`; default 168). */
+        gutterWidth?: SubtypeExprOrValue<StringType>;
+    };
+}
+
+/**
+ * Creates the Plan root — the whole canvas.
+ *
+ * @param config - The Plan configuration ({@link PlanConfig})
+ * @returns An East expression of `UIComponentType`
+ *
+ * @remarks
+ * Window and resolution have no callbacks by design: they are slice writes
+ * (`setRange` / `setResolution`) — hosts observe the slice. Dragging a
+ * proposal is a Modify on its decision, not a free edit — host semantics
+ * behind `onDrag`; the surface only reports.
+ */
+export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
+    const style = config.style;
+    const styleValue = style !== undefined
+        ? some(East.value({
+            height:      style.height !== undefined ? some(style.height) : none,
+            maxHeight:   style.maxHeight !== undefined ? some(style.maxHeight) : none,
+            density:     style.density !== undefined ? some(resolveTag(style.density, DensityType)) : none,
+            gutterWidth: style.gutterWidth !== undefined ? some(style.gutterWidth) : none,
+        }, PlanStyleType))
+        : none;
+    const sliceChrome = config.slice !== undefined
+        ? some(East.value({
+            slice: config.slice.slice,
+            affordances: East.value(
+                (config.slice.affordances ?? DEFAULT_PLAN_AFFORDANCES).map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType))
+        : none;
+    return East.value(variant("Plan", {
+        rows:     normalizeRows(config.rows),
+        links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
+        axis:     config.axis,
+        grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,
+        library:  East.value(config.library ?? [], ArrayType(PlanTemplateType)),
+        // East.value pins the exact function type (the Schematic `itemHover`
+        // pattern) so the arm's recursion-marker slots unify.
+        journeys: config.journeys !== undefined
+            ? some(East.value(config.journeys, FunctionType([StringType], PlanJourneyType)))
+            : none,
+        review:   config.review !== undefined ? some(buildReview(config.review, PlanReviewType)) : none,
+        slice:    sliceChrome,
+        footer:   (config.footer ?? []).map(f => East.value({
+            text: f.text,
+            tone: f.tone !== undefined ? some(resolveTag(f.tone, StatusValueType)) : none,
+            end:  f.end !== undefined ? some(f.end) : none,
+        }, PlanFooterItemType)),
+        id:       config.id ?? "",
+        sources:  East.value(config.sources ?? [], ArrayType(StringType)),
+        onDrag:   config.onDrag !== undefined ? some(config.onDrag) : none,
+        canDrop:  config.canDrop !== undefined ? some(config.canDrop) : none,
+        onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
+        onDrill:  config.onDrill !== undefined ? some(config.onDrill) : none,
+        onRunClick:    config.onRunClick !== undefined ? some(config.onRunClick) : none,
+        onEventClick:  config.onEventClick !== undefined ? some(config.onEventClick) : none,
+        onMarkClick:   config.onMarkClick !== undefined ? some(config.onMarkClick) : none,
+        onChipClick:   config.onChipClick !== undefined ? some(config.onChipClick) : none,
+        onCellClick:   config.onCellClick !== undefined ? some(config.onCellClick) : none,
+        onGroupToggle: config.onGroupToggle !== undefined ? some(config.onGroupToggle) : none,
+        onGrainChange: config.onGrainChange !== undefined ? some(config.onGrainChange) : none,
+        style:    styleValue,
+    }), UIComponentType);
+}

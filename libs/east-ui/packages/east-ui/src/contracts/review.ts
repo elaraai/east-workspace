@@ -36,141 +36,33 @@ import {
     East,
     BooleanType,
     FunctionType,
-    IntegerType,
     NullType,
     OptionType,
     StringType,
-    StructType,
-    VariantType,
+    variant,
     none,
     some,
-    variant,
 } from "@elaraai/east";
 import { UIComponentType } from "../component.js";
+import {
+    ApprovalStateType,
+    RowRefType,
+    reviewType,
+    type ReviewStructType,
+} from "./approval.js";
 
 // ============================================================================
-// Approval vocabulary
+// Approval vocabulary + type builder — canonical definitions in
+// `contracts/approval.ts` (the `UIComponentType`-free leaf, importable from
+// inside the `component.ts` module graph); re-exported here so this module
+// stays the canonical import path for host code.
 // ============================================================================
 
-/**
- * A review subject's approval state — the reviewer's verdict, distinct from
- * the event-level audit lifecycle (`PlannerStateType`).
- *
- * @remarks
- * `approved` rests pre-approved (a clean line's resting state — its Approve
- * button renders as the active state); `pending` awaits an explicit call (a
- * flagged line); `rejected` is an explicit decline. Authors usually derive it
- * in East — see {@link deriveApproval} for the canonical "clean ⇒ approved,
- * flagged ⇒ pending" rule.
- *
- * The same three words appear in e3-ui's DecisionQueue at *case* granularity
- * (`Verdict`); this variant is the in-surface (row / batch) resolution.
- *
- * @property approved - Pre-approved / accepted (the resting state for a clean subject)
- * @property pending - Undecided — awaits an explicit Approve / Reject
- * @property rejected - Explicitly declined
- */
-export const ApprovalStateType = VariantType({
-    /** Pre-approved / accepted (the resting state for a clean subject). */
-    approved: NullType,
-    /** Undecided — awaits an explicit Approve / Reject. */
-    pending: NullType,
-    /** Explicitly declined. */
-    rejected: NullType,
-});
-
-/**
- * Type representing approval state values.
- */
-export type ApprovalStateType = typeof ApprovalStateType;
-
-/**
- * String literal form of {@link ApprovalStateType} tags.
- */
-export type ApprovalStateLiteral = "approved" | "pending" | "rejected";
-
-/**
- * The row-subject reference — the payload of per-row review callbacks on the
- * row-granularity adopters (Planner, Gantt, Table, Roster).
- *
- * @remarks
- * `rowIndex` addresses the row in the surface's **unsliced** row order (the
- * same convention as row-selection events), so hosts map it straight back to
- * their source data. Tile-granularity acceptance keeps its own subject — the
- * drag contract's `CellRefType` — documented as the *item*-level sibling of
- * this row-level ref.
- *
- * @property rowIndex - The acted-on row's index (0-based, unsliced order)
- */
-export const RowRefType = StructType({
-    /** The acted-on row's index (0-based, unsliced order) */
-    rowIndex: IntegerType,
-});
-
-/**
- * Type representing row-subject reference values.
- */
-export type RowRefType = typeof RowRefType;
-
-// ============================================================================
-// Review-config East type builder
-// ============================================================================
-
-/**
- * The review-config struct shape for a subject-ref type `S` and a UI
- * component type `C` — see {@link reviewType}.
- */
-export type ReviewStructType<S extends EastType, C extends EastType> = StructType<{
-    columnLabel: StringType,
-    summary: OptionType<C>,
-    onApprove: OptionType<FunctionType<[S], NullType>>,
-    onReject: OptionType<FunctionType<[S], NullType>>,
-    onApproveAll: OptionType<FunctionType<[], NullType>>,
-    onRejectAll: OptionType<FunctionType<[], NullType>>,
-    onRerun: OptionType<FunctionType<[], NullType>>,
-    rerunLabel: StringType,
-}>;
-
-/**
- * Builds the review-config East type for a given subject-ref type — the
- * honest per-component variability of the shared contract.
- *
- * @param subjectRefType - The per-subject callback payload type (e.g. {@link RowRefType} for row-granularity surfaces)
- * @param componentType - The UI component type for the `summary` field — pass `UIComponentType` (or the recursion `node` when spelling a root inline in `component.ts`)
- * @returns The review-config `StructType` for that subject
- *
- * @remarks
- * Every adopter's `review` field is `OptionType(reviewType(...))` with the
- * same fixed fields — only the subject varies: Planner / Gantt / Table /
- * Roster review rows (`{ rowIndex }`), while per-tile ghost-accept stays on
- * the drag contract's `CellRefType`. `componentType` is injected (rather than
- * imported) so `component.ts` can spell the same shape inside its
- * `RecursiveType` using the recursion `node`; every other caller passes the
- * resolved `UIComponentType`.
- *
- * Semantics of the fields (identical across adopters):
- * - `columnLabel` — the decision-column header (builders default `"Decision"`).
- * - `summary` — optional host-composed foot eyebrow (a `UIComponentType`).
- * - `onApprove` / `onReject` — per-subject calls, receiving the subject ref.
- * - `onApproveAll` / `onRejectAll` — batch foot verbs.
- * - `onRerun` — optional re-run verb (absent ⇒ no Rerun button);
- *   `rerunLabel` its label (builders default `"Rerun"`).
- */
-export function reviewType<S extends EastType, C extends EastType>(
-    subjectRefType: S,
-    componentType: C,
-): ReviewStructType<S, C> {
-    return StructType({
-        columnLabel:  StringType,
-        summary:      OptionType(componentType),
-        onApprove:    OptionType(FunctionType([subjectRefType], NullType)),
-        onReject:     OptionType(FunctionType([subjectRefType], NullType)),
-        onApproveAll: OptionType(FunctionType([], NullType)),
-        onRejectAll:  OptionType(FunctionType([], NullType)),
-        onRerun:      OptionType(FunctionType([], NullType)),
-        rerunLabel:   StringType,
-    });
-}
+export {
+    ApprovalStateType, type ApprovalStateLiteral,
+    RowRefType,
+    reviewType, type ReviewStructType,
+} from "./approval.js";
 
 /**
  * The resolved row-granularity review-config type — `reviewType(RowRefType,

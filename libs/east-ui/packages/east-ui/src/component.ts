@@ -176,7 +176,7 @@ import {
 } from "./collections/flowchart/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
-import { StateValueType } from "./contracts/states.js";
+import { EventStateType, StateValueType } from "./contracts/states.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
 import { TickFormatType } from "./format/types.js";
 import { SliceSummaryType } from "./slice/summary/types.js";
@@ -235,6 +235,40 @@ import {
     PlannerApprovalType,
     PlannerApproveEventType,
 } from "./collections/planner/types.js";
+import {
+    PlanAxisType,
+    PlanGrainType,
+    PlanGutterType,
+    PlanDrillType,
+    PlanExpandAxisType,
+    PlanLinkType,
+    PlanPortType,
+    PlanRollupType,
+    PlanCellMarkerType,
+    PlanStretchType,
+    PlanContentType,
+    PlanAnimationType,
+    PlanChartLayerType,
+    PlanChartAxisType,
+    PlanChartHeightType,
+    PlanHeatCellsType,
+    PlanAggregateType,
+    PlanTableCellType,
+    PlanTableEmphasisType,
+    PlanEventMarkKindType,
+    PlanRowRefType,
+    PlanRunClickEventType,
+    PlanEventClickEventType,
+    PlanMarkClickEventType,
+    PlanChipClickEventType,
+    PlanCellClickEventType,
+    PlanGroupToggleEventType,
+    PlanFooterItemType,
+    PlanStyleType,
+    PlanTemplateKindType,
+    PlanJourneyRibbonType,
+} from "./collections/plan/types.js";
+import { ApprovalStateType } from "./contracts/approval.js";
 import {
     TableRowClickEventType,
     TableCellClickEventType,
@@ -1079,6 +1113,315 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         sources: ArrayType(StringType),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+    }),
+
+    // Plan — the temporally-aligned composite canvas: one shared time axis
+    // (window ÷ resolution) over heterogeneous rows — span runs, bucket
+    // lanes, chart layers, heat / table cells, chips and event marks — flat
+    // rows with `parent` keys. Spelled inline (the popover / hovercard /
+    // summary slots ride the recursion `node`) — mirror `PlanRootType` in
+    // `collections/plan/index.ts`.
+    Plan: StructType({
+        // Mirror `PlanRowType` — one flat row (depth-first order). The same
+        // struct repeats inside `library[].make` below — keep identical.
+        rows: ArrayType(StructType({
+            key: StringType,
+            parent: OptionType(StringType),
+            gutter: PlanGutterType,
+            // Mirror `PlanRowKindType` — the eight row kinds.
+            kind: VariantType({
+                group: StructType({
+                    summary: OptionType(PlanHeatCellsType),
+                    summaryAggregate: OptionType(PlanAggregateType),
+                    collapsed: OptionType(BooleanType),
+                }),
+                span: StructType({
+                    // Mirror `PlanRunType` (repeats in `journeys` below).
+                    runs: ArrayType(StructType({
+                        key: StringType,
+                        start: DateTimeType,
+                        end: DateTimeType,
+                        label: StringType,
+                        quantity: OptionType(StringType),
+                        qty: OptionType(FloatType),
+                        state: EventStateType,
+                        status: OptionType(StatusValueType),
+                        moved: OptionType(IntegerType),
+                        icon: OptionType(IconType),
+                        popover: OptionType(node),
+                        hovercard: OptionType(node),
+                    })),
+                    // Mirror `PlanDecisionMarkType` (repeats in `journeys`).
+                    decisions: ArrayType(StructType({
+                        key: StringType,
+                        at: DateTimeType,
+                        applied: BooleanType,
+                        popover: OptionType(node),
+                    })),
+                    ports: ArrayType(PlanPortType),
+                    rollup: OptionType(PlanRollupType),
+                    unit: OptionType(StringType),
+                }),
+                buckets: StructType({
+                    lanes: ArrayType(StructType({ key: StringType, label: OptionType(StringType) })),
+                    // Mirror `PlanBucketEventType` — the full Planner
+                    // point-event grammar over the shared time axis.
+                    events: ArrayType(StructType({
+                        key: StringType,
+                        at: DateTimeType,
+                        lane: OptionType(StringType),
+                        label: OptionType(StringType),
+                        icon: OptionType(IconType),
+                        state: EventStateType,
+                        tone: OptionType(StatusValueType),
+                        color: OptionType(StringType),
+                        colorPalette: OptionType(ColorSchemeType),
+                        stretch: OptionType(PlanStretchType),
+                        content: OptionType(PlanContentType),
+                        animation: OptionType(PlanAnimationType),
+                        popover: OptionType(node),
+                        hovercard: OptionType(node),
+                    })),
+                    markers: ArrayType(PlanCellMarkerType),
+                }),
+                chart: StructType({
+                    layers: ArrayType(PlanChartLayerType),
+                    left: OptionType(PlanChartAxisType),
+                    right: OptionType(PlanChartAxisType),
+                    height: PlanChartHeightType,
+                    expandedHeight: OptionType(StringType),
+                    expandable: OptionType(BooleanType),
+                }),
+                heat: StructType({
+                    cells: PlanHeatCellsType,
+                    aggregate: OptionType(PlanAggregateType),
+                }),
+                table: StructType({
+                    cells: ArrayType(PlanTableCellType),
+                    aggregate: OptionType(TableAggregateType),
+                    format: OptionType(TickFormatType),
+                    emphasis: PlanTableEmphasisType,
+                }),
+                cards: StructType({
+                    // Mirror `PlanChipType`.
+                    chips: ArrayType(StructType({
+                        key: StringType,
+                        from: DateTimeType,
+                        to: DateTimeType,
+                        label: StringType,
+                        state: EventStateType,
+                        icon: OptionType(IconType),
+                        popover: OptionType(node),
+                    })),
+                }),
+                events: StructType({
+                    // Mirror `PlanEventMarkType`.
+                    marks: ArrayType(StructType({
+                        key: StringType,
+                        at: DateTimeType,
+                        kind: PlanEventMarkKindType,
+                        icon: OptionType(IconType),
+                        label: OptionType(StringType),
+                        popover: OptionType(node),
+                    })),
+                }),
+            }),
+            pinned: OptionType(BooleanType),
+            height: OptionType(StringType),
+            status: OptionType(StatusValueType),
+            approval: OptionType(ApprovalStateType),
+            drill: OptionType(PlanDrillType),
+            // Mirror `PlanExpandType` — the R2 developer render (rides `node`).
+            expand: OptionType(StructType({
+                render: FunctionType([], node),
+                height: OptionType(StringType),
+                axis: PlanExpandAxisType,
+            })),
+        })),
+        // Mirror `PlanRootType.links` — the R1 link graph.
+        links: ArrayType(PlanLinkType),
+        axis: PlanAxisType,
+        grain: OptionType(PlanGrainType),
+        // Mirror `PlanTemplateType` — `make` builds the dropped row's
+        // flattened subtree; its element struct repeats the `rows` element
+        // above verbatim (the row rides the recursion `node`) — keep both
+        // spellings identical.
+        library: ArrayType(StructType({
+            key: StringType,
+            label: StringType,
+            sublabel: OptionType(StringType),
+            kind: PlanTemplateKindType,
+            icon: OptionType(IconType),
+            make: FunctionType([], ArrayType(StructType({
+                key: StringType,
+                parent: OptionType(StringType),
+                gutter: PlanGutterType,
+                kind: VariantType({
+                    group: StructType({
+                        summary: OptionType(PlanHeatCellsType),
+                        summaryAggregate: OptionType(PlanAggregateType),
+                        collapsed: OptionType(BooleanType),
+                    }),
+                    span: StructType({
+                        runs: ArrayType(StructType({
+                            key: StringType,
+                            start: DateTimeType,
+                            end: DateTimeType,
+                            label: StringType,
+                            quantity: OptionType(StringType),
+                            qty: OptionType(FloatType),
+                            state: EventStateType,
+                            status: OptionType(StatusValueType),
+                            moved: OptionType(IntegerType),
+                            icon: OptionType(IconType),
+                            popover: OptionType(node),
+                            hovercard: OptionType(node),
+                        })),
+                        decisions: ArrayType(StructType({
+                            key: StringType,
+                            at: DateTimeType,
+                            applied: BooleanType,
+                            popover: OptionType(node),
+                        })),
+                        ports: ArrayType(PlanPortType),
+                        rollup: OptionType(PlanRollupType),
+                        unit: OptionType(StringType),
+                    }),
+                    buckets: StructType({
+                        lanes: ArrayType(StructType({ key: StringType, label: OptionType(StringType) })),
+                        events: ArrayType(StructType({
+                            key: StringType,
+                            at: DateTimeType,
+                            lane: OptionType(StringType),
+                            label: OptionType(StringType),
+                            icon: OptionType(IconType),
+                            state: EventStateType,
+                            tone: OptionType(StatusValueType),
+                            color: OptionType(StringType),
+                            colorPalette: OptionType(ColorSchemeType),
+                            stretch: OptionType(PlanStretchType),
+                            content: OptionType(PlanContentType),
+                            animation: OptionType(PlanAnimationType),
+                            popover: OptionType(node),
+                            hovercard: OptionType(node),
+                        })),
+                        markers: ArrayType(PlanCellMarkerType),
+                    }),
+                    chart: StructType({
+                        layers: ArrayType(PlanChartLayerType),
+                        left: OptionType(PlanChartAxisType),
+                        right: OptionType(PlanChartAxisType),
+                        height: PlanChartHeightType,
+                        expandedHeight: OptionType(StringType),
+                        expandable: OptionType(BooleanType),
+                    }),
+                    heat: StructType({
+                        cells: PlanHeatCellsType,
+                        aggregate: OptionType(PlanAggregateType),
+                    }),
+                    table: StructType({
+                        cells: ArrayType(PlanTableCellType),
+                        aggregate: OptionType(TableAggregateType),
+                        format: OptionType(TickFormatType),
+                        emphasis: PlanTableEmphasisType,
+                    }),
+                    cards: StructType({
+                        chips: ArrayType(StructType({
+                            key: StringType,
+                            from: DateTimeType,
+                            to: DateTimeType,
+                            label: StringType,
+                            state: EventStateType,
+                            icon: OptionType(IconType),
+                            popover: OptionType(node),
+                        })),
+                    }),
+                    events: StructType({
+                        marks: ArrayType(StructType({
+                            key: StringType,
+                            at: DateTimeType,
+                            kind: PlanEventMarkKindType,
+                            icon: OptionType(IconType),
+                            label: OptionType(StringType),
+                            popover: OptionType(node),
+                        })),
+                    }),
+                }),
+                pinned: OptionType(BooleanType),
+                height: OptionType(StringType),
+                status: OptionType(StatusValueType),
+                approval: OptionType(ApprovalStateType),
+                drill: OptionType(PlanDrillType),
+                expand: OptionType(StructType({
+                    render: FunctionType([], node),
+                    height: OptionType(StringType),
+                    axis: PlanExpandAxisType,
+                })),
+            }))),
+        })),
+        // Mirror `PlanJourneyType` — the K8 journey overlay resolver; its
+        // `runs` / `decisions` repeat the span-row spellings above — keep
+        // identical.
+        journeys: OptionType(FunctionType([StringType], StructType({
+            title: StringType,
+            rows: ArrayType(StructType({
+                key: StringType,
+                label: StringType,
+                sublabel: OptionType(StringType),
+                runs: ArrayType(StructType({
+                    key: StringType,
+                    start: DateTimeType,
+                    end: DateTimeType,
+                    label: StringType,
+                    quantity: OptionType(StringType),
+                    qty: OptionType(FloatType),
+                    state: EventStateType,
+                    status: OptionType(StatusValueType),
+                    moved: OptionType(IntegerType),
+                    icon: OptionType(IconType),
+                    popover: OptionType(node),
+                    hovercard: OptionType(node),
+                })),
+            })),
+            ribbons: ArrayType(PlanJourneyRibbonType),
+            decisions: ArrayType(StructType({
+                key: StringType,
+                at: DateTimeType,
+                applied: BooleanType,
+                popover: OptionType(node),
+            })),
+        }))),
+        // Optional review chrome — mirror `reviewType(PlanRowRefType, ·)`
+        // (`contracts/approval.ts`), `summary` on the recursion `node` (the
+        // Planner precedent); subjects are keyed rows, never indices.
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlanRowRefType], NullType)),
+            onReject: OptionType(FunctionType([PlanRowRefType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+        slice: OptionType(SliceChromeType),
+        footer: ArrayType(PlanFooterItemType),
+        // DnD target role — the shared grammar (`contracts/drag.ts`).
+        id: StringType,
+        sources: ArrayType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+        // Selection / drill (click selects, second click drills) + per-element clicks.
+        onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
+        onDrill: OptionType(FunctionType([PlanRowRefType], NullType)),
+        onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
+        onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
+        onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),
+        onChipClick: OptionType(FunctionType([PlanChipClickEventType], NullType)),
+        onCellClick: OptionType(FunctionType([PlanCellClickEventType], NullType)),
+        onGroupToggle: OptionType(FunctionType([PlanGroupToggleEventType], NullType)),
+        onGrainChange: OptionType(FunctionType([PlanGrainType], NullType)),
+        style: OptionType(PlanStyleType),
     }),
 
     // Roster — people × days-of-week shift grid (drag & drop target role).

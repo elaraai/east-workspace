@@ -24,7 +24,7 @@
  */
 
 import {
-    type ArrayType,
+    ArrayType,
     type BlockBuilder,
     East,
     type EastType,
@@ -112,4 +112,32 @@ export function mapRowsBlock<T extends EastType>(
     const rowType = (Expr.type(rows) as ArrayType<StructType>).value;
     const fn = East.function([rowType], outType, ($, row) => body($ as BlockBuilder<T>, row));
     return rows.map((_$, row) => fn(row)) as unknown as ExprType<ArrayType<T>>;
+}
+
+/**
+ * `mapRowsBlock` for per-row constructors that produce a **subtree** — an
+ * array of output elements per row — rather than exactly one element: the
+ * reified body's results are concat-flattened eagerly in a single pass, so
+ * no intermediate array-of-arrays is materialized (Plan row construction,
+ * where one data row expands to a parent plus its re-parented children).
+ *
+ * @typeParam T - The fixed East element type of the flattened result
+ * @param rows - The caller's rows array expression
+ * @param outType - The fixed East output ELEMENT type (the helper flattens `ArrayType(outType)` subtrees)
+ * @param body - Per-row subtree constructor; expanded exactly once against a typed placeholder row
+ * @returns The eagerly-flattened array expression
+ *
+ * @internal
+ */
+export function flatMapRowsBlock<T extends EastType>(
+    rows: ExprType<ArrayType<StructType>>,
+    outType: T,
+    body: ($: BlockBuilder<ArrayType<NoInfer<T>>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<NoInfer<T>>>,
+): ExprType<ArrayType<T>> {
+    const rowType = (Expr.type(rows) as ArrayType<StructType>).value;
+    const fn = East.function([rowType], ArrayType(outType), ($, row) => body($ as BlockBuilder<ArrayType<T>>, row));
+    return rows.reduce(
+        (_$, acc, row) => acc.concat(fn(row)),
+        East.value([], ArrayType(outType)),
+    ) as unknown as ExprType<ArrayType<T>>;
 }

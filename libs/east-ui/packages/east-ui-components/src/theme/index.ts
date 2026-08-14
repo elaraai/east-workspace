@@ -109,6 +109,8 @@ import { meterSlotRecipe } from "./slot-recipes/meter.js";
 import { metricChipSlotRecipe } from "./slot-recipes/metricChip.js";
 import { chipRailSlotRecipe } from "./slot-recipes/chipRail.js";
 import { traceSlotRecipe } from "./slot-recipes/trace.js";
+import { brushStripSlotRecipe } from "./slot-recipes/brushStrip.js";
+import { segSlotRecipe } from "./slot-recipes/seg.js";
 import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
 import { sliceEditSlotRecipe } from "./slot-recipes/sliceEdit.js";
 import { clauseBuilderSlotRecipe } from "./slot-recipes/clauseBuilder.js";
@@ -116,6 +118,7 @@ import { facetTabsSlotRecipe } from "./slot-recipes/facetTabs.js";
 import { editableChipSlotRecipe } from "./slot-recipes/editableChip.js";
 import { ganttSlotRecipe } from "./slot-recipes/gantt.js";
 import { plannerSlotRecipe } from "./slot-recipes/planner.js";
+import { planSlotRecipe } from "./slot-recipes/plan.js";
 import { splitterSlotRecipe } from "./slot-recipes/splitter.js";
 import { configuratorSlotRecipe } from "./slot-recipes/configurator.js";
 import { matrixSlotRecipe } from "./slot-recipes/matrix.js";
@@ -223,6 +226,8 @@ const config = defineConfig({
             metricChip:      metricChipSlotRecipe,
             chipRail:        chipRailSlotRecipe,
             trace:           traceSlotRecipe,
+            brushStrip:      brushStripSlotRecipe,
+            seg:             segSlotRecipe,
             sliceFrame:      sliceFrameSlotRecipe,
             sliceEdit:       sliceEditSlotRecipe,
             clauseBuilder:   clauseBuilderSlotRecipe,
@@ -232,6 +237,7 @@ const config = defineConfig({
             splitter:        splitterSlotRecipe,
             configurator:    configuratorSlotRecipe,
             planner:         plannerSlotRecipe,
+            plan:            planSlotRecipe,
             matrix:          matrixSlotRecipe,
             showMore:        showMoreSlotRecipe,
             status:          statusSlotRecipe,

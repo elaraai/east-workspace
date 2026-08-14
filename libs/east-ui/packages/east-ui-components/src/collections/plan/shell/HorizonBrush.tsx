@@ -1,0 +1,122 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * The horizon strip (32px, `Plan Spec.md` §7) — the shared brush strip at
+ * horizon density over the bound slice's FULL range domain: gutter caption
+ * (`HORIZON · 26 WK`), self-excluding row-count histogram, the applied window
+ * as a full brush selection, and the now tick. Editing the window here is
+ * editing the slice's Range — commits route through the machine
+ * (`brush.commit` → `slice.setRange`), which never stores a window itself.
+ *
+ * Renders only when a slice is bound with a usable datetime range domain —
+ * an unbound Plan has no wider horizon to brush.
+ */
+
+import { useMemo } from "react";
+import { Box } from "@chakra-ui/react";
+import { type ValueTypeOf } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
+import { BrushStrip } from "../../../slice/brush-strip.js";
+import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
+import { usePlanDispatch } from "../context.js";
+import { resolutionInterval, type PlanResolution, type PlanWindow } from "../scale.js";
+
+type Styles = Record<string, Record<string, unknown>>;
+type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
+
+/** Strip height / max bar height (the §7 sheet: 32px, bars 5px+4px inset). */
+const STRIP_H = 32;
+const BAR_H = 23;
+
+/** Resolution → the caption unit + its span in ms (for `HORIZON · 26 WK`). */
+const CAPTION_UNIT: Record<string, { label: string; ms: number }> = {
+    hour: { label: "HR", ms: 3_600_000 },
+    day: { label: "D", ms: 86_400_000 },
+    week: { label: "WK", ms: 7 * 86_400_000 },
+    month: { label: "MO", ms: 30 * 86_400_000 },
+    quarter: { label: "Q", ms: 91 * 86_400_000 },
+    year: { label: "YR", ms: 365 * 86_400_000 },
+};
+
+export interface HorizonBrushProps {
+    styles: Styles;
+    gridTemplate: string;
+    slice: SliceBindValue;
+    /** The Plan's current window (the applied brush selection). */
+    window: PlanWindow;
+    /** The now instant, if any (domain tick). */
+    now: Date | undefined;
+    /** The bucket resolution (caption unit — the caption spans the DOMAIN). */
+    resolution: string;
+}
+
+/** The 32px horizon band — caption gutter cell + the shared brush strip. */
+export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
+    const dispatch = usePlanDispatch();
+    const domain = boundRangeDomain(slice.key);
+    // One histogram bucket per resolution period across the domain (the §2
+    // mock: 26 weekly bars over a 26-week horizon), clamped to sanity.
+    const unitMs = (CAPTION_UNIT[resolution] ?? CAPTION_UNIT.week!).ms;
+    const buckets = domain !== undefined
+        ? Math.max(8, Math.min(64, Math.round((domain.max - domain.min) / unitMs)))
+        : 0;
+    const counts = useMemo(
+        () => (domain !== undefined ? boundRangeHistogram(slice.key, buckets) : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- histogram derives from the slice store; useSliceReactivity re-renders on change
+        [slice.key, buckets, domain?.min, domain?.max],
+    );
+    if (domain === undefined || domain.kind !== "datetime" || domain.max <= domain.min) return null;
+
+    const span = domain.max - domain.min;
+    const winFrom = Math.max(0, (window.min.getTime() - domain.min) / span);
+    const winTo = Math.min(1, (window.max.getTime() - domain.min) / span);
+    const nowFrac = now !== undefined ? (now.getTime() - domain.min) / span : undefined;
+    const fromFraction = (f: number) => new Date(domain.min + Math.max(0, Math.min(1, f)) * span);
+    // Resolution-edge snapping: the draft and the committed window land on
+    // period boundaries of the ACTIVE resolution, at least one period wide.
+    const interval = resolutionInterval((CAPTION_UNIT[resolution] !== undefined ? resolution : "week") as PlanResolution);
+    const snapDate = (d: Date): Date => {
+        const below = interval.floor(d);
+        const above = interval.offset(below, 1);
+        return d.getTime() - below.getTime() <= above.getTime() - d.getTime() ? below : above;
+    };
+    const toFrac = (d: Date) => Math.max(0, Math.min(1, (d.getTime() - domain.min) / span));
+    const snapWindow = (f0: number, f1: number): { from: number; to: number } => {
+        const a = snapDate(fromFraction(f0));
+        let b = snapDate(fromFraction(f1));
+        if (b.getTime() <= a.getTime()) b = interval.offset(a, 1);
+        return { from: toFrac(a), to: toFrac(b) };
+    };
+    // The caption spans the DOMAIN (the whole brushable horizon), not the
+    // applied window — `HORIZON · 26 WK` over a 12-week window.
+    const unit = CAPTION_UNIT[resolution] ?? CAPTION_UNIT.week!;
+    const caption = `HORIZON · ${Math.max(1, Math.round(span / unitMs))} ${unit.label}`;
+
+    return (
+        <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon"
+            onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
+            <Box css={styles.brushCaption}>{caption}</Box>
+            <Box minWidth={0}>
+                <BrushStrip
+                    counts={counts}
+                    window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
+                    nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
+                    height={STRIP_H}
+                    barHeight={BAR_H}
+                    snapWindow={snapWindow}
+                    // Snap AGAIN on the dates themselves so float round-trips
+                    // can never land the committed window 1ms off an edge.
+                    onCommit={(f0, f1) => dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) })}
+                    // Live pan/resize preview — the snapped draft applies to
+                    // the slice as it steps between period edges, so the
+                    // canvas follows the drag one discrete column at a time.
+                    onPreview={(f0, f1) => dispatch({ t: "brush.preview", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) })}
+                    onClear={() => dispatch({ t: "brush.clear" })}
+                />
+            </Box>
+        </Box>
+    );
+}

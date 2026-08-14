@@ -37,6 +37,7 @@ export type { UIElement } from "./runtime/runtime.js";
 // Style System
 export { Style } from "./style.js";
 export { DensityType, type DensityLiteral, StatusTokenType, type StatusTokenLiteral } from "./style/interaction.js";
+export { StatusValueType, type StatusValueLiteral } from "./feedback/status/types.js";
 
 // Drag & drop grammar contract — hosts type `onDrag` handlers against these
 export {
@@ -57,6 +58,17 @@ export {
     type ReviewConfig,
     deriveApproval,
 } from "./contracts/review.js";
+
+// Event lifecycle contract — the estimated → proposed → confirmed →
+// in-progress → actual audit vocabulary scheduled-event surfaces speak
+export {
+    EventFlavourType, EventStateType, type EventStateLiteral,
+} from "./contracts/states.js";
+
+// Shared time contract — bucketed-axis resolution + drag/duration snap steps
+export {
+    TimeResolutionType, type TimeResolutionLiteral,
+} from "./contracts/time.js";
 
 // Format helpers
 export { Format } from "./format/index.js";
@@ -111,7 +123,7 @@ export type { IconName } from "./display/index.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

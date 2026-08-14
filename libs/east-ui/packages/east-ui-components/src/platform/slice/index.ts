@@ -70,6 +70,7 @@ interface SliceStateLike {
     search:        variant;              // option<string>
     visible:       variant;              // option<Set<string>>
     selectedIndex: variant;              // option<bigint>
+    resolution:    variant;              // option<TimeResolution>
 }
 
 interface SliceCohortLike {
@@ -95,6 +96,7 @@ export const DEFAULT_SLICE_STATE: SliceStateLike = {
     search:        none,
     visible:       none,
     selectedIndex: none,
+    resolution:    none,
 };
 
 function readState(key: string): SliceStateLike {
@@ -373,7 +375,7 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
     // Bare identifiers (not `SliceBindPrimitives.read(...)`): platform calls inside
     // an `East.function` body read cleaner and match the State/Nav handle builders.
     const {
-        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters, toggleFilter, facetGroups,
+        read, write, setRange, setCompare, setResolution, addFilter, removeFilter, clearFilters, toggleFilter, facetGroups,
         defineCohort, updateCohort, removeCohort, toggleCohort,
         setBreakdown, setSearch, setVisible, select, isActive, activeCount,
         dimensions, fields, searchFieldIds, rangeFieldId,
@@ -428,6 +430,9 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
         // --- cross-filtering (#165/#188 — appended last, matching the struct order) ---
         toggleFilter: East.compile(East.function([T.Predicate], NullType, ($, p) => { $.return(toggleFilter(keyExpr, p)); }), platform),
         facetGroups:  East.compile(East.function([], ArrayType(T.BreakdownGroup), ($) => { $.return(facetGroups(keyExpr)); }), platform),
+
+        // --- time resolution (appended last, matching the struct order) ---
+        setResolution: East.compile(East.function([OptionType(T.Resolution)], NullType, ($, o) => { $.return(setResolution(keyExpr, o)); }), platform),
     };
 }
 
@@ -564,6 +569,8 @@ export const SliceImpl: PlatformFunction[] = [
         updateState(key as string, s => ({ ...s, range: opt as variant }))),
     SliceBindPrimitives.setCompare.implement((key: unknown, opt: unknown) =>
         updateState(key as string, s => ({ ...s, compare: opt as variant }))),
+    SliceBindPrimitives.setResolution.implement((key: unknown, opt: unknown) =>
+        updateState(key as string, s => ({ ...s, resolution: opt as variant }))),
 
     // --- filters ---
     // Appending a structurally-equal predicate is a no-op (no write, no

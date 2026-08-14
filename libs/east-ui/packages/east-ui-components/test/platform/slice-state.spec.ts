@@ -35,7 +35,7 @@ const call = (name: string, ...args: unknown[]): unknown => {
 const cfg = { fields: new Map(), rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [] };
 const initial = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: none, visible: none, selectedIndex: none,
+    breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
 };
 
 test("Summary 'clear all' (clearFilters) zeroes the narrowing count it displays (#9)", () => {

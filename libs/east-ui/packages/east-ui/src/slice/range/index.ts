@@ -7,6 +7,7 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
+    ArrayType,
     BooleanType,
     variant,
     some,
@@ -15,6 +16,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SliceBindType } from "../../platform/slice/index.js";
+import { TimeResolutionType, type TimeResolutionLiteral } from "../../contracts/time.js";
 import { SliceRangePickerType } from "./types.js";
 
 export { SliceRangePickerType } from "./types.js";
@@ -25,6 +27,11 @@ export interface SliceRangeOptions {
     slice: SubtypeExprOrValue<SliceBindType>;
     /** Render the picker popover open on mount (for static snapshots). */
     editOpen?: SubtypeExprOrValue<BooleanType>;
+    /** Bucket-unit options for the resolution segment beside the pill (e.g.
+     *  `["week", "day"]`). The segment reads `state.resolution` and writes via
+     *  `setResolution` so every bound time-bucketed surface re-buckets
+     *  together. Omit ⇒ no segment. String shorthands or an East array. */
+    resolutions?: TimeResolutionLiteral[] | SubtypeExprOrValue<ArrayType<TimeResolutionType>>;
 }
 
 /**
@@ -52,9 +59,19 @@ export interface SliceRangeOptions {
 function createSliceRange(
     options: SliceRangeOptions,
 ): ExprType<UIComponentType> {
+    // String-literal shorthand → East variants; an East array passes through.
+    const resolutions = options.resolutions === undefined
+        ? undefined
+        : Array.isArray(options.resolutions) && options.resolutions.every(r => typeof r === "string")
+            ? East.value(
+                (options.resolutions as TimeResolutionLiteral[]).map(r => variant(r, null)),
+                ArrayType(TimeResolutionType),
+            )
+            : options.resolutions as SubtypeExprOrValue<ArrayType<TimeResolutionType>>;
     return East.value(variant("SliceRange", {
         slice: options.slice,
         editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,
+        resolutions: resolutions !== undefined ? some(resolutions) : none,
     }), UIComponentType);
 }
 

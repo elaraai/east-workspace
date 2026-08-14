@@ -33,6 +33,12 @@ export const keyframes = defineKeyframes({
         "0%, 100%": { opacity: 1 },
         "50%":      { opacity: 0.4 },
     },
+    // Plan focus choreography (R1/R2) — arriving overlays (ribbons, tags,
+    // developer renders) fade in after the 300ms geometry settle.
+    "plan-settle-in": {
+        "0%":   { opacity: 0 },
+        "100%": { opacity: 1 },
+    },
     // Flowchart connect feedback — one-shot brand halo along a link (the
     // existing link on a duplicate drop; the new link on create).
     "fc-connect-pulse": {

@@ -385,6 +385,12 @@ interface BandLayer {
 interface RefLayer {
     kind: "ref";
     node: ChartSpecValue;
+    /** Which annotation builder produced this layer — consumption metadata for
+     *  hosts that ingest layers as data (the Plan canvas); `Chart.Root` ignores it. */
+    refKind: "line" | "band" | "dot";
+    /** The builder's original options, kept lossless for data consumers
+     *  (`rule` nodes stringify coordinates and drop labels). */
+    refOptions: RefLineOptions | RefBandOptions | RefDotOptions;
 }
 /** A layer accepted by {@link createChartRoot}. */
 export type ChartLayer = SeriesLayer | BandLayer | RefLayer;
@@ -666,7 +672,7 @@ function createRefLine(options: RefLineOptions): RefLayer {
         stroke: REF_STROKE,
         dashArray: options.dash !== undefined ? some(options.dash) : none,
     }), ChartSpecType);
-    return { kind: "ref", node };
+    return { kind: "ref", node, refKind: "line", refOptions: options };
 }
 
 /** Options for {@link createRefBand}. */
@@ -688,7 +694,7 @@ function createRefBand(options: RefBandOptions): RefLayer {
         x2: options.x !== undefined ? coordValue(options.x[1]) : undefined,
         label: options.label,
     }));
-    return { kind: "ref", node };
+    return { kind: "ref", node, refKind: "band", refOptions: options };
 }
 
 /** Options for {@link createRefDot}. */
@@ -708,7 +714,7 @@ function createRefDot(options: RefDotOptions): RefLayer {
         y: options.y,
         ...(options.label !== undefined ? { label: options.label } : {}),
     });
-    return { kind: "ref", node };
+    return { kind: "ref", node, refKind: "dot", refOptions: options };
 }
 
 // ============================================================================

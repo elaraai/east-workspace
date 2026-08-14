@@ -7,6 +7,7 @@ import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSP
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { tokenizeDateTimeFormat, formatDateTime } from "@elaraai/east/internal";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
@@ -167,27 +168,26 @@ function anchorFor(a: Anchor | undefined): "start" | "middle" | "end" {
     });
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Tokenized-pattern cache — axis patterns are static and ticks are many. */
+const DATE_PATTERN_TOKENS = new Map<string, ReturnType<typeof tokenizeDateTimeFormat>>();
 
-/** Format a Date against a token pattern (`YYYY`/`MMM`/`DD`/`ddd`/`HH`/`mm`/…),
- *  single-pass. Weekday tokens follow East's `DateTime.parseFormatted` set:
- *  `dd` (Su), `ddd` (Sun), `dddd` (Sunday). */
+/** Format a Date against an East datetime format pattern (`YYYY`/`MMM`/`DD`/
+ *  `ddd`/`HH`/`mm`/`h`/`A`/… — the FULL `datetime_format` vocabulary), via
+ *  East's OWN tokenizer + printer, so the UI and the language agree on every
+ *  pattern (`DateTime.printFormatted` and a chart axis format never drift).
+ *
+ *  #326 — East's `formatDateTime` formats in UTC by definition: East
+ *  DateTime values are UTC instants, so a pinned `[min, max)` window (and
+ *  the ticks / day-columns derived from it) renders identically regardless
+ *  of the viewer's timezone. */
 export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
-    const pad = (n: number) => String(n).padStart(2, "0");
-    // #326 — format in UTC: East DateTime values are UTC instants, so a pinned
-    // `[min, max)` window (and the ticks / day-columns derived from it) must
-    // render identically regardless of the viewer's timezone — deterministic,
-    // and consistent with the time-axis flooring in Planner / Gantt.
-    const map: Record<string, string> = {
-        YYYY: String(d.getUTCFullYear()), YY: pad(d.getUTCFullYear() % 100),
-        MMMM: MONTHS_LONG[d.getUTCMonth()]!, MMM: MONTHS[d.getUTCMonth()]!, MM: pad(d.getUTCMonth() + 1),
-        DD: pad(d.getUTCDate()), HH: pad(d.getUTCHours()), mm: pad(d.getUTCMinutes()), ss: pad(d.getUTCSeconds()),
-        dddd: WEEKDAYS_LONG[d.getUTCDay()]!, ddd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 2),
-    };
-    return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|dddd|ddd|dd|HH|mm|ss/g, t => map[t] ?? t);
+    let tokens = DATE_PATTERN_TOKENS.get(pattern);
+    if (tokens === undefined) {
+        tokens = tokenizeDateTimeFormat(pattern);
+        DATE_PATTERN_TOKENS.set(pattern, tokens);
+    }
+    return formatDateTime(d, tokens);
 }
 
 /** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. Shared with the `Slice.Rail` brush axis (#190). */

@@ -79,7 +79,19 @@ export type {
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export type {
+    PlanConfig, PlanRowBaseInput, PlanSpanInput, PlanBucketsInput, PlanChartInput,
+    PlanHeatInput, PlanTableInput, PlanCardsInput, PlanEventsInput, PlanGroupInput,
+    PlanRunInput, PlanDecisionInput, PlanPortInput, PlanBucketEventInput,
+    PlanCellMarkerInput, PlanChipInput, PlanEventMarkInput, PlanSegmentInput,
+    PlanTemplateInput, PlanDrillInput, PlanExpandInput, PlanLinkInput,
+    PlanIconInput, PlanLayerChannels,
+    PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
+    PlanSpanOfConfig, PlanHeatOfConfig, PlanTableOfConfig,
+    PlanRowsGroupConfig, PlanGroupByLevel, PlanReviewConfig, PlanRowsInput,
+    PlanRowsValue,
+} from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
 export { Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Story, Tabs } from "./disclosure/index.js";

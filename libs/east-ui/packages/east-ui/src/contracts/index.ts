@@ -32,7 +32,13 @@ export {
 
 export {
     StateValueType, type StateValueLiteral, StateValue,
+    EventFlavourType, EventStateType, type EventStateLiteral,
 } from "./states.js";
+
+export {
+    TimeResolutionType, type TimeResolutionLiteral,
+    TimeStepType,
+} from "./time.js";
 
 export {
     SliceAffordanceType, type SliceAffordanceLiteral, SliceAffordance,

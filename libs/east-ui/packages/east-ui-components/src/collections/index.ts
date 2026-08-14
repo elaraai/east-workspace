@@ -47,6 +47,13 @@ export {
 } from "./planner";
 
 export {
+    EastChakraPlan,
+    type PlanRootValue,
+    type PlanRowValue,
+    type EastChakraPlanProps,
+} from "./plan";
+
+export {
     EastChakraLibrary,
     type LibraryValue,
     type LibraryItemValue,

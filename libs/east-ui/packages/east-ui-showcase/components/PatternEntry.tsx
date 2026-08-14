@@ -137,7 +137,9 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
 }
 
 /** A chevron-toggled disclosure wrapping a dark source block — the shared
- *  affordance for the `dependencies` and `source` sections, each independent. */
+ *  affordance for the `dependencies` and `source` sections, each independent.
+ *  The block caps at a viewport-friendly height and scrolls within, so a
+ *  long example source never swallows the page. */
 function Disclosure({ label, raw }: { label: string; raw: string }) {
     const [open, setOpen] = useState(false);
     return (
@@ -165,7 +167,7 @@ function Disclosure({ label, raw }: { label: string; raw: string }) {
             </chakra.button>
             {open && (
                 <Box mt="8px">
-                    <SourceBlock raw={raw} />
+                    <SourceBlock raw={raw} maxH="480px" scroll />
                 </Box>
             )}
         </Box>
@@ -249,9 +251,10 @@ function CodeBody({ entry }: { entry: CodeEntry }) {
     );
 }
 
-/** The dark, copyable source view. Natural height by default; `maxH` clips
- *  it for the collapsed code-reference state. */
-function SourceBlock({ raw, maxH }: { raw: string; maxH?: string }) {
+/** The dark, copyable source view. Natural height by default; `maxH` bounds
+ *  it — clipped for the collapsed code-reference fade, or scrolling within
+ *  when `scroll` is set (the source/dependencies disclosures). */
+function SourceBlock({ raw, maxH, scroll }: { raw: string; maxH?: string; scroll?: boolean }) {
     return (
         <CodeBlock.Root
             code={raw}
@@ -263,7 +266,7 @@ function SourceBlock({ raw, maxH }: { raw: string; maxH?: string }) {
             position="relative"
             style={maxH ? ({ "--code-block-max-height": maxH } as React.CSSProperties) : undefined}
         >
-            <CodeBlock.Content maxH={maxH} overflow={maxH ? "hidden" : undefined}>
+            <CodeBlock.Content maxH={maxH} overflow={maxH ? (scroll ? "auto" : "hidden") : undefined}>
                 <CodeBlock.Code>
                     <CodeBlock.CodeText />
                 </CodeBlock.Code>

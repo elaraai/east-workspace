@@ -20,6 +20,7 @@ import {
 import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
 
 import { StatusTokenType, DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { TimeStepType } from "../../contracts/time.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { SliceBindType } from "../../platform/slice/index.js";
 // Type-only (erased at runtime — safe against the component.ts import cycle).
@@ -50,27 +51,9 @@ export {
 // Time Step Type
 // ============================================================================
 
-/**
- * Time step variant type for drag/duration snapping.
- *
- * @remarks
- * Each variant contains a float value representing the step size in that unit.
- *
- * @property minutes - Step size in minutes (e.g., 15 for 15-minute intervals)
- * @property hours - Step size in hours (e.g., 1 for hourly)
- * @property days - Step size in days (e.g., 1 for daily, 0.5 for half-day)
- * @property weeks - Step size in weeks (e.g., 1 for weekly)
- * @property months - Step size in months (e.g., 1 for monthly)
- */
-export const TimeStepType = VariantType({
-    minutes: FloatType,
-    hours: FloatType,
-    days: FloatType,
-    weeks: FloatType,
-    months: FloatType,
-});
-
-export type TimeStepType = typeof TimeStepType;
+// Lifted to the shared time contract (`contracts/time.ts`) so the vocabulary
+// survives this component; re-exported here so existing imports keep working.
+export { TimeStepType } from "../../contracts/time.js";
 
 // ============================================================================
 // Milestone Kind

@@ -1,0 +1,106 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * Group strips (`Plan Spec.md` §5) — the canvas-level heterogeneous
+ * container's band: caret + mono uppercase name + meta counts in the gutter;
+ * collapsed with a `summary`, the plot renders the factory-computed heat
+ * strip (delegating the cell painting to {@link HeatCells}); expanded (or
+ * summary-less) the plot stays a plain band.
+ */
+
+import { Box } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
+import { type ValueTypeOf } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
+import { usePlanDispatch, usePlanScale } from "../context.js";
+import { HeatCells } from "./HeatRow.js";
+import { INDENT_PX } from "./RowShell.js";
+import type { PlanRowValue } from "../model.js";
+
+type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
+type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
+
+/** Wrap derived strip cells in a decoded-shaped heat arm for {@link HeatCells}. */
+function derivedArm(cells: readonly HeatCellValue[]): HeatCellsValue {
+    return {
+        type: "heat",
+        value: {
+            cells: cells as HeatCellValue[],
+            min: { type: "none", value: null },
+            max: { type: "none", value: null },
+            warnAt: { type: "none", value: null },
+        },
+    } as HeatCellsValue;
+}
+
+type Styles = Record<string, Record<string, unknown>>;
+type GroupKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "group" }>["value"];
+
+export interface GroupRowProps {
+    row: PlanRowValue;
+    kind: GroupKindValue;
+    styles: Styles;
+    gridTemplate: string;
+    height: number;
+    depth: number;
+    collapsed: boolean;
+    /** Renderer-derived strip cells (`summaryAggregate` declared in the IR). */
+    summaryCells?: readonly HeatCellValue[] | undefined;
+}
+
+/** One group band — full-width strip on the shared template. */
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells }: GroupRowProps) {
+    const scale = usePlanScale();
+    const dispatch = usePlanDispatch();
+    const meta = row.gutter.meta.type === "some" ? row.gutter.meta.value : undefined;
+    const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
+    const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
+    const summary = collapsed
+        ? (kind.summary.type === "some"
+            ? kind.summary.value
+            : (summaryCells !== undefined && summaryCells.length > 0 ? derivedArm(summaryCells) : undefined))
+        : undefined;
+
+    return (
+        <Box
+            css={styles.groupBand}
+            gridTemplateColumns={gridTemplate}
+            height={`${height}px`}
+            data-plan-group={row.key}
+            data-collapsed={collapsed ? "" : undefined}
+            onClick={() => dispatch({ t: "group.toggle", key: row.key })}
+        >
+            <Box css={styles.groupName} paddingLeft={`${12 + depth * INDENT_PX}px`}>
+                <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
+                    <FontAwesomeIcon icon={faCaretDown} />
+                </Box>
+                <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0}>{row.gutter.label}</Box>
+                {/* The mock's `.grow` anatomy: meta / dot / value cluster
+                    pushed to the gutter's RIGHT edge by the flex spacer —
+                    never inline beside the name. */}
+                {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
+                    <Box css={styles.gutterRight}>
+                        {meta !== undefined && <Box as="span" css={styles.groupMeta}>{meta}</Box>}
+                        {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                        {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
+                    </Box>
+                )}
+            </Box>
+            <Box css={styles.plot}>
+                {summary !== undefined && (
+                    <>
+                        {scale.buckets.slice(0, -1).map((b, i) => (
+                            <Box key={i} css={styles.gridCol} left={`${b.x1 * 100}%`} />
+                        ))}
+                        <HeatCells rowKey={row.key} cells={summary} styles={styles} />
+                    </>
+                )}
+                {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
+            </Box>
+        </Box>
+    );
+}

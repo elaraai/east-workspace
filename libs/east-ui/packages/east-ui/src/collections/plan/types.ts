@@ -1,0 +1,760 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * `Plan` IR — the UIComponent-free types. A Plan is a temporally-aligned
+ * composite canvas: one shared time axis (window ÷ resolution = `n` buckets)
+ * over heterogeneous rows — Gantt-style state-runs, Planner allocation lanes,
+ * Chart measures, Matrix heat cells, Table numerals, Roster chips and event
+ * marks — sliced and reviewed as one surface.
+ *
+ * Rows are **flat** in the IR (`ArrayType(PlanRowType)`, depth-first order)
+ * with `parent: Option<String>` keys — no nested `RecursiveType`. The
+ * factories accept nested `rows: [...]` input and flatten, computing parent
+ * aggregates (rollup bands, per-bucket heat means, table subtotals) eagerly
+ * on the way.
+ *
+ * This file holds only plain data — no UIComponent slots — so `component.ts`
+ * can import it without a circular dependency. The shapes that do carry a
+ * `popover` / `hovercard` / `summary` component slot (runs, bucket events,
+ * chips, event marks, the row kind / row, templates, journeys, review, the
+ * root) follow the container convention instead: resolved at
+ * `UIComponentType` in `./index.ts`, and spelled inline with the recursion
+ * `node` in the `Plan` arm of `component.ts`, mirror comments keeping the
+ * two in lockstep (every factory-built value is subtype-checked against the
+ * arm when the `Plan` variant is constructed, so drift fails the specs).
+ *
+ * @packageDocumentation
+ */
+
+import {
+    type SubtypeExprOrValue,
+    ArrayType,
+    BooleanType,
+    DateTimeType,
+    FloatType,
+    NullType,
+    OptionType,
+    StringType,
+    StructType,
+    VariantType,
+} from "@elaraai/east";
+
+import { StatusValueType } from "../../feedback/status/types.js";
+import { TimeResolutionType, type TimeResolutionLiteral } from "../../contracts/time.js";
+import { ValueFormatType } from "../../contracts/format.js";
+import { ChartDomainType, ChartTickValuesType } from "../../charts/spec/index.js";
+import { MatrixFillType } from "../matrix/types.js";
+import { DensityType } from "../../style/interaction.js";
+
+// ============================================================================
+// Axis — the shared time scale declaration
+// ============================================================================
+
+/**
+ * The Plan axis declaration — the explicit window, the bucket resolution, the
+ * resolution segment options, the observed/plan divider, and the tick format.
+ *
+ * @remarks
+ * Construct via `Plan.axis({ … })`. The window is a half-open calendar range
+ * `[min, max)` interpreted in UTC — a 12-week window at `week` resolution is
+ * exactly 12 columns. When a bound slice carries a datetime range /
+ * resolution, the slice state supersedes these initial values (the slice is
+ * the single source of truth for window + resolution); `axis` seeds the
+ * defaults and covers the unbound case.
+ *
+ * @property window - Explicit window `[min, max)`. `none` ⇒ the bound slice's datetime range; else fit to the data
+ * @property resolution - Initial bucket unit (see {@link TimeResolutionType}); the toolbar segment overrides via slice state
+ * @property resolutions - Resolution segment options (e.g. `[week, day]`); `[]` ⇒ no segment shown
+ * @property now - The observed/plan split instant. `none` ⇒ no now-line
+ * @property format - Tick-label pattern override; `none` ⇒ resolution defaults matching the spec ruler (week ⇒ ISO week `"W27"`, day ⇒ uppercase weekday `"MON"`)
+ */
+export const PlanAxisType = StructType({
+    window:      OptionType(StructType({ min: DateTimeType, max: DateTimeType })),
+    resolution:  TimeResolutionType,
+    resolutions: ArrayType(TimeResolutionType),
+    now:         OptionType(DateTimeType),
+    format:      OptionType(StringType),
+});
+export type PlanAxisType = typeof PlanAxisType;
+
+/**
+ * The three grains of one canvas — GROUP (heat strips), RESOURCE (rows, the
+ * default) and ITEM (trajectories, only ever on a filtered set ≤ 60 rows).
+ *
+ * @remarks
+ * The grain changes rows — never the axis, the charts or the vocabulary. Set
+ * the initial grain via the root's `grain`; thereafter the toolbar segment
+ * drives it as renderer state (observe via `onGrainChange`).
+ *
+ * @property group - Every group collapsed to its summary heat strip
+ * @property resource - Resource rows (the default)
+ * @property item - Item trajectories on a filtered set
+ */
+export const PlanGrainType = VariantType({ group: NullType, resource: NullType, item: NullType });
+export type PlanGrainType = typeof PlanGrainType;
+
+/** String-literal shorthand for {@link PlanGrainType}. */
+export type PlanGrainLiteral = "group" | "resource" | "item";
+
+// ============================================================================
+// Gutter — the left cell's identity vocabulary
+// ============================================================================
+
+/**
+ * One chart-series legend chip printed in the gutter (colour swatch + label).
+ *
+ * @property color - The swatch colour (theme token, e.g. `"teal.solid"`, or CSS colour)
+ * @property label - The swatch caption (e.g. `"col"`, `"trend"`)
+ */
+export const PlanGutterSwatchType = StructType({
+    color: StringType,
+    label: StringType,
+});
+export type PlanGutterSwatchType = typeof PlanGutterSwatchType;
+
+/**
+ * The gutter identity — the left cell's whole vocabulary.
+ *
+ * @remarks
+ * The factories flatten these fields into their input bags (`label`, `id`,
+ * `sub`, `value`, `meta`, `stacked`, `swatches` ride on every row factory).
+ *
+ * @property label - The row name (12.5/500; groups and names)
+ * @property id - `true` ⇒ the label renders as a mono row id (11.5/600 — `L1-M03`, `COVERAGE`)
+ * @property sub - The muted mono sub line (`"120 t"`, `"week · 1 lane"`)
+ * @property value - The right-aligned mono value slot (`"94.2%"`, `"82"`) — the same aggregate slot a table group header uses
+ * @property meta - The group meta line (`"8 rs · 82%"`)
+ * @property stacked - `true` ⇒ two-line layout (label over sub; row min-height 42px)
+ * @property swatches - Chart-series legend chips printed under the label
+ */
+export const PlanGutterType = StructType({
+    label:    StringType,
+    id:       OptionType(BooleanType),
+    sub:      OptionType(StringType),
+    value:    OptionType(StringType),
+    meta:     OptionType(StringType),
+    stacked:  OptionType(BooleanType),
+    swatches: ArrayType(PlanGutterSwatchType),
+});
+export type PlanGutterType = typeof PlanGutterType;
+
+// ============================================================================
+// Drill — the in-place 96px expansion payload
+// ============================================================================
+
+/**
+ * One point of a drilled row's level trace (area + line).
+ *
+ * @property at - The instant
+ * @property value - The level at that instant
+ */
+export const PlanDrillPointType = StructType({
+    at:    DateTimeType,
+    value: FloatType,
+});
+export type PlanDrillPointType = typeof PlanDrillPointType;
+
+/**
+ * The drilled-row payload — identity lines, meter, level trace, named events
+ * and the journey link shown when a row expands in place to 96px.
+ *
+ * @property lines - Identity lines (`"120 t · FILL"`, `"B-208 · 88 t · 73%"`)
+ * @property meter - Optional 0..1 fill for the 108×5px meter bar
+ * @property series - Optional level trace (drawn as area + line on the shared scale)
+ * @property events - The named-event line (`"TRANSFER W31 · −24 t"`)
+ * @property journey - Optional item key — renders the `open item journey →` link (K8 overlay)
+ */
+export const PlanDrillType = StructType({
+    lines:   ArrayType(StringType),
+    meter:   OptionType(FloatType),
+    series:  OptionType(ArrayType(PlanDrillPointType)),
+    events:  ArrayType(StringType),
+    journey: OptionType(StringType),
+});
+export type PlanDrillType = typeof PlanDrillType;
+
+// ============================================================================
+// Span-row leaf data — ports, rollup, bands
+// ============================================================================
+
+/**
+ * A quantity in/out port glyph on a span row — cross-row relations are
+ * quantity through ports, never dependency arrows.
+ *
+ * @property at - The instant the quantity moves
+ * @property label - Optional port caption (e.g. `"−24 t"`)
+ */
+export const PlanPortType = StructType({
+    at:    DateTimeType,
+    label: OptionType(StringType),
+});
+export type PlanPortType = typeof PlanPortType;
+
+/**
+ * How a parent span row rolls its descendants' runs up into bands.
+ *
+ * @property union - One band per busy interval (any child busy — the default)
+ * @property byStatus - One thin band per status, stacked
+ * @property sum - Quantity series emphasis (band quantities carry the sums — feed a chart row for the full series)
+ */
+export const PlanRollupType = VariantType({ union: NullType, byStatus: NullType, sum: NullType });
+export type PlanRollupType = typeof PlanRollupType;
+
+/** String-literal shorthand for {@link PlanRollupType}. */
+export type PlanRollupLiteral = "union" | "byStatus" | "sum";
+
+// ============================================================================
+// Bucket-row leaf data — cell markers + the tile geometry vocabulary
+// ============================================================================
+
+/**
+ * A status marker on a bucket cell — rings the cell, paints the corner status
+ * icon, and surfaces `message` as a hover tooltip (the Planner marker,
+ * verbatim).
+ *
+ * @property at - The bucket instant the marker rings
+ * @property lane - The lane key within the cell (`none` in an unbucketed row)
+ * @property status - The semantic status — drives colour + paired icon
+ * @property message - The tooltip text
+ */
+export const PlanCellMarkerType = StructType({
+    at:      DateTimeType,
+    lane:    OptionType(StringType),
+    status:  StatusValueType,
+    message: StringType,
+});
+export type PlanCellMarkerType = typeof PlanCellMarkerType;
+
+/**
+ * Which axis a bucket-event tile stretches to fill its cell on. Absent ⇒ the
+ * tile is content-sized (intrinsic).
+ *
+ * @property horizontal - Fill the cell width
+ * @property vertical - Fill the cell height
+ * @property both - Fill both axes
+ */
+export const PlanStretchType = VariantType({ horizontal: NullType, vertical: NullType, both: NullType });
+export type PlanStretchType = typeof PlanStretchType;
+
+/** String-literal shorthand for {@link PlanStretchType}. */
+export type PlanStretchLiteral = "horizontal" | "vertical" | "both";
+
+/**
+ * One alignment position for a tile's content along a single axis.
+ *
+ * @property start - Align to the start (left / top)
+ * @property center - Centre
+ * @property end - Align to the end (right / bottom)
+ */
+export const PlanContentAlignType = VariantType({ start: NullType, center: NullType, end: NullType });
+export type PlanContentAlignType = typeof PlanContentAlignType;
+
+/** String-literal shorthand for {@link PlanContentAlignType}. */
+export type PlanContentAlignLiteral = "start" | "center" | "end";
+
+/**
+ * Where a bucket-event tile's content sits inside the tile — a two-axis
+ * alignment. Both axes default to `start` (top-left) when omitted.
+ *
+ * @property horizontal - Horizontal content alignment (→ `justifyContent`)
+ * @property vertical - Vertical content alignment (→ `alignItems`)
+ */
+export const PlanContentType = StructType({
+    horizontal: OptionType(PlanContentAlignType),
+    vertical:   OptionType(PlanContentAlignType),
+});
+export type PlanContentType = typeof PlanContentType;
+
+/**
+ * A bucket-event tile's optional attention animation. `pulse` honours
+ * `prefers-reduced-motion`.
+ *
+ * @property none - No animation (the default)
+ * @property pulse - A gentle opacity pulse
+ */
+export const PlanAnimationType = VariantType({ none: NullType, pulse: NullType });
+export type PlanAnimationType = typeof PlanAnimationType;
+
+/** String-literal shorthand for {@link PlanAnimationType}. */
+export type PlanAnimationLiteral = "none" | "pulse";
+
+// ============================================================================
+// Chart-row leaf data — first-class, data-only layers
+// ============================================================================
+
+/**
+ * One `{t, y}` point of a Plan chart layer — the reified form every consumed
+ * Chart layer builder reduces to (the x accessor must be `DateTimeType`).
+ *
+ * @property t - The instant on the shared time scale
+ * @property y - The measure value
+ */
+export const PlanChartPointType = StructType({ t: DateTimeType, y: FloatType });
+export type PlanChartPointType = typeof PlanChartPointType;
+
+/**
+ * Which y-axis a chart layer scales against. Left ticks print inside the
+ * gutter cell's right edge; right ticks at the plot's right edge.
+ *
+ * @property left - The left (primary) y-axis
+ * @property right - The right (secondary) y-axis
+ */
+export const PlanAxisSideType = VariantType({ left: NullType, right: NullType });
+export type PlanAxisSideType = typeof PlanAxisSideType;
+
+/** String-literal shorthand for {@link PlanAxisSideType}. */
+export type PlanAxisSideLiteral = "left" | "right";
+
+/**
+ * A breach threshold on a chart layer — buckets/points beyond it render in
+ * the warn tone, and contiguous breach buckets derive the outlined breach
+ * rectangle at expanded density.
+ *
+ * @property above - Breach when the value exceeds this threshold
+ * @property below - Breach when the value falls below this threshold
+ */
+export const PlanBreachType = VariantType({ above: FloatType, below: FloatType });
+export type PlanBreachType = typeof PlanBreachType;
+
+/**
+ * One `{t, lo, hi}` point of a band (area-range) chart layer.
+ *
+ * @property t - The instant on the shared time scale
+ * @property lo - The lower bound
+ * @property hi - The upper bound
+ */
+export const PlanChartBandPointType = StructType({ t: DateTimeType, lo: FloatType, hi: FloatType });
+export type PlanChartBandPointType = typeof PlanChartBandPointType;
+
+/**
+ * A chart row's y-axis declaration — the Chart axis vocabulary
+ * ({@link ChartDomainType} / {@link ChartTickValuesType} /
+ * {@link ValueFormatType}), restricted to a value axis: only the `number`
+ * arms are meaningful (a Plan chart row's time axis is the shared canvas
+ * scale, never per-axis).
+ *
+ * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from the data)
+ * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ no ticks)
+ * @property format - Optional tick format (the shared {@link ValueFormatType} — `Chart.format.*`)
+ */
+export const PlanChartAxisType = StructType({
+    domain:     OptionType(ChartDomainType),
+    tickValues: OptionType(ChartTickValuesType),
+    format:     OptionType(ValueFormatType),
+});
+export type PlanChartAxisType = typeof PlanChartAxisType;
+
+/**
+ * One data-only chart layer on a chart row — the reified form of a consumed
+ * `Chart.*` layer builder. The canvas renders every mark itself against the
+ * shared scale; nothing of `ChartSpec` reaches the Plan IR.
+ *
+ * @remarks
+ * Renderer vocabulary (fixed by the spec, not the IR): lines draw solid ≤ now
+ * and dashed after; columns observed `ink`, planned brand at half strength,
+ * breach warn; stacked columns pair by `series`; refLines are dotted
+ * gridlines with a mono label. `Chart.Bar` (horizontal) is a build-time error
+ * — horizontal bars have no meaning on a time axis.
+ *
+ * @property line - A continuous line series (optional breach threshold)
+ * @property area - A filled area series
+ * @property column - Per-bucket columns (optional stack `series` id + breach)
+ * @property scatter - Point markers
+ * @property band - A filled range (lo/hi per instant)
+ * @property refLine - A horizontal reference line at a y value (dotted, mono label)
+ * @property refBand - A vertical reference band between two instants
+ * @property refDot - A reference marker at an instant × y value
+ */
+export const PlanChartLayerType = VariantType({
+    line:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
+                          breach: OptionType(PlanBreachType) }),
+    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
+    column:  StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
+                          series: OptionType(StringType), breach: OptionType(PlanBreachType) }),
+    scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
+    band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType }),
+    refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
+    refBand: StructType({ from: DateTimeType, to: DateTimeType, label: OptionType(StringType) }),
+    refDot:  StructType({ t: DateTimeType, y: FloatType, axis: PlanAxisSideType,
+                          label: OptionType(StringType) }),
+});
+export type PlanChartLayerType = typeof PlanChartLayerType;
+
+/**
+ * A chart row's height mode — spark (32px resting), expanded (88px), or an
+ * explicit height for a composed chart (via `Plan.fixed("120px")` — a CSS px
+ * size, the same String type as every component height).
+ *
+ * @property spark - The 32px resting sparkline density
+ * @property expanded - The 88px expanded density
+ * @property fixed - An explicit CSS px size (`"120px"`)
+ */
+export const PlanChartHeightType = VariantType({ spark: NullType, expanded: NullType, fixed: StringType });
+export type PlanChartHeightType = typeof PlanChartHeightType;
+
+/** String-literal shorthand for the non-fixed arms of {@link PlanChartHeightType}. */
+export type PlanChartHeightLiteral = "spark" | "expanded";
+
+// ============================================================================
+// Heat-row leaf data — heat depth / weight bars / segment compositions
+// ============================================================================
+
+/**
+ * One heat cell — a per-bucket scalar rendered as colour depth.
+ *
+ * @property at - The bucket instant
+ * @property value - The scalar (`none` ⇒ the 45° no-data hatch + `–`)
+ * @property label - Optional printed value text (shown when the cell is ≥ 12px tall)
+ */
+export const PlanHeatCellType = StructType({
+    at:    DateTimeType,
+    value: OptionType(FloatType),
+    label: OptionType(StringType),
+});
+export type PlanHeatCellType = typeof PlanHeatCellType;
+
+/**
+ * One weight cell — a per-bucket booked-vs-free bar (the Matrix weight-bar
+ * recipe). Planned buckets render pale.
+ *
+ * @property at - The bucket instant
+ * @property fraction - The 0..1 filled fraction
+ * @property planned - `true` ⇒ the pale planned treatment
+ */
+export const PlanWeightCellType = StructType({
+    at:       DateTimeType,
+    fraction: FloatType,
+    planned:  BooleanType,
+});
+export type PlanWeightCellType = typeof PlanWeightCellType;
+
+/**
+ * One segment of a segment-cell bar (the Matrix segment recipe).
+ *
+ * @property fill - The status-leveraged fill (see `MatrixFillType`)
+ * @property weight - The proportional weight (normalised with siblings)
+ * @property label - Optional in-bar % text (printed when the segment is wide enough)
+ */
+export const PlanSegmentType = StructType({
+    fill:   MatrixFillType,
+    weight: FloatType,
+    label:  OptionType(StringType),
+});
+export type PlanSegmentType = typeof PlanSegmentType;
+
+/**
+ * One segment cell — a per-bucket composition bar.
+ *
+ * @property at - The bucket instant
+ * @property segments - The weighted segments
+ */
+export const PlanSegmentCellType = StructType({
+    at:       DateTimeType,
+    segments: ArrayType(PlanSegmentType),
+});
+export type PlanSegmentCellType = typeof PlanSegmentCellType;
+
+/**
+ * A heat row's cells — one of the three Matrix-borrowed cell recipes.
+ *
+ * @remarks
+ * `heat` carries its own scale (`min`/`max`, defaulting to the observed
+ * extent) and an optional `warnAt` threshold (≥ it ⇒ the warn ring). Group
+ * summary strips (§5) are exactly the `heat` arm computed over descendants.
+ *
+ * @property heat - Colour-depth cells + scale + warn threshold
+ * @property weight - Booked-vs-free weight bars
+ * @property segments - Weighted segment compositions
+ */
+export const PlanHeatCellsType = VariantType({
+    heat:     StructType({ cells: ArrayType(PlanHeatCellType),
+                           min: OptionType(FloatType), max: OptionType(FloatType),
+                           warnAt: OptionType(FloatType) }),
+    weight:   ArrayType(PlanWeightCellType),
+    segments: ArrayType(PlanSegmentCellType),
+});
+export type PlanHeatCellsType = typeof PlanHeatCellsType;
+
+/**
+ * How a parent heat row derives its per-bucket cells from its children.
+ *
+ * @property mean - The per-bucket mean over children
+ * @property max - The per-bucket maximum
+ * @property sum - The per-bucket sum
+ */
+export const PlanAggregateType = VariantType({ mean: NullType, max: NullType, sum: NullType });
+export type PlanAggregateType = typeof PlanAggregateType;
+
+/** String-literal shorthand for {@link PlanAggregateType}. */
+export type PlanAggregateLiteral = "mean" | "max" | "sum";
+
+// ============================================================================
+// Table-row leaf data — bucketed numerals
+// ============================================================================
+
+/**
+ * A table cell's semantic tone.
+ *
+ * @property neg - Negative emphasis (shortfalls print in the negative ink)
+ * @property muted - Muted (the no-data em-dash)
+ */
+export const PlanTableToneType = VariantType({ neg: NullType, muted: NullType });
+export type PlanTableToneType = typeof PlanTableToneType;
+
+/**
+ * One table-row cell — a per-bucket numeral.
+ *
+ * @remarks
+ * The RENDERER prints `value` through the row's `format` (the shared
+ * {@link ValueFormatType}); `text` is an explicit display override and
+ * `tone` an explicit tone override (else negatives derive `neg`, `none`
+ * the muted em-dash).
+ *
+ * @property at - The bucket instant
+ * @property value - The numeric value (`none` ⇒ the muted em-dash)
+ * @property text - Optional explicit display override
+ * @property tone - Optional explicit semantic tone override
+ */
+export const PlanTableCellType = StructType({
+    at:    DateTimeType,
+    value: OptionType(FloatType),
+    text:  OptionType(StringType),
+    tone:  OptionType(PlanTableToneType),
+});
+export type PlanTableCellType = typeof PlanTableCellType;
+
+/**
+ * A table row's emphasis — body, header (caption-styled numerals) or footer
+ * (the 2px top rule).
+ *
+ * @property body - A plain body row
+ * @property header - The caption-styled header emphasis
+ * @property footer - The footer emphasis (2px top rule, bold numerals)
+ */
+export const PlanTableEmphasisType = VariantType({ body: NullType, header: NullType, footer: NullType });
+export type PlanTableEmphasisType = typeof PlanTableEmphasisType;
+
+/** String-literal shorthand for {@link PlanTableEmphasisType}. */
+export type PlanTableEmphasisLiteral = "body" | "header" | "footer";
+
+// ============================================================================
+// Event-row leaf data — the mark kind
+// ============================================================================
+
+/**
+ * An event mark's kind — ● milestone, ◇/◆ decision (pending / applied), or
+ * ▲ exception.
+ *
+ * @property milestone - A milestone dot (`--ink-4`)
+ * @property decision - A decision diamond; `applied` fills it
+ * @property exception - A warn exception triangle
+ */
+export const PlanEventMarkKindType = VariantType({
+    milestone: NullType,
+    decision:  StructType({ applied: BooleanType }),
+    exception: NullType,
+});
+export type PlanEventMarkKindType = typeof PlanEventMarkKindType;
+
+// ============================================================================
+// Refs + callback payloads
+// ============================================================================
+
+/**
+ * The Plan row-subject reference — rows are addressed by their stable `key`
+ * (never an index; the flat row array reorders under grouping and grain).
+ *
+ * @property key - The row key
+ */
+export const PlanRowRefType = StructType({ key: StringType });
+export type PlanRowRefType = typeof PlanRowRefType;
+
+/**
+ * The `onRunClick` payload — a span bar was clicked.
+ *
+ * @property row - The row key
+ * @property run - The run key
+ */
+export const PlanRunClickEventType = StructType({ row: StringType, run: StringType });
+export type PlanRunClickEventType = typeof PlanRunClickEventType;
+
+/**
+ * The `onEventClick` payload — a bucket-event tile was clicked.
+ *
+ * @property row - The row key
+ * @property event - The event key
+ */
+export const PlanEventClickEventType = StructType({ row: StringType, event: StringType });
+export type PlanEventClickEventType = typeof PlanEventClickEventType;
+
+/**
+ * The `onMarkClick` payload — an event-row mark or a span row's decision
+ * diamond was clicked (mark keys are unique per row).
+ *
+ * @property row - The row key
+ * @property mark - The mark / decision key
+ */
+export const PlanMarkClickEventType = StructType({ row: StringType, mark: StringType });
+export type PlanMarkClickEventType = typeof PlanMarkClickEventType;
+
+/**
+ * The `onChipClick` payload — a cards-row chip was clicked.
+ *
+ * @property row - The row key
+ * @property chip - The chip key
+ */
+export const PlanChipClickEventType = StructType({ row: StringType, chip: StringType });
+export type PlanChipClickEventType = typeof PlanChipClickEventType;
+
+/**
+ * The `onCellClick` payload — a heat / table / weight / segment bucket cell
+ * was clicked. Carries the bucket instant, never an index.
+ *
+ * @property row - The row key
+ * @property at - The clicked bucket's instant
+ */
+export const PlanCellClickEventType = StructType({ row: StringType, at: DateTimeType });
+export type PlanCellClickEventType = typeof PlanCellClickEventType;
+
+/**
+ * The `onGroupToggle` payload — a group strip was expanded or collapsed
+ * (fires after the in-place swap).
+ *
+ * @property row - The group row key
+ * @property expanded - The new expansion state
+ */
+export const PlanGroupToggleEventType = StructType({ row: StringType, expanded: BooleanType });
+export type PlanGroupToggleEventType = typeof PlanGroupToggleEventType;
+
+// ============================================================================
+// Footer + style
+// ============================================================================
+
+/**
+ * One status-footer item (mono 10px). Items with `end: true` right-align.
+ *
+ * @property text - The footer text (`"512 RESOURCES · 12 GROUPS · 3 IN VIEW"`)
+ * @property tone - Optional status tint (`warning` for the exceptions count)
+ * @property end - `true` ⇒ pushed to the right edge
+ */
+export const PlanFooterItemType = StructType({
+    text: StringType,
+    tone: OptionType(StatusValueType),
+    end:  OptionType(BooleanType),
+});
+export type PlanFooterItemType = typeof PlanFooterItemType;
+
+/**
+ * The Plan style — uniform sizing (#320), density, and the gutter width.
+ *
+ * @property height - Definite height (`"fill"` fills the parent); header chrome pinned, body scrolls within
+ * @property maxHeight - Max-height cap; content-sized up to it, then scrolls
+ * @property density - Row rhythm (`compact` ⇒ dense 24px span rows)
+ * @property gutterWidth - Explicit gutter width, a CSS px size (`"168px"`; default 168)
+ */
+export const PlanStyleType = StructType({
+    height:      OptionType(StringType),
+    maxHeight:   OptionType(StringType),
+    density:     OptionType(DensityType),
+    gutterWidth: OptionType(StringType),
+});
+export type PlanStyleType = typeof PlanStyleType;
+
+// ============================================================================
+// Templates + journey — the plain vocabulary
+// ============================================================================
+
+/**
+ * A template's row kind — drives the default library-card FA icon
+ * (bars-staggered · border-all · chart-line · table-cells-large · table-list ·
+ * user-group · flag).
+ *
+ * @property span - A span-row template
+ * @property buckets - A bucket-row template
+ * @property chart - A chart-row template
+ * @property heat - A heat-row template
+ * @property table - A table-row template
+ * @property cards - A cards-row template
+ * @property events - An event-row template
+ */
+export const PlanTemplateKindType = VariantType({
+    span: NullType, buckets: NullType, chart: NullType, heat: NullType,
+    table: NullType, cards: NullType, events: NullType,
+});
+export type PlanTemplateKindType = typeof PlanTemplateKindType;
+
+/** String-literal shorthand for {@link PlanTemplateKindType}. */
+export type PlanTemplateKindLiteral = "span" | "buckets" | "chart" | "heat" | "table" | "cards" | "events";
+
+/**
+ * One quantity link between two runs — the Plan's edge vocabulary, shared by
+ * the root's `links` graph (the links-focus control gathers a row's
+ * transitive upstream/downstream family over these edges) and the K8 journey
+ * overlay's ribbons. Each edge renders as a quantity-weighted ribbon between
+ * the run edges it names; geometry is fixed by the spec and lives in the
+ * renderer.
+ *
+ * @property fromRow - The source row key
+ * @property fromRun - The source run key
+ * @property toRow - The destination row key
+ * @property toRun - The destination run key
+ * @property quantity - The moved quantity (drives edge share + opacity)
+ * @property label - The printed quantity caption (`"34 t"`)
+ */
+export const PlanLinkType = StructType({
+    fromRow:  StringType,
+    fromRun:  StringType,
+    toRow:    StringType,
+    toRun:    StringType,
+    quantity: FloatType,
+    label:    StringType,
+});
+export type PlanLinkType = typeof PlanLinkType;
+
+/** The K8 journey overlay's ribbon — the same edge shape as {@link PlanLinkType} (one East type). */
+export const PlanJourneyRibbonType = PlanLinkType;
+export type PlanJourneyRibbonType = typeof PlanJourneyRibbonType;
+
+/**
+ * How a row's expand-in-place developer render treats the shared axis lines
+ * (grid columns + the now-line) INSIDE the expanded row — the ruler above
+ * never moves.
+ *
+ * @property keep - Run the grid + now-line through the render (the default)
+ * @property dim - Wash them to 40% behind dense content
+ * @property off - Suppress them inside the row only
+ */
+export const PlanExpandAxisType = VariantType({ keep: NullType, dim: NullType, off: NullType });
+export type PlanExpandAxisType = typeof PlanExpandAxisType;
+
+/** String-literal shorthand for {@link PlanExpandAxisType}. */
+export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
+
+// ============================================================================
+// TypeScript input interfaces (UIComp-free)
+// ============================================================================
+
+/**
+ * Options for `Plan.axis` — the shared time-scale declaration.
+ *
+ * @property window - Explicit half-open window `[min, max)` (Dates or expressions); omit ⇒ the bound slice's range, else fit to data
+ * @property resolution - The initial bucket unit (string shorthand or expression)
+ * @property resolutions - Resolution segment options (e.g. `["week", "day"]`); omit ⇒ no segment
+ * @property now - The observed/plan split instant; omit ⇒ no now-line
+ * @property format - Tick-label pattern override (Chart date tokens); omit ⇒ resolution defaults
+ */
+export interface PlanAxisOptions {
+    /** Explicit half-open window `[min, max)`; omit ⇒ the bound slice's datetime range, else fit to data. */
+    window?: { min: SubtypeExprOrValue<DateTimeType>; max: SubtypeExprOrValue<DateTimeType> };
+    /** The initial bucket unit. The toolbar segment (if any) overrides via slice state. */
+    resolution: SubtypeExprOrValue<TimeResolutionType> | TimeResolutionLiteral;
+    /** Resolution segment options (e.g. `["week", "day"]`); omit ⇒ no segment shown. */
+    resolutions?: (SubtypeExprOrValue<TimeResolutionType> | TimeResolutionLiteral)[];
+    /** The observed/plan split instant; omit ⇒ no now-line. */
+    now?: SubtypeExprOrValue<DateTimeType>;
+    /** Tick-label pattern override; omit ⇒ resolution defaults matching the spec ruler. */
+    format?: SubtypeExprOrValue<StringType>;
+}
