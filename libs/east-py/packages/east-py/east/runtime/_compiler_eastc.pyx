@@ -366,6 +366,65 @@ def foreign_function_value(object east_fn):
     return _ForeignFnHold()
 
 
+def open_paged_value_view(object east_type, object buffer, bint frozen=False):
+    """Open an indexed beast2 collection BUFFER as a lazy paged C value that
+    BORROWS the bytes (#560) — no copy: the caller (a mmap-owning file
+    object) must keep ``buffer`` alive, open and unchanged for the hold's
+    whole lifetime; the hold retains the buffer object to help enforce that.
+    ``east_type`` is a Python EastType or a raw ``EastType*`` pointer.
+    Returns ``None`` when the blob is not pageable (no index, aliased
+    segments, a gated element shape, or not a v5 container), exactly like
+    :func:`open_paged_value` — the caller falls back to the eager load.
+    """
+    _ensure_runtime()
+    cdef const uint8_t[::1] view = buffer
+    cdef const uint8_t* ptr = NULL
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_type = _resolve_c_type(east_type, &own_type)
+    cdef _eastc.EastValue* v = _eastc.east_beast2_open_paged_view(
+        ptr, <size_t>view.shape[0], c_type, frozen)
+    if v == NULL:
+        if own_type:
+            _eastc.east_type_release(c_type)
+        free(_eastc.east_builtin_get_error())
+        return None
+    cdef uintptr_t v_ptr = <uintptr_t>v
+    cdef uintptr_t type_ptr = <uintptr_t>c_type
+    cdef bint own_type_flag = own_type
+
+    class _PagedViewHold:
+        __slots__ = ("_east_c_paged", "_east_c_paged_type", "_buffer",
+                     "_own_type", "_released")
+
+        def __init__(self):
+            self._east_c_paged = v_ptr
+            self._east_c_paged_type = type_ptr
+            self._buffer = buffer  # keeps the mmap (and its bytes) alive
+            self._own_type = own_type_flag
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_paged)
+            if self._own_type:
+                _proxy_type_release(self._east_c_paged_type)
+
+    return _PagedViewHold()
+
+
+def paged_value_ref_count(uintptr_t ptr):
+    """The C refcount of a paged value — the close-safety probe (#560): a
+    count above the hold's own reference means a kernel bind or compiled
+    call still retains the value, so its borrowed bytes must stay mapped."""
+    if ptr == 0:
+        return 0
+    return (<_eastc.EastValue*>ptr).ref_count
+
+
 def open_paged_value(uintptr_t type_ptr, bytes data, bint frozen=False):
     """Open an indexed beast2 collection blob as a lazy paged C value (#505).
 
@@ -1263,10 +1322,28 @@ def bind_kernel(object kernel_callable, tuple bound_values):
         free(bd)
         raise MemoryError()
     cdef size_t k
+    cdef uintptr_t paged_ptr
+    cdef uintptr_t paged_type
     for k in range(n_bound):
         bd.bound[k] = NULL
     try:
         for k in range(n_bound):
+            # A pager-backed value (a beast2 file opened as a collection
+            # value, #560) binds BY POINTER: the compiled kernel's keyed
+            # builtins then answer from the pager — O(one frame) per read,
+            # no materialisation. Same declared-type discipline as the
+            # _eastc_call seam (#467).
+            paged_ptr = <uintptr_t>getattr(bound_values[k], "_east_c_paged", 0)
+            if paged_ptr != 0:
+                paged_type = <uintptr_t>getattr(bound_values[k], "_east_c_paged_type", 0)
+                if paged_type == 0 or (paged_type != <uintptr_t>input_ptrs[first + k]
+                                       and not _eastc.east_type_equal(
+                                           <_eastc.EastType*>paged_type,
+                                           <_eastc.EastType*><uintptr_t>input_ptrs[first + k])):
+                    raise TypeError("paged input type does not match the parameter type")
+                bd.bound[k] = <_eastc.EastValue*>paged_ptr
+                _eastc.east_value_retain(bd.bound[k])
+                continue
             bd.bound[k] = py_value_to_c(
                 bound_values[k], <_eastc.EastType*><uintptr_t>input_ptrs[first + k]
             )
@@ -1597,15 +1674,22 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
             heap_allocated = True
         try:
             for i in range(nargs):
-                # A paged hold (open_paged_value) passes its C value straight
-                # through — the lazy input seam (#505). Pointer-compare the
-                # declared parameter type: the hold was opened with the same
-                # interned EastType*, and a mismatched hold must not hand
-                # east-c a wrongly-typed pager (#467 discipline).
+                # A paged hold (open_paged_value / a beast2 file opened as a
+                # value, #560) passes its C value straight through — the lazy
+                # input seam (#505). Compare the declared parameter type by
+                # pointer first (the runner opens with the same interned
+                # EastType*), structurally otherwise (a file-backed value
+                # converts its own copy of the type) — a mismatched hold must
+                # not hand east-c a wrongly-typed pager (#467 discipline).
                 paged = getattr(args[i], "_east_c_paged", None)
                 if paged is not None:
-                    if i < n_types and getattr(args[i], "_east_c_paged_type", 0) != input_type_ptrs[i]:
-                        raise TypeError("paged input type does not match the parameter type")
+                    if i < n_types:
+                        ptype = <uintptr_t>getattr(args[i], "_east_c_paged_type", 0)
+                        if ptype == 0 or (ptype != <uintptr_t>input_type_ptrs[i]
+                                          and not _eastc.east_type_equal(
+                                              <_eastc.EastType*>ptype,
+                                              <_eastc.EastType*><uintptr_t>input_type_ptrs[i])):
+                            raise TypeError("paged input type does not match the parameter type")
                     c_args[i] = <_eastc.EastValue*><uintptr_t>paged
                     _eastc.east_value_retain(c_args[i])
                     continue

@@ -158,11 +158,12 @@ struct EastValue {
             EastCompiledFn *compiled;
         } function;
         struct {
-            Beast2Pages *pages; /* fences + segment LRU over `data` */
-            uint8_t *data;      /* owned blob bytes */
+            Beast2Pages *pages; /* fences + segment cache over `data` */
+            uint8_t *data;      /* blob bytes; owned iff owns_data */
             size_t len;
             EastValue *hydrated; /* NULL until the first unsupported op */
             bool frozen;         /* frozen open: segments decode frozen, mutation refuses */
+            bool owns_data;      /* false for a borrowed view (an mmap the host keeps alive) */
         } paged;
     } data;
 

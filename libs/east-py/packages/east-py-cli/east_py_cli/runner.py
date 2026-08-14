@@ -99,9 +99,11 @@ def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> ob
 
 
 class _EmitSink:
-    """The ``--emit`` capability: a Python callable passed as the body's
-    trailing FunctionType parameter, appending elements (pairs for dict
-    outputs) through the managed streaming beast2 writer.
+    """The ``--emit`` capability: an East function value whose implementation
+    is a native east-c accumulator (issue #560 phase 2) — the compiled body
+    calls it per row with NO python in the loop; this class keeps every
+    policy decision (file management, byte-adaptive batch sizing, the
+    spill/merge machinery) and runs only at batch boundaries.
 
     Emission order is unconstrained (issue #518). While Set/Dict emissions
     stay strictly ascending in East (key) order, segments stream straight to
@@ -114,13 +116,14 @@ class _EmitSink:
     Either way the finished file holds ascending key-disjoint segments — the
     beast2 v5 wire contract — so emission order is a cost concern, never a
     correctness one. Duplicate Set/Dict keys are a hard error in every path:
-    immediately when adjacent in the stream, at spill/merge time otherwise
-    (native sorted-container lengths are the detector, so equality is East
-    equality throughout)."""
+    immediately (in C) when adjacent in the stream, at spill/merge time
+    otherwise (native sorted-container lengths are the detector, so equality
+    is East equality throughout)."""
 
     def __init__(self, kind: str, emit_param_type: object, output_file: Path,
                  verbose: bool = False):
         from east import ArrayType, DictType, SetType, compare_for
+        from east.serialization._beast2_eastc import _EmitAccumCore
         from east.serialization.beast2 import open_beast2_file
 
         if Path(output_file).suffix.lower() not in (".beast2", ".beast"):
@@ -148,64 +151,67 @@ class _EmitSink:
         self._cmp = None if kind == "array" else compare_for(ins[0])
         self._key_type = None if kind == "array" else ins[0]
         self._verbose = verbose
-        self._last_key: object = None
-        self._has_last = False
-        self._batch: list = []
         self._written = 0
-        self._emitted = 0
         self._next_batch = _EMIT_BATCH_CAP
         self._writer: Any = open_beast2_file(output_file, self.out_type, mode="w")
-        # Buffered (out-of-order) mode state; `_buffer is None` means the
-        # ascending fast path is still live.
-        self._buffer: list | None = None
         self._runs: list[Path] = []
         self._run_cap = _emit_run_elements()
         self._spilled_bytes = 0
+        self._accum = _EmitAccumCore(
+            {"array": 0, "set": 1, "dict": 2}[kind], self.emit_types,
+            self._next_batch, self._run_cap,
+            self._flush, self._demote_to_runs, self._spill)
+
+    def function_value(self):
+        """The emit capability as a native East function value: per-row
+        compare + append run inside east-c, python only per batch."""
+        return self._accum.function_value(self.emit_types)
 
     def emit(self, *args: object) -> None:
-        if self._buffer is not None:
-            self._buffer.append((args[0], args[1]) if self.kind == "dict" else args[0])
-            self._emitted += 1
-            if len(self._buffer) >= self._run_cap:
-                self._spill()
-            return
-        if self._cmp is not None:
-            key = args[0]
-            if self._has_last:
-                order = self._cmp(self._last_key, key)
-                if order == 0:
-                    raise ValueError(self._duplicate_message(key))
-                if order > 0:
-                    self._demote_to_runs()
-                    self.emit(*args)
-                    return
-            self._last_key = key
-            self._has_last = True
-        self._batch.append((args[0], args[1]) if self.kind == "dict" else args[0])
-        self._emitted += 1
-        if len(self._batch) >= self._next_batch:
-            self._flush()
+        """Python-boundary emission — the same C acceptance path the
+        compiled body takes, one marshalled row at a time."""
+        self._accum.emit(*args)
+
+    def _container_from(self, parts: tuple) -> Any:
+        """The writer batch for one drained accumulator batch.
+
+        Ascending mode drains sorted unique rows, so the container build is
+        a straight native construction; buffered mode drains arrival order,
+        and the sorted-container build IS the run sort — a collapsed
+        East-equal duplicate shows as a length mismatch and is named.
+        """
+        if self.kind == "array":
+            return parts[0]
+        if self.kind == "dict":
+            from east.types.values.collections import EastDict
+
+            keys, values = parts
+            built: Any = EastDict(self.emit_types[0], self.emit_types[1])
+            built.update_many(keys, values)
+            if len(built) != len(keys):
+                self._raise_duplicate_in(list(keys))
+            return built
+        built = parts[0].to_set()
+        if len(built) != len(parts[0]):
+            self._raise_duplicate_in(list(parts[0]))
+        return built
 
     def _flush(self) -> None:
-        if not self._batch:
+        parts = self._accum.take_batch()
+        flushed = len(parts[0])
+        if flushed == 0:
             return
-        flushed = len(self._batch)
-        if self.kind == "dict":
-            self._writer.write(dict(self._batch))
-        elif self.kind == "set":
-            self._writer.write(set(self._batch))
-        else:
-            self._writer.write(list(self._batch))
-        self._batch = []
+        self._writer.write(self._container_from(parts))
         self._written += flushed
         # Refine toward the byte target from real output. bytes_written
         # includes the header — a slight average overestimate that only
         # makes batches marginally smaller (east-node/east-c parity).
         avg = max(1, self._writer.bytes_written // max(self._written, 1))
         self._next_batch = max(1, min(_EMIT_BATCH_CAP, _EMIT_TARGET_BYTES // avg))
+        self._accum.set_limit(self._next_batch)
 
     def finish(self) -> None:
-        if self._buffer is None:
+        if self._accum.mode == 0:
             self._flush()
             self._writer.close()
             return
@@ -224,8 +230,8 @@ class _EmitSink:
 
     def _demote_to_runs(self) -> None:
         # The prefix written so far is ascending, so closing the writer
-        # yields a complete canonical beast2 file — demote it to run #0 and
-        # switch to buffered (sort-in-the-sink) emission.
+        # yields a complete canonical beast2 file — demote it to run #0; the
+        # accumulator switches itself to buffered (sort-in-the-sink) mode.
         self._flush()
         self._writer.close()
         self._writer = None
@@ -236,18 +242,19 @@ class _EmitSink:
             self._spilled_bytes += run0.stat().st_size
         else:
             run0.unlink()
-        self._buffer = []
         noun = "Dict keys" if self.kind == "dict" else "Set elements"
         print(
-            f"east emit: {noun} left ascending order at element {self._emitted}; "
-            f"establishing canonical order in the sink (spill/merge)",
+            f"east emit: {noun} left ascending order at element "
+            f"{self._accum.emitted}; establishing canonical order in the sink "
+            f"(spill/merge)",
             file=sys.stderr,
         )
 
     def _sorted_container(self, items: list) -> Any:
-        """The native sorted container for ``items`` (arbitrary order) —
-        East containers sort in east-c, so this IS the run sort. A collapsed
-        East-equal duplicate shows as a length mismatch and is named."""
+        """The native sorted container for python-side ``items`` (the merge's
+        re-batched stream) — East containers sort in east-c, so this IS the
+        run sort. A collapsed East-equal duplicate shows as a length mismatch
+        and is named."""
         from east.types.values.collections import EastArray, EastDict
 
         if self.kind == "dict":
@@ -256,10 +263,11 @@ class _EmitSink:
         else:
             built = EastArray(self.emit_types[0], list(items)).to_set()
         if len(built) != len(items):
-            self._raise_duplicate_in(items)
+            self._raise_duplicate_in(
+                [it[0] for it in items] if self.kind == "dict" else list(items))
         return built
 
-    def _raise_duplicate_in(self, items: list) -> None:
+    def _raise_duplicate_in(self, keys_list: list) -> None:
         # Error path only: sort a copy in East order and name the first
         # adjacent East-equal pair.
         from east import make_east_key
@@ -267,26 +275,24 @@ class _EmitSink:
         cmp = self._cmp
         assert cmp is not None  # the spill/merge path exists only for set/dict
         keyed = make_east_key(self._key_type)
-        keys = sorted(
-            (it[0] for it in items) if self.kind == "dict" else items, key=keyed
-        )
+        keys = sorted(keys_list, key=keyed)
         for a, b in zip(keys, keys[1:], strict=False):
             if cmp(a, b) == 0:
                 raise ValueError(self._duplicate_message(b))
         raise ValueError(self._duplicate_message(None))
 
     def _spill(self) -> None:
-        if not self._buffer:
+        parts = self._accum.take_batch()
+        if len(parts[0]) == 0:
             return
         from east.serialization.beast2 import open_beast2_file
 
-        built = self._sorted_container(self._buffer)
+        built = self._container_from(parts)
         path = self._run_path(len(self._runs))
         with open_beast2_file(path, self.out_type, mode="w") as writer:
             writer.write(built)
         self._runs.append(path)
         self._spilled_bytes += path.stat().st_size
-        self._buffer = []
 
     def _merge_runs(self) -> None:
         """K-way merge the spilled runs and the in-memory tail into the
@@ -299,8 +305,8 @@ class _EmitSink:
 
         from east.serialization.beast2 import iter_beast2_segments_for, open_beast2_file
 
-        tail = self._sorted_container(self._buffer) if self._buffer else None
-        self._buffer = []
+        tail = self._container_from(self._accum.take_batch()) \
+            if self._accum.pending() else None
         cmp = self._cmp
         assert cmp is not None  # the spill/merge path exists only for set/dict
         keyed = cmp_to_key(cmp)
@@ -478,12 +484,11 @@ def run_program(
             inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
 
     # The emit capability rides the trailing FunctionType parameter as a
-    # foreign function value backed by the sink's Python callable.
+    # native East function value: the compiled body's per-row calls run the
+    # east-c accumulator directly — compare + append in C, python only at
+    # the batch boundaries (#560 phase 2).
     if sink is not None:
-        from east import EastFunction, NullType
-        from east.runtime._compiler_eastc import foreign_function_value
-
-        inputs.append(foreign_function_value(EastFunction(sink.emit, sink.emit_types, NullType)))
+        inputs.append(sink.function_value())
 
     t2 = perf_counter()
 

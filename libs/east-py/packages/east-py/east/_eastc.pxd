@@ -348,6 +348,7 @@ cdef extern from "east/values.h":
 
     # Comparison
     bint east_value_equal(EastValue *a, EastValue *b)
+    int east_value_compare(EastValue *a, EastValue *b)
 
 
 # ─── serialization.h ──────────────────────────────────────────────────────
@@ -433,6 +434,13 @@ cdef extern from "east/serialization.h":
     # Frozen lazy open (#539): the paged value and every pager-served segment
     # decode frozen; the shape gate collapses to Ref/function exclusions.
     EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t length, EastType *type)
+    # Borrowed-bytes lazy open (#560): the caller keeps the bytes (an mmap)
+    # alive and unchanged for the value's lifetime; never takes ownership.
+    EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t length, EastType *type,
+                                           bint frozen)
+    # Byte budget of a pager's decoded-segment cache (#560); the
+    # EAST_PAGED_CACHE_BYTES environment variable overrides the default.
+    void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
     EastValue *east_paged_hydrated(EastValue *v)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)

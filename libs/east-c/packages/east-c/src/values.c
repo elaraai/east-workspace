@@ -1077,6 +1077,7 @@ EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len)
     v->data.paged.len = len;
     v->data.paged.hydrated = NULL;
     v->data.paged.frozen = false;
+    v->data.paged.owns_data = true;
     return v;
 }
 
@@ -1179,7 +1180,7 @@ void east_value_release(EastValue *v)
 
     case EAST_VAL_PAGED:
         if (v->data.paged.pages) east_beast2_pages_free(v->data.paged.pages);
-        east_free(v->data.paged.data);
+        if (v->data.paged.owns_data) east_free(v->data.paged.data);
         east_value_release(v->data.paged.hydrated);
         break;
     }

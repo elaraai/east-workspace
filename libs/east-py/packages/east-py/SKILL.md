@@ -187,9 +187,16 @@ syntax, fastest first:
    values they execute natively; referenced inside another `kernel()` lambda
    or a pure wrapper they re-run their source and splice into that trace —
    so kernels compose (`kernel(Row, lambda r: amount(r) * 1.1)`), and every
-   grouping/sugar method runs them with zero per-element python
-   (`.bind(...)` results are the exception: native everywhere, but not
-   re-traceable inside another trace). Compiled East
+   grouping/sugar method runs them with zero per-element python. A
+   `.bind(...)` result (or any compiled function value) cannot re-trace its
+   body — instead a traced lambda that CALLS one lowers the call to the IR
+   `Call` node (#561): the callee rides as a hidden bound parameter and the
+   loop, the kernel and the callee all execute inside east-c. So
+   `kernel([Row], lambda r: lookup(r.k))` over a `lookup = kernel(...).bind(table)`
+   compiles whole, and `FunctionType` kernel PARAMETERS are first-class —
+   callable in the trace and bindable with function values. (Calling an
+   `AsyncFunctionType` value in a sync trace raises a named
+   `KernelTraceError`.) Compiled East
    functions loaded from elsewhere (`compile_from_beast2/json/east`, or
    `compile_from_value` for a homoiconic IR value built with
    `east.ir.builders`) are accepted the same way:
@@ -220,7 +227,9 @@ syntax, fastest first:
   element either way), East types/values (`east_null` included), the `East` builtin
   namespace, `where`/`some`/`none`, **precompiled `kernel()` results**
   (dual-mode: they re-trace from their source, at any nesting depth,
-  #470), and — two wrapper levels deep, enough for helper lambdas that
+  #470), **compiled East function values** (`.bind` results,
+  `compile_from_*` functions — a CALL on one lowers to a native IR Call,
+  #561), and — two wrapper levels deep, enough for helper lambdas that
   compose a callback — other lambdas that pass the same rules. Any
   other module reference (`random.…`, `np.…`), mutable closure, arbitrary
   callable, or closure mutation
@@ -576,11 +585,16 @@ Task → What do you need?
     │   │   │    Linux/macOS, Windows runs the same contract inline — output is ONE file either way)
     │   │   └─ merge shard files yourself → splice_beast2_files(path, T, sources) — byte copy, no re-encode
     │   │       (shards are for CPUs and live minutes; segments are for memory and live forever)
-    │   ├─ Read → open_beast2_file(path) as f — owns the mmap, mirrors the collection
+    │   ├─ Read → open_beast2_file(path) as f — a first-class READ-ONLY East collection
+    │   │   VALUE (a Beast2*File subclasses EastArray/EastDict/EastSet, #560): isinstance/
+    │   │   type_of answer, mutation raises, and it feeds kernels + compiled calls directly
     │   │   (T optional: the header supplies it; declare T to VALIDATE it at open;
     │   │    don't know a file's type? → read_beast2_type(path) — works on v4 too):
     │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
-    │   │   ├─ scan → for batch in f.segments():  — process each batch NATIVELY (eager methods)
+    │   │   ├─ join against it from a kernel → kernel([RowT, TableT], ...).bind(f) — the
+    │   │   │   compiled body's keyed reads answer from the pager, ONE frame per hit/miss,
+    │   │   │   nothing materialised (decoded segments sit in a BYTE-budgeted cache;
+    │   │   │   EAST_PAGED_CACHE_BYTES tunes it)
     │   │   ├─ Array point reads → f[i] · f.get/get_or_default/try_get/has · f.slice(a,b) · f.get_keys(rows)
     │   │   ├─ Dict keyed reads → f[k] ❗KeyError · f.get/get_or_default/try_get/has · k in f ·
     │   │   │   f.get_keys(keys, fill)   (fence search in east-c; ONE segment decodes per lookup)
@@ -592,7 +606,9 @@ Task → What do you need?
     │   │       every · some · find_first/all/maximum/minimum · is_sorted · to_set/unique ·
     │   │       to_dict · to_array · to_columns · map_batches · string_join · flatten_* ·
     │   │       the group_* family · Set algebra — segment folds, east-c per segment,
-    │   │       results == f.load() exactly (the file is never materialized)
+    │   │       results == f.load() exactly (the file is never materialized); anything
+    │   │       else inherits the eager method through ordinary iteration
+    │   │       (f.segments() is a DEPRECATED alias — the value surface subsumes it, #560)
     │   └─ Buffer-level (you hold the bytes, not a path):
     │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
@@ -885,14 +901,14 @@ name-for-name.
 
 | Signature | Description |
 |-----------|-------------|
-| `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint) |
-| `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally; `.segments` counts them |
-| `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile`. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
+| `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint). Managed batching is BYTE-adaptive (#560): a probe seeds rows-per-segment toward ~2 MiB of wire output (capped at 8192 rows), refined from real output, so wide rows still yield right-sized segments; an explicit `segment_rows` pins the row grain instead |
+| `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally (byte-adaptively, as above); `.segments` counts them |
+| `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` — a first-class READ-ONLY East collection VALUE (#560): each subclasses `EastArray`/`EastDict`/`EastSet`, so `isinstance`/`type_of` answer, every eager method works (streamed overrides below; the rest via iteration), mutation raises, and the file binds into kernels / passes into compiled calls by reference — keyed reads inside the compiled body answer from the pager, one frame per hit/miss, through a BYTE-budgeted segment cache (`EAST_PAGED_CACHE_BYTES`). `close()` DEFERS while a kernel bind still holds the value. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
 | `read_beast2_type(source) -> EastType` | The root type embedded in any beast2-full blob (v4 **and** v5), from a path or buffer, no value decoded — regenerate loaders from artifacts alone, or inspect a file you know nothing about |
 | `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, segment_rows=, keep_shards=False, verify=False)` | Partitioned parallel write to ONE file: `produce(partition)` runs per worker and returns that partition's batches (or one collection = one batch); each worker writes a private shard and the shards splice **in partition order**, incrementally, as they finish. `strategy="auto"` forks on Linux/macOS — whatever `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and call before starting threads) — and runs inline on Windows: byte-identical output either way. Any worker failure (exception or signal) fails the whole call with the worker's traceback and leaves nothing behind |
 | `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merge indexed v5 files into one by **byte copy** — east-c parses the container geometry, `os.sendfile` moves the segment frames, nothing decodes or re-encodes. `sources` may be a lazy generator (shards splice as they complete, in order = row order). Every source must be v5 + indexed + self-contained with an identical type section; refusals name the offending path and leave no destination. Output is indistinguishable from one writer given the same batches; `verify=True` re-walks it with east-c's strict sequential reader |
-| `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size |
-| `f.segments()` | Yield one decoded collection per segment (process each batch with the native eager methods — never element-by-element from python) |
+| `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size (also the mutable escape hatch, like `f.copy()`) |
+| `f.segments()` | DEPRECATED alias (#560) — the file IS its collection value, so the eager methods, keyed reads and `load()` subsume the raw segment scan; still works (warning) for per-batch migration code |
 | `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index — counts are exact for every root kind (Set/Dict segments are disjoint ranges of the canonical value) |
 | Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` → `some`/`none` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | Same names, signatures and error semantics as `EastArray`; every point read decodes only the owning segment, `get_keys` decodes each owning segment once |
 | Dict: `f[k]` ❗KeyError · `f.get(k, default=None)` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads (#481 W2): east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Disjoint ascending segments are the v5 wire contract; the first keyed read still verifies the fences, and a corrupt (or pre-contract) blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
@@ -910,9 +926,14 @@ with open_beast2_file(path) as f:                 # self-describing: type from t
     totals = f.group_sum(lambda r: r["sku"],      #   instead to VALIDATE it at open
                          lambda r: r["qty"])      # whole-file compute: segment folds,
     top = f.maximum(by=lambda r: r["qty"])        #   never materialized, == load() exactly
-    for batch in f.segments():                    # custom folds still stream batches
-        consume(batch)                            #   (process each NATIVELY, never per row)
     table = f.load()                              # whole table when you truly need it
+
+# The file IS a collection value (#560): bind it into a kernel and the
+# compiled body's keyed reads answer from the pager — one frame per lookup.
+with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
+    lookup = kernel([StringType, DictType(StringType, FloatType)],
+                    lambda k, d: d.get_or_default(k, 0.0)).bind(t)
+    joined = rows.map(lambda r: r.v + lookup(r.k))   # loop + callee + pager: all east-c
 ```
 
 **Pick the right pair first — `_for` is NOT the same format as `_with_header_for`:**

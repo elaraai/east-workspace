@@ -825,7 +825,7 @@ def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):
     path = tmp_path / "short.beast2"
     write_beast2_file(path, W4_AT, EastArray(W4_ROW, _w4_rows(40)), segment_rows=7)
     consumed = 0
-    original = Beast2ArrayFile.segments
+    original = Beast2ArrayFile._iter_segments
 
     def counting(self):
         nonlocal consumed
@@ -833,7 +833,7 @@ def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):
             consumed += 1
             yield segment
 
-    monkeypatch.setattr(Beast2ArrayFile, "segments", counting)
+    monkeypatch.setattr(Beast2ArrayFile, "_iter_segments", counting)
     with open_beast2_file(path, W4_AT) as f:
         # The dual-mode `where` spelling: a python-`if` lambda would raise
         # (a pure callback that cannot trace surfaces loudly).
