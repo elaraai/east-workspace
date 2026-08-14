@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-node-cli",
-  "version": "1.0.63",
+  "version": "1.0.64",
   "description": "Command-line interface for running East IR programs with Node.js",
   "bin": {
     "east-node": "./bin/east-node.mjs"
