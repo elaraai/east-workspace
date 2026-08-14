@@ -43,9 +43,11 @@ import { flatMapRowsBlock } from "../../shared/reify.js";
 import { TableAggregateType } from "../table/types.js";
 import {
     PlanAggregateType,
+    type PlanAggregateLiteral,
     PlanDrillType,
     PlanExpandType,
     PlanRowType,
+    PlanRowKindType,
     PlanPagedSourceType,
     PlanLaneType,
     PlanBucketEventType,
@@ -55,7 +57,7 @@ import {
     type PlanRowsValue,
 } from "./types.js";
 import { resolveTag, emptyRows } from "./builders.js";
-import { groupParentFn, applyRowOverrides, normalizeRows, type PlanRowsInput, type PlanRowBaseInput } from "./assemble.js";
+import { groupParentFn, rootsOf, applyRowOverrides, normalizeRows, type PlanRowsInput, type PlanRowBaseInput } from "./assemble.js";
 import {
     createBuckets,
     createCards,
@@ -161,6 +163,8 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> {
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
     id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
     /** Gutter sub-line accessor — returns the field's `Option`. */
     sub?: PlanAccessor<R, OptionType<StringType>>;
     /** Gutter value-slot accessor — returns the field's `Option`. */
@@ -239,8 +243,29 @@ export interface PlanChartSeriesConfig<R extends StructType> extends PlanSeriesE
     swatches?: PlanRowBaseInput["swatches"];
 }
 
-/** Chrome for {@link Plan.series.group} — the group factory's input minus nested rows. */
+/** Chrome for {@link Plan.series.group}'s STATIC form — the group factory's input minus nested rows. */
 export type PlanGroupSeriesChrome = Omit<PlanGroupInput, "rows">;
+
+/**
+ * Config for {@link Plan.series.group}'s DISCOVERED form — one group strip
+ * per distinct `by` value (first-appearance data order), the child series
+ * applied to each group's member rows and re-parented beneath its strip.
+ *
+ * @property match - Strip membership (omitted ⇒ every data row)
+ * @property by - The group-key accessor
+ * @property collapsed - Strips start collapsed
+ * @property summaryAggregate - DECLARED strip aggregation over descendant heat rows
+ */
+export interface PlanGroupSeriesByConfig<R extends StructType> {
+    /** Strip membership (omitted ⇒ every data row). */
+    match?: (row: ExprType<R>) => SubtypeExprOrValue<BooleanType>;
+    /** The group-key accessor — one strip per discovered value. */
+    by: PlanAccessor<R, StringType>;
+    /** Strips start collapsed. */
+    collapsed?: boolean;
+    /** DECLARED strip aggregation over descendant heat rows — `"mean"`/`"max"`/`"sum"` or a `PlanAggregateType` expression. */
+    summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+}
 
 // ============================================================================
 // Internal helpers
@@ -421,6 +446,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
             key:   cfg.key(r),
             label: cfg.label(r),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             ...(cfg.lanes !== undefined ? { lanes: cfg.lanes(r) } : {}),
             events: cfg.events(r),
             ...(cfg.markers !== undefined ? { markers: cfg.markers(r) } : {}),
@@ -446,6 +472,7 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
             key:   cfg.key(r),
             label: cfg.label(r),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             chips: cfg.chips(r),
         }),
         envelopeOverrides(cfg, r),
@@ -468,6 +495,7 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
             key:   cfg.key(r),
             label: cfg.label(r),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             marks: cfg.marks(r),
         }),
         envelopeOverrides(cfg, r),
@@ -491,6 +519,7 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
             key:   cfg.key(r),
             label: cfg.label(r),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             layers: cfg.layers(r),
             ...(cfg.left !== undefined ? { left: cfg.left } : {}),
             ...(cfg.right !== undefined ? { right: cfg.right } : {}),
@@ -519,18 +548,42 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
  */
 export function createSeriesGroup<R extends StructType>(
     rowType: R,
-    chrome: PlanGroupSeriesChrome,
+    chromeOrBy: PlanGroupSeriesChrome | PlanGroupSeriesByConfig<R>,
     children: PlanSeriesValue[],
 ): PlanSeriesValue {
-    const make = East.function([ArrayType(rowType)], ArrayType(PlanRowType), (_$, rows) => {
-        const members = children.reduce<PlanRowsValue>(
-            (acc, c) => acc.concat(applySeriesValue(
-                c as unknown as PlanSeriesValue,
-                rows as unknown as ExprType<ArrayType<StructType>>,
-            )) as PlanRowsValue,
+    const applyChildren = (subset: ExprType<ArrayType<StructType>>): PlanRowsValue =>
+        children.reduce<PlanRowsValue>(
+            (acc, c) => acc.concat(applySeriesValue(c, subset)) as PlanRowsValue,
             emptyRows(),
         );
-        return createGroup({ ...(chrome as PlanGroupInput), rows: members });
+    if ("by" in chromeOrBy && typeof chromeOrBy.by === "function") {
+        // DISCOVERED strips — one group per distinct key, mirroring the
+        // grouped data form: the strip DECLARES its summary aggregation and
+        // wears the member-count meta; children apply to each group's rows.
+        const cfg = chromeOrBy as PlanGroupSeriesByConfig<StructType>;
+        const kind = East.value(variant("group", {
+            summary:          none,
+            summaryAggregate: cfg.summaryAggregate !== undefined
+                ? some(resolveTag(cfg.summaryAggregate, PlanAggregateType))
+                : none,
+            collapsed:        cfg.collapsed !== undefined ? some(cfg.collapsed) : none,
+        }), PlanRowKindType);
+        const parentFn = groupParentFn(kind, ($, kids) => {
+            const roots = $.let(rootsOf(kids as PlanRowsValue), ArrayType(PlanRowType));
+            return some(East.str`${roots.length()} rs`);
+        });
+        const rt: StructType = rowType;
+        const make = East.function([ArrayType(rt)], ArrayType(PlanRowType), ($, rows) => {
+            const matched = $.let(matchedRows(rows, rt, cfg.match), ArrayType(rt));
+            const levels: PlanResolvedLevel[] = [{ by: reifyLevelKey(rt, cfg.by), parentFn }];
+            return groupRows(matched, levels, applyChildren, "");
+        });
+        return seriesValue(rowType, "group", { make });
+    }
+    // STATIC chrome — one literal strip around the children.
+    const chrome = chromeOrBy as PlanGroupSeriesChrome;
+    const make = East.function([ArrayType(rowType)], ArrayType(PlanRowType), (_$, rows) => {
+        return createGroup({ ...(chrome as PlanGroupInput), rows: applyChildren(rows as unknown as ExprType<ArrayType<StructType>>) });
     });
     return seriesValue(rowType, "group", { make });
 }

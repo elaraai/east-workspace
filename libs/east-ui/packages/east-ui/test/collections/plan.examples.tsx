@@ -10,7 +10,6 @@ import {
     DateTimeType,
     East,
     FloatType,
-    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -25,58 +24,74 @@ import {
 import { DragEventType, EventStateType, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import { Chart, Format, Plan, Reactive, Slice, Text } from "@elaraai/east-ui";
 
-// The corpus: the §1 composition flagship, ONE example per row kind (each a
-// mini variants panel — several rows on one canvas, one per config of that
-// kind's grammar; statically shootable for the visual loop), and the
-// library-DnD behavioral isolate. Every per-kind panel ALSO sweeps the shell
-// options: rows in AND out of a group strip, single-line vs stacked two-line
-// gutters, and the meta tag on and off. Fixtures are defined INLINE in each
-// example's fn body (the automated docs extract only the fn body) and
-// DERIVED with East expressions — a `week(n)` ISO-week function plus
-// `East.Array.generate` — never hand-written per element; only
-// individually-meaningful mock entries (runs, chips, marks) stay literal.
+// The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
+// §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
+// families discriminated by a field; no factory-built values in the data) +
+// `series` (one `Plan.series.*` value per family, `$.const`-bound and typed
+// by the `Plan.Types.Series(Row)` constructor — its accessors DERIVE the
+// canvas vocabulary from the raw fields client-side: labels, quantity
+// displays, element values via the `Plan.run`/`chip`/`event` expression
+// builders) + the root RESOLVER functions (`popover` / `hover` /
+// `expandRender`). The kind factories are subtree vocabulary only —
+// library-template `make` bodies and `Plan.series.rows` one-off chrome.
+// Fixtures are defined INLINE in each example's fn body (the automated docs
+// extract only the fn body) and DERIVED with East expressions — a `week(n)`
+// ISO-week function plus `East.Array.generate` — never hand-written per
+// element; only individually-meaningful mock records stay literal, and
+// lifecycle states are plain `EventStateType` variants (the shared contracts
+// vocabulary a plan dataset stores).
 
 // ============================================================================
-// planTargetState — the §1 flagship mirror (every row kind on one canvas)
+// planTargetState — the §1 flagship (every row kind, ONE source, series)
 // ============================================================================
 
 export const planTargetState = example({
     keywords: [
-        "Plan", "canvas", "axis", "window", "resolution", "now", "span", "run",
-        "group", "heat", "buckets", "cards", "chip", "events", "mark", "chart",
+        "Plan", "canvas", "data", "series", "match", "axis", "window", "resolution", "now",
+        "span", "run", "group", "heat", "buckets", "cards", "chip", "events", "mark", "chart",
         "layers", "drill", "rollup", "bands", "review", "footer", "milestone",
         "decision", "exception", "pinned", "port", "hovercard", "popover",
         "slice", "brush", "horizon", "toolbar", "affordances", "journeys",
-        "journey", "of", "data-driven", "accessor", "target state",
+        "journey", "resolver", "data-driven", "accessor", "raw", "target state",
     ],
-    description: "The whole operation on one axis, data-driven — machines typed with the IR element types feed span.of (status/drill presence per row from Option fields), dock/crew/milestone datasets map through Plan.rows with the plain factories, a pinned coverage chart, a collapsed heat-strip group, slice chrome + the horizon brush, review, journeys, the generalized popover/hover resolvers over element refs, and a status footer",
+    description: "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, review, journeys and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
-        // Domain data typed WITH the IR element types (Plan.Types.Run / Chip /
-        // BucketEvent / EventMark …) — presence lives in the data as Option
-        // fields, so mappers pass it through; no option plumbing anywhere.
         const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType });
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
-        const MachineRow = StructType({
-            id: StringType, cap: FloatType,
-            status: OptionType(StatusValueType),          // ● dot — some machines only
-            drill:  OptionType(Plan.Types.Drill),         // 96px drill — only M04 carries one
-            runs:      ArrayType(Plan.Types.Run),
-            decisions: ArrayType(Plan.Types.DecisionMark),
-            ports:     ArrayType(Plan.Types.Port),
+        // The RAW job record — what an ops dataset stores: phase + optional
+        // batch, the window, optional tonnage, the lifecycle state, an alert.
+        const JobRow = StructType({
+            key: StringType, phase: StringType, batch: OptionType(StringType),
+            start: DateTimeType, end: DateTimeType,
+            tonnes: OptionType(FloatType), state: EventStateType,
+            alert: OptionType(StatusValueType),
         });
-        const DockRow = StructType({
-            id: StringType, label: StringType,
-            lanes: ArrayType(Plan.Types.Lane),
-            events: ArrayType(Plan.Types.BucketEvent),
-            markers: ArrayType(Plan.Types.CellMarker),
+        const ShiftRow = StructType({
+            key: StringType, from: DateTimeType, to: DateTimeType,
+            hours: FloatType, state: EventStateType,
         });
-        const CrewRow = StructType({
-            id: StringType, name: StringType, hours: StringType,
-            chips: ArrayType(Plan.Types.Chip),
-        });
-        const StreamRow = StructType({
-            id: StringType, name: StringType,
-            marks: ArrayType(Plan.Types.EventMark),
+        const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
+        // ONE source — row families discriminated by the kind variant (the
+        // natural ops-dataset shape; the same rows page from a dataset). The
+        // arms carry RAW fields; presence (status / drill payload) is
+        // per-row Option DATA the accessors pass through.
+        const OpsRow = StructType({
+            id: StringType,
+            kind: VariantType({
+                kpi: StructType({ name: StringType, headline: StringType, pinned: BooleanType,
+                                  points: ArrayType(MeasureRow) }),
+                machine: StructType({ cap: FloatType,
+                                      status: OptionType(StatusValueType),
+                                      detail: OptionType(Plan.Types.Drill),
+                                      jobs: ArrayType(JobRow),
+                                      decisions: ArrayType(Plan.Types.DecisionMark),
+                                      ports: ArrayType(Plan.Types.Port) }),
+                load: StructType({ name: StringType, sub: StringType, cells: ArrayType(Plan.Types.HeatCell) }),
+                dock: StructType({ name: StringType, allocations: ArrayType(AllocRow),
+                                   markers: ArrayType(Plan.Types.CellMarker) }),
+                crew: StructType({ name: StringType, hours: StringType, shifts: ArrayType(ShiftRow) }),
+                stream: StructType({ name: StringType, marks: ArrayType(Plan.Types.EventMark) }),
+            }),
         });
         const cfg = Slice.config(HorizonRow, {
             fields: { at: { label: "Despatched" }, line: { label: "Line" } },
@@ -87,103 +102,194 @@ export const planTargetState = example({
         return (<Reactive>{$ => {
             // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The §1
             // window is W27–W38 (half-open at W39); now = W31.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-                const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
                 return w1.addWeeks(n.subtract(1n));
             }));
-            // The pinned coverage measure + the Line 2 load — one point per
-            // window week, values paired off compact literal series.
             const covPcts = $.const(
                 [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2],
                 ArrayType(FloatType));
             const loadPcts = $.const(
                 [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],
                 ArrayType(FloatType));
-            const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$2, i) =>
+            const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) =>
                 ({ week: week(i.add(27n)), pct: covPcts.get(i) })));
-            // 36 despatch orders spread over W21–W47 (26 weeks), lines alternating.
-            const horizon = $.let(East.Array.generate(36n, HorizonRow, (_$2, i) => ({
+            const loadCells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
+                at: week(i.add(27n)), value: some(loadPcts.get(i)),
+                label: some(East.Float.printFixed(loadPcts.get(i), 0n)),
+            })));
+            // 36 despatch orders spread over W21–W47 — the horizon fixture.
+            const horizon = $.let(East.Array.generate(36n, HorizonRow, (_$, i) => ({
                 key: East.str`h${East.print(i.add(1n))}`,
                 at: week(i.multiply(27n).divide(36n).add(21n)),
                 line: i.remainder(2n).equal(0n).ifElse(() => "Line 1", () => "Line 2"),
             })));
-            // The Line 1 machines — element arrays built with the value
-            // builders (one call per element = presence per element); status
-            // and drill are Option DATA the span.of accessors pass through.
-            const machines = $.const([
-                { id: "L1-M03", cap: 120.0, status: some(variant("success", null)), drill: none,
-                  runs: [
-                      Plan.run({ key: "set",  start: week(27n), end: week(28n), label: "SET", state: "actual" }),
-                      Plan.run({ key: "b214", start: week(28n), end: week(31n), label: "RUN · B-214",
-                                 quantity: "96 t", qty: 96, state: "in-progress" }),
-                      Plan.run({ key: "cln",  start: week(31n), end: week(32n), label: "CLN", state: "confirmed" }),
-                      Plan.run({ key: "b221", start: week(32n), end: week(35n), label: "RUN · B-221",
-                                 quantity: "88 t", qty: 88, state: "recommended" }),
+            // Raw jobs → runs: ONE bound mapping function — the bar label and
+            // the quantity display/number pair derive CLIENT-SIDE from the
+            // raw phase/batch/tonnes fields (the series-make application).
+            const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>
+                jobs.map(($, j) => {
+                    const noQuantity = $.const(none, OptionType(StringType));
+                    const quantity = $.let(j.tonnes.match({
+                        some: (_$, t) => East.value(some(East.str`${East.Float.printFixed(t, 0n)} t`), OptionType(StringType)),
+                        none: (_$) => noQuantity,
+                    }), OptionType(StringType));
+                    const label = $.let(j.batch.match({
+                        some: (_$, b) => East.str`${j.phase} · ${b}`,
+                        none: (_$) => j.phase,
+                    }), StringType);
+                    const run = $.let({
+                        key: j.key, start: j.start, end: j.end, label,
+                        quantity, qty: j.tonnes, state: j.state, status: j.alert,
+                        moved: none, icon: none,
+                    }, Plan.Types.Run);
+                    return run;
+                })));
+            // Raw shifts → chips: hours print as the chip label, proposals
+            // wearing the `+` prefix — display derives from the lifecycle.
+            const shiftChips = $.const(East.function([ArrayType(ShiftRow)], ArrayType(Plan.Types.Chip), (_$, shifts) =>
+                shifts.map(($, s) => {
+                    const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+                    return Plan.chip({
+                        key: s.key, from: s.from, to: s.to,
+                        label: s.state.hasTag("proposed").ifElse(
+                            () => East.str`+${hrs}h`,
+                            () => East.str`${hrs}h`),
+                        state: s.state,
+                    });
+                })));
+            // The ONE ops source — every family's rows in one array, RAW: no
+            // display strings the accessors can derive, no built elements.
+            const ops = $.const([
+                { id: "coverage", kind: variant("kpi", { name: "COVERAGE", headline: "94.2%", pinned: true, points: coverage }) },
+                { id: "L1-M03", kind: variant("machine", { cap: 120.0, status: some(variant("success", null)), detail: none,
+                  jobs: [
+                      { key: "set",  phase: "SET", batch: none, start: week(27n), end: week(28n), tonnes: none, state: variant("actual", null), alert: none },
+                      { key: "b214", phase: "RUN", batch: some("B-214"), start: week(28n), end: week(31n), tonnes: some(96.0), state: variant("in-progress", null), alert: none },
+                      { key: "cln",  phase: "CLN", batch: none, start: week(31n), end: week(32n), tonnes: none, state: variant("confirmed", null), alert: none },
+                      { key: "b221", phase: "RUN", batch: some("B-221"), start: week(32n), end: week(35n), tonnes: some(88.0), state: variant("proposed", variant("recommended", null)), alert: none },
                   ],
-                  decisions: [Plan.decision({ key: "d1", at: week(32n), applied: false })],
-                  ports:     [Plan.port({ at: week(31n), label: "−24 t" })] },
-                { id: "L1-M04", cap: 120.0, status: none,
-                  drill: some(Plan.drill({
+                  decisions: [{ key: "d1", at: week(32n), applied: false }],
+                  ports:     [{ at: week(31n), label: some("−24 t") }] }) },
+                { id: "L1-M04", kind: variant("machine", { cap: 120.0, status: none,
+                  // The drill payload — a stored presentation record (plain
+                  // data, §3.2); presence is a per-row fact.
+                  detail: some({
                       lines: ["120 t · FILL", "B-208 · 88 t · 73%"],
-                      meter: 0.73,
-                      series: [
+                      meter: some(0.73),
+                      series: some([
                           { at: week(27n), value: 10.0 }, { at: week(29n), value: 96.0 },
                           { at: week(31n), value: 88.0 }, { at: week(34n), value: 64.0 }, { at: week(38n), value: 92.0 },
-                      ],
+                      ]),
                       events: ["LEVEL t · DAILY", "START 04 JUL", "TRANSFER W31 · −24 t", "QC W33"],
-                      journey: "B-208",
-                  })),
-                  runs: [
-                      Plan.run({ key: "b208", start: week(27n), end: week(30n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
-                      Plan.run({ key: "hld",  start: week(30n), end: week(31n), label: "HLD", state: "confirmed" }),
-                      Plan.run({ key: "qc",   start: week(31n), end: week(33n), label: "QC", state: "confirmed" }),
-                      Plan.run({ key: "b231", start: week(33n), end: week(41n), label: "RUN · B-231", quantity: "104 t", qty: 104, state: "recommended" }),
+                      journey: some("B-208"),
+                  }),
+                  jobs: [
+                      { key: "b208", phase: "RUN", batch: some("B-208"), start: week(27n), end: week(30n), tonnes: some(112.0), state: variant("actual", null), alert: none },
+                      { key: "hld",  phase: "HLD", batch: none, start: week(30n), end: week(31n), tonnes: none, state: variant("confirmed", null), alert: none },
+                      { key: "qc",   phase: "QC", batch: none, start: week(31n), end: week(33n), tonnes: none, state: variant("confirmed", null), alert: none },
+                      { key: "b231", phase: "RUN", batch: some("B-231"), start: week(33n), end: week(41n), tonnes: some(104.0), state: variant("proposed", variant("recommended", null)), alert: none },
                   ],
-                  decisions: [], ports: [] },
-                { id: "L1-M07", cap: 80.0, status: some(variant("warning", null)), drill: none,
-                  runs: [
-                      Plan.run({ key: "b197", start: week(27n), end: week(31n), label: "HLD · B-197",
-                                 quantity: "2.6× dwell", state: "actual", status: "warning" }),
-                      Plan.run({ key: "cln", start: week(34n), end: week(36n), label: "CLN", state: "recommended" }),
+                  decisions: [], ports: [] }) },
+                { id: "L1-M07", kind: variant("machine", { cap: 80.0, status: some(variant("warning", null)), detail: none,
+                  jobs: [
+                      { key: "b197", phase: "HLD", batch: some("B-197"), start: week(27n), end: week(31n), tonnes: none, state: variant("actual", null), alert: some(variant("warning", null)) },
+                      { key: "cln", phase: "CLN", batch: none, start: week(34n), end: week(36n), tonnes: none, state: variant("proposed", variant("recommended", null)), alert: none },
                   ],
-                  decisions: [], ports: [] },
-            ], ArrayType(MachineRow));
-            // Docks / crews / milestone streams — element data as IR values.
-            const dockRows = $.const([
-                { id: "dock2", label: "Dock 2", lanes: [],
-                  events: [
-                      Plan.event({ key: "a1", at: week(27n), state: "confirmed" }),
-                      Plan.event({ key: "a2", at: week(28n), state: "confirmed" }),
-                      Plan.event({ key: "a3", at: week(29n), state: "confirmed" }),
-                      Plan.event({ key: "a4", at: week(30n), state: "confirmed" }),
-                      Plan.event({ key: "a5", at: week(31n), state: "recommended" }),
-                      Plan.event({ key: "a6", at: week(33n), state: "recommended" }),
-                      Plan.event({ key: "a7", at: week(35n), state: "confirmed" }),
-                      Plan.event({ key: "a8", at: week(35n), state: "recommended" }),
+                  decisions: [], ports: [] }) },
+                { id: "l2-load", kind: variant("load", { name: "L2 load", sub: "%/wk", cells: loadCells }) },
+                { id: "dock2", kind: variant("dock", { name: "Dock 2",
+                  allocations: [
+                      { key: "a1", at: week(27n), state: variant("confirmed", null) },
+                      { key: "a2", at: week(28n), state: variant("confirmed", null) },
+                      { key: "a3", at: week(29n), state: variant("confirmed", null) },
+                      { key: "a4", at: week(30n), state: variant("confirmed", null) },
+                      { key: "a5", at: week(31n), state: variant("proposed", variant("recommended", null)) },
+                      { key: "a6", at: week(33n), state: variant("proposed", variant("recommended", null)) },
+                      { key: "a7", at: week(35n), state: variant("confirmed", null) },
+                      { key: "a8", at: week(35n), state: variant("proposed", variant("recommended", null)) },
                   ],
-                  markers: [Plan.marker({ at: week(35n), status: "warning", message: "capacity breach — 2 allocations" })] },
-            ], ArrayType(DockRow));
-            const crews = $.const([
-                { id: "crewA", name: "Crew A", hours: "152h → 168h", chips: [
-                    Plan.chip({ key: "s1", from: week(27n), to: week(29n), label: "80h", state: "confirmed" }),
-                    Plan.chip({ key: "s2", from: week(29n), to: week(31n), label: "72h", state: "confirmed" }),
-                    Plan.chip({ key: "s3", from: week(31n), to: week(33n), label: "+64h", state: "recommended" }),
-                    Plan.chip({ key: "s4", from: week(34n), to: week(35n), label: "48h", state: "estimated" }),
-                    Plan.chip({ key: "s5", from: week(36n), to: week(38n), label: "+56h", state: "recommended" }),
-                ] },
-            ], ArrayType(CrewRow));
-            const streams = $.const([
-                { id: "milestones", name: "MILESTONES", marks: [
-                    Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
-                    Plan.mark({ key: "d1", at: week(31n), kind: Plan.markKind.decision(true) }),
-                    Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
-                    Plan.mark({ key: "audit", at: week(35n), kind: "exception", label: "AUDIT" }),
-                    Plan.mark({ key: "d2", at: week(37n), kind: Plan.markKind.decision(false), label: "×3" }),
-                ] },
-            ], ArrayType(StreamRow));
+                  markers: [{ at: week(35n), lane: none, status: variant("warning", null), message: "capacity breach — 2 allocations" }] }) },
+                { id: "crewA", kind: variant("crew", { name: "Crew A", hours: "152h → 168h", shifts: [
+                    { key: "s1", from: week(27n), to: week(29n), hours: 80.0, state: variant("confirmed", null) },
+                    { key: "s2", from: week(29n), to: week(31n), hours: 72.0, state: variant("confirmed", null) },
+                    { key: "s3", from: week(31n), to: week(33n), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
+                    { key: "s4", from: week(34n), to: week(35n), hours: 48.0, state: variant("estimated", null) },
+                    { key: "s5", from: week(36n), to: week(38n), hours: 56.0, state: variant("proposed", variant("recommended", null)) },
+                ] }) },
+                { id: "milestones", kind: variant("stream", { name: "MILESTONES", marks: [
+                    { key: "kick", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                    { key: "d1", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
+                    { key: "rel", at: week(33n), kind: variant("milestone", null), icon: none, label: some("REL 2.4") },
+                    { key: "audit", at: week(35n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                    { key: "d2", at: week(37n), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
+                ] }) },
+            ], ArrayType(OpsRow));
+            // The series — one entry per row family, canvas order = series
+            // order; the whole list is an East value typed by the constructor.
+            const series = $.const([
+                Plan.series.chart(OpsRow, {
+                    match: r => r.kind.hasTag("kpi"),
+                    key: r => r.id, label: r => r.kind.unwrap("kpi").name, id: true,
+                    pinned: r => r.kind.unwrap("kpi").pinned,
+                    value: r => some(r.kind.unwrap("kpi").headline),
+                    status: _r => some(variant("warning", null)),
+                    height: "spark", expandable: true,
+                    layers: r => [
+                        Plan.layer(Chart.Line(r.kind.unwrap("kpi").points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),
+                        Chart.refLine({ y: 100, label: "TARGET 100" }),
+                    ],
+                }),
+                Plan.series.group(OpsRow, { key: "line1", label: "Line 1", meta: "8 rs · 82%" }, [
+                    Plan.series.span(OpsRow, {
+                        match: r => r.kind.hasTag("machine"),
+                        key: r => r.id, label: r => r.id, id: true,
+                        value:  r => some(East.str`${East.Float.printFixed(r.kind.unwrap("machine").cap, 0n)} t`),
+                        status: r => r.kind.unwrap("machine").status,
+                        drill:  r => r.kind.unwrap("machine").detail,
+                        runs: r => jobRuns(r.kind.unwrap("machine").jobs),
+                        decisions: r => r.kind.unwrap("machine").decisions,
+                        ports: r => r.kind.unwrap("machine").ports,
+                    }),
+                ]),
+                Plan.series.group(OpsRow, { key: "line2", label: "Line 2", value: "98%", status: "warning", collapsed: true, summaryAggregate: "mean" }, [
+                    Plan.series.heat(OpsRow, {
+                        match: r => r.kind.hasTag("load"),
+                        key: r => r.id, label: r => r.kind.unwrap("load").name,
+                        sub: r => some(r.kind.unwrap("load").sub),
+                        cells: r => Plan.heatCells(r.kind.unwrap("load").cells, { min: 0, max: 100, warnAt: 95 }),
+                    }),
+                ]),
+                Plan.series.group(OpsRow, { key: "docks", label: "Docks · In", meta: "3 rs" }, [
+                    Plan.series.buckets(OpsRow, {
+                        match: r => r.kind.hasTag("dock"),
+                        key: r => r.id, label: r => r.kind.unwrap("dock").name,
+                        value: _r => some("load/wk"),
+                        events: r => r.kind.unwrap("dock").allocations.map((_$, a) =>
+                            Plan.event({ key: a.key, at: a.at, state: a.state })),
+                        markers: r => r.kind.unwrap("dock").markers,
+                    }),
+                ]),
+                Plan.series.cards(OpsRow, {
+                    match: r => r.kind.hasTag("crew"),
+                    key: r => r.id, label: r => r.kind.unwrap("crew").name, stacked: true,
+                    sub: r => some(r.kind.unwrap("crew").hours),
+                    chips: r => shiftChips(r.kind.unwrap("crew").shifts),
+                }),
+                Plan.series.events(OpsRow, {
+                    match: r => r.kind.hasTag("stream"),
+                    key: r => r.id, label: r => r.kind.unwrap("stream").name, id: true,
+                    value: r => some(East.print(r.kind.unwrap("stream").marks.length())),
+                    marks: r => r.kind.unwrap("stream").marks,
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            const axis = $.const(Plan.axis({
+                window: { min: week(27n), max: week(39n) },
+                resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
+            }));
             const slice = $.let(Slice.bind([HorizonRow], "ex.plan.target", cfg, Slice.state(), horizon, none));
             // The K8 journey resolver — called with an item key at interaction time.
-            const journeys = $.const(East.function([StringType], Plan.Types.Journey, (_$2, item) => ({
+            const journeys = $.const(East.function([StringType], Plan.Types.Journey, (_$, item) => ({
                 title: East.str`JOURNEY · ITEM ${item} · BORN 04 JUL · 118 T`,
                 rows: [
                     { key: "anc", label: "B-208 · M05", sublabel: some("ancestor"),
@@ -203,96 +309,41 @@ export const planTargetState = example({
             // function each over Plan.Types.ElementRef (refs carry the row
             // key on every arm); rich bodies build lazily at interaction
             // time, and a none result opens no surface.
-            const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-                const noBody = $2.const(none, OptionType(UIComponentType));
+            const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+                const noBody = $.const(none, OptionType(UIComponentType));
                 return ref.match({
-                    run: (_$3, ev) => ev.run.equal("b221").ifElse(
+                    run: (_$, ev) => ev.run.equal("b221").ifElse(
                         () => some(<Text>Proposed by run 412 — fills the W32 idle window.</Text>),
                         () => noBody),
-                    mark: (_$3, ev) => ev.row.equal("L1-M03").and(() => ev.mark.equal("d1")).ifElse(
+                    mark: (_$, ev) => ev.row.equal("L1-M03").and(() => ev.mark.equal("d1")).ifElse(
                         () => some(<Text>Schedule B-221</Text>),
                         () => noBody),
-                }, _$3 => noBody);
+                }, _$ => noBody);
             }));
-            const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-                const noBody = $2.const(none, OptionType(UIComponentType));
+            const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+                const noBody = $.const(none, OptionType(UIComponentType));
                 return ref.match({
-                    run: (_$3, ev) => ev.run.equal("b197").ifElse(
+                    run: (_$, ev) => ev.run.equal("b197").ifElse(
                         () => some(<Text>Waiting on QC gate 4 — 2.6× median dwell.</Text>),
                         () => noBody),
-                }, _$3 => noBody);
+                }, _$ => noBody);
             }));
             // Behavior props — bound once so memoized renderers keep identity.
-            const onRowRef = $.const(East.function([Plan.Types.RowRef], NullType, (_$2, _r) => null));
-            const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, (_$2, _e) => null));
-            const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, (_$2, _e) => null));
-            const onBatch = $.const(East.function([], NullType, (_$2) => null));
+            const onRowRef = $.const(East.function([Plan.Types.RowRef], NullType, (_$, _r) => null));
+            const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, (_$, _e) => null));
+            const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, (_$, _e) => null));
+            const onBatch = $.const(East.function([], NullType, (_$) => null));
             return (
                 <Plan
                     slice={{ slice, affordances: ["cohort", "filter", "search", "range", "resolution", "brush", "summary"] }}
-                    axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", resolutions: ["month", "week", "day"], now: week(31n) })}
+                    axis={axis}
                     // The link graph (R1) — the W31 −24 t transfer: hover a
                     // linked machine for the links-focus control.
                     links={[
                         Plan.link({ from: "L1-M03", fromRun: "b214", to: "L1-M04", toRun: "qc", quantity: 24, label: "−24 t" }),
                     ]}
-                    rows={[
-                        // K3 · pinned KPI chart — singular chrome; charts are
-                        // data-driven through their layers already.
-                        Plan.chart({
-                            key: "coverage", label: "COVERAGE", id: true, pinned: true,
-                            value: "94.2%", status: "warning", height: "spark", expandable: true,
-                            layers: [
-                                Plan.layer(Chart.Line(coverage, { x: r => r.week, y: r => r.pct }), { breach: { below: 92 } }),
-                                Chart.refLine({ y: 100, label: "TARGET 100" }),
-                            ],
-                        }),
-                        // K1 · the machines, Table-style: data + accessors; the
-                        // literal group is mock chrome around the data-driven rows.
-                        Plan.group({
-                            key: "line1", label: "Line 1", meta: "8 rs · 82%",
-                            rows: Plan.span.of(machines, {
-                                key: r => r.id, label: r => r.id, id: true,
-                                value:  r => some(East.str`${East.Float.printFixed(r.cap, 0n)} t`),
-                                status: r => r.status,          // Option<Status> straight from the row
-                                drill:  r => r.drill,           // only M04 carries a payload
-                                runs: r => r.runs, decisions: r => r.decisions, ports: r => r.ports,
-                            }),
-                        }),
-                        // K4 · the collapsed Line 2 heat strip (mean summary).
-                        Plan.group({
-                            key: "line2", label: "Line 2", value: "98%", status: "warning", collapsed: true, summaryAggregate: "mean",
-                            rows: [
-                                Plan.heat({
-                                    key: "l2-load", label: "L2 load", sub: "%/wk",
-                                    cells: Plan.heatCells(
-                                        East.Array.generate(12n, Plan.Types.HeatCell, (_$2, i) => ({
-                                            at: week(i.add(27n)), value: some(loadPcts.get(i)),
-                                            label: some(East.Float.printFixed(loadPcts.get(i), 0n)),
-                                        })),
-                                        { min: 0, max: 100, warnAt: 95 },
-                                    ),
-                                }),
-                            ],
-                        }),
-                        // K2 · docks — data rows through the plain factory (the
-                        // Gantt rowSpec shape); element arrays pass through IR-typed.
-                        Plan.group({
-                            key: "docks", label: "Docks · In", meta: "3 rs",
-                            rows: Plan.rows(dockRows, (_$2, d) => Plan.buckets({
-                                key: d.id, label: d.label, value: "load/wk",
-                                lanes: d.lanes, events: d.events, markers: d.markers,
-                            })),
-                        }),
-                        // K6 · crews (Roster chips).
-                        Plan.rows(crews, (_$2, c) => Plan.cards({
-                            key: c.id, label: c.name, sub: c.hours, stacked: true, chips: c.chips,
-                        })),
-                        // K7 · the milestone stream.
-                        Plan.rows(streams, (_$2, s) => Plan.events({
-                            key: s.id, label: s.name, id: true, value: East.print(s.marks.length()), marks: s.marks,
-                        })),
-                    ]}
+                    data={ops}
+                    series={series}
                     review={{
                         summary: <Text>4 JOBS · 2 FLAGGED NEED A CALL · +6H FLOAT</Text>,
                         onApprove: onRowRef,
@@ -322,126 +373,167 @@ export const planTargetState = example({
 });
 
 // ============================================================================
-// planVariants — THE configurator (preset axis over the row kinds)
-// ============================================================================
-
-// ============================================================================
-// Per-kind examples — one canvas per row kind, one row per config variant
+// Per-kind examples — one canvas per row kind; the config sweep is DATA
 // ============================================================================
 
 export const planSpanRows = example({
-    keywords: ["Plan", "span", "run", "state", "estimated", "removed", "rejected", "decision", "port", "rollup", "union", "byStatus", "of", "groupBy", "nested", "bands", "unit", "group", "meta", "stacked", "gutter", "links", "link", "focus", "expand", "render"],
-    description: "Span-row configs — the proposal flavours (forecast ghost, proposed cut, declined) on a single-line value gutter, quantities with a decision diamond and a port on a stacked two-line gutter (this row also declares expand-in-place — pure data; the root's expandRender resolver mounts the body — and sits in the link graph, so hovering it shows the links/expand controls), a nested union rollup parent with a meta tag (renderer-derived ×k bands), and the span.of byStatus form inside a group strip",
+    keywords: ["Plan", "data", "series", "span", "run", "state", "estimated", "removed", "rejected", "decision", "port", "rollup", "union", "byStatus", "groupBy", "bands", "group", "stacked", "gutter", "links", "link", "focus", "expand", "expandRender", "match", "raw"],
+    description: "Span-row families over ONE raw machine source — jobs carry phase/batch/tonnes/lifecycle and ONE bound mapping function derives every run's label and quantity pair client-side: the proposal flavours (forecast ghost, proposed cut, declined) as a value-gutter family, a stacked family whose row carries its expand declaration in the data (the root's expandRender resolver mounts the body) plus a decision diamond and port, a groupBy family with union rollup parents (renderer-derived ×k bands), a runoff despatch family, and a byStatus groupBy family inside a static series.group strip; the six-edge link graph rides the root",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
-        const MachineRow = StructType({ id: StringType, program: StringType, runs: ArrayType(Plan.Types.Run) });
+        // The RAW job record; `family` picks the series, everything else —
+        // including the expand declaration — is per-row data.
+        const JobRow = StructType({
+            key: StringType, phase: StringType, batch: OptionType(StringType),
+            start: DateTimeType, end: DateTimeType,
+            tonnes: OptionType(FloatType), state: EventStateType,
+        });
+        const MachineRow = StructType({
+            id: StringType, family: StringType, program: StringType,
+            sub: OptionType(StringType), value: OptionType(StringType),
+            expand: OptionType(Plan.Types.Expand),
+            jobs: ArrayType(JobRow),
+            decisions: ArrayType(Plan.Types.DecisionMark),
+            ports: ArrayType(Plan.Types.Port),
+        });
         const machines = $.const([
-            { id: "L1-M03", program: "Program A", runs: [
-                Plan.run({ key: "b214", start: week(28n), end: week(31n), label: "RUN · B-214", qty: 96, state: "actual" }),
-                Plan.run({ key: "b221", start: week(32n), end: week(35n), label: "RUN · B-221", qty: 88, state: "recommended" }),
-            ] },
-            { id: "L2-M11", program: "Program B", runs: [
-                Plan.run({ key: "b241", start: week(29n), end: week(33n), label: "RUN · B-241", qty: 92, state: "confirmed" }),
-            ] },
+            // Proposal flavours: forecast ghost · proposed cut · declined.
+            { id: "L1-M07", family: "flavours", program: "", sub: none, value: some("80 t"), expand: none,
+              jobs: [
+                  { key: "run", phase: "RUN", batch: some("B-197"), start: week(27n), end: week(30n), tonnes: some(64.0), state: variant("in-progress", null) },
+                  { key: "gho", phase: "FORECAST", batch: none, start: week(30n), end: week(32n), tonnes: none, state: variant("estimated", null) },
+                  { key: "rem", phase: "CUT", batch: none, start: week(33n), end: week(35n), tonnes: none, state: variant("proposed", variant("removed", null)) },
+                  { key: "rej", phase: "DECLINED", batch: none, start: week(36n), end: week(38n), tonnes: none, state: variant("rejected", null) },
+              ], decisions: [], ports: [] },
+            // Tonnage + an applied decision + a port on a stacked two-line
+            // gutter; the EXPAND DECLARATION is row data (R2) — the render is
+            // the root's expandRender resolver.
+            { id: "L1-M09", family: "detail", program: "", sub: some("cap 120 t"), value: none,
+              expand: some({ height: some("152px"), axis: variant("dim", null) }),
+              jobs: [
+                  { key: "a", phase: "RUN", batch: some("B-208"), start: week(27n), end: week(31n), tonnes: some(112.0), state: variant("actual", null) },
+                  { key: "b", phase: "RUN", batch: some("B-231"), start: week(31n), end: week(34n), tonnes: some(104.0), state: variant("proposed", variant("recommended", null)) },
+              ],
+              decisions: [{ key: "d1", at: week(31n), applied: true }],
+              ports: [{ at: week(31n), label: some("−24 t") }] },
+            // The rollup family — one union parent per program (renderer-derived bands).
+            { id: "L1-M03", family: "rollup", program: "Program A", sub: none, value: none, expand: none,
+              jobs: [
+                  { key: "b214", phase: "RUN", batch: some("B-214"), start: week(28n), end: week(31n), tonnes: some(96.0), state: variant("actual", null) },
+                  { key: "b221", phase: "RUN", batch: some("B-221"), start: week(32n), end: week(35n), tonnes: some(88.0), state: variant("proposed", variant("recommended", null)) },
+              ], decisions: [], ports: [] },
+            { id: "L2-M11", family: "rollup", program: "Program A", sub: none, value: none, expand: none,
+              jobs: [{ key: "b241", phase: "RUN", batch: some("B-241"), start: week(29n), end: week(33n), tonnes: some(92.0), state: variant("confirmed", null) }],
+              decisions: [], ports: [] },
+            // Linked despatch whose run starts BEYOND the window — in links
+            // focus its landing renders as the edge fade.
+            { id: "dsp", family: "despatch", program: "", sub: none, value: none, expand: none,
+              jobs: [{ key: "d1", phase: "DSP", batch: none, start: week(39n), end: week(42n), tonnes: some(91.0), state: variant("proposed", variant("recommended", null)) }],
+              decisions: [], ports: [] },
+            // The byStatus family inside the Line 2 strip.
+            { id: "L2-M12", family: "line2", program: "Program B", sub: none, value: none, expand: none,
+              jobs: [
+                  { key: "r1", phase: "RUN", batch: some("B-198"), start: week(28n), end: week(32n), tonnes: some(64.0), state: variant("actual", null) },
+                  { key: "r2", phase: "RUN", batch: some("B-202"), start: week(30n), end: week(34n), tonnes: some(40.0), state: variant("proposed", variant("recommended", null)) },
+              ], decisions: [], ports: [] },
         ], ArrayType(MachineRow));
-        // The R2 developer render — the ROOT's expandRender resolver, called
-        // with the focused row's ref; ONE function serves every declaring row.
-        const util = $.let(East.Array.generate(8n, MeasureRow, (_$2, i) =>
+        // Raw jobs → runs, once — every span family shares the mapping.
+        const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>
+            jobs.map(($, j) => {
+                const noQuantity = $.const(none, OptionType(StringType));
+                const quantity = $.let(j.tonnes.match({
+                    some: (_$, t) => East.value(some(East.str`${East.Float.printFixed(t, 0n)} t`), OptionType(StringType)),
+                    none: (_$) => noQuantity,
+                }), OptionType(StringType));
+                const label = $.let(j.batch.match({
+                    some: (_$, b) => East.str`${j.phase} · ${b}`,
+                    none: (_$) => j.phase,
+                }), StringType);
+                const run = $.let({
+                    key: j.key, start: j.start, end: j.end, label,
+                    quantity, qty: j.tonnes, state: j.state,
+                    status: none, moved: none, icon: none,
+                }, Plan.Types.Run);
+                return run;
+            })));
+        const series = $.const([
+            Plan.series.span(MachineRow, {
+                match: r => r.family.equal("flavours"),
+                key: r => r.id, label: r => r.id, id: true,
+                value: r => r.value,
+                runs: r => jobRuns(r.jobs),
+            }),
+            Plan.series.span(MachineRow, {
+                match: r => r.family.equal("detail"),
+                key: r => r.id, label: r => r.id, id: true, stacked: true,
+                sub: r => r.sub, expand: r => r.expand,
+                runs: r => jobRuns(r.jobs), decisions: r => r.decisions, ports: r => r.ports,
+            }),
+            Plan.series.span(MachineRow, {
+                match: r => r.family.equal("rollup"),
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => jobRuns(r.jobs),
+                groupBy: [r => r.program], rollup: "union", unit: "t",
+            }),
+            Plan.series.span(MachineRow, {
+                match: r => r.family.equal("despatch"),
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => jobRuns(r.jobs),
+            }),
+            Plan.series.group(MachineRow, { key: "line2", label: "Line 2", meta: "1 rs" }, [
+                Plan.series.span(MachineRow, {
+                    match: r => r.family.equal("line2"),
+                    key: r => r.id, label: r => r.id, id: true,
+                    runs: r => jobRuns(r.jobs),
+                    groupBy: [r => r.program], rollup: "byStatus", unit: "t",
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(MachineRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+        // The R2 developer render — the ROOT's resolver, called with the
+        // focused row's ref; ONE function serves every declaring row.
+        const util = $.let(East.Array.generate(8n, MeasureRow, (_$, i) =>
             ({ week: week(i.add(27n)), pct: i.multiply(13n).remainder(40n).toFloat().add(55.0) })));
-        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$2, _ref) => (
+        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) => (
             <Chart layers={[Chart.Column(util, { x: r => r.week, y: r => r.pct })]} height={100} grid={false} />
         )));
         // The generalized popover resolver — decision diamonds ride the mark
         // arm of the element ref.
-        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-            const noBody = $2.const(none, OptionType(UIComponentType));
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+            const noBody = $.const(none, OptionType(UIComponentType));
             return ref.match({
-                mark: (_$3, ev) => ev.mark.equal("d1").ifElse(
+                mark: (_$, ev) => ev.mark.equal("d1").ifElse(
                     () => some(<Text>Approved by run 411.</Text>),
                     () => noBody),
-            }, _$3 => noBody);
+            }, _$ => noBody);
         }));
         return (
             <Plan
                 expandRender={expandRender}
                 popover={popover}
-                // A denser gutter (meta + value + carets) — widen it (the
-                // shared CSS-px height/width vocabulary).
+                // A denser gutter (value + carets) — widen it (the shared
+                // CSS-px height/width vocabulary).
                 style={{ gutterWidth: "200px" }}
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                // The link graph (R1) — hover a linked row for the ⌁ control:
-                // focusing gathers its transitive upstream/downstream family.
+                axis={axis}
+                // The link graph (R1) — hover a linked row for the ⌁ control.
                 // The edges deliberately cover the routing permutations:
-                // cross-row overlaps (loopbacks), a same-row seam feed, an
-                // upward loopback, and an off-window landing.
+                // forward, a same-row seam feed, loopbacks, a rising loop,
+                // and an off-window landing.
                 links={[
-                    Plan.link({ from: "m07", fromRun: "run", to: "m09", toRun: "a", quantity: 24, label: "24 t" }),
-                    // Same-row: B-208's output feeds B-231 at the W31 seam.
-                    Plan.link({ from: "m09", fromRun: "a", to: "m09", toRun: "b", quantity: 40, label: "40 t" }),
-                    Plan.link({ from: "m09", fromRun: "b", to: "L1-M03", toRun: "b221", quantity: 88, label: "88 t" }),
-                    // Adjacent rows under the rollup parent, overlapping runs.
+                    Plan.link({ from: "L1-M07", fromRun: "run", to: "L1-M09", toRun: "a", quantity: 24, label: "24 t" }),
+                    Plan.link({ from: "L1-M09", fromRun: "a", to: "L1-M09", toRun: "b", quantity: 40, label: "40 t" }),
+                    Plan.link({ from: "L1-M09", fromRun: "b", to: "L1-M03", toRun: "b221", quantity: 88, label: "88 t" }),
                     Plan.link({ from: "L1-M03", fromRun: "b214", to: "L2-M11", toRun: "b241", quantity: 32, label: "32 t" }),
-                    // Upward, several rows apart, overlapping — the rising loop.
-                    Plan.link({ from: "L2-M11", fromRun: "b241", to: "m09", toRun: "b", quantity: 18, label: "18 t" }),
-                    // A link landing BEYOND the window — the ribbon meets a
-                    // runoff-style fade band at the despatch row's edge.
-                    Plan.link({ from: "m09", fromRun: "b", to: "dsp", toRun: "d1", quantity: 91, label: "91 t" }),
+                    Plan.link({ from: "L2-M11", fromRun: "b241", to: "L1-M09", toRun: "b", quantity: 18, label: "18 t" }),
+                    Plan.link({ from: "L1-M09", fromRun: "b", to: "dsp", toRun: "d1", quantity: 91, label: "91 t" }),
                 ]}
-                rows={[
-                    // Proposal flavours: forecast ghost · proposed cut · declined.
-                    Plan.span({
-                        key: "m07", label: "L1-M07", id: true, value: "80 t",
-                        runs: [
-                            Plan.run({ key: "run", start: week(27n), end: week(30n), label: "RUN · B-197", quantity: "64 t", state: "in-progress" }),
-                            Plan.run({ key: "gho", start: week(30n), end: week(32n), label: "FORECAST", state: "estimated" }),
-                            Plan.run({ key: "rem", start: week(33n), end: week(35n), label: "CUT", state: "removed" }),
-                            Plan.run({ key: "rej", start: week(36n), end: week(38n), label: "DECLINED", state: "rejected" }),
-                        ],
-                    }),
-                    // Quantities + an applied decision diamond + a quantity
-                    // port, on a stacked two-line gutter (label over sub).
-                    Plan.span({
-                        key: "m09", label: "L1-M09", id: true, sub: "cap 120 t", stacked: true,
-                        // R2 — pure data: the declaration marks the row
-                        // expandable; the root's expandRender mounts below.
-                        expand: { height: "152px", axis: "dim" },
-                        runs: [
-                            Plan.run({ key: "a", start: week(27n), end: week(31n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
-                            Plan.run({ key: "b", start: week(31n), end: week(34n), label: "RUN · B-231", quantity: "104 t", qty: 104, state: "recommended" }),
-                        ],
-                        decisions: [Plan.decision({ key: "d1", at: week(31n), applied: true })],
-                        ports: [Plan.port({ at: week(31n), label: "−24 t" })],
-                    }),
-                    // A nested union rollup parent — meta tags the member
-                    // count; the ×k bands derive in the renderer.
-                    Plan.span({
-                        key: "prog-a", label: "Program A", value: "184 t", meta: "2 rs", rollup: "union", unit: "t",
-                        rows: Plan.rows(machines, (_$2, m) => Plan.span({
-                            key: m.id, label: m.id, id: true, runs: m.runs,
-                        })),
-                    }),
-                    // Linked despatch whose run starts BEYOND the window —
-                    // in links focus its landing renders as the edge fade.
-                    Plan.span({
-                        key: "dsp", label: "DESPATCH", id: true,
-                        runs: [Plan.run({ key: "d1", start: week(39n), end: week(42n), label: "DSP · 91 t", qty: 91, state: "recommended" })],
-                    }),
-                    // The accessor form INSIDE a group strip: one byStatus
-                    // rollup parent per program under the group band.
-                    Plan.group({
-                        key: "line2", label: "Line 2", meta: "2 rs",
-                        rows: Plan.span.of(machines, {
-                            key: r => r.id, label: r => r.id, id: true,
-                            runs: r => r.runs,
-                            groupBy: [r => r.program], rollup: "byStatus", unit: "t",
-                        }),
-                    }),
-                ]}
+                data={machines}
+                series={series}
             />
         );
     }),
@@ -449,70 +541,105 @@ export const planSpanRows = example({
 });
 
 export const planBucketRows = example({
-    keywords: ["Plan", "buckets", "Planner", "lane", "lanes", "AM", "PM", "event", "tile", "marker", "tone", "stretch", "pulse", "icon", "hovercard", "popover", "mixed", "unbucketed", "group", "meta", "gutter"],
-    description: "Bucket-row configs — an unbucketed weekly dock of resting ✓/plan tiles on a single-line value gutter, and an AM/PM-laned dock (two-line sub gutter) inside a meta-tagged group strip, carrying the full Planner tile grammar: tones, a pulsing proposal, a full-cell mixed tile, an icon tile with a popover, and a cell marker ring",
+    keywords: ["Plan", "data", "series", "buckets", "Planner", "lane", "lanes", "AM", "PM", "event", "tile", "marker", "tone", "stretch", "pulse", "icon", "hovercard", "popover", "mixed", "unbucketed", "group", "match", "gutter", "raw"],
+    description: "Bucket-row families over ONE dock source — an unbucketed weekly dock whose raw allocations map to resting ✓/plan tiles in the accessor, and an AM/PM-laned dock inside a static series.group strip whose tiles are STORED canvas-vocabulary records (the §3.2 pure-data element shapes: tones, a pulsing proposal, a full-cell mixed tile, an icon tile) plus a cell marker ring; tile popovers/hovercards resolve through the root over the event arm of the element ref",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
+        const DockRow = StructType({
+            id: StringType, family: StringType, label: StringType,
+            sub: OptionType(StringType), value: OptionType(StringType),
+            lanes: ArrayType(Plan.Types.Lane),
+            allocations: ArrayType(AllocRow),
+            tiles: ArrayType(Plan.Types.BucketEvent),
+            markers: ArrayType(Plan.Types.CellMarker),
+        });
+        // Raw weekly allocations; every third one is a proposal.
+        const inbound = $.let(East.Array.generate(6n, AllocRow, ($, i) => {
+            const confirmed = $.const(variant("confirmed", null), EventStateType);
+            const recommended = $.const(variant("proposed", variant("recommended", null)), EventStateType);
+            return {
+                key: East.str`a${East.print(i)}`,
+                at: week(i.add(27n)),
+                state: i.remainder(3n).equal(2n).ifElse(() => recommended, () => confirmed),
+            };
+        }));
+        const docks = $.const([
+            { id: "dock2", family: "inbound", label: "Dock 2", sub: none, value: some("load/wk"),
+              lanes: [], allocations: inbound, tiles: [],
+              markers: [{ at: week(29n), lane: none, status: variant("warning", null), message: "capacity 90%" }] },
+            // The grammar showcase — tiles stored IN the element vocabulary
+            // (plain `PlanBucketEventType` records; no builders in data).
+            { id: "dock5", family: "outbound", label: "Dock 5", sub: some("day · am/pm"), value: none,
+              lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
+              allocations: [],
+              tiles: [
+                  { key: "m1", at: week(27n), lane: some("am"), label: none, icon: none, state: variant("confirmed", null),
+                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
+                  { key: "m2", at: week(27n), lane: some("pm"), label: none, icon: none, state: variant("confirmed", null),
+                    tone: some(variant("warning", null)), color: none, colorPalette: none, stretch: none, content: none, animation: none },
+                  { key: "m3", at: week(28n), lane: some("am"), label: none, icon: none, state: variant("proposed", variant("recommended", null)),
+                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant("pulse", null)) },
+                  { key: "m4", at: week(29n), lane: none, label: some("MIXED"), icon: none, state: variant("confirmed", null),
+                    tone: none, color: none, colorPalette: none, stretch: some(variant("horizontal", null)),
+                    content: some({ horizontal: some(variant("center", null)), vertical: none }), animation: none },
+                  { key: "m5", at: week(30n), lane: some("pm"), label: none,
+                    icon: some({ prefix: "fas", name: "truck", label: none, style: none }),
+                    state: variant("proposed", variant("recommended", null)),
+                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
+                  { key: "m6", at: week(31n), lane: some("am"), label: some("QC"), icon: none, state: variant("estimated", null),
+                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
+              ],
+              markers: [{ at: week(29n), lane: none, status: variant("danger", null), message: "capacity breach" }] },
+        ], ArrayType(DockRow));
+        const series = $.const([
+            // Raw allocations → resting tiles, in the accessor.
+            Plan.series.buckets(DockRow, {
+                match: r => r.family.equal("inbound"),
+                key: r => r.id, label: r => r.label,
+                value: r => r.value,
+                events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
+                markers: r => r.markers,
+            }),
+            Plan.series.group(DockRow, { key: "outbound", label: "Docks · Out", meta: "1 rs" }, [
+                // Stored vocabulary records pass straight through.
+                Plan.series.buckets(DockRow, {
+                    match: r => r.family.equal("outbound"),
+                    key: r => r.id, label: r => r.label,
+                    sub: r => r.sub,
+                    lanes: r => r.lanes, events: r => r.tiles, markers: r => r.markers,
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(DockRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         // The generalized resolvers — tiles ride the event arm of the ref.
-        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-            const noBody = $2.const(none, OptionType(UIComponentType));
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+            const noBody = $.const(none, OptionType(UIComponentType));
             return ref.match({
-                event: (_$3, ev) => ev.event.equal("m5").ifElse(
+                event: (_$, ev) => ev.event.equal("m5").ifElse(
                     () => some(<Text>Load 41 · 8 pallets</Text>),
                     () => noBody),
-            }, _$3 => noBody);
+            }, _$ => noBody);
         }));
-        const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-            const noBody = $2.const(none, OptionType(UIComponentType));
+        const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+            const noBody = $.const(none, OptionType(UIComponentType));
             return ref.match({
-                event: (_$3, ev) => ev.event.equal("m3").ifElse(
+                event: (_$, ev) => ev.event.equal("m3").ifElse(
                     () => some(<Text>Urgent — overtime window</Text>),
                     () => noBody),
-            }, _$3 => noBody);
+            }, _$ => noBody);
         }));
         return (
             <Plan
                 popover={popover}
                 hover={hover}
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    // Unbucketed: one slot per week column; resting tiles.
-                    Plan.buckets({
-                        key: "dock2", label: "Dock 2", value: "load/wk",
-                        events: East.Array.generate(6n, Plan.Types.BucketEvent, ($2, i) => {
-                            const confirmed = $2.const(variant("confirmed", null), EventStateType);
-                            const recommended = $2.const(variant("proposed", variant("recommended", null)), EventStateType);
-                            return Plan.event({
-                                key: East.str`a${East.print(i)}`,
-                                at: week(i.add(27n)),
-                                state: i.remainder(3n).equal(2n).ifElse(() => recommended, () => confirmed),
-                            });
-                        }),
-                        markers: [Plan.marker({ at: week(29n), status: "warning", message: "capacity 90%" })],
-                    }),
-                    // The AM/PM-laned dock inside a meta-tagged group strip;
-                    // its sub line makes the two-line gutter.
-                    Plan.group({
-                        key: "outbound", label: "Docks · Out", meta: "1 rs",
-                        rows: [Plan.buckets({
-                            key: "dock5", label: "Dock 5", sub: "day · am/pm",
-                            lanes: [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
-                            events: [
-                                Plan.event({ key: "m1", at: week(27n), lane: "am", state: "confirmed" }),
-                                Plan.event({ key: "m2", at: week(27n), lane: "pm", state: "confirmed", tone: "warning" }),
-                                Plan.event({ key: "m3", at: week(28n), lane: "am", state: "recommended", animation: "pulse" }),
-                                Plan.event({ key: "m4", at: week(29n), label: "MIXED", state: "confirmed", stretch: "horizontal", content: { horizontal: "center" } }),
-                                Plan.event({ key: "m5", at: week(30n), lane: "pm", state: "recommended", icon: "truck" }),
-                                Plan.event({ key: "m6", at: week(31n), lane: "am", label: "QC", state: "estimated" }),
-                            ],
-                            markers: [Plan.marker({ at: week(29n), status: "danger", message: "capacity breach" })],
-                        })],
-                    }),
-                ]}
+                axis={axis}
+                data={docks}
+                series={series}
             />
         );
     }),
@@ -520,83 +647,109 @@ export const planBucketRows = example({
 });
 
 export const planChartRows = example({
-    keywords: ["Plan", "chart", "layers", "spark", "expanded", "fixed", "refLine", "refBand", "refDot", "breach", "stacked", "series", "dual-axis", "swatches", "Area", "Band", "Scatter", "Column", "Line", "domain", "tickValues", "group", "meta", "gutter"],
-    description: "Chart-row configs — one row per mark kind, each over its own series: a Line spark with a breach threshold, an Area cumulative fill, stacked Columns pairing two distinct series on a two-line sub gutter, a Scatter defect cloud, an expanded Line with refLine/refBand/refDot annotations, and a fixed 120px dual-axis composition (Chart.Root's domain/tickValues axis vocabulary) mixing Columns left with a Line + confidence Band right, inside a meta-tagged group strip",
+    keywords: ["Plan", "data", "series", "chart", "layers", "spark", "expanded", "fixed", "refLine", "refBand", "refDot", "breach", "stacked", "dual-axis", "swatches", "Area", "Band", "Scatter", "Column", "Line", "domain", "tickValues", "group", "match", "gutter", "raw"],
+    description: "Chart-row families over ONE raw measure source — one series per mark kind, layers built from each row's own points via the accessor: a Line spark with a breach threshold and custom expandedHeight, an Area cumulative fill, stacked Columns pairing the row's two point sets by the Plan.layer series channel, a Scatter defect cloud, an expanded Line with refLine/refBand/refDot annotations, and a fixed 120px dual-axis composition (Chart.Root's domain/tickValues vocabulary) inside a static series.group strip",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const BandRow = StructType({ week: DateTimeType, lo: FloatType, hi: FloatType });
-        // One derived series per mark: the coverage %, a cumulative output
-        // ramp, two distinct line outputs, and a jittery defect cloud.
+        // ONE raw source — each family's points ride the row (`extra` carries
+        // the second set for stacked / dual compositions).
+        const ChartRow = StructType({
+            id: StringType, family: StringType, label: StringType,
+            sub: OptionType(StringType), value: OptionType(StringType),
+            points: ArrayType(MeasureRow),
+            extra: ArrayType(MeasureRow),
+            band: ArrayType(BandRow),
+        });
         const pcts = $.const([96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2], ArrayType(FloatType));
-        const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$2, i) => ({ week: week(i.add(27n)), pct: pcts.get(i) })));
-        const cum = $.let(East.Array.generate(12n, MeasureRow, (_$2, i) => ({ week: week(i.add(27n)), pct: i.toFloat().multiply(14.0).add(40.0) })));
-        const out1 = $.let(East.Array.generate(12n, MeasureRow, (_$2, i) => ({ week: week(i.add(27n)), pct: i.multiply(23n).remainder(17n).toFloat().add(28.0) })));
-        const out2 = $.let(East.Array.generate(12n, MeasureRow, (_$2, i) => ({ week: week(i.add(27n)), pct: i.multiply(31n).remainder(13n).toFloat().add(14.0) })));
-        const ppm = $.let(East.Array.generate(12n, MeasureRow, (_$2, i) => ({ week: week(i.add(27n)), pct: i.multiply(37n).remainder(60n).toFloat().add(120.0) })));
-        const band = $.let(East.Array.generate(12n, BandRow, (_$2, i) => ({ week: week(i.add(27n)), lo: pcts.get(i).subtract(3.0), hi: pcts.get(i).add(3.0) })));
+        const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: pcts.get(i) })));
+        const cum = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.toFloat().multiply(14.0).add(40.0) })));
+        const out1 = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(23n).remainder(17n).toFloat().add(28.0) })));
+        const out2 = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(31n).remainder(13n).toFloat().add(14.0) })));
+        const ppm = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(37n).remainder(60n).toFloat().add(120.0) })));
+        const band = $.let(East.Array.generate(12n, BandRow, (_$, i) => ({ week: week(i.add(27n)), lo: pcts.get(i).subtract(3.0), hi: pcts.get(i).add(3.0) })));
+        const measures = $.const([
+            { id: "spark", family: "spark", label: "COVERAGE", sub: none, value: some("94.2%"), points: coverage, extra: [], band: [] },
+            { id: "cum", family: "cum", label: "CUMULATIVE · t", sub: none, value: some("194 t"), points: cum, extra: [], band: [] },
+            { id: "stacked", family: "stacked", label: "OUTPUT · t", sub: some("t/wk"), value: none, points: out1, extra: out2, band: [] },
+            { id: "ppm", family: "ppm", label: "DEFECTS · ppm", sub: none, value: some("161"), points: ppm, extra: [], band: [] },
+            { id: "refs", family: "refs", label: "COVERAGE + REFS", sub: none, value: none, points: coverage, extra: [], band: [] },
+            { id: "dual", family: "dual", label: "OUT + COVERAGE", sub: none, value: none, points: out1, extra: coverage, band },
+        ], ArrayType(ChartRow));
+        const series = $.const([
+            // Line — the KPI spark with a breach threshold; the caret opens
+            // it to a custom 120px (expandedHeight, default 88).
+            Plan.series.chart(ChartRow, {
+                match: r => r.family.equal("spark"),
+                key: r => r.id, label: r => r.label, id: true,
+                value: r => r.value, status: _r => some(variant("warning", null)),
+                height: "spark", expandable: true, expandedHeight: "120px",
+                layers: r => [Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } })],
+            }),
+            // Area — the cumulative fill.
+            Plan.series.chart(ChartRow, {
+                match: r => r.family.equal("cum"),
+                key: r => r.id, label: r => r.label, id: true, value: r => r.value,
+                layers: r => [Chart.Area(r.points, { x: p => p.week, y: p => p.pct })],
+            }),
+            // Columns — the row's two point sets stacked by one series id,
+            // on a two-line gutter (label over sub).
+            Plan.series.chart(ChartRow, {
+                match: r => r.family.equal("stacked"),
+                key: r => r.id, label: r => r.label, id: true, stacked: true, sub: r => r.sub,
+                layers: r => [
+                    Plan.layer(Chart.Column(r.points, { x: p => p.week, y: p => p.pct }), { series: "L1" }),
+                    Plan.layer(Chart.Column(r.extra, { x: p => p.week, y: p => p.pct }), { series: "L2" }),
+                ],
+            }),
+            // Scatter — the defect cloud.
+            Plan.series.chart(ChartRow, {
+                match: r => r.family.equal("ppm"),
+                key: r => r.id, label: r => r.label, id: true, value: r => r.value,
+                layers: r => [Chart.Scatter(r.points, { x: p => p.week, y: p => p.pct })],
+            }),
+            // Line + every annotation kind, at expanded density.
+            Plan.series.chart(ChartRow, {
+                match: r => r.family.equal("refs"),
+                key: r => r.id, label: r => r.label, id: true,
+                height: "expanded",
+                layers: r => [
+                    Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),
+                    Chart.refLine({ y: 100, label: "TARGET 100" }),
+                    Chart.refBand({ x: [week(34n), week(36n)], label: "CRUNCH" }),
+                    Chart.refDot({ x: week(36n), y: 91.4, label: "LOW" }),
+                ],
+            }),
+            // The composed dual-axis chart inside a static group strip; axes
+            // take Chart.Root's vocabulary — domain / tickValues. Output
+            // columns scale left; the coverage line + its band scale right.
+            Plan.series.group(ChartRow, { key: "quality", label: "Quality", meta: "1 rs" }, [
+                Plan.series.chart(ChartRow, {
+                    match: r => r.family.equal("dual"),
+                    key: r => r.id, label: r => r.label, id: true,
+                    height: Plan.fixed("120px"),
+                    left: { domain: [0, 60], tickValues: [0, 25, 50] },
+                    right: { domain: [80, 105], tickValues: [85, 95, 105] },
+                    swatches: [{ color: "ink.3", label: "out" }, { color: "brand.d", label: "cov · rh" }],
+                    layers: r => [
+                        Chart.Column(r.points, { x: p => p.week, y: p => p.pct }),
+                        Plan.layer(Chart.Line(r.extra, { x: p => p.week, y: p => p.pct }), { axis: "right" }),
+                        Plan.layer(Chart.Band(r.band, { x: p => p.week, low: p => p.lo, high: p => p.hi }), { axis: "right" }),
+                    ],
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(ChartRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         return (
             <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    // Line — the KPI spark with a breach threshold; the caret
-                    // opens it to a custom 120px (expandedHeight, default 88).
-                    Plan.chart({
-                        key: "spark", label: "COVERAGE", id: true, value: "94.2%", status: "warning",
-                        height: "spark", expandable: true, expandedHeight: "120px",
-                        layers: [Plan.layer(Chart.Line(coverage, { x: r => r.week, y: r => r.pct }), { breach: { below: 92 } })],
-                    }),
-                    // Area — the cumulative fill.
-                    Plan.chart({
-                        key: "cum", label: "CUMULATIVE · t", id: true, value: "194 t",
-                        layers: [Chart.Area(cum, { x: r => r.week, y: r => r.pct })],
-                    }),
-                    // Columns — two DISTINCT series stacked by one `stack` id,
-                    // on a two-line gutter (label over sub).
-                    Plan.chart({
-                        key: "stacked", label: "OUTPUT · t", id: true, sub: "t/wk", stacked: true,
-                        layers: [
-                            Chart.Column(out1, { x: r => r.week, y: r => r.pct }, { stack: "out", key: "L1" }),
-                            Chart.Column(out2, { x: r => r.week, y: r => r.pct }, { stack: "out", key: "L2" }),
-                        ],
-                    }),
-                    // Scatter — the defect cloud.
-                    Plan.chart({
-                        key: "ppm", label: "DEFECTS · ppm", id: true, value: "161",
-                        layers: [Chart.Scatter(ppm, { x: r => r.week, y: r => r.pct })],
-                    }),
-                    // Line + every annotation kind, at expanded density.
-                    Plan.chart({
-                        key: "refs", label: "COVERAGE + REFS", id: true, height: "expanded",
-                        layers: [
-                            Plan.layer(Chart.Line(coverage, { x: r => r.week, y: r => r.pct }), { breach: { below: 92 } }),
-                            Chart.refLine({ y: 100, label: "TARGET 100" }),
-                            Chart.refBand({ x: [week(34n), week(36n)], label: "CRUNCH" }),
-                            Chart.refDot({ x: week(36n), y: 91.4, label: "LOW" }),
-                        ],
-                    }),
-                    // The composed dual-axis chart inside a meta-tagged group;
-                    // axes take Chart.Root's vocabulary — domain / tickValues.
-                    // Output columns scale left; the coverage line + its
-                    // confidence band scale right.
-                    Plan.group({
-                        key: "quality", label: "Quality", meta: "1 rs",
-                        rows: [Plan.chart({
-                            key: "dual", label: "OUT + COVERAGE", id: true, height: Plan.fixed("120px"),
-                            left: { domain: [0, 60], tickValues: [0, 25, 50] }, right: { domain: [80, 105], tickValues: [85, 95, 105] },
-                            swatches: [{ color: "ink.3", label: "out" }, { color: "brand.d", label: "cov · rh" }],
-                            layers: [
-                                Chart.Column(out1, { x: r => r.week, y: r => r.pct }),
-                                Plan.layer(Chart.Line(coverage, { x: r => r.week, y: r => r.pct }), { axis: "right" }),
-                                Plan.layer(Chart.Band(band, { x: r => r.week, low: r => r.lo, high: r => r.hi }), { axis: "right" }),
-                            ],
-                        })],
-                    }),
-                ]}
+                axis={axis}
+                data={measures}
+                series={series}
             />
         );
     }),
@@ -604,58 +757,86 @@ export const planChartRows = example({
 });
 
 export const planHeatRows = example({
-    keywords: ["Plan", "heat", "Matrix", "cells", "depth", "aggregate", "mean", "scale", "warnAt", "weightCells", "segmentCells", "segment", "no-data", "hatch", "group", "meta", "gutter"],
-    description: "Heat-row configs — colour-depth cells with a warn ring and a no-data hatch under a meta-tagged aggregate-mean parent (renderer-derived), booked-vs-free weight bars with a planned tail on a two-line sub gutter, and status-segment compositions inside a group strip",
+    keywords: ["Plan", "data", "series", "heat", "Matrix", "cells", "depth", "aggregate", "mean", "groupBy", "scale", "warnAt", "weightCells", "segmentCells", "segment", "no-data", "hatch", "group", "match", "gutter", "raw"],
+    description: "Heat-row families over ONE raw line source — per-bucket samples wrapped by the cells accessors client-side: colour-depth cells with a warn ring and a no-data hatch under a groupBy aggregate-mean parent (renderer-derived), booked-vs-free weight bars with a planned tail on a two-line sub gutter, and status-segment compositions (plain segment records) inside a static series.group strip",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        const HeatRow = StructType({
+            id: StringType, family: StringType, line: StringType, label: StringType,
+            sub: OptionType(StringType),
+            cells: ArrayType(Plan.Types.HeatCell),
+            weights: ArrayType(Plan.Types.WeightCell),
+            segs: ArrayType(Plan.Types.SegmentCell),
+        });
         const pcts = $.const(
             [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],
             ArrayType(FloatType));
-        const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$2, i) => ({
+        const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
             at: week(i.add(27n)),
             value: i.equal(4n).ifElse(() => none, () => some(pcts.get(i))),   // W31 = no data
             label: i.equal(4n).ifElse(() => none, () => some(East.Float.printFixed(pcts.get(i), 0n))),
         })));
+        // Booked-vs-free fractions; the back half is the planned pale tail.
+        const weights = $.let(East.Array.generate(6n, Plan.Types.WeightCell, (_$, i) => ({
+            at: week(i.multiply(2n).add(27n)),
+            fraction: i.toFloat().multiply(-0.11).add(0.9),
+            planned: i.greaterEqual(3n),
+        })));
+        const lines = $.const([
+            { id: "m03h", family: "depth", line: "Line 1", label: "L1-M03", sub: none, cells, weights: [], segs: [] },
+            { id: "m04h", family: "depth", line: "Line 1", label: "L1-M04", sub: none, cells, weights: [], segs: [] },
+            { id: "booked", family: "booked", line: "", label: "Crew A", sub: some("booked h"), cells: [], weights, segs: [] },
+            // Segment compositions — plain `{ fill, weight, label }` records.
+            { id: "pack", family: "segments", line: "", label: "Pack line", sub: some("capacity"), cells: [], weights: [],
+              segs: [
+                  { at: week(27n), segments: [
+                      { fill: variant("success", null), weight: 60.0, label: some("60%") },
+                      { fill: variant("warning", null), weight: 25.0, label: some("25%") },
+                      { fill: variant("slack", null), weight: 15.0, label: none },
+                  ] },
+                  { at: week(28n), segments: [
+                      { fill: variant("success", null), weight: 70.0, label: some("70%") },
+                      { fill: variant("slack", null), weight: 30.0, label: none },
+                  ] },
+                  { at: week(29n), segments: [
+                      { fill: variant("danger", null), weight: 40.0, label: some("40%") },
+                      { fill: variant("free", null), weight: 60.0, label: none },
+                  ] },
+              ] },
+        ], ArrayType(HeatRow));
+        const series = $.const([
+            // The aggregate-mean parent derives per discovered line value.
+            Plan.series.heat(HeatRow, {
+                match: r => r.family.equal("depth"),
+                key: r => r.id, label: r => r.label, id: true,
+                cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),
+                groupBy: [r => r.line], aggregate: "mean", scale: { min: 0, max: 100, warnAt: 95 },
+            }),
+            Plan.series.heat(HeatRow, {
+                match: r => r.family.equal("booked"),
+                key: r => r.id, label: r => r.label,
+                sub: r => r.sub,
+                cells: r => Plan.weightCells(r.weights),
+            }),
+            Plan.series.group(HeatRow, { key: "packing", label: "Packing", meta: "1 rs" }, [
+                Plan.series.heat(HeatRow, {
+                    match: r => r.family.equal("segments"),
+                    key: r => r.id, label: r => r.label,
+                    sub: r => r.sub,
+                    cells: r => Plan.segmentCells(r.segs),
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(HeatRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         return (
             <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    // Aggregate parent (mean, DECLARED — cells derive in the
-                    // renderer) with the meta tag; leaves are single-line ids.
-                    Plan.heat({
-                        key: "line1", label: "Line 1", meta: "2 rs", aggregate: "mean", scale: { min: 0, max: 100, warnAt: 95 },
-                        rows: [
-                            Plan.heat({ key: "m03h", label: "L1-M03", id: true, cells: Plan.heatCells(cells, { min: 0, max: 100, warnAt: 95 }) }),
-                            Plan.heat({ key: "m04h", label: "L1-M04", id: true, cells: Plan.heatCells(cells, { min: 0, max: 100, warnAt: 95 }) }),
-                        ],
-                    }),
-                    // Booked-vs-free weight bars on a two-line sub gutter; the
-                    // planned tail renders pale.
-                    Plan.heat({
-                        key: "booked", label: "Crew A", sub: "booked h",
-                        cells: Plan.weightCells(East.Array.generate(6n, Plan.Types.WeightCell, (_$2, i) => ({
-                            at: week(i.multiply(2n).add(27n)),
-                            fraction: i.toFloat().multiply(-0.11).add(0.9),
-                            planned: i.greaterEqual(3n),
-                        }))),
-                    }),
-                    // Status-segment compositions inside a group strip.
-                    Plan.group({
-                        key: "packing", label: "Packing", meta: "1 rs",
-                        rows: [Plan.heat({
-                            key: "pack", label: "Pack line", sub: "capacity",
-                            cells: Plan.segmentCells([
-                                { at: week(27n), segments: [Plan.segment({ fill: "success", weight: 60, label: "60%" }), Plan.segment({ fill: "warning", weight: 25, label: "25%" }), Plan.segment({ fill: "slack", weight: 15 })] },
-                                { at: week(28n), segments: [Plan.segment({ fill: "success", weight: 70, label: "70%" }), Plan.segment({ fill: "slack", weight: 30 })] },
-                                { at: week(29n), segments: [Plan.segment({ fill: "danger", weight: 40, label: "40%" }), Plan.segment({ fill: "free", weight: 60 })] },
-                            ]),
-                        })],
-                    }),
-                ]}
+                axis={axis}
+                data={lines}
+                series={series}
             />
         );
     }),
@@ -663,109 +844,99 @@ export const planHeatRows = example({
 });
 
 export const planTableRows = example({
-    keywords: ["Plan", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "of", "groupBy", "nested", "depth", "em-dash", "neg", "group", "meta", "gutter", "series", "tableSeries", "split", "horizontal", "vertical", "multi-value", "strong", "muted", "rollup"],
-    description: "Table-row configs — three-level nesting under a two-line parent gutter (Despatches → Program A → order leaves; every declared level derives its subtotal from the level below), a footer-emphasis net line with a negative tone and the muted em-dash, multi-series cells (per-POSITION style declared once per series — a strong actual beside a muted signed Δ, horizontal; and a vertical stack that grows the row), and the table.of accessor form inside a group strip (section/program parents print their aggregate-tag meta)",
+    keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "groupBy", "nested", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "strong", "muted", "rollup", "raw"],
+    description: "Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once (a strong rolled-up actual beside a muted always-signed Δ horizontally; a vertical stack that grows the row)",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
         const RawCell = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-        const OrderRow = StructType({ key: StringType, name: StringType, section: StringType, program: StringType, raw: ArrayType(RawCell) });
-        const raw = $.let(East.Array.generate(12n, RawCell, (_$2, i) => ({
+        // The RAW order record — actuals and the plan Δ as per-bucket value
+        // arrays; every display decision lives in the series configs.
+        const OrderRow = StructType({
+            key: StringType, family: StringType, name: StringType, top: StringType, program: StringType,
+            sub: OptionType(StringType),
+            act: ArrayType(RawCell),
+            plan: ArrayType(RawCell),
+        });
+        const act = $.let(East.Array.generate(12n, RawCell, (_$, i) => ({
             at: week(i.add(27n)),
             value: i.equal(9n).ifElse(() => none, () => some(i.toFloat().multiply(7.0).add(40.0))),
         })));
-        const orders = $.let([
-            { key: "s1", name: "OR-1188", section: "Orders", program: "Program A", raw },
-            { key: "s2", name: "OR-1204", section: "Orders", program: "Program A", raw },
-            { key: "s3", name: "OR-1219", section: "Orders", program: "Program B", raw },
-            { key: "s4", name: "RT-0031", section: "Returns", program: "Program B", raw },
+        const deltas = $.let(East.Array.generate(12n, RawCell, (_$, i) => ({
+            at: week(i.add(27n)),
+            value: i.remainder(4n).equal(3n).ifElse(
+                () => none,
+                () => some(i.toFloat().multiply(1.5).subtract(8.0))),
+        })));
+        const outflow = $.let(East.Array.generate(12n, RawCell, (_$, i) => ({
+            at: week(i.add(27n)),
+            value: some(i.toFloat().multiply(-3.0).subtract(12.0)),
+        })));
+        const orders = $.const([
+            // The nested family — two groupBy levels derive their subtotals.
+            { key: "or-1188", family: "orders", name: "OR-1188", top: "Despatches", program: "Program A", sub: none, act, plan: [] },
+            { key: "or-1204", family: "orders", name: "OR-1204", top: "Despatches", program: "Program A", sub: none, act, plan: [] },
+            { key: "or-1219", family: "orders", name: "OR-1219", top: "Despatches", program: "Program B", sub: none, act, plan: [] },
+            { key: "rt-0031", family: "orders", name: "RT-0031", top: "Returns", program: "Program B", sub: none, act, plan: [] },
+            // Footer emphasis + negative tone + the muted em-dash.
+            { key: "net", family: "net", name: "Net flow", top: "", program: "", sub: none, plan: [],
+              act: [
+                  { at: week(27n), value: some(22.0) }, { at: week(28n), value: some(-26.0) },
+                  { at: week(29n), value: none },
+              ] },
+            // Multi-value families — raw act + plan arrays per row.
+            { key: "actplan", family: "actplan", name: "Act · Δ plan", top: "", program: "", sub: some("t/wk"), act, plan: deltas },
+            { key: "inout", family: "inout", name: "In / out", top: "", program: "", sub: none, act, plan: outflow },
         ], ArrayType(OrderRow));
+        const series = $.const([
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("orders"),
+                key: r => r.key, label: r => r.name,
+                cells: r => Plan.tableCells(r.act),
+                groupBy: [r => r.top, r => r.program], aggregate: "sum",
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("net"),
+                key: r => r.key, label: r => r.name, emphasis: "footer",
+                cells: r => Plan.tableCells(r.act),
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            // Per-POSITION style declared ONCE, in the CONFIG — a strong
+            // rolled-up actual beside its muted, always-signed plan Δ.
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("actplan"),
+                key: r => r.key, label: r => r.name, stacked: true, sub: r => r.sub,
+                series: r => [
+                    Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(r.act) }),
+                    Plan.tableSeries({
+                        tone: "muted",
+                        format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                        cells: Plan.tableCells(r.plan),
+                    }),
+                ],
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            // The VERTICAL split stacks the positions; the row grows.
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("inout"),
+                key: r => r.key, label: r => r.name, split: "vertical",
+                series: r => [
+                    Plan.tableSeries({ cells: Plan.tableCells(r.act) }),
+                    Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(r.plan) }),
+                ],
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+        ], ArrayType(Plan.Types.Series(OrderRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         return (
             <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    // THREE declared levels — Despatches derives from Program
-                    // A's DERIVED subtotal plus Program B's leaf cells; every
-                    // row's numerals print through the shared Format spec. The
-                    // top parent takes the two-line sub gutter.
-                    Plan.table({
-                        key: "despatch", label: "Despatches", sub: "t/wk", aggregate: "sum",
-                        format: Format.Number({ maximumFractionDigits: 0n }),
-                        rows: [
-                            Plan.table({
-                                key: "prog-a", label: "Program A", aggregate: "sum",
-                                format: Format.Number({ maximumFractionDigits: 0n }),
-                                rows: [
-                                    Plan.table({ key: "or-1188", label: "OR-1188", cells: Plan.tableCells(raw),
-                                        format: Format.Number({ maximumFractionDigits: 0n }) }),
-                                    Plan.table({ key: "or-1204", label: "OR-1204", cells: Plan.tableCells(raw),
-                                        format: Format.Number({ maximumFractionDigits: 0n }) }),
-                                ],
-                            }),
-                            Plan.table({ key: "prog-b", label: "Program B", cells: Plan.tableCells(raw),
-                                format: Format.Number({ maximumFractionDigits: 0n }) }),
-                        ],
-                    }),
-                    // Footer emphasis + negative tone + the muted em-dash.
-                    Plan.table({
-                        key: "net", label: "Net flow", emphasis: "footer",
-                        format: Format.Number({ maximumFractionDigits: 0n }),
-                        cells: Plan.tableCells([
-                            { at: week(27n), value: some(22.0) }, { at: week(28n), value: some(-26.0) },
-                            { at: week(29n), value: none },
-                        ]),
-                    }),
-                    // MULTI-SERIES cells — per-POSITION style declared ONCE on
-                    // the series (wire-lean: cells stay raw floats). A strong
-                    // actual beside its muted, always-signed plan Δ.
-                    Plan.table({
-                        key: "actplan", label: "Act · Δ plan", sub: "t/wk", stacked: true,
-                        format: Format.Number({ maximumFractionDigits: 0n }),
-                        series: [
-                            Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(raw) }),
-                            Plan.tableSeries({
-                                tone: "muted",
-                                format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
-                                cells: Plan.tableCells(East.Array.generate(12n, RawCell, (_$2, i) => ({
-                                    at: week(i.add(27n)),
-                                    value: i.remainder(4n).equal(3n).ifElse(
-                                        () => none,
-                                        () => some(i.toFloat().multiply(1.5).subtract(8.0))),
-                                }))),
-                            }),
-                        ],
-                    }),
-                    // The VERTICAL split stacks the positions; the row grows.
-                    Plan.table({
-                        key: "inout", label: "In / out", split: "vertical",
-                        format: Format.Number({ maximumFractionDigits: 0n }),
-                        series: [
-                            Plan.tableSeries({ cells: Plan.tableCells(raw) }),
-                            Plan.tableSeries({
-                                tone: "muted",
-                                cells: Plan.tableCells(East.Array.generate(12n, RawCell, (_$2, i) => ({
-                                    at: week(i.add(27n)),
-                                    value: some(i.toFloat().multiply(-3.0).subtract(12.0)),
-                                }))),
-                            }),
-                        ],
-                    }),
-                    // The accessor form inside a group strip: two groupBy
-                    // levels — subtotal parents per discovered section, then
-                    // per program — each printing its aggregate-tag meta.
-                    Plan.group({
-                        key: "sections", label: "By section", meta: "4 rs",
-                        rows: Plan.table.of(orders, {
-                            key: r => r.key, label: r => r.name,
-                            cells: r => Plan.tableCells(r.raw),
-                            groupBy: [r => r.section, r => r.program], aggregate: "sum",
-                            format: Format.Number({ maximumFractionDigits: 0n }),
-                        }),
-                    }),
-                ]}
+                axis={axis}
+                data={orders}
+                series={series}
             />
         );
     }),
@@ -773,49 +944,81 @@ export const planTableRows = example({
 });
 
 export const planCardRows = example({
-    keywords: ["Plan", "cards", "Roster", "chip", "lifecycle", "confirmed", "recommended", "removed", "estimated", "icon", "popover", "stacked", "format", "axis", "group", "meta", "gutter"],
-    description: "Cards-row configs — the chip lifecycle (confirmed tint, proposed dashed, removed strikethrough, estimated ghost) with an icon chip and a popover, on a stacked two-line gutter, plus a single-line value row inside a meta-tagged group strip, under a custom `axis.format` ruler (date-pattern tokens instead of the ISO-week default)",
+    keywords: ["Plan", "data", "series", "cards", "Roster", "chip", "lifecycle", "confirmed", "recommended", "removed", "estimated", "icon", "popover", "stacked", "format", "axis", "group", "match", "gutter", "raw"],
+    description: "Cards-row families over ONE crew source — a raw-shift family whose accessor derives every chip label from hours × lifecycle (the proposal + prefix; confirmed tint, proposed dashed, removed strikethrough, estimated ghost) on a stacked two-line gutter, plus a stored-vocabulary family (plain chip records with an icon) inside a static series.group strip, under a custom `axis.format` ruler; chip detail resolves through the root popover over the chip arm",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        const ShiftRow = StructType({
+            key: StringType, from: DateTimeType, to: DateTimeType,
+            hours: FloatType, state: EventStateType,
+        });
+        const CrewRow = StructType({
+            id: StringType, family: StringType, name: StringType,
+            sub: OptionType(StringType), value: OptionType(StringType),
+            shifts: ArrayType(ShiftRow),
+            chips: ArrayType(Plan.Types.Chip),
+        });
+        const crews = $.const([
+            // RAW shifts — hours + lifecycle; chip labels derive client-side.
+            { id: "crewA", family: "main", name: "Crew A", sub: some("152h → 168h"), value: none, chips: [], shifts: [
+                { key: "s1", from: week(27n), to: week(29n), hours: 80.0, state: variant("confirmed", null) },
+                { key: "s2", from: week(29n), to: week(31n), hours: 56.0, state: variant("proposed", variant("removed", null)) },
+                { key: "s3", from: week(31n), to: week(33n), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
+                { key: "s4", from: week(34n), to: week(35n), hours: 48.0, state: variant("estimated", null) },
+            ] },
+            // STORED vocabulary — plain chip records (the §3.2 element
+            // shapes), here carrying the shift-type icon.
+            { id: "crewB", family: "pool", name: "Crew B", sub: none, value: some("128h"), shifts: [], chips: [
+                { key: "b1", from: week(28n), to: week(31n), label: "96h", state: variant("confirmed", null),
+                  icon: some({ prefix: "fas", name: "user-group", label: none, style: none }) },
+                { key: "b2", from: week(33n), to: week(36n), label: "+32h", state: variant("proposed", variant("recommended", null)), icon: none },
+            ] },
+        ], ArrayType(CrewRow));
+        const series = $.const([
+            Plan.series.cards(CrewRow, {
+                match: r => r.family.equal("main"),
+                key: r => r.id, label: r => r.name, stacked: true,
+                sub: r => r.sub,
+                chips: r => r.shifts.map(($, s) => {
+                    const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+                    return Plan.chip({
+                        key: s.key, from: s.from, to: s.to,
+                        label: s.state.hasTag("proposed").ifElse(
+                            () => East.str`+${hrs}h`,
+                            () => East.str`${hrs}h`),
+                        state: s.state,
+                    });
+                }),
+            }),
+            Plan.series.group(CrewRow, { key: "pool", label: "Relief pool", meta: "1 rs" }, [
+                Plan.series.cards(CrewRow, {
+                    match: r => r.family.equal("pool"),
+                    key: r => r.id, label: r => r.name,
+                    value: r => r.value,
+                    chips: r => r.chips,
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(CrewRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n), format: "D MMM" }));
         // The generalized popover resolver — chips ride the chip arm.
-        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-            const noBody = $2.const(none, OptionType(UIComponentType));
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+            const noBody = $.const(none, OptionType(UIComponentType));
             return ref.match({
-                chip: (_$3, ev) => ev.chip.equal("s3").ifElse(
+                chip: (_$, ev) => ev.chip.equal("s3").ifElse(
                     () => some(<Text>Overtime proposal.</Text>),
                     () => noBody),
-            }, _$3 => noBody);
+            }, _$ => noBody);
         }));
         return (
             <Plan
                 popover={popover}
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n), format: "D MMM" })}
-                rows={[
-                    Plan.cards({
-                        key: "crewA", label: "Crew A", sub: "152h → 168h", stacked: true,
-                        chips: [
-                            Plan.chip({ key: "s1", from: week(27n), to: week(29n), label: "80h", state: "confirmed", icon: "user-group" }),
-                            Plan.chip({ key: "s2", from: week(29n), to: week(31n), label: "56h", state: "removed" }),
-                            Plan.chip({ key: "s3", from: week(31n), to: week(33n), label: "+64h", state: "recommended" }),
-                            Plan.chip({ key: "s4", from: week(34n), to: week(35n), label: "48h", state: "estimated" }),
-                        ],
-                    }),
-                    // A single-line value row inside a meta-tagged group strip.
-                    Plan.group({
-                        key: "pool", label: "Relief pool", meta: "1 rs",
-                        rows: [Plan.cards({
-                            key: "crewB", label: "Crew B", value: "128h",
-                            chips: [
-                                Plan.chip({ key: "b1", from: week(28n), to: week(31n), label: "96h", state: "confirmed" }),
-                                Plan.chip({ key: "b2", from: week(33n), to: week(36n), label: "+32h", state: "recommended" }),
-                            ],
-                        })],
-                    }),
-                ]}
+                axis={axis}
+                data={crews}
+                series={series}
             />
         );
     }),
@@ -823,50 +1026,65 @@ export const planCardRows = example({
 });
 
 export const planEventRows = example({
-    keywords: ["Plan", "events", "mark", "milestone", "decision", "exception", "markKind", "applied", "icon", "label", "popover", "group", "meta", "stacked", "gutter"],
-    description: "Event-row configs — milestone dots, pending and applied decision diamonds, an exception triangle, a custom FA glyph swap and a clustered ×3 label on a single-line gutter, plus a stacked two-line release stream inside a meta-tagged group strip",
+    keywords: ["Plan", "data", "series", "events", "mark", "milestone", "decision", "exception", "markKind", "applied", "icon", "label", "popover", "group", "match", "stacked", "gutter", "raw"],
+    description: "Event-row families over ONE stream source of plain mark records (the §3.2 element shapes — kind variants carry milestone/decision{applied}/exception directly) — milestone dots, pending and applied decision diamonds, an exception triangle, a custom FA glyph swap and a clustered ×3 label on a single-line gutter, plus a stacked two-line release stream inside a static series.group strip; mark detail resolves through the root popover over the mark arm",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        const StreamRow = StructType({
+            id: StringType, family: StringType, name: StringType,
+            sub: OptionType(StringType), value: OptionType(StringType),
+            marks: ArrayType(Plan.Types.EventMark),
+        });
+        const streams = $.const([
+            { id: "ms", family: "main", name: "MILESTONES", sub: none, value: some("5"), marks: [
+                { key: "kick", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                { key: "d1", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
+                { key: "rel", at: week(33n), kind: variant("milestone", null),
+                  icon: some({ prefix: "fas", name: "rocket", label: none, style: none }), label: some("REL 2.4") },
+                { key: "audit", at: week(35n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                { key: "d2", at: week(37n), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
+            ] },
+            { id: "release", family: "programs", name: "RELEASES", sub: some("6-wk cadence"), value: none, marks: [
+                { key: "r1", at: week(29n), kind: variant("milestone", null), icon: none, label: some("2.3") },
+                { key: "r2", at: week(36n), kind: variant("milestone", null), icon: none, label: some("2.4") },
+            ] },
+        ], ArrayType(StreamRow));
+        const series = $.const([
+            Plan.series.events(StreamRow, {
+                match: r => r.family.equal("main"),
+                key: r => r.id, label: r => r.name, id: true,
+                value: r => r.value,
+                marks: r => r.marks,
+            }),
+            Plan.series.group(StreamRow, { key: "programs", label: "Programs", meta: "1 rs" }, [
+                Plan.series.events(StreamRow, {
+                    match: r => r.family.equal("programs"),
+                    key: r => r.id, label: r => r.name, id: true, stacked: true,
+                    sub: r => r.sub,
+                    marks: r => r.marks,
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(StreamRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         // The generalized popover resolver — event marks ride the mark arm.
-        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-            const noBody = $2.const(none, OptionType(UIComponentType));
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+            const noBody = $.const(none, OptionType(UIComponentType));
             return ref.match({
-                mark: (_$3, ev) => ev.mark.equal("rel").ifElse(
+                mark: (_$, ev) => ev.mark.equal("rel").ifElse(
                     () => some(<Text>Go/no-go review.</Text>),
                     () => noBody),
-            }, _$3 => noBody);
+            }, _$ => noBody);
         }));
         return (
             <Plan
                 popover={popover}
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    Plan.events({
-                        key: "ms", label: "MILESTONES", id: true, value: "5",
-                        marks: [
-                            Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
-                            Plan.mark({ key: "d1", at: week(31n), kind: Plan.markKind.decision(true) }),
-                            Plan.mark({ key: "rel", at: week(33n), kind: "milestone", icon: "rocket", label: "REL 2.4" }),
-                            Plan.mark({ key: "audit", at: week(35n), kind: "exception", label: "AUDIT" }),
-                            Plan.mark({ key: "d2", at: week(37n), kind: Plan.markKind.decision(false), label: "×3" }),
-                        ],
-                    }),
-                    // A stacked two-line stream inside a meta-tagged group.
-                    Plan.group({
-                        key: "programs", label: "Programs", meta: "1 rs",
-                        rows: [Plan.events({
-                            key: "release", label: "RELEASES", id: true, sub: "6-wk cadence", stacked: true,
-                            marks: [
-                                Plan.mark({ key: "r1", at: week(29n), kind: "milestone", label: "2.3" }),
-                                Plan.mark({ key: "r2", at: week(36n), kind: "milestone", label: "2.4" }),
-                            ],
-                        })],
-                    }),
-                ]}
+                axis={axis}
+                data={streams}
+                series={series}
             />
         );
     }),
@@ -874,123 +1092,82 @@ export const planEventRows = example({
 });
 
 export const planGroupedRows = example({
-    keywords: ["Plan", "group", "groups", "strip", "summary", "summaryAggregate", "collapsed", "rows", "groupBy", "heterogeneous", "meta", "nesting"],
-    description: "Group configs — a literal expanded group with meta chrome around mixed kinds, a collapsed group resting as its DECLARED mean strip, and the Plan.rows grouped form discovering group strips from data",
+    keywords: ["Plan", "data", "series", "group", "groups", "strip", "by", "discovered", "summary", "summaryAggregate", "collapsed", "groupBy", "heterogeneous", "match", "meta", "nesting", "raw"],
+    description: "Group-strip forms over ONE raw line source — a static expanded series.group with meta chrome around mixed-kind child families (a span family mapping raw jobs + a heat family), a static collapsed group resting as its DECLARED mean strip, and the DISCOVERED form (series.group with a `by` accessor) building one collapsed strip per distinct line value with the member-count meta",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
-        const LineRow = StructType({ id: StringType, line: StringType, cells: ArrayType(Plan.Types.HeatCell) });
+        const JobRow = StructType({
+            key: StringType, batch: StringType,
+            start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
+        const LineRow = StructType({
+            id: StringType, family: StringType, line: StringType, label: StringType,
+            jobs: ArrayType(JobRow),
+            cells: ArrayType(Plan.Types.HeatCell),
+        });
         const pcts = $.const(
             [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],
             ArrayType(FloatType));
-        const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$2, i) => ({
-            at: week(i.add(27n)), 
-            value: some(pcts.get(i)), 
+        const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
+            at: week(i.add(27n)),
+            value: some(pcts.get(i)),
             label: some(East.Float.printFixed(pcts.get(i), 0n)),
         })));
-        const lines = $.let([
-            { id: "L1-M03", line: "Line 1", cells },
-            { id: "L1-M04", line: "Line 1", cells },
-            { id: "L2-M11", line: "Line 2", cells },
+        const lines = $.const([
+            // Static Line 1 — mixed kinds (a span child + a heat child).
+            { id: "m03", family: "l1span", line: "", label: "L1-M03",
+              jobs: [{ key: "r", batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) }],
+              cells: [] },
+            { id: "m03h", family: "l1heat", line: "", label: "L1-M03 load", jobs: [], cells },
+            // Static collapsed Line 2 — rests as its DECLARED mean strip.
+            { id: "l2", family: "l2", line: "", label: "L2 load", jobs: [], cells },
+            // The DISCOVERED form — one strip per distinct line value.
+            { id: "d-m03", family: "byline", line: "Line 1", label: "L1-M03", jobs: [], cells },
+            { id: "d-m04", family: "byline", line: "Line 1", label: "L1-M04", jobs: [], cells },
+            { id: "d-m11", family: "byline", line: "Line 2", label: "L2-M11", jobs: [], cells },
         ], ArrayType(LineRow));
-        return (
-            <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    // Literal group chrome around mixed kinds.
-                    Plan.group({
-                        key: "line1", label: "Line 1", meta: "2 rs · 82%",
-                        rows: [
-                            Plan.span({ key: "m03", label: "L1-M03", id: true, runs: [
-                                Plan.run({ key: "r", start: week(28n), end: week(31n), label: "RUN · B-214", state: "in-progress" }),
-                            ] }),
-                            Plan.heat({ key: "m03h", label: "L1-M03 load", cells: Plan.heatCells(cells, { min: 0, max: 100 }) }),
-                        ],
-                    }),
-                    // Collapsed, resting as its DECLARED mean strip.
-                    Plan.group({
-                        key: "line2", label: "Line 2", value: "98%", status: "warning", collapsed: true, summaryAggregate: "mean",
-                        rows: [Plan.heat({ key: "l2", label: "L2 load", cells: Plan.heatCells(cells, { min: 0, max: 100, warnAt: 95 }) })],
-                    }),
-                    // Data-driven: one strip per discovered line value.
-                    Plan.rows(lines, {
-                        groupBy: [{ by: r => r.line, collapsed: true }],
-                        summaryAggregate: "mean",
-                        row: (_$2, r) => Plan.heat({ key: r.id, label: r.id, id: true, cells: Plan.heatCells(r.cells) }),
-                    }),
-                ]}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// planSeriesData — the data + series canvas (row families over ONE source)
-// ============================================================================
-
-export const planSeriesData = example({
-    keywords: ["Plan", "data", "series", "match", "families", "variant", "span", "cards", "group", "rows", "groupBy", "rollup", "Series", "data-driven", "accessor", "one source"],
-    description: "The data + series canvas — ONE variant-discriminated source; each Plan.series.* builder (row type first) declares a row family over it via match + accessors (span with groupBy rollup parents, cards under a series.group strip), series.rows carries literal one-off chrome, and the whole list is a $.const-bound East value typed ArrayType(Plan.Types.Series(OpsRow))",
-    fn: East.function([], UIComponentType, ($) => {
-        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-            return w1.addWeeks(n.subtract(1n));
-        }));
-        // The domain shape — families discriminated by a variant field (the
-        // natural ops-dataset form; the same rows page from a dataset in P-c).
-        const OpsRow = StructType({
-            id: StringType, line: StringType,
-            kind: VariantType({
-                machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
-                crew:    StructType({ chips: ArrayType(Plan.Types.Chip) }),
-            }),
-        });
-        const ops = $.const([
-            { id: "L1-M03", line: "Line 1", kind: variant("machine", { runs: [
-                Plan.run({ key: "b214", start: week(28n), end: week(31n), label: "RUN · B-214", quantity: "96 t", qty: 96, state: "in-progress" }),
-                Plan.run({ key: "b221", start: week(32n), end: week(35n), label: "RUN · B-221", quantity: "88 t", qty: 88, state: "recommended" }),
-            ] }) },
-            { id: "L1-M04", line: "Line 1", kind: variant("machine", { runs: [
-                Plan.run({ key: "b208", start: week(27n), end: week(30n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
-            ] }) },
-            { id: "L2-M11", line: "Line 2", kind: variant("machine", { runs: [
-                Plan.run({ key: "b241", start: week(29n), end: week(33n), label: "RUN · B-241", quantity: "92 t", qty: 92, state: "confirmed" }),
-            ] }) },
-            { id: "crewA", line: "Line 1", kind: variant("crew", { chips: [
-                Plan.chip({ key: "s1", from: week(27n), to: week(29n), label: "80h", state: "confirmed" }),
-                Plan.chip({ key: "s2", from: week(31n), to: week(33n), label: "+64h", state: "recommended" }),
-            ] }) },
-        ], ArrayType(OpsRow));
-        // The series — real East values bound in the body, typed by the
-        // constructor; canvas order = series order.
         const series = $.const([
-            Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
-                Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
-                Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
-            ] })]),
-            Plan.series.span(OpsRow, {
-                match: r => r.kind.hasTag("machine"),
-                key: r => r.id, label: r => r.id, id: true,
-                runs: r => r.kind.unwrap("machine").runs,
-                groupBy: [r => r.line], rollup: "union", unit: "t",
-            }),
-            Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
-                Plan.series.cards(OpsRow, {
-                    match: r => r.kind.hasTag("crew"),
-                    key: r => r.id, label: r => r.id,
-                    chips: r => r.kind.unwrap("crew").chips,
+            Plan.series.group(LineRow, { key: "line1", label: "Line 1", meta: "2 rs · 82%" }, [
+                Plan.series.span(LineRow, {
+                    match: r => r.family.equal("l1span"),
+                    key: r => r.id, label: r => r.label, id: true,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({
+                        key: j.key, start: j.start, end: j.end,
+                        label: East.str`RUN · ${j.batch}`, state: j.state,
+                    })),
+                }),
+                Plan.series.heat(LineRow, {
+                    match: r => r.family.equal("l1heat"),
+                    key: r => r.id, label: r => r.label,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
                 }),
             ]),
-        ], ArrayType(Plan.Types.Series(OpsRow)));
+            Plan.series.group(LineRow, { key: "line2", label: "Line 2", value: "98%", status: "warning", collapsed: true, summaryAggregate: "mean" }, [
+                Plan.series.heat(LineRow, {
+                    match: r => r.family.equal("l2"),
+                    key: r => r.id, label: r => r.label,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),
+                }),
+            ]),
+            // DISCOVERED strips — one collapsed group per distinct `by`
+            // value, wearing the member-count meta.
+            Plan.series.group(LineRow, { by: r => r.line, match: r => r.family.equal("byline"), collapsed: true, summaryAggregate: "mean" }, [
+                Plan.series.heat(LineRow, {
+                    match: r => r.family.equal("byline"),
+                    key: r => r.id, label: r => r.label, id: true,
+                    cells: r => Plan.heatCells(r.cells),
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(LineRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         return (
             <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                data={ops}
+                axis={axis}
+                data={lines}
                 series={series}
             />
         );
@@ -999,59 +1176,93 @@ export const planSeriesData = example({
 });
 
 // ============================================================================
-// planSeriesPaged — the paged arm: a bound handle streams typed windows
+// planSeriesData — the minimal data + series introduction
 // ============================================================================
 
-export const planSeriesPaged = example({
-    keywords: ["Plan", "data", "series", "paged", "page", "total", "handle", "bindPaged", "windows", "source", "stream", "Series"],
-    description: "The paged data arm — `data` takes a bound paged handle (the Data.bindPaged shape: page(offset, limit) → Option<Array<OpsRow>>, total() → Option<Integer>); the factory derives the canvas-row source (each window's typed rows flow through the series makes client-side) and the renderer streams windows in as a prefix — here a hermetic pure-East handle over a captured array stands in for the e3 binding",
+export const planSeriesData = example({
+    keywords: ["Plan", "data", "series", "match", "families", "variant", "span", "cards", "group", "rows", "groupBy", "rollup", "Series", "data-driven", "accessor", "raw", "one source"],
+    description: "The data + series canvas, minimally — ONE variant-discriminated RAW source (jobs with batch/tonnes/state, shifts with hours); each Plan.series.* builder (row type first) declares a row family over it via match + accessors that DERIVE the canvas vocabulary client-side (run labels + quantity pairs from batch/tonnes, chip labels with the proposal + prefix from hours × lifecycle; span with groupBy rollup parents, cards under a static series.group strip), series.rows carries literal one-off chrome, and the whole list is a $.const-bound East value typed ArrayType(Plan.Types.Series(OpsRow))",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        // The RAW domain shape — families discriminated by a variant field
+        // (the natural ops-dataset form; the same rows page from a dataset).
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType,
+            tonnes: FloatType, state: EventStateType,
+        });
+        const ShiftRow = StructType({
+            key: StringType, from: DateTimeType, to: DateTimeType,
+            hours: FloatType, state: EventStateType,
+        });
         const OpsRow = StructType({
             id: StringType, line: StringType,
             kind: VariantType({
-                machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
+                machine: StructType({ jobs: ArrayType(JobRow) }),
+                crew:    StructType({ shifts: ArrayType(ShiftRow) }),
             }),
         });
         const ops = $.const([
-            { id: "L1-M03", line: "Line 1", kind: variant("machine", { runs: [
-                Plan.run({ key: "b214", start: week(28n), end: week(31n), label: "RUN · B-214", quantity: "96 t", qty: 96, state: "in-progress" }),
+            { id: "L1-M03", line: "Line 1", kind: variant("machine", { jobs: [
+                { batch: "B-214", start: week(28n), end: week(31n), tonnes: 96.0, state: variant("in-progress", null) },
+                { batch: "B-221", start: week(32n), end: week(35n), tonnes: 88.0, state: variant("proposed", variant("recommended", null)) },
             ] }) },
-            { id: "L1-M04", line: "Line 1", kind: variant("machine", { runs: [
-                Plan.run({ key: "b208", start: week(27n), end: week(30n), label: "RUN · B-208", quantity: "112 t", qty: 112, state: "actual" }),
+            { id: "L1-M04", line: "Line 1", kind: variant("machine", { jobs: [
+                { batch: "B-208", start: week(27n), end: week(30n), tonnes: 112.0, state: variant("actual", null) },
             ] }) },
-            { id: "L2-M11", line: "Line 2", kind: variant("machine", { runs: [
-                Plan.run({ key: "b241", start: week(29n), end: week(33n), label: "RUN · B-241", quantity: "92 t", qty: 92, state: "confirmed" }),
+            { id: "L2-M11", line: "Line 2", kind: variant("machine", { jobs: [
+                { batch: "B-241", start: week(29n), end: week(33n), tonnes: 92.0, state: variant("confirmed", null) },
+            ] }) },
+            { id: "crewA", line: "Line 1", kind: variant("crew", { shifts: [
+                { key: "s1", from: week(27n), to: week(29n), hours: 80.0, state: variant("confirmed", null) },
+                { key: "s2", from: week(31n), to: week(33n), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
             ] }) },
         ], ArrayType(OpsRow));
-        // A hermetic paged handle — the Data.bindPaged SHAPE as pure East
-        // functions over the captured array: the first window carries the
-        // rows, any later window is empty (= exhausted; `none` = loading).
-        const handle = $.const({
-            page: East.function([IntegerType, IntegerType], OptionType(ArrayType(OpsRow)), ($2, o, _l) => {
-                const empty = $2.const(some(East.value([], ArrayType(OpsRow))), OptionType(ArrayType(OpsRow)));
-                return o.equal(0n).ifElse(() => some(ops), () => empty);
-            }),
-            total: East.function([], OptionType(IntegerType), (_$2) => some(3n)),
-        }, StructType({
-            page: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(OpsRow))),
-            total: FunctionType([], OptionType(IntegerType)),
-        }));
+        // The series — real East values bound in the body, typed by the
+        // constructor; canvas order = series order. The accessors are where
+        // raw fields become canvas vocabulary: labels, quantity displays and
+        // chip text all derive CLIENT-SIDE inside each family's stored make.
         const series = $.const([
+            Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
+                Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
+                Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
+            ] })]),
             Plan.series.span(OpsRow, {
+                match: r => r.kind.hasTag("machine"),
                 key: r => r.id, label: r => r.id, id: true,
-                runs: r => r.kind.unwrap("machine").runs,
+                runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+                    key: j.batch, start: j.start, end: j.end,
+                    label: East.str`RUN · ${j.batch}`,
+                    quantity: East.str`${East.Float.printFixed(j.tonnes, 0n)} t`,
+                    qty: j.tonnes, state: j.state,
+                })),
                 groupBy: [r => r.line], rollup: "union", unit: "t",
             }),
+            Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
+                Plan.series.cards(OpsRow, {
+                    match: r => r.kind.hasTag("crew"),
+                    key: r => r.id, label: r => r.id,
+                    chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
+                        const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+                        return Plan.chip({
+                            key: s.key, from: s.from, to: s.to,
+                            label: s.state.hasTag("proposed").ifElse(
+                                () => East.str`+${hrs}h`,
+                                () => East.str`${hrs}h`),
+                            state: s.state,
+                        });
+                    }),
+                }),
+            ]),
         ], ArrayType(Plan.Types.Series(OpsRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         return (
             <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                data={handle}
+                axis={axis}
+                data={ops}
                 series={series}
             />
         );
@@ -1065,50 +1276,67 @@ export const planSeriesPaged = example({
 
 export const planLibraryDnd = example({
     keywords: [
-        "Plan", "library", "template", "make", "binding", "DnD", "drag", "drop",
+        "Plan", "data", "series", "library", "template", "make", "binding", "DnD", "drag", "drop",
         "onDrag", "canDrop", "sources", "add", "reorder", "compose",
     ],
-    description: "Row-library composition — templates carrying their binding via make(), the Plan declared as a DnD target with the shared onDrag funnel and a canDrop veto",
+    description: "Row-library composition — templates carrying their binding via make() (the kind factories are the SUBTREE vocabulary for template bodies), the base canvas defined as raw data + a span series, and the Plan declared as a DnD target with the shared onDrag funnel and a canDrop veto",
     fn: East.function([], UIComponentType, ($) => {
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const ShiftRow = StructType({
             key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
         });
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
-            const w1 = $2.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        // The base canvas — raw data + a span series, like every Plan.
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
+        const MachineRow = StructType({ id: StringType, jobs: ArrayType(JobRow) });
+        const machines = $.const([
+            { id: "L1-M03", jobs: [
+                { batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
+            ] },
+        ], ArrayType(MachineRow));
+        const series = $.const([
+            Plan.series.span(MachineRow, {
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => r.jobs.map((_$, j) => Plan.run({
+                    key: j.batch, start: j.start, end: j.end,
+                    label: East.str`RUN · ${j.batch}`, state: j.state,
+                })),
+            }),
+        ], ArrayType(Plan.Types.Series(MachineRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         const loadPcts = $.const([46.0, 58.0, 66.0, 78.0, 90.0, 98.0], ArrayType(FloatType));
-        const load = $.let(East.Array.generate(6n, MeasureRow, (_$2, i) =>
+        const load = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
             ({ week: week(i.multiply(2n).add(27n)), pct: loadPcts.get(i) })));
         const shifts = $.const([
             { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
             { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
         ], ArrayType(ShiftRow));
         // Templates carry their BINDING: `make` builds the live subtree from
-        // the captured data, so a dropped row renders immediately.
-        const makeUtil = $.const(East.function([], ArrayType(Plan.Types.Row), (_$2) =>
+        // the captured data — the kind factories' remaining public role — so
+        // a dropped row renders immediately.
+        const makeUtil = $.const(East.function([], ArrayType(Plan.Types.Row), (_$) =>
             Plan.chart({
                 key: "util", label: "UTIL %", id: true, height: "spark",
                 layers: [Chart.Column(load, { x: r => r.week, y: r => r.pct })],
             })));
-        const makeCrew = $.const(East.function([], ArrayType(Plan.Types.Row), (_$2) =>
+        const makeCrew = $.const(East.function([], ArrayType(Plan.Types.Row), (_$) =>
             Plan.cards({
                 key: "crew", label: "Crew A", sub: "152h", stacked: true,
-                chips: shifts.map((_$3, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
+                chips: shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
             })));
-        const onDrag = $.const(East.function([DragEventType], NullType, (_$2, _e) => null));
-        const canDrop = $.const(East.function([DragEventType], BooleanType, (_$2, _e) => true));
+        const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));
+        const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));
         return (
             <Plan
-                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
-                rows={[
-                    Plan.span({
-                        key: "m03", label: "L1-M03", id: true,
-                        runs: [Plan.run({ key: "r", start: week(28n), end: week(31n), label: "RUN · B-214", state: "in-progress" })],
-                    }),
-                ]}
+                axis={axis}
+                data={machines}
+                series={series}
                 library={[
                     Plan.template({ key: "util", label: "Chart", sublabel: "utilisation %", kind: "chart", make: makeUtil }),
                     Plan.template({ key: "crew", label: "Cards", sublabel: "crew assignments", kind: "cards", icon: "user-group", make: makeCrew }),

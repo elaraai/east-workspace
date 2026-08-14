@@ -89,7 +89,7 @@ export type {
     PlanIconInput, PlanLayerChannels,
     PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
     PlanSpanOfConfig, PlanHeatOfConfig, PlanTableOfConfig,
-    PlanRowsGroupConfig, PlanGroupByLevel, PlanReviewConfig, PlanRowsInput,
+    PlanReviewConfig, PlanRowsInput,
     PlanRowsValue,
     PlanSeriesValue, PlanSeriesInput, PlanSeriesEnvelopeConfig,
     PlanSpanSeriesConfig, PlanHeatSeriesConfig, PlanTableSeriesOfConfig,

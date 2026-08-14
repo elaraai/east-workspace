@@ -59,7 +59,6 @@ import {
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
 import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
-import { normalizeRows, type PlanRowsInput } from "./assemble.js";
 import { applySeries, derivePagedSource, seriesRowType, type PlanSeriesInput, type PlanPagedHandleLike } from "./series.js";
 
 // ============================================================================
@@ -163,16 +162,15 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
 export interface PlanConfig {
     /** The shared time-axis declaration (`Plan.axis`). */
     axis: SubtypeExprOrValue<PlanAxisType>;
-    /** The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`. */
-    rows?: PlanRowsInput;
     /** The raw data source — an `Array<R>` value or expression (a `$.let`-bound
      *  array, `Slice.rows`, `Data.bind(...).read()`) for the INLINE arm, or a
      *  `$.let`-bound paged handle (`Data.bindPaged(ops)`) for the PAGED arm —
-     *  the East type is the discriminant. Pairs with `series`. */
-    data?: SubtypeExprOrValue<ArrayType<StructType>> | PlanPagedHandleLike;
+     *  the East type is the discriminant. */
+    data: SubtypeExprOrValue<ArrayType<StructType>> | PlanPagedHandleLike;
     /** The row families over `data` — `Plan.series.*` values in canvas order
-     *  (a TS array or an East expression of `ArrayType(Plan.Types.Series(R))`). */
-    series?: PlanSeriesInput;
+     *  (a TS array or an East expression of `ArrayType(Plan.Types.Series(R))`).
+     *  Literal one-off chrome rides a `Plan.series.rows` entry. */
+    series: PlanSeriesInput;
     /** The link graph (R1) — run-edge quantity links (`Plan.link` values, map-derivable
      *  from data); the links-focus control gathers a row's transitive family over it. */
     links?: SubtypeExprOrValue<ArrayType<PlanLinkType>>;
@@ -262,33 +260,28 @@ export interface PlanConfig {
  * behind `onDrag`; the surface only reports.
  */
 export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
-    // rows XOR data+series — one authoring channel per canvas.
-    if ((config.data !== undefined) !== (config.series !== undefined)) {
-        throw new Error("Plan: `data` and `series` come together — pass both or neither");
-    }
-    if (config.data !== undefined && config.rows !== undefined) {
-        throw new Error("Plan: pass `rows` OR `data` + `series` — not both");
+    // A canvas is DEFINED as data + series (+ the root resolvers) — there
+    // is no rows-authoring channel; the IR's inline arm is what inline
+    // application collapses to.
+    if (config.data === undefined || config.series === undefined) {
+        throw new Error("Plan: `data` and `series` are required — a canvas is its data plus the series over it");
     }
     let rowsValue: ExprType<PlanRowsType>;
-    if (config.data !== undefined && config.series !== undefined) {
-        const dataExpr = East.value(config.data as SubtypeExprOrValue<ArrayType<StructType>>) as ExprType<ArrayType<StructType>>;
-        const dataType = Expr.type(dataExpr) as { type: string; fields?: Record<string, unknown> };
-        if (dataType.type === "Array") {
-            // INLINE — apply each series' make to the data expression.
-            seriesRowType(dataExpr);        // asserts a struct element type
-            rowsValue = East.value(variant("rows", applySeries(config.series, dataExpr)), PlanRowsType);
-        } else if (dataType.type === "Struct" && dataType.fields?.page !== undefined && dataType.fields?.total !== undefined) {
-            // PAGED — a bound paged handle (Data.bindPaged, or any handle
-            // with the page/total shape); derive the canvas-row source.
-            rowsValue = East.value(
-                variant("source", derivePagedSource(dataExpr as unknown as ExprType<StructType>, config.series)),
-                PlanRowsType,
-            );
-        } else {
-            throw new Error("Plan: `data` must be an Array<R> value/expression or a bound paged handle (Data.bindPaged)");
-        }
+    const dataExpr = East.value(config.data as SubtypeExprOrValue<ArrayType<StructType>>) as ExprType<ArrayType<StructType>>;
+    const dataType = Expr.type(dataExpr) as { type: string; fields?: Record<string, unknown> };
+    if (dataType.type === "Array") {
+        // INLINE — apply each series' make to the data expression.
+        seriesRowType(dataExpr);        // asserts a struct element type
+        rowsValue = East.value(variant("rows", applySeries(config.series, dataExpr)), PlanRowsType);
+    } else if (dataType.type === "Struct" && dataType.fields?.page !== undefined && dataType.fields?.total !== undefined) {
+        // PAGED — a bound paged handle (Data.bindPaged, or any handle with
+        // the page/total shape); derive the canvas-row source.
+        rowsValue = East.value(
+            variant("source", derivePagedSource(dataExpr as unknown as ExprType<StructType>, config.series)),
+            PlanRowsType,
+        );
     } else {
-        rowsValue = East.value(variant("rows", normalizeRows(config.rows ?? [])), PlanRowsType);
+        throw new Error("Plan: `data` must be an Array<R> value/expression or a bound paged handle (Data.bindPaged)");
     }
     const style = config.style;
     const styleValue = style !== undefined

@@ -43,8 +43,6 @@ export {
     type PlanSpanOfConfig,
     type PlanHeatOfConfig,
     type PlanTableOfConfig,
-    type PlanRowsGroupConfig,
-    type PlanGroupByLevel,
     type PlanReviewConfig,
     type PlanRowsInput,
     type PlanRowsValue,

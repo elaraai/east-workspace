@@ -70,7 +70,6 @@ export const Plan: {
     cards: typeof PlanFactory.cards;
     events: typeof PlanFactory.events;
     group: typeof PlanFactory.group;
-    rows: typeof PlanFactory.rows;
     series: typeof PlanFactory.series;
     run: typeof PlanFactory.run;
     decision: typeof PlanFactory.decision;
@@ -107,7 +106,6 @@ export const Plan: {
         cards: PlanFactory.cards,
         events: PlanFactory.events,
         group: PlanFactory.group,
-        rows: PlanFactory.rows,
         series: PlanFactory.series,
         run: PlanFactory.run,
         decision: PlanFactory.decision,

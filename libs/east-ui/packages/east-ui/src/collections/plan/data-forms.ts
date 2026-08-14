@@ -4,11 +4,16 @@
  */
 
 /**
- * Data-driven row forms — `Plan.rows` (per-element constructor + the grouped
- * form) and the accessor `.of` factories (`span.of` / `heat.of` / `table.of`):
- * the Table #317 vocabulary on the shared time axis. Structure (groupBy
- * levels) is host config; every per-row value flows through accessors as
- * expressions, optional ones returning the fields' `Option` types.
+ * The shared data-driven pipeline (`Plan Data Interface.md` §3.5a) — the
+ * accessor config surfaces, the reified groupBy engine, and the per-kind
+ * leaf/parent constructors that the `Plan.series.*` builders compose into
+ * their `make` functions. Structure (groupBy levels) is host config; every
+ * per-row value flows through accessors as expressions, optional ones
+ * returning the fields' `Option` types.
+ *
+ * There is NO standalone authoring surface here — a canvas is defined as
+ * `data` + `series` (+ the root resolvers); this module is the series
+ * builders' internals.
  *
  * @packageDocumentation
  */
@@ -18,7 +23,6 @@ import {
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
-    type TypeOf,
     East,
     Expr,
     ArrayType,
@@ -32,7 +36,6 @@ import {
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
-import { flatMapRowsBlock } from "../../shared/reify.js";
 import { TableAggregateType, type TableAggregateLiteral } from "../table/types.js";
 import { TickFormatType } from "../../format/types.js";
 import {
@@ -43,6 +46,11 @@ import {
     type PlanAggregateLiteral,
     type PlanHeatCellsType,
     type PlanTableCellType,
+    type PlanTableSeriesType,
+    PlanTableSplitType,
+    type PlanTableSplitLiteral,
+    PlanTableEmphasisType,
+    type PlanTableEmphasisLiteral,
     PlanExpandType,
     PlanRunType,
     PlanDecisionMarkType,
@@ -52,53 +60,21 @@ import {
 } from "./types.js";
 import { createHeatCells, resolveTag, type PlanHeatCellsOptions } from "./builders.js";
 import { PlanPortType } from "./types.js";
-import { rootsOf, applyRowOverrides, groupParentFn, type PlanGroupParentFn } from "./assemble.js";
+import { applyRowOverrides, type PlanGroupParentFn } from "./assemble.js";
 import { createSpan, createHeat, createTable } from "./factories.js";
 
 // ============================================================================
-// Data-driven forms — Plan.rows + the `.of` accessor factories
+// Accessors + the reified grouping engine
 // ============================================================================
-
-// Infer the row struct type R from the data argument, mirroring Table / Gantt.
-/** Element struct type of a rows input (see the Table / Gantt factories). */
-export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
-    TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
 
 /** An accessor over a data row. */
 export type PlanAccessor<R extends StructType, T extends EastType> = (row: ExprType<R>) => SubtypeExprOrValue<T>;
-
-/** A `Plan.rows` groupBy level — an accessor or the Table #317 `{ by }` config. */
-export type PlanGroupByLevel<R extends StructType> =
-    | PlanAccessor<R, StringType>
-    | { by: PlanAccessor<R, StringType>; collapsed?: boolean };
-
-/** Normalize a groupBy level to its config form. */
-export function levelConfig<R extends StructType>(level: PlanGroupByLevel<R>): { by: PlanAccessor<R, StringType>; collapsed?: boolean } {
-    return typeof level === "function" ? { by: level } : level;
-}
-
-/**
- * The grouped form of {@link Plan.rows} — heterogeneous canvas grouping into
- * `Plan.group` strips.
- *
- * @property groupBy - The group levels (string accessors or `{ by, collapsed }`)
- * @property summaryAggregate - DECLARED strip aggregation over descendant heat rows
- * @property row - The per-element row constructor (any kind factory)
- */
-export interface PlanRowsGroupConfig<R extends StructType> {
-    /** The group levels (string accessors or `{ by, collapsed }`). */
-    groupBy: PlanGroupByLevel<R>[];
-    /** DECLARED strip aggregation over descendant heat rows — `"mean"`/`"max"`/`"sum"` or a `PlanAggregateType` expression. */
-    summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
-    /** The per-element row constructor (any kind factory / nested `Plan.rows`). */
-    row: ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanRowType>>;
-}
 
 /** One resolved groupBy level — the reified key accessor + the level's parent constructor. */
 export interface PlanResolvedLevel {
     /** The reified group-key accessor (an East function call per row). */
     by: (row: ExprType<StructType>) => ExprType<StringType>;
-    /** The level's shared parent constructor (see {@link groupParentFn}). */
+    /** The level's shared parent constructor (see `groupParentFn`). */
     parentFn: PlanGroupParentFn;
 }
 
@@ -148,79 +124,23 @@ export function groupRows(
     return levelFn(pathPrefix, elems);
 }
 
-/**
- * Data-driven row construction — the per-element form: reify a subtree
- * constructor (any kind factory) over the data, flattened.
- *
- * @param data - The data rows (plain array or East expression)
- * @param fn - The per-element subtree constructor
- * @returns The flattened subtree
- */
-export function createRows<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    fn: ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<RowElement<T>>) => SubtypeExprOrValue<ArrayType<PlanRowType>>,
-): PlanRowsValue;
-/**
- * Data-driven row construction — the grouped form: one `Plan.group` strip per
- * discovered group value (arbitrary depth), members re-parented beneath it,
- * strip summaries DECLARED for the renderer to derive over descendant heat
- * rows.
- *
- * @param data - The data rows (plain array or East expression)
- * @param config - The grouped config ({@link PlanRowsGroupConfig})
- * @returns The flattened subtree
- */
-export function createRows<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    config: PlanRowsGroupConfig<RowElement<T>>,
-): PlanRowsValue;
-export function createRows<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    fnOrConfig:
-        | (($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<RowElement<T>>) => SubtypeExprOrValue<ArrayType<PlanRowType>>)
-        | PlanRowsGroupConfig<RowElement<T>>,
-): PlanRowsValue {
-    // One boundary erasure of the row generic (the Table `East.value(data)` +
-    // `Expr.type` idiom — table/index.ts).
-    const arr = East.value(data) as ExprType<ArrayType<StructType>>;
-    const rowType = (Expr.type(arr) as ArrayType<StructType>).value;
-    if (typeof fnOrConfig === "function") {
-        return flatMapRowsBlock(arr, PlanRowType, fnOrConfig as PlanRowsGroupConfig<StructType>["row"]);
-    }
-    const cfg = fnOrConfig as PlanRowsGroupConfig<StructType>;
-    const levels = cfg.groupBy.map(l => {
-        const c = levelConfig(l);
-        // The strip DECLARES its summary aggregation; the renderer derives
-        // the cells over descendant heat rows.
-        const kind = East.value(variant("group", {
-            summary:          none,
-            summaryAggregate: cfg.summaryAggregate !== undefined
-                ? some(resolveTag(cfg.summaryAggregate, PlanAggregateType))
-                : none,
-            collapsed:        c.collapsed !== undefined ? some(c.collapsed) : none,
-        }), PlanRowKindType);
-        return {
-            by: reifyLevelKey(rowType, c.by),
-            parentFn: groupParentFn(kind, ($, children) => {
-                const roots = $.let(rootsOf(children as PlanRowsValue), ArrayType(PlanRowType));
-                return some(East.str`${roots.length()} rs`);
-            }),
-        };
-    });
-    return groupRows(arr, levels, subset => flatMapRowsBlock(subset, PlanRowType, cfg.row), "");
-}
+// ============================================================================
+// The per-kind accessor configs (the series builders' surfaces)
+// ============================================================================
 
 /**
- * Config for {@link Plan.span}'s `.of` form — accessor-driven span rows with
- * arbitrary-depth grouping.
+ * Config for `Plan.series.span` (minus `match`) — accessor-driven span rows
+ * with arbitrary-depth rollup grouping.
  *
  * @property key - Row-key accessor
  * @property label - Gutter label accessor
  * @property id - Render labels as mono row ids
+ * @property stacked - Two-line gutter layout (label over sub)
  * @property sub - Gutter sub-line accessor
  * @property value - Gutter value-slot accessor
  * @property status - Per-row status-dot accessor (an `Option<StatusValueType>`)
  * @property drill - Per-row drill-payload accessor (an `Option<PlanDrillType>`)
+ * @property expand - Per-row expand-declaration accessor (an `Option<PlanExpandType>`)
  * @property runs - Per-row runs accessor
  * @property decisions - Per-row decision-diamonds accessor
  * @property ports - Per-row ports accessor
@@ -235,6 +155,8 @@ export interface PlanSpanOfConfig<R extends StructType> {
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
     id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
     /** Gutter sub-line accessor — returns the field's `Option` (per-row presence). */
     sub?: PlanAccessor<R, OptionType<StringType>>;
     /** Gutter value-slot accessor — returns the field's `Option`. */
@@ -243,7 +165,7 @@ export interface PlanSpanOfConfig<R extends StructType> {
     status?: PlanAccessor<R, OptionType<StatusValueType>>;
     /** Per-row drill-payload accessor — returns the field's `Option` (build values with `Plan.drill`). */
     drill?: PlanAccessor<R, OptionType<PlanDrillType>>;
-    /** Per-row expand-in-place accessor — returns the field's `Option<PlanExpandType>` (R2). */
+    /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
     /** Per-row runs accessor. */
     runs: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanRunType>>;
@@ -259,24 +181,7 @@ export interface PlanSpanOfConfig<R extends StructType> {
     unit?: SubtypeExprOrValue<StringType>;
 }
 
-/** Shared scaffolding for the `.of` factories — every level shares one parent constructor. */
-function ofScaffold<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    groupBy: PlanAccessor<RowElement<T>, StringType>[] | undefined,
-    leaf: ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>>,
-    parentFn: PlanGroupParentFn,
-): PlanRowsValue {
-    // The same one boundary erasure as `createRows`.
-    const arr = East.value(data) as ExprType<ArrayType<StructType>>;
-    const rowType = (Expr.type(arr) as ArrayType<StructType>).value;
-    const levels = (groupBy ?? []).map(by => ({
-        by: reifyLevelKey(rowType, by as PlanAccessor<StructType, StringType>),
-        parentFn,
-    }));
-    return groupRows(arr, levels, subset => flatMapRowsBlock(subset, PlanRowType, leaf), "");
-}
-
-/** The span `.of` / series PARENT kind — a rollup declaration (renderer derives bands). */
+/** The span PARENT kind — a rollup declaration (renderer derives bands). */
 export function spanParentKind(cfg: PlanSpanOfConfig<StructType>): ExprType<PlanRowKindType> {
     return East.value(variant("span", {
         runs:      [],
@@ -287,14 +192,15 @@ export function spanParentKind(cfg: PlanSpanOfConfig<StructType>): ExprType<Plan
     }), PlanRowKindType);
 }
 
-/** The span `.of` / series LEAF constructor — one data row to its 1-row subtree,
- *  the envelope's Option fields injected from the accessors. */
+/** The span LEAF constructor — one data row to its 1-row subtree, the
+ *  envelope's Option fields injected from the accessors. */
 export function spanLeafOf(cfg: PlanSpanOfConfig<StructType>): ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>> {
     return (_$, r) => applyRowOverrides(
         createSpan({
             key:   cfg.key(r),
             label: cfg.label(r),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             runs: cfg.runs(r),
             ...(cfg.decisions !== undefined ? { decisions: cfg.decisions(r) } : {}),
             ...(cfg.ports !== undefined ? { ports: cfg.ports(r) } : {}),
@@ -310,27 +216,12 @@ export function spanLeafOf(cfg: PlanSpanOfConfig<StructType>): ($: BlockBuilder<
 }
 
 /**
- * The `.of` form of {@link Plan.span} — accessor-driven span rows, grouped
- * to arbitrary depth with span-rollup parents (the parents DECLARE their
- * rollup + unit; the renderer derives the bands).
- *
- * @param data - The data rows
- * @param config - The accessors + grouping ({@link PlanSpanOfConfig})
- * @returns The flattened subtree
- */
-export function createSpanOf<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    config: PlanSpanOfConfig<RowElement<T>>,
-): PlanRowsValue {
-    const cfg = config as PlanSpanOfConfig<StructType>;
-    return ofScaffold(data, config.groupBy, spanLeafOf(cfg), groupParentFn(spanParentKind(cfg)));
-}
-
-/**
- * Config for {@link Plan.heat}'s `.of` form.
+ * Config for `Plan.series.heat` (minus `match`).
  *
  * @property key - Row-key accessor
  * @property label - Gutter label accessor
+ * @property id - Render labels as mono row ids
+ * @property stacked - Two-line gutter layout (label over sub)
  * @property sub - Gutter sub-line accessor
  * @property value - Gutter value-slot accessor
  * @property status - Per-row status-dot accessor
@@ -344,6 +235,10 @@ export interface PlanHeatOfConfig<R extends StructType> {
     key: PlanAccessor<R, StringType>;
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
     /** Gutter sub-line accessor — returns the field's `Option` (per-row presence). */
     sub?: PlanAccessor<R, OptionType<StringType>>;
     /** Gutter value-slot accessor — returns the field's `Option`. */
@@ -360,16 +255,7 @@ export interface PlanHeatOfConfig<R extends StructType> {
     scale?: PlanHeatCellsOptions;
 }
 
-/**
- * The `.of` form of {@link Plan.heat} — accessor-driven heat rows, grouped
- * with per-bucket-aggregated parents (the parents DECLARE their aggregation;
- * the renderer derives the cells).
- *
- * @param data - The data rows
- * @param config - The accessors + grouping ({@link PlanHeatOfConfig})
- * @returns The flattened subtree
- */
-/** The heat `.of` / series PARENT kind — an aggregate declaration on empty scale-bearing cells. */
+/** The heat PARENT kind — an aggregate declaration on empty scale-bearing cells. */
 export function heatParentKind(cfg: PlanHeatOfConfig<StructType>): ExprType<PlanRowKindType> {
     return East.value(variant("heat", {
         cells:     createHeatCells([], cfg.scale),
@@ -377,12 +263,14 @@ export function heatParentKind(cfg: PlanHeatOfConfig<StructType>): ExprType<Plan
     }), PlanRowKindType);
 }
 
-/** The heat `.of` / series LEAF constructor. */
+/** The heat LEAF constructor. */
 export function heatLeafOf(cfg: PlanHeatOfConfig<StructType>): ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>> {
     return (_$, r) => applyRowOverrides(
         createHeat({
             key:   cfg.key(r),
             label: cfg.label(r),
+            ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             cells: cfg.cells(r),
         }),
         {
@@ -393,27 +281,18 @@ export function heatLeafOf(cfg: PlanHeatOfConfig<StructType>): ($: BlockBuilder<
     );
 }
 
-export function createHeatOf<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    config: PlanHeatOfConfig<RowElement<T>>,
-): PlanRowsValue {
-    const cfg = config as PlanHeatOfConfig<StructType>;
-    const mode = cfg.aggregate ?? "mean";
-    return ofScaffold(
-        data,
-        config.groupBy,
-        heatLeafOf(cfg),
-        // The gutter meta prints the mode's tag (works for expressions too).
-        groupParentFn(heatParentKind(cfg), () => some(resolveTag(mode, PlanAggregateType).getTag())),
-    );
-}
-
 /**
- * Config for {@link Plan.table}'s `.of` form.
+ * Config for `Plan.series.table` (minus `match`).
  *
  * @property key - Row-key accessor
  * @property label - Gutter label accessor
- * @property cells - Per-row cells accessor (a `Plan.tableCells` result)
+ * @property id - Render labels as mono row ids
+ * @property stacked - Two-line gutter layout (label over sub)
+ * @property sub - Gutter sub-line accessor
+ * @property cells - Per-row cells accessor (sugar for one unstyled value series)
+ * @property series - Per-row multi-series accessor (exclusive with `cells`)
+ * @property split - Part layout when several value series render
+ * @property emphasis - Row emphasis (`"body"` / `"header"` / `"footer"`)
  * @property groupBy - Group-key accessors (subtotal parents per level)
  * @property aggregate - Subtotal mode (default `"sum"`)
  * @property format - Numeral format for derived subtotals
@@ -423,8 +302,20 @@ export interface PlanTableOfConfig<R extends StructType> {
     key: PlanAccessor<R, StringType>;
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
-    /** Per-row cells accessor (build with `Plan.tableCells`). */
-    cells: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanTableCellType>>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
+    /** Gutter sub-line accessor — returns the field's `Option` (per-row presence). */
+    sub?: PlanAccessor<R, OptionType<StringType>>;
+    /** Per-row cells accessor (build with `Plan.tableCells`) — sugar for one unstyled value series. */
+    cells?: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanTableCellType>>;
+    /** Per-row MULTI-SERIES accessor (`Array<PlanTableSeriesType>` in the data); exclusive with `cells`. */
+    series?: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanTableSeriesType>>;
+    /** Part layout when several value series render — `"horizontal"` (default) / `"vertical"`. */
+    split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
+    /** Row emphasis — `"body"` (default) / `"header"` / `"footer"`. */
+    emphasis?: SubtypeExprOrValue<PlanTableEmphasisType> | PlanTableEmphasisLiteral;
     /** Group-key accessors — one subtotal parent per discovered value per level. */
     groupBy?: PlanAccessor<R, StringType>[];
     /** Subtotal mode (default `"sum"`; a literal or a `TableAggregateType` expression). */
@@ -433,17 +324,7 @@ export interface PlanTableOfConfig<R extends StructType> {
     format?: SubtypeExprOrValue<TickFormatType>;
 }
 
-/**
- * The `.of` form of {@link Plan.table} — accessor-driven table rows with
- * arbitrary-depth `groupBy` subtotal parents (the parents DECLARE their
- * subtotal mode + format; the renderer derives the cells — the Table #317
- * vocabulary).
- *
- * @param data - The data rows
- * @param config - The accessors + grouping ({@link PlanTableOfConfig})
- * @returns The flattened subtree
- */
-/** The table `.of` / series PARENT kind — a subtotal declaration (header emphasis). */
+/** The table PARENT kind — a subtotal declaration (header emphasis). */
 export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<PlanRowKindType> {
     return East.value(variant("table", {
         series:    [],
@@ -454,27 +335,22 @@ export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<Pl
     }), PlanRowKindType);
 }
 
-/** The table `.of` / series LEAF constructor. */
+/** The table LEAF constructor. */
 export function tableLeafOf(cfg: PlanTableOfConfig<StructType>): ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>> {
-    return (_$, r) => createTable({
-        key:   cfg.key(r),
-        label: cfg.label(r),
-        cells: cfg.cells(r),
-        ...(cfg.format !== undefined ? { format: cfg.format } : {}),
-    });
-}
-
-export function createTableOf<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    config: PlanTableOfConfig<RowElement<T>>,
-): PlanRowsValue {
-    const cfg = config as PlanTableOfConfig<StructType>;
-    const mode = cfg.aggregate ?? "sum";
-    return ofScaffold(
-        data,
-        config.groupBy,
-        tableLeafOf(cfg),
-        // The gutter meta prints the mode's tag (works for expressions too).
-        groupParentFn(tableParentKind(cfg), () => some(resolveTag(mode, TableAggregateType).getTag())),
+    return (_$, r) => applyRowOverrides(
+        createTable({
+            key:   cfg.key(r),
+            label: cfg.label(r),
+            ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
+            ...(cfg.cells !== undefined ? { cells: cfg.cells(r) } : {}),
+            ...(cfg.series !== undefined ? { series: cfg.series(r) } : {}),
+            ...(cfg.split !== undefined ? { split: cfg.split } : {}),
+            ...(cfg.emphasis !== undefined ? { emphasis: cfg.emphasis } : {}),
+            ...(cfg.format !== undefined ? { format: cfg.format } : {}),
+        }),
+        {
+            ...(cfg.sub !== undefined ? { sub: cfg.sub(r) } : {}),
+        },
     );
 }

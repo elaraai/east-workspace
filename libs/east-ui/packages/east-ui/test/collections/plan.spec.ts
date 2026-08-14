@@ -6,7 +6,7 @@
 import { ArrayType, BooleanType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Plan, Text } from "@elaraai/east-ui/internal";
-import { Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./plan.examples.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -15,43 +15,6 @@ const W29 = new Date("2026-07-13T00:00:00Z");
 const W30 = new Date("2026-07-20T00:00:00Z");
 const W31 = new Date("2026-07-27T00:00:00Z");
 const END = new Date("2026-09-21T00:00:00Z");
-
-// Chart-consumption fixtures (module scope — no host helpers in East bodies).
-const SPEC_SERIES_ROW = StructType({ week: DateTimeType, pct: FloatType });
-// The data+series fixture row — families discriminated by a variant field.
-const OPS_ROW = StructType({
-    id: StringType, line: StringType,
-    kind: VariantType({
-        machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
-        crew:    StructType({ chips: ArrayType(Plan.Types.Chip) }),
-    }),
-});
-const SPEC_SERIES_DATA = [
-    { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
-];
-
-// Factory-throw probes run at authoring time; capture the verdicts as
-// booleans here and assert them inside the East tests below.
-const SPEC_NUMERIC = East.value([{ x: 1.0, y: 10.0 }, { x: 2.0, y: 20.0 }], ArrayType(StructType({ x: FloatType, y: FloatType })));
-const SPEC_CATEGORY = East.value([{ site: "A", v: 1.0 }, { site: "B", v: 2.0 }], ArrayType(StructType({ site: StringType, v: FloatType })));
-let CHART_BAR_THREW = false;
-try {
-    Plan.chart({ key: "x", label: "X", layers: Chart.Bar(SPEC_CATEGORY, { x: r => r.v, y: r => r.site }) });
-} catch { CHART_BAR_THREW = true; }
-let CHART_NUMERIC_X_THREW = false;
-try {
-    Plan.chart({ key: "x", label: "X", layers: Chart.Line(SPEC_NUMERIC, { x: r => r.x, y: r => r.y }) });
-} catch { CHART_NUMERIC_X_THREW = true; }
-// A temporal extent on a VALUE axis mirrors Chart.Root's y-axis guard.
-const SPEC_TIME_SERIES = East.value(SPEC_SERIES_DATA, ArrayType(SPEC_SERIES_ROW));
-let AXIS_TEMPORAL_THREW = false;
-try {
-    Plan.chart({
-        key: "x", label: "X",
-        left: { domain: [new Date("2026-06-29T00:00:00Z"), new Date("2026-09-21T00:00:00Z")] },
-        layers: Chart.Line(SPEC_TIME_SERIES, { x: r => r.week, y: r => r.pct }),
-    });
-} catch { AXIS_TEMPORAL_THREW = true; }
 
 describeEast("Plan", (test) => {
     Assert.examples(test, {
@@ -65,7 +28,6 @@ describeEast("Plan", (test) => {
         planEventRows: ex.planEventRows,
         planGroupedRows: ex.planGroupedRows,
         planSeriesData: ex.planSeriesData,
-        planSeriesPaged: ex.planSeriesPaged,
         planLibraryDnd: ex.planLibraryDnd,
     });
 
@@ -73,10 +35,13 @@ describeEast("Plan", (test) => {
     // Root + axis
     // =========================================================================
 
-    test("root carries axis, grain, footer, dnd identity and style", $ => {
+    test("root carries axis, grain, footer, dnd identity and style; data + series is the definition", $ => {
+        const Row = StructType({ id: StringType });
+        const data = $.const([], ArrayType(Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week", resolutions: ["week", "day"], now: W31, format: "W" }),
-            rows: [],
+            data,
+            series: [],
             grain: "group",
             id: "plan", sources: ["lib"],
             footer: [{ text: "3 EXCEPTIONS", tone: "warning", end: true }],
@@ -98,12 +63,17 @@ describeEast("Plan", (test) => {
         $(Assert.equal(root.style.unwrap("some").height.unwrap("some"), "fill"));
         $(Assert.equal(root.style.unwrap("some").density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "168px"));
+        // Empty data × no series ⇒ an empty inline canvas.
+        $(Assert.equal(root.rows.unwrap("rows").length(), 0n));
     });
 
     test("review config defaults the column and rerun labels", $ => {
+        const Row = StructType({ id: StringType });
+        const data = $.const([], ArrayType(Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
-            rows: [],
+            data,
+            series: [],
             review: { onApprove: East.function([Plan.Types.RowRef], NullType, (_$, _r) => null) },
         }));
         const review = $.let(p.unwrap().unwrap("Plan").review.unwrap("some"));
@@ -114,15 +84,18 @@ describeEast("Plan", (test) => {
     });
 
     test("the root carries the link graph (R1); Plan.link maps over data", $ => {
+        const Row = StructType({ id: StringType });
         const TransferRow = StructType({ src: StringType, srcRun: StringType, dst: StringType, dstRun: StringType, t: FloatType });
         const transfers = $.const([
             { src: "m03", srcRun: "b214", dst: "m04", dstRun: "b208", t: 24.0 },
             { src: "m04", srcRun: "b208", dst: "dock2", dstRun: "d1", t: 18.0 },
         ], ArrayType(TransferRow));
+        const data = $.const([], ArrayType(Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
-            rows: [],
-            links: transfers.map((_$2, tr) => Plan.link({
+            data,
+            series: [],
+            links: transfers.map((_$, tr) => Plan.link({
                 from: tr.src, fromRun: tr.srcRun, to: tr.dst, toRun: tr.dstRun,
                 quantity: tr.t, label: East.str`${East.Float.printFixed(tr.t, 0n)} t`,
             })),
@@ -141,9 +114,9 @@ describeEast("Plan", (test) => {
             key: "m13", label: "L4-M13",
             expand: { height: "152px", axis: "dim" },
         }));
-        const ex = $.let(rows.get(0n).expand.unwrap("some"));
-        $(Assert.equal(ex.height.unwrap("some"), "152px"));
-        $(Assert.equal(ex.axis.hasTag("dim"), true));
+        const declared = $.let(rows.get(0n).expand.unwrap("some"));
+        $(Assert.equal(declared.height.unwrap("some"), "152px"));
+        $(Assert.equal(declared.axis.hasTag("dim"), true));
         // Defaults: axis keep, height none (the renderer's default) — the
         // empty declaration just marks the row expandable.
         const dflt = $.let(Plan.span({ key: "d", label: "D", expand: {} }));
@@ -158,19 +131,22 @@ describeEast("Plan", (test) => {
         // ONE stored function per surface (the journeys pattern) — refs carry
         // the row key on every arm, so one resolver covers every element
         // kind; returning none opens no surface.
-        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($2, ref) => {
-            const noBody = $2.const(none, OptionType(UIComponentType));
+        const Row = StructType({ id: StringType });
+        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {
+            const noBody = $.const(none, OptionType(UIComponentType));
             return ref.match({
-                run: (_$3, ev) => ev.run.equal("b214").ifElse(
+                run: (_$, ev) => ev.run.equal("b214").ifElse(
                     () => some(Text.Root("RUN DETAIL")),
                     () => noBody),
-            }, _$3 => noBody);
+            }, _$ => noBody);
         }));
-        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$2, _ref) =>
+        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) =>
             Text.Root("UTIL RENDER")));
+        const data = $.const([], ArrayType(Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
-            rows: [],
+            data,
+            series: [],
             popover,
             expandRender,
         }));
@@ -192,7 +168,7 @@ describeEast("Plan", (test) => {
     // =========================================================================
 
     test("run state shorthands resolve the full lifecycle ladder", $ => {
-        const runs = $.let(East.value([
+        const runs = $.let([
             Plan.run({ key: "a", start: W27, end: W28, label: "A", state: "estimated" }),
             Plan.run({ key: "b", start: W27, end: W28, label: "B", state: "added" }),
             Plan.run({ key: "c", start: W27, end: W28, label: "C", state: "recommended" }),
@@ -201,7 +177,7 @@ describeEast("Plan", (test) => {
             Plan.run({ key: "f", start: W27, end: W28, label: "F", state: "in-progress" }),
             Plan.run({ key: "g", start: W27, end: W28, label: "G", state: "actual" }),
             Plan.run({ key: "h", start: W27, end: W28, label: "H", state: "rejected" }),
-        ], ArrayType(Plan.Types.Run)));
+        ], ArrayType(Plan.Types.Run));
         $(Assert.equal(runs.get(0n).state.hasTag("estimated"), true));
         $(Assert.equal(runs.get(1n).state.unwrap("proposed").hasTag("added"), true));
         $(Assert.equal(runs.get(2n).state.unwrap("proposed").hasTag("recommended"), true));
@@ -226,7 +202,8 @@ describeEast("Plan", (test) => {
     });
 
     // =========================================================================
-    // Flatten — nested rows, parent keys, depth-first order
+    // Flatten — nested rows, parent keys, depth-first order (the SUBTREE
+    // vocabulary — template `make` bodies and `series.rows` chrome)
     // =========================================================================
 
     test("span nesting flattens depth-first with re-parented roots", $ => {
@@ -256,7 +233,10 @@ describeEast("Plan", (test) => {
     });
 
     test("gutter and row envelope fields round-trip", $ => {
-        const series = $.const(SPEC_SERIES_DATA, ArrayType(SPEC_SERIES_ROW));
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const series = $.const([
+            { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
+        ], ArrayType(MeasureRow));
         const rows = $.let(Plan.chart({
             key: "cov", label: "COVERAGE", id: true, sub: "demand", value: "94.2%",
             meta: "8 rs", stacked: true, pinned: true, status: "warning", approval: "pending",
@@ -466,7 +446,10 @@ describeEast("Plan", (test) => {
     // =========================================================================
 
     test("chart rows consume Chart layers as {t, y} data with axes and channels", $ => {
-        const series = $.const(SPEC_SERIES_DATA, ArrayType(SPEC_SERIES_ROW));
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const series = $.const([
+            { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
+        ], ArrayType(MeasureRow));
         const rows = $.let(Plan.chart({
             key: "c", label: "C", height: Plan.fixed("120px"), expandedHeight: "96px", expandable: true,
             // The Chart.Root y-axis vocabulary, verbatim (domain / tickValues / format).
@@ -514,7 +497,10 @@ describeEast("Plan", (test) => {
     });
 
     test("stacked columns carry their series keys; spark is the default height", $ => {
-        const series = $.const(SPEC_SERIES_DATA, ArrayType(SPEC_SERIES_ROW));
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const series = $.const([
+            { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
+        ], ArrayType(MeasureRow));
         const rows = $.let(Plan.chart({
             key: "out", label: "OUT",
             layers: [
@@ -532,13 +518,40 @@ describeEast("Plan", (test) => {
     });
 
     test("Chart.Bar, non-DateTime x accessors and temporal value-axis domains are build-time errors", $ => {
-        $(Assert.equal(East.value(CHART_BAR_THREW), true));
-        $(Assert.equal(East.value(CHART_NUMERIC_X_THREW), true));
-        $(Assert.equal(East.value(AXIS_TEMPORAL_THREW), true));
+        const NumericRow = StructType({ x: FloatType, y: FloatType });
+        const CategoryRow = StructType({ site: StringType, v: FloatType });
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const numeric = $.const([{ x: 1.0, y: 10.0 }, { x: 2.0, y: 20.0 }], ArrayType(NumericRow));
+        const category = $.const([{ site: "A", v: 1.0 }, { site: "B", v: 2.0 }], ArrayType(CategoryRow));
+        const measures = $.const([{ week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }], ArrayType(MeasureRow));
+        // The guards throw at AUTHORING time — probe them in place.
+        $(Assert.equal(East.value((() => {
+            try {
+                Plan.chart({ key: "x", label: "X", layers: Chart.Bar(category, { x: r => r.v, y: r => r.site }) });
+                return false;
+            } catch { return true; }
+        })()), true));
+        $(Assert.equal(East.value((() => {
+            try {
+                Plan.chart({ key: "x", label: "X", layers: Chart.Line(numeric, { x: r => r.x, y: r => r.y }) });
+                return false;
+            } catch { return true; }
+        })()), true));
+        // A temporal extent on a VALUE axis mirrors Chart.Root's y-axis guard.
+        $(Assert.equal(East.value((() => {
+            try {
+                Plan.chart({
+                    key: "x", label: "X",
+                    left: { domain: [W27, END] },
+                    layers: Chart.Line(measures, { x: r => r.week, y: r => r.pct }),
+                });
+                return false;
+            } catch { return true; }
+        })()), true));
     });
 
     // =========================================================================
-    // Groups + data-driven forms
+    // Groups + the data-driven forms
     // =========================================================================
 
     test("group strips DECLARE their summary aggregate and re-parent members", $ => {
@@ -561,43 +574,61 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(1n).parent.unwrap("some"), "line2"));
     });
 
-    test("Plan.rows grouped form builds group strips per discovered value", $ => {
+    test("series.group discovered form builds one collapsed strip per by value with member-count meta", $ => {
+        const LineRow = StructType({ id: StringType, line: StringType, v: FloatType });
         const data = $.const([
             { id: "a", line: "L1", v: 40.0 },
             { id: "b", line: "L1", v: 60.0 },
             { id: "c", line: "L2", v: 80.0 },
-        ]);
-        const rows = $.let(Plan.rows(data, {
-            groupBy: [{ by: r => r.line, collapsed: true }],
-            summaryAggregate: "mean",
-            row: (_$2, r) => Plan.heat({ key: r.id, label: r.id, cells: Plan.heatCells(
-                East.value([{ at: W27, value: some(r.v), label: none }], ArrayType(Plan.Types.HeatCell)),
-            ) }),
+        ], ArrayType(LineRow));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data,
+            series: [
+                Plan.series.group(LineRow, { by: r => r.line, collapsed: true, summaryAggregate: "mean" }, [
+                    Plan.series.heat(LineRow, {
+                        key: r => r.id, label: r => r.id,
+                        cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                    }),
+                ]),
+            ],
         }));
-        // L1 strip + 2 members, L2 strip + 1 member.
+        // L1 strip + 2 members, L2 strip + 1 member — strips in
+        // first-appearance data order, wearing the member-count meta.
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         $(Assert.equal(rows.length(), 5n));
         $(Assert.equal(rows.get(0n).key, "L1"));
         $(Assert.equal(rows.get(0n).gutter.meta.unwrap("some"), "2 rs"));
         $(Assert.equal(rows.get(0n).kind.unwrap("group").summaryAggregate.unwrap("some").hasTag("mean"), true));
+        $(Assert.equal(rows.get(0n).kind.unwrap("group").collapsed.unwrap("some"), true));
         $(Assert.equal(rows.get(1n).parent.unwrap("some"), "L1"));
         $(Assert.equal(rows.get(2n).parent.unwrap("some"), "L1"));
         $(Assert.equal(rows.get(3n).key, "L2"));
         $(Assert.equal(rows.get(4n).parent.unwrap("some"), "L2"));
     });
 
-    test("span.of groups by accessor with rollup parents", $ => {
+    test("series span groupBy builds rollup parents per discovered value", $ => {
+        const SpanRow = StructType({
+            id: StringType, program: StringType,
+            start: DateTimeType, end: DateTimeType, tonnes: FloatType,
+        });
         const data = $.const([
-            { id: "m1", program: "A", start: W27, end: W29, qty: 96.0 },
-            { id: "m2", program: "A", start: W28, end: W30, qty: 50.0 },
-            { id: "m3", program: "B", start: W27, end: W28, qty: 10.0 },
-        ]);
-        const rows = $.let(Plan.span.of(data, {
-            key: r => r.id, label: r => r.id, id: true,
-            runs: r => East.value([Plan.run({ key: r.id, start: r.start, end: r.end, label: r.id, qty: r.qty, state: variant("confirmed", null) })], ArrayType(Plan.Types.Run)),
-            groupBy: [r => r.program], rollup: "union", unit: "t",
+            { id: "m1", program: "A", start: W27, end: W29, tonnes: 96.0 },
+            { id: "m2", program: "A", start: W28, end: W30, tonnes: 50.0 },
+            { id: "m3", program: "B", start: W27, end: W28, tonnes: 10.0 },
+        ], ArrayType(SpanRow));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data,
+            series: [Plan.series.span(SpanRow, {
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => [Plan.run({ key: r.id, start: r.start, end: r.end, label: r.id, qty: r.tonnes, state: variant("confirmed", null) })],
+                groupBy: [r => r.program], rollup: "union", unit: "t",
+            })],
         }));
         // A parent + 2 members, B parent + 1 member; parents DECLARE the
         // rollup + unit (the renderer derives the band values).
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         $(Assert.equal(rows.length(), 5n));
         $(Assert.equal(rows.get(0n).key, "A"));
         $(Assert.equal(rows.get(0n).gutter.label, "A"));
@@ -607,29 +638,43 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(3n).key, "B"));
     });
 
-    test("span.of accessor channel: value/status/drill Options flow per row; Plan.drill builds payloads", $ => {
+    test("series accessor channel: value/status/drill Options flow per row from raw fields", $ => {
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
         const MachineRow = StructType({
             id: StringType, cap: FloatType, warn: BooleanType,
             drill: OptionType(Plan.Types.Drill),
-            runs: ArrayType(Plan.Types.Run),
+            jobs: ArrayType(JobRow),
         });
         const data = $.const([
+            // The drill payload is a stored plain-data record (§3.2) —
+            // presence is a per-row fact; no builders in the data.
             { id: "m1", cap: 120.0, warn: true,
-              drill: some(Plan.drill({ lines: ["120 t · FILL"], meter: 0.5, journey: "B-208" })),
-              runs: [Plan.run({ key: "r1", start: W27, end: W28, label: "R1", state: "actual" })] },
+              drill: some({ lines: ["120 t · FILL"], meter: some(0.5), series: none, events: [], journey: some("B-208") }),
+              jobs: [{ batch: "B-1", start: W27, end: W28, state: variant("actual", null) }] },
             { id: "m2", cap: 80.0, warn: false, drill: none,
-              runs: [Plan.run({ key: "r2", start: W28, end: W29, label: "R2", state: "confirmed" })] },
+              jobs: [{ batch: "B-2", start: W28, end: W29, state: variant("confirmed", null) }] },
         ], ArrayType(MachineRow));
-        const rows = $.let(Plan.span.of(data, {
-            key: r => r.id, label: r => r.id, id: true,
-            value: r => some(East.str`${East.Float.printFixed(r.cap, 0n)} t`),
-            status: r => r.warn.ifElse(
-                () => East.value(some(variant("warning", null)), OptionType(StatusValueType)),
-                () => East.value(none, OptionType(StatusValueType))),
-            drill: r => r.drill,
-            runs: r => r.runs,
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data,
+            series: [Plan.series.span(MachineRow, {
+                key: r => r.id, label: r => r.id, id: true,
+                value: r => some(East.str`${East.Float.printFixed(r.cap, 0n)} t`),
+                status: r => r.warn.ifElse(
+                    () => East.value(some(variant("warning", null)), OptionType(StatusValueType)),
+                    () => East.value(none, OptionType(StatusValueType))),
+                drill: r => r.drill,
+                runs: r => r.jobs.map((_$, j) => Plan.run({
+                    key: j.batch, start: j.start, end: j.end,
+                    label: East.str`RUN · ${j.batch}`, state: j.state,
+                })),
+            })],
         }));
-        // Per-row presence, straight from the data / computed expressions.
+        // Per-row presence + display, derived from the raw fields in the
+        // stored make — nothing precomputed in the data.
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         $(Assert.equal(rows.get(0n).gutter.value.unwrap("some"), "120 t"));
         $(Assert.equal(rows.get(0n).status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(rows.get(1n).status.hasTag("none"), true));
@@ -637,6 +682,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(0n).drill.unwrap("some").journey.unwrap("some"), "B-208"));
         $(Assert.equal(rows.get(0n).drill.unwrap("some").meter.unwrap("some"), 0.5));
         $(Assert.equal(rows.get(1n).drill.hasTag("none"), true));
+        $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
     });
 
     test("bucket lanes accept East arrays of PlanLaneType values", $ => {
@@ -650,62 +696,97 @@ describeEast("Plan", (test) => {
     });
 
     // =========================================================================
-    // Series — the data + series canvas (P-b)
+    // Series — the data + series canvas
     // =========================================================================
 
     test("data+series: families build in series order, match filters, rollup parents declare", $ => {
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
+        const ShiftRow = StructType({
+            key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
+        });
+        const OpsRow = StructType({
+            id: StringType, line: StringType,
+            kind: VariantType({
+                machine: StructType({ jobs: ArrayType(JobRow) }),
+                crew:    StructType({ shifts: ArrayType(ShiftRow) }),
+            }),
+        });
         const ops = $.const([
-            { id: "m1", line: "L1", kind: variant("machine", { runs: [
-                Plan.run({ key: "r1", start: W27, end: W29, label: "R1", state: "actual" })] }) },
-            { id: "m2", line: "L1", kind: variant("machine", { runs: [
-                Plan.run({ key: "r2", start: W28, end: W30, label: "R2", state: "confirmed" })] }) },
-            { id: "c1", line: "L1", kind: variant("crew", { chips: [
-                Plan.chip({ key: "s1", from: W27, to: W29, label: "80h", state: "confirmed" })] }) },
-        ], ArrayType(OPS_ROW));
+            { id: "m1", line: "L1", kind: variant("machine", { jobs: [
+                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) },
+            { id: "m2", line: "L1", kind: variant("machine", { jobs: [
+                { batch: "B-2", start: W28, end: W30, state: variant("confirmed", null) }] }) },
+            { id: "c1", line: "L1", kind: variant("crew", { shifts: [
+                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) },
+        ], ArrayType(OpsRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data: ops,
             series: [
-                Plan.series.span(OPS_ROW, {
+                Plan.series.span(OpsRow, {
                     match: r => r.kind.hasTag("machine"),
                     key: r => r.id, label: r => r.id, id: true,
-                    runs: r => r.kind.unwrap("machine").runs,
+                    runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+                        key: j.batch, start: j.start, end: j.end,
+                        label: East.str`RUN · ${j.batch}`, state: j.state,
+                    })),
                     groupBy: [r => r.line], rollup: "union", unit: "t",
                 }),
-                Plan.series.cards(OPS_ROW, {
+                Plan.series.cards(OpsRow, {
                     match: r => r.kind.hasTag("crew"),
                     key: r => r.id, label: r => r.id,
-                    chips: r => r.kind.unwrap("crew").chips,
+                    chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
+                        const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+                        return Plan.chip({
+                            key: s.key, from: s.from, to: s.to,
+                            label: East.str`${hrs}h`, state: s.state,
+                        });
+                    }),
                 }),
             ],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         // Span family first (L1 rollup parent + its two machines — the crew
-        // row filtered out by match), then the cards family.
+        // row filtered out by match), then the cards family; the chip label
+        // derives from the raw hours in the stored make.
         $(Assert.equal(rows.length(), 4n));
         $(Assert.equal(rows.get(0n).key, "L1"));
         $(Assert.equal(rows.get(0n).kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
         $(Assert.equal(rows.get(0n).kind.unwrap("span").unit.unwrap("some"), "t"));
         $(Assert.equal(rows.get(1n).key, "m1"));
         $(Assert.equal(rows.get(1n).parent.unwrap("some"), "L1"));
+        $(Assert.equal(rows.get(1n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
         $(Assert.equal(rows.get(2n).key, "m2"));
         $(Assert.equal(rows.get(3n).key, "c1"));
         $(Assert.equal(rows.get(3n).kind.unwrap("cards").chips.length(), 1n));
+        $(Assert.equal(rows.get(3n).kind.unwrap("cards").chips.get(0n).label, "80h"));
     });
 
     test("a $.const-bound series expression applies via the East fold", $ => {
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
+        const OpsRow = StructType({
+            id: StringType,
+            kind: VariantType({ machine: StructType({ jobs: ArrayType(JobRow) }) }),
+        });
         const ops = $.const([
-            { id: "m1", line: "L1", kind: variant("machine", { runs: [
-                Plan.run({ key: "r1", start: W27, end: W29, label: "R1", state: "actual" })] }) },
-        ], ArrayType(OPS_ROW));
+            { id: "m1", kind: variant("machine", { jobs: [
+                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) },
+        ], ArrayType(OpsRow));
         // The series list is itself an East VALUE — typed by the constructor.
         const series = $.const([
-            Plan.series.span(OPS_ROW, {
+            Plan.series.span(OpsRow, {
                 key: r => r.id, label: r => r.id,
-                runs: r => r.kind.unwrap("machine").runs,
+                runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+                    key: j.batch, start: j.start, end: j.end,
+                    label: East.str`RUN · ${j.batch}`, state: j.state,
+                })),
             }),
-            Plan.series.rows(OPS_ROW, [Plan.events({ key: "ms", label: "MS" })]),
-        ], ArrayType(Plan.Types.Series(OPS_ROW)));
+            Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MS" })]),
+        ], ArrayType(Plan.Types.Series(OpsRow)));
         const p = $.let(Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: ops, series }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
         $(Assert.equal(rows.length(), 2n));
@@ -716,20 +797,32 @@ describeEast("Plan", (test) => {
     });
 
     test("series.group wraps child families under a strip; series.rows carries literal chrome", $ => {
+        const ShiftRow = StructType({
+            key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
+        });
+        const OpsRow = StructType({
+            id: StringType,
+            kind: VariantType({ crew: StructType({ shifts: ArrayType(ShiftRow) }) }),
+        });
         const ops = $.const([
-            { id: "crewA", line: "L1", kind: variant("crew", { chips: [
-                Plan.chip({ key: "s1", from: W27, to: W29, label: "80h", state: "confirmed" })] }) },
-        ], ArrayType(OPS_ROW));
+            { id: "crewA", kind: variant("crew", { shifts: [
+                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) },
+        ], ArrayType(OpsRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data: ops,
             series: [
-                Plan.series.rows(OPS_ROW, [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
-                Plan.series.group(OPS_ROW, { key: "crews", label: "Crews", meta: "1 rs" }, [
-                    Plan.series.cards(OPS_ROW, {
-                        match: r => r.kind.hasTag("crew"),
+                Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
+                Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
+                    Plan.series.cards(OpsRow, {
                         key: r => r.id, label: r => r.id,
-                        chips: r => r.kind.unwrap("crew").chips,
+                        chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
+                            const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+                            return Plan.chip({
+                                key: s.key, from: s.from, to: s.to,
+                                label: East.str`${hrs}h`, state: s.state,
+                            });
+                        }),
                     }),
                 ]),
             ],
@@ -745,37 +838,49 @@ describeEast("Plan", (test) => {
     });
 
     test("a paged data handle derives the canvas-row source — page wraps the series makes, total passes through", $ => {
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
+        const OpsRow = StructType({
+            id: StringType,
+            kind: VariantType({ machine: StructType({ jobs: ArrayType(JobRow) }) }),
+        });
         const ops = $.const([
-            { id: "m1", line: "L1", kind: variant("machine", { runs: [
-                Plan.run({ key: "r1", start: W27, end: W29, label: "R1", state: "actual" })] }) },
-        ], ArrayType(OPS_ROW));
+            { id: "m1", kind: variant("machine", { jobs: [
+                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) },
+        ], ArrayType(OpsRow));
         // A hermetic paged handle — pure East fns windowing the captured
         // array (the shape Data.bindPaged produces; no platform involved).
         const handle = $.const({
-            page: East.function([IntegerType, IntegerType], OptionType(ArrayType(OPS_ROW)), ($2, o, _l) => {
-                const noPage = $2.const(none, OptionType(ArrayType(OPS_ROW)));
+            page: East.function([IntegerType, IntegerType], OptionType(ArrayType(OpsRow)), ($, o, _l) => {
+                const noPage = $.const(none, OptionType(ArrayType(OpsRow)));
                 return o.equal(0n).ifElse(() => some(ops), () => noPage);
             }),
-            total: East.function([], OptionType(IntegerType), (_$2) => some(1n)),
+            total: East.function([], OptionType(IntegerType), (_$) => some(1n)),
         }, StructType({
-            page: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(OPS_ROW))),
+            page: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(OpsRow))),
             total: FunctionType([], OptionType(IntegerType)),
         }));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data: handle,
-            series: [Plan.series.span(OPS_ROW, {
+            series: [Plan.series.span(OpsRow, {
                 key: r => r.id, label: r => r.id,
-                runs: r => r.kind.unwrap("machine").runs,
+                runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+                    key: j.batch, start: j.start, end: j.end,
+                    label: East.str`RUN · ${j.batch}`, state: j.state,
+                })),
             })],
         }));
-        // The stored source is the DERIVED handle at the canvas-row type.
+        // The stored source is the DERIVED handle at the canvas-row type —
+        // each window's RAW rows flow through the same accessor derivations.
         const src = $.let(p.unwrap().unwrap("Plan").rows.unwrap("source"));
         $(Assert.equal(src.total().unwrap("some"), 1n));
         const w0 = $.let(src.page(0n, 100n));
         $(Assert.equal(w0.unwrap("some").length(), 1n));
         $(Assert.equal(w0.unwrap("some").get(0n).key, "m1"));
         $(Assert.equal(w0.unwrap("some").get(0n).kind.unwrap("span").runs.length(), 1n));
+        $(Assert.equal(w0.unwrap("some").get(0n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
         // A window the author's handle can't serve stays none (loading).
         $(Assert.equal(src.page(1n, 100n).hasTag("none"), true));
     });
@@ -785,7 +890,7 @@ describeEast("Plan", (test) => {
     // =========================================================================
 
     test("templates carry their kind, icon and binding", $ => {
-        const make = $.const(East.function([], ArrayType(Plan.Types.Row), (_$2) =>
+        const make = $.const(East.function([], ArrayType(Plan.Types.Row), (_$) =>
             Plan.events({ key: "ms", label: "MS", marks: [] })));
         const t = $.let(Plan.template({
             key: "ms", label: "Events", sublabel: "milestones", kind: "events", icon: "flag", make,

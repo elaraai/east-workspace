@@ -82,7 +82,6 @@ import {
     PlanRowType,
     PlanTemplateType,
     PlanJourneyType,
-    type PlanRowsValue,
 } from "./types.js";
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
@@ -116,11 +115,8 @@ import {
     createCards,
     createEvents,
     createGroup,
-    type PlanSpanInput,
-    type PlanHeatInput,
-    type PlanTableInput,
 } from "./factories.js";
-import { createRows, createSpanOf, createHeatOf, createTableOf } from "./data-forms.js";
+
 import {
     PlanSeriesType,
     createSeriesSpan,
@@ -246,9 +242,7 @@ export {
     type PlanGroupInput,
 } from "./factories.js";
 export {
-    type RowElement,
-    type PlanGroupByLevel,
-    type PlanRowsGroupConfig,
+    type PlanAccessor,
     type PlanSpanOfConfig,
     type PlanHeatOfConfig,
     type PlanTableOfConfig,
@@ -267,39 +261,12 @@ export {
     type PlanEventsSeriesConfig,
     type PlanChartSeriesConfig,
     type PlanGroupSeriesChrome,
+    type PlanGroupSeriesByConfig,
 } from "./series.js";
 
 // ============================================================================
 // Namespace
 // ============================================================================
-
-/** The callable-with-`.of` shape of `Plan.span`. */
-export interface PlanSpanFactory {
-    /** Creates a span row (see {@link Plan.span}). */
-    (input: PlanSpanInput): PlanRowsValue;
-    /** The accessor-driven `.of` form. */
-    of: typeof createSpanOf;
-}
-
-/** The callable-with-`.of` shape of `Plan.heat`. */
-export interface PlanHeatFactory {
-    /** Creates a heat row (see {@link Plan.heat}). */
-    (input: PlanHeatInput): PlanRowsValue;
-    /** The accessor-driven `.of` form. */
-    of: typeof createHeatOf;
-}
-
-/** The callable-with-`.of` shape of `Plan.table`. */
-export interface PlanTableFactory {
-    /** Creates a table row (see {@link Plan.table}). */
-    (input: PlanTableInput): PlanRowsValue;
-    /** The accessor-driven `.of` form. */
-    of: typeof createTableOf;
-}
-
-const spanFactory: PlanSpanFactory = Object.assign(createSpan, { of: createSpanOf });
-const heatFactory: PlanHeatFactory = Object.assign(createHeat, { of: createHeatOf });
-const tableFactory: PlanTableFactory = Object.assign(createTable, { of: createTableOf });
 
 /**
  * The type of the {@link Plan} namespace. Declared explicitly (rather than
@@ -311,24 +278,22 @@ export interface PlanNamespace {
     Root: typeof createPlanRoot;
     /** Builds the shared time-axis declaration. */
     axis: typeof createAxis;
-    /** Span rows (the Gantt surface) — callable, plus the accessor `.of` form. */
-    span: PlanSpanFactory;
-    /** Bucket rows (the Planner surface). */
+    /** Span-row SUBTREE builder (library `make` bodies + `series.rows` chrome). */
+    span: typeof createSpan;
+    /** Bucket-row subtree builder. */
     buckets: typeof createBuckets;
-    /** Chart rows — Chart layer builders consumed as data. */
+    /** Chart-row subtree builder — Chart layer builders consumed as data. */
     chart: typeof createChart;
-    /** Heat rows (the Matrix cell recipes) — callable, plus `.of`. */
-    heat: PlanHeatFactory;
-    /** Table rows (bucketed numerals) — callable, plus `.of`. */
-    table: PlanTableFactory;
+    /** Heat-row subtree builder. */
+    heat: typeof createHeat;
+    /** Table-row subtree builder. */
+    table: typeof createTable;
     /** Cards rows (Roster chips). */
     cards: typeof createCards;
     /** Event rows (instant marks). */
     events: typeof createEvents;
     /** Group strips (the heterogeneous container). */
     group: typeof createGroup;
-    /** Data-driven rows — per-element constructor or grouped config. */
-    rows: typeof createRows;
     /** Data-driven row FAMILIES over one source (`data` + `series` props) —
      *  each builder takes the row type first and returns a real East series
      *  value (`Plan Data Interface.md` §3.5a). */
@@ -522,15 +487,14 @@ export interface PlanNamespace {
 export const Plan: PlanNamespace = {
     Root: createPlanRoot,
     axis: createAxis,
-    span: spanFactory,
+    span: createSpan,
     buckets: createBuckets,
     chart: createChart,
-    heat: heatFactory,
-    table: tableFactory,
+    heat: createHeat,
+    table: createTable,
     cards: createCards,
     events: createEvents,
     group: createGroup,
-    rows: createRows,
     series: {
         span: createSeriesSpan,
         buckets: createSeriesBuckets,
