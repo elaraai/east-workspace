@@ -4,8 +4,14 @@
  */
 
 /**
- * `<DatasetKeySearch>` — the key search control of the dataset value-tree
- * preview (#520).
+ * `<DatasetKeySearch>` — key search over a COLLECTION's canonical key order
+ * (#520).
+ *
+ * Lives here, in east-ui-components, because nothing about it is e3: every
+ * prop is a host callback and the only imports are React, Chakra, FontAwesome
+ * and east itself (#574). `<PagedDatasetPreview>` mounts it over a dataset's
+ * server-side fence search; a component with a keyed paged source mounts it
+ * over that source's `seek`. The name is kept for its existing consumers.
  *
  * One control for every collection: the app's standard Combobox (the
  * east-ui `Combobox` renderer, shared slot recipe and field chrome).
@@ -38,7 +44,7 @@ import { Flex, IconButton, Text } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faChevronUp, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { compareFor, none, some, variant, parseFor, printFor, StringType, type EastTypeValue } from '@elaraai/east';
-import { EastChakraCombobox } from '@elaraai/east-ui-components';
+import { EastChakraCombobox } from '../../forms/combobox/index.js';
 
 /** Debounce applied to type-ahead queries (ms). */
 const FIND_DEBOUNCE_MS = 250;

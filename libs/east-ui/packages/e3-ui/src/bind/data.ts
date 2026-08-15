@@ -29,7 +29,7 @@ import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
 // The row-source contract is east-ui's (#567): a paged handle IS a
 // `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
 // take it without either package importing the other's data layer.
-import { SeekRangeType } from '@elaraai/east-ui';
+import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
@@ -352,12 +352,16 @@ function bindData<T extends EastType>(
  *   that walks offsets terminates on `some([])`, never on `none`.
  * @property total - The source's total element count, once any window has
  *   landed; `none` until then.
+ * @property seek - Key search over the dataset, backed by the server's fence
+ *   search (`datasetFindKey`). `none` for an Array-typed dataset: stream order
+ *   has nothing to binary-search. Decided at bind time from the dataset's own
+ *   type, so a component renders the affordance only where it works.
  */
 export const DataPagedHandleType = <T extends EastType | string>(t: T) => StructType({
     id:    StringType,
     page:  FunctionType([IntegerType, IntegerType], OptionType(t)),
     total: FunctionType([], OptionType(IntegerType)),
-    seek:  OptionType(FunctionType([StringType], OptionType(SeekRangeType))),
+    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
 });
 
 /**
@@ -388,7 +392,7 @@ export const bindPagedPlatformFn = East.genericPlatform(
         id:    StringType,
         page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
         total: FunctionType([], OptionType(IntegerType)),
-        seek:  OptionType(FunctionType([StringType], OptionType(SeekRangeType))),
+        seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
     }),
     { optional: true },
 );
@@ -404,6 +408,11 @@ const data_page = East.genericPlatform(
     "data_page", ["T"], [...PAGED_DESCRIPTOR, IntegerType, IntegerType], OptionType("T"), { optional: true });
 const data_page_total = East.genericPlatform(
     "data_page_total", ["T"], [...PAGED_DESCRIPTOR], OptionType(IntegerType), { optional: true });
+// Key search rides the SAME in-flight convention as a window: `none` while the
+// server's fence search is running, `some(range)` when it lands. The row it
+// returns is a global element index in the row space `data_page` windows serve.
+const data_page_seek = East.genericPlatform(
+    "data_page_seek", ["T"], [...PAGED_DESCRIPTOR, SeekQueryType], OptionType(SeekRangeType), { optional: true });
 
 /**
  * Low-level platform primitives that back {@link Data.bindPaged}'s handle
@@ -416,6 +425,9 @@ export const DataPagedPrimitives = {
     page: data_page,
     /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
     total: data_page_total,
+    /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
+     *  query lands in the source's row order (`none` = search in flight). */
+    seek: data_page_seek,
 } as const;
 
 /**

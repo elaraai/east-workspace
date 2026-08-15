@@ -16,21 +16,26 @@ import { describe, test } from "node:test";
 
 import {
     ArrayType,
+    DictType,
     FloatType,
     IntegerType,
     StringType,
     StructType,
     encodeBeast2For,
+    none,
+    some,
     toEastTypeValue,
     variant,
     type EastTypeValue,
 } from "@elaraai/east";
-import type { DatasetPage } from "@elaraai/e3-api-client";
+import type { DatasetPage, DatasetFindQuery, DatasetFindResult } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import {
     PagedRuntime,
     pagedWindowKey,
     pagedTotalKey,
+    pagedSeekKey,
+    toFindQuery,
     type PagedApi,
     type PagedWindow,
 } from "../src/platform/paged-runtime.js";
@@ -48,11 +53,19 @@ const encodeRows = encodeBeast2For(RowsType);
 function gatedApi() {
     const pending: Array<{ window: PagedWindow; resolve: (p: DatasetPage) => void; reject: (e: unknown) => void }> = [];
     const calls: PagedWindow[] = [];
+    const finds: DatasetFindQuery[] = [];
+    const pendingFinds: Array<{ resolve: (r: DatasetFindResult) => void; reject: (e: unknown) => void }> = [];
     const api: PagedApi = {
         getPage(_workspace, _path, window) {
             calls.push(window);
             return new Promise<DatasetPage>((resolve, reject) => {
                 pending.push({ window, resolve, reject });
+            });
+        },
+        findKey(_workspace, _path, query) {
+            finds.push(query);
+            return new Promise<DatasetFindResult>((resolve, reject) => {
+                pendingFinds.push({ resolve, reject });
             });
         },
     };
@@ -78,6 +91,19 @@ function gatedApi() {
             next.reject(err);
         },
         get inFlight() { return pending.length; },
+        finds,
+        /** Answer the oldest in-flight key search. */
+        releaseFind(found: boolean, row: number, count: number) {
+            const next = pendingFinds.shift();
+            assert.ok(next, "expected an in-flight key search");
+            next.resolve({ found, row, count, hash: "" });
+        },
+        /** Fail the oldest in-flight key search. */
+        failFind(err: unknown) {
+            const next = pendingFinds.shift();
+            assert.ok(next, "expected an in-flight key search");
+            next.reject(err);
+        },
     };
 }
 
@@ -94,6 +120,7 @@ const settle = () => new Promise<void>(res => setTimeout(res, 0));
 interface PagedHandle {
     page: (offset: bigint, limit: bigint) => unknown;
     total: () => unknown;
+    seek: { type: string; value?: (query: unknown) => unknown };
 }
 const handleOf = (runtime: PagedRuntime, type: EastTypeValue, path: TreePath): PagedHandle =>
     runtime.buildHandle(type, path) as unknown as PagedHandle;
@@ -306,3 +333,112 @@ describe("PagedRuntime", () => {
     });
 });
 
+describe("PagedRuntime — key search (#574)", () => {
+    const KeyedType = toEastTypeValue(DictType(StringType, Row));
+    const callSeek = (runtime: PagedRuntime, type: EastTypeValue, query: unknown): unknown => {
+        const seek = handleOf(runtime, type, opsPath).seek;
+        assert.equal(seek.type, "some", "the source must declare the capability");
+        return seek.value!(query);
+    };
+
+    test("the capability follows the DATASET's type — keyed seeks, an Array cannot", () => {
+        // `datasetFindKey` binary-searches a stored blob's segment fences with
+        // the key comparator; an Array blob has no key order to search, so the
+        // handle must not advertise an affordance that can never answer.
+        const runtime = new PagedRuntime();
+        runtime.initialize(gatedApi().api, ws);
+        assert.equal(handleOf(runtime, KeyedType, opsPath).seek.type, "some");
+        assert.equal(handleOf(runtime, rowsTypeValue, opsPath).seek.type, "none");
+    });
+
+    test("a query reads `none` while the fences are walked, then `some(range)`", async () => {
+        const g = gatedApi();
+        const runtime = new PagedRuntime();
+        runtime.initialize(g.api, ws);
+
+        const first = callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        assert.equal((first as { type: string }).type, "none", "in flight is `none`, never a wrong answer");
+        assert.equal(g.finds.length, 1);
+        assert.deepEqual(g.finds[0], { prefix: "ka" });
+
+        // A re-read while in flight must not start a second search.
+        callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        assert.equal(g.finds.length, 1, "an in-flight query is not re-asked");
+
+        g.releaseFind(true, 2, 3);
+        await settle();
+
+        const landed = callSeek(runtime, KeyedType, variant("prefix", "ka")) as
+            { type: string; value: { found: boolean; row: bigint; count: bigint } };
+        assert.equal(landed.type, "some");
+        assert.equal(landed.value.found, true);
+        // Integers cross the boundary as bigint — the row plugs straight into a
+        // window offset, which is the whole point of the shared row space.
+        assert.equal(landed.value.row, 2n);
+        assert.equal(landed.value.count, 3n);
+        assert.equal(g.finds.length, 1, "an answered query is served from its channel");
+    });
+
+    test("every distinct query gets its OWN channel", async () => {
+        const g = gatedApi();
+        const runtime = new PagedRuntime();
+        runtime.initialize(g.api, ws);
+
+        callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        callSeek(runtime, KeyedType, variant("prefix", "kb"));
+        assert.equal(g.finds.length, 2, "a different query is a different search");
+        assert.notEqual(
+            pagedSeekKey(ws, opsPath, { prefix: "ka" }),
+            pagedSeekKey(ws, opsPath, { prefix: "kb" }),
+        );
+        // ... and a miss is an ANSWER, not an absence: it carries the insertion
+        // row so a viewport can still position.
+        g.releaseFind(false, 7, 0);
+        await settle();
+        const miss = callSeek(runtime, KeyedType, variant("prefix", "ka")) as
+            { type: string; value: { found: boolean; row: bigint } };
+        assert.equal(miss.value.found, false);
+        assert.equal(miss.value.row, 7n);
+    });
+
+    test("the East query re-tags to e3's wire query — all three shapes", () => {
+        // Deliberately the same three shapes, so this is a re-tagging rather
+        // than a translation. The `fields` arm's East option becomes an ABSENT
+        // property, which is what `exactOptionalPropertyTypes` requires.
+        assert.deepEqual(toFindQuery(variant("key", '"press"')), { key: '"press"' });
+        assert.deepEqual(toFindQuery(variant("prefix", "pre")), { prefix: "pre" });
+        assert.deepEqual(
+            toFindQuery(variant("fields", { values: ['"press"', "2"], prefix: none })),
+            { fields: ['"press"', "2"] },
+        );
+        assert.deepEqual(
+            toFindQuery(variant("fields", { values: ['"press"'], prefix: some("L") })),
+            { fields: ['"press"'], prefix: "L" },
+        );
+    });
+
+    test("a failed search is rate-limited, exactly like a failed window", async () => {
+        // The search chrome polls while the user types; a failing server must
+        // not be hammered once per keystroke-frame.
+        const g = gatedApi();
+        const runtime = new TestPagedRuntime();
+        runtime.initialize(g.api, ws);
+
+        callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        g.failFind(new Error("network"));
+        await settle();
+        assert.equal(g.finds.length, 1);
+
+        runtime.clockMs = 500;
+        callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        assert.equal(g.finds.length, 1, "retry suppressed inside the gap");
+
+        runtime.clockMs = 5000;
+        callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        assert.equal(g.finds.length, 2, "retry allowed after the gap");
+
+        g.releaseFind(true, 1, 1);
+        await settle();
+        assert.equal((callSeek(runtime, KeyedType, variant("prefix", "ka")) as { type: string }).type, "some");
+    });
+});

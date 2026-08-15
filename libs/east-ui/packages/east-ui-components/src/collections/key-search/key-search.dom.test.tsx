@@ -4,7 +4,8 @@
  *
  * @vitest-environment jsdom
  *
- * DatasetKeySearch (#520): the one search control of the dataset preview.
+ * DatasetKeySearch (#520): the one search control over a collection's key
+ * order — owned by east-ui-components since #574, with no e3 import.
  * String keys type-ahead as debounced prefix queries whose match range
  * lists in the shared combobox popup; other key types parse as `.east`
  * literals (bad input hints the expected type and sends nothing);
@@ -12,13 +13,15 @@
  * host tree, and next/prev step through the remembered range.
  */
 
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { toEastTypeValue, IntegerType, StringType, StructType } from "@elaraai/east";
-import { system } from "@elaraai/east-ui-components";
-import { DatasetKeySearch, parseKeyInput, type DatasetKeySearchProps } from "./DatasetKeySearch.js";
+import { system } from "../../theme/index.js";
+import { DatasetKeySearch, parseKeyInput, type DatasetKeySearchProps } from "./index.js";
 
 /** Ark positioners observe sizes; jsdom has no ResizeObserver. */
 class ResizeObserverStub {
@@ -195,5 +198,25 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(screen.getByText("No matches")).toBeTruthy());
         expect(onListRange).not.toHaveBeenCalled();
         expect(screen.queryByLabelText("Next match")).toBeNull();
+    });
+});
+
+describe("package boundary (#574)", () => {
+    test("the control has NO e3 dependency — the reason it can live here", async () => {
+        // It moved down so EVERY paged component can mount key search, not just
+        // the dataset preview. That is only legal while it stays e3-free: this
+        // package has no e3 dependency to import even if someone tried.
+        // Paths from the package root — vitest's cwd (jsdom leaves
+        // `import.meta.url` without a file: scheme).
+        const source = await readFile(resolve("src/collections/key-search/index.tsx"), "utf8");
+        expect(source).not.toMatch(/@elaraai\/e3/);
+
+        const manifest = JSON.parse(
+            await readFile(resolve("package.json"), "utf8"),
+        ) as Record<string, Record<string, string> | undefined>;
+        for (const field of ["dependencies", "peerDependencies", "devDependencies"]) {
+            const deps = Object.keys(manifest[field] ?? {});
+            expect(deps.filter((d) => d.startsWith("@elaraai/e3"))).toEqual([]);
+        }
     });
 });

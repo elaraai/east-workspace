@@ -68,7 +68,7 @@ export {
 } from "./review.js";
 
 export {
-    SeekRangeType,
+    SeekRangeType, SeekQueryType,
     PagedSourceType, type PagedSource,
     RowSourceType, type RowSource,
     type PagedSourceLike, type RowSourceInput, type ResolvedRowSource,

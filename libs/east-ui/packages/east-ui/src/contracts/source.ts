@@ -75,6 +75,62 @@ export const SeekRangeType = StructType({
 /** Type alias for {@link SeekRangeType}. */
 export type SeekRangeType = typeof SeekRangeType;
 
+/**
+ * A key query, in the one form every key-ordered source understands.
+ *
+ * @remarks
+ * Three shapes, because a key is not always one string: an exact whole-key
+ * literal, a String prefix, or — for STRUCT keys — exact leading fields with an
+ * optional prefix continuing into the next String field. Every shape addresses
+ * ONE CONTIGUOUS RANGE in the canonical key order, which is what makes a hit a
+ * `row` + `count` rather than a set of scattered matches.
+ *
+ * Literals are canonical `.east` text of already-validated values, so the query
+ * is plain serializable data at any key type — no type-specific wire format,
+ * and the search chrome parses the user's text against the key type it was
+ * handed ({@link SeekType.keyType}) before it ever gets here.
+ *
+ * Deliberately the same three shapes as e3's `DatasetFindQuery`, so a bound
+ * source forwards a query rather than translating one.
+ *
+ * @property key - A whole-key `.east` literal — an exact lookup, any key type.
+ * @property prefix - A String prefix (String keys, or a Struct key's first
+ *   field when it is a String).
+ * @property fields - Struct keys: `.east` literals of exact leading fields in
+ *   declaration order (`values`), optionally continuing into the next String
+ *   field (`prefix`).
+ */
+export const SeekQueryType = VariantType({
+    key:    StringType,
+    prefix: StringType,
+    fields: StructType({ values: ArrayType(StringType), prefix: OptionType(StringType) }),
+});
+/** Type alias for {@link SeekQueryType}. */
+export type SeekQueryType = typeof SeekQueryType;
+
+/**
+ * The KEY TYPE is deliberately NOT part of this contract.
+ *
+ * A first design carried it here (`seek: Option<{ keyType: EastTypeType, find }>`)
+ * so a component could compose a typed query with no authoring-time knowledge
+ * of the dataset's schema. Two things ruled it out:
+ *
+ * - `EastTypeType` is a `RecursiveType`, and the generic-platform type
+ *   substituter walks output types structurally — `applyTypeArgs`
+ *   (`east/src/expr/block.ts`) recurses forever through the marker and blows
+ *   the stack the moment `Data.bindPaged` instantiates its handle. A recursive
+ *   type cannot ride a generic platform's output.
+ * - It has no consumer. The hosts that mount key search — `<DatasetPreview>`,
+ *   `<PagedDatasetPreview>` — hold the dataset's `EastTypeValue` already and
+ *   pass it as a prop; a keyed component's own keys are Strings, whose search
+ *   input is a plain prefix.
+ *
+ * So the QUERY is data ({@link SeekQueryType}, `.east` literals as text) and the
+ * key type stays with whoever knows the schema. Revisit only with a real
+ * component-level consumer, and then as printed type text, not a recursive
+ * value.
+ */
+
 // ============================================================================
 // The paged source
 // ============================================================================
@@ -111,16 +167,15 @@ export type SeekRangeType = typeof SeekRangeType;
  * @property page - `(offset, limit)` → that window's elements as a value of the
  *   collection type; `none` while in flight, an EMPTY collection at exhaustion.
  * @property total - The source's total element count, once known; `none` until then.
- * @property seek - Locate a key in the source's row order — `none` on the
- *   OUTER option when the source is not key-ordered (an Array-backed source
- *   cannot seek; there is nothing to search). Present ⇒ calling it returns
- *   `none` while resolving and `some(range)` when it lands.
+ * @property seek - The source's key-search capability ({@link SeekType}) —
+ *   `none` when the source is not key-ordered (an Array-backed source cannot
+ *   seek; there is nothing to binary-search).
  */
 export const PagedSourceType = <C extends EastType>(c: C) => StructType({
     id:    StringType,
     page:  FunctionType([IntegerType, IntegerType], OptionType(c)),
     total: FunctionType([], OptionType(IntegerType)),
-    seek:  OptionType(FunctionType([StringType], OptionType(SeekRangeType))),
+    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
 });
 
 /**
@@ -336,7 +391,7 @@ export function buildRowSource<Out extends EastType>(
         id: StringType;
         page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
         total: FunctionType<[], OptionType<IntegerType>>;
-        seek: OptionType<FunctionType<[StringType], OptionType<SeekRangeType>>>;
+        seek: OptionType<FunctionType<[SeekQueryType], OptionType<SeekRangeType>>>;
     }>>;
     // Erased locally: the window type is `Out`, but TS cannot see through the
     // generic to unify `Option<Out>`'s arms — the East type is what types it.
@@ -358,7 +413,7 @@ export function buildRowSource<Out extends EastType>(
     const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
     const seek = fields["seek"] !== undefined
         ? handle.seek
-        : East.value(none, OptionType(FunctionType([StringType], OptionType(SeekRangeType))));
+        : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
     return East.value(
         variant("paged", { id, page, total: handle.total, seek }) as never,
         sourceType,
@@ -475,20 +530,54 @@ function keyedPagedOf(
         const src = $.const(all, dictType);
         return some(src.size());
     });
-    const seek = some(East.function([StringType], OptionType(SeekRangeType), ($, query) => {
+    // Key order ⇒ the first entry at-or-after the query starts the matching
+    // run, and the run is contiguous, so counting the entries that still carry
+    // the prefix counts exactly the matches. Both ranges are real
+    // `East.function`s built OUTSIDE every block, then CALLED per arm.
+    const prefixRange = East.function([entriesType, StringType], SeekRangeType, ($, entries, p) => {
+        const by = $.const(keyOfEntry);
+        const first = $.let(entries.findSortedFirst(p, by), IntegerType);
+        const tail = $.let(entries.slice(first, entries.length()), entriesType);
+        const matched = $.let(tail.filter((_$, e) => e.key.startsWith(p)), entriesType);
+        const count = $.let(matched.length(), IntegerType);
+        return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
+    });
+    const exactRange = East.function([entriesType, StringType], SeekRangeType, ($, entries, k) => {
+        const by = $.const(keyOfEntry);
+        const first = $.let(entries.findSortedFirst(k, by), IntegerType);
+        const tail = $.let(entries.slice(first, entries.length()), entriesType);
+        const matched = $.let(tail.filter((_$, e) => East.equal(e.key, k)), entriesType);
+        const count = $.let(matched.length(), IntegerType);
+        return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
+    });
+    const find = East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
         const src = $.const(all, dictType);
         const entries = $.let(src.toArray(($2, v, k) => $2.const({ key: k, value: v }, entryType)), entriesType);
-        const by = $.const(keyOfEntry);
-        // Key order ⇒ the first entry at-or-after the query starts the matching
-        // run, and the run is contiguous, so counting the entries that still
-        // carry the prefix counts exactly the matches.
-        const first = $.let(entries.findSortedFirst(query, by), IntegerType);
-        const tail = $.let(entries.slice(first, entries.length()), entriesType);
-        const matched = $.let(tail.filter((_$, e) => e.key.startsWith(query)), entriesType);
-        const count = $.let(matched.length(), IntegerType);
-        const range = $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-        return some(range);
-    }));
+        const prefixOf = $.const(prefixRange);
+        const exactOf = $.const(exactRange);
+        // In-memory sources are never in flight, so every arm resolves to
+        // `some` immediately — `none` is reserved for a fetch in progress.
+        return query.match({
+            prefix: ($2, p) => $2.const(some(prefixOf(entries, p)), OptionType(SeekRangeType)),
+            // The whole-key `.east` literal of a String key is its quoted text.
+            key: ($2, literal) => $2.const(some(exactOf(entries, literal.parse(StringType))), OptionType(SeekRangeType)),
+            // Leading FIELDS address a struct key; these keys are Strings, so a
+            // leading-field query can only match when it names none of them —
+            // then it is just its prefix.
+            fields: ($2, f) => {
+                const empty = $2.const({ found: false, row: 0n, count: 0n }, SeekRangeType);
+                const range = $2.let(f.values.length().equal(0n).ifElse(
+                    () => f.prefix.match({
+                        some: ($3, p) => $3.const(prefixOf(entries, p), SeekRangeType),
+                        none: ($3) => $3.const(prefixOf(entries, ""), SeekRangeType),
+                    }),
+                    () => empty,
+                ), SeekRangeType);
+                return $2.const(some(range), OptionType(SeekRangeType));
+            },
+        });
+    });
+    const seek = some(find);
     return East.value({ id, page, total, seek }, PagedSourceType(dictType)) as unknown as PagedSource<EastType>;
 }
 
@@ -522,20 +611,49 @@ function arrayPagedOf(
         const src = $.const(all, rowsType);
         return some(src.length());
     });
-    const seek = byFn === undefined
-        ? East.value(none, OptionType(FunctionType([StringType], OptionType(SeekRangeType))))
-        : some(East.function([StringType], OptionType(SeekRangeType), ($, query) => {
-            const src = $.const(all, rowsType);
+    // Sorted by key ⇒ the first row at-or-after the query starts the matching
+    // run, and the run is contiguous, so counting the rows that still carry the
+    // prefix counts exactly the matches. Built as real `East.function`s outside
+    // every block, then CALLED per query arm.
+    const prefixRange = byFn === undefined ? undefined
+        : East.function([rowsType, StringType], SeekRangeType, ($, rows, p) => {
             const by = $.const(byFn);
-            // Sorted by key ⇒ the first row at-or-after the query starts the
-            // matching run, and the run is contiguous, so counting the rows
-            // that still carry the prefix counts exactly the matches.
-            const first = $.let(src.findSortedFirst(query, by), IntegerType);
-            const tail = $.let(src.slice(first, src.length()), rowsType);
-            const matched = $.let(tail.filter((_$, r) => by(r).startsWith(query)), rowsType);
+            const first = $.let(rows.findSortedFirst(p, by), IntegerType);
+            const tail = $.let(rows.slice(first, rows.length()), rowsType);
+            const matched = $.let(tail.filter((_$, r) => by(r).startsWith(p)), rowsType);
             const count = $.let(matched.length(), IntegerType);
-            const range = $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-            return some(range);
+            return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
+        });
+    const exactRange = byFn === undefined ? undefined
+        : East.function([rowsType, StringType], SeekRangeType, ($, rows, k) => {
+            const by = $.const(byFn);
+            const first = $.let(rows.findSortedFirst(k, by), IntegerType);
+            const tail = $.let(rows.slice(first, rows.length()), rowsType);
+            const matched = $.let(tail.filter((_$, r) => East.equal(by(r), k)), rowsType);
+            const count = $.let(matched.length(), IntegerType);
+            return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
+        });
+    const seek = prefixRange === undefined || exactRange === undefined
+        ? East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))))
+        : some(East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
+                const src = $.const(all, rowsType);
+                const prefixOf = $.const(prefixRange);
+                const exactOf = $.const(exactRange);
+                return query.match({
+                    prefix: ($2, p) => $2.const(some(prefixOf(src, p)), OptionType(SeekRangeType)),
+                    key: ($2, literal) => $2.const(some(exactOf(src, literal.parse(StringType))), OptionType(SeekRangeType)),
+                    fields: ($2, f) => {
+                        const empty = $2.const({ found: false, row: 0n, count: 0n }, SeekRangeType);
+                        const range = $2.let(f.values.length().equal(0n).ifElse(
+                            () => f.prefix.match({
+                                some: ($3, p) => $3.const(prefixOf(src, p), SeekRangeType),
+                                none: ($3) => $3.const(prefixOf(src, ""), SeekRangeType),
+                            }),
+                            () => empty,
+                        ), SeekRangeType);
+                        return $2.const(some(range), OptionType(SeekRangeType));
+                    },
+                });
         }));
     // Two-step cast (the `Data.bindPaged` idiom): the members are built
     // against the row type recovered from the expression, which TS sees as the
@@ -561,6 +679,8 @@ export const Paged = {
         Source: PagedSourceType,
         /** Where a key query landed in a source's row order. */
         SeekRange: SeekRangeType,
+        /** A key query — exact literal, String prefix, or leading struct fields. */
+        SeekQuery: SeekQueryType,
         /** How a component's rows arrive (inline / paged), at a collection type. */
         RowSource: RowSourceType,
     },

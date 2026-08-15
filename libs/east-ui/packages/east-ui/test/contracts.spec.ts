@@ -6,6 +6,7 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ArrayType, DictType, East, IntegerType, StringType, StructType, variant, some, none } from "@elaraai/east";
 import { DragEventType, CellRefType, LibraryRefType, Paged } from "@elaraai/east-ui";
+import * as ex from "./contracts.examples.js";
 
 describeEast("Drag grammar contract", (test) => {
     test("constructs an add event with a duplicate flag", $ => {
@@ -67,6 +68,8 @@ describeEast("Drag grammar contract", (test) => {
 }, { platformFns: TestImpl });
 
 describeEast("Row-source contract (#567)", (test) => {
+    Assert.examples(test, { pagedSourceCanvas: ex.pagedSourceCanvas });
+
     test("Paged.of windows a collection, reports the total and exhausts on an EMPTY window", $ => {
         const Row = StructType({ id: StringType, n: IntegerType });
         const rows = $.const([
@@ -102,17 +105,46 @@ describeEast("Row-source contract (#567)", (test) => {
         $(Assert.equal(plain.seek.hasTag("none"), true));
         // With one, a prefix locates a CONTIGUOUS run: first row + count.
         const keyed = $.let(Paged.of("keyed", rows, { key: r => r.id }));
-        const hit = $.let(keyed.seek.unwrap("some")("ka"));
+        const find = $.const(keyed.seek.unwrap("some"));
+        const hit = $.let(find($.const(variant("prefix", "ka"), Paged.Types.SeekQuery)));
         $(Assert.equal(hit.unwrap("some").found, true));
         $(Assert.equal(hit.unwrap("some").row, 0n));
         $(Assert.equal(hit.unwrap("some").count, 2n));
-        const mid = $.let(keyed.seek.unwrap("some")("kb"));
+        const mid = $.let(find($.const(variant("prefix", "kb"), Paged.Types.SeekQuery)));
         $(Assert.equal(mid.unwrap("some").row, 2n));
         $(Assert.equal(mid.unwrap("some").count, 1n));
         // A miss still carries the INSERTION row, so a viewport can position.
-        const miss = $.let(keyed.seek.unwrap("some")("kz"));
+        const miss = $.let(find($.const(variant("prefix", "kz"), Paged.Types.SeekQuery)));
         $(Assert.equal(miss.unwrap("some").found, false));
         $(Assert.equal(miss.unwrap("some").count, 0n));
+    });
+
+    test("a query is exact / prefix / leading fields — three shapes, one row RANGE (#574)", $ => {
+        // The chrome parses the user's typed text against the key type it was
+        // handed, then sends `.east` literals — so the query is plain data at
+        // any key type, and the same three shapes e3's `datasetFindKey` takes.
+        const Row = StructType({ id: StringType });
+        const rows = $.const([
+            { id: "ka-1" }, { id: "ka-2" }, { id: "kb-1" },
+        ], ArrayType(Row));
+        const keyed = $.let(Paged.of("keyed", rows, { key: r => r.id }));
+        const find = $.const(keyed.seek.unwrap("some"));
+        // `key` — the whole-key `.east` literal (a String key's is quoted).
+        const exact = $.let(find($.const(variant("key", '"ka-2"'), Paged.Types.SeekQuery)));
+        $(Assert.equal(exact.unwrap("some").found, true));
+        $(Assert.equal(exact.unwrap("some").row, 1n));
+        $(Assert.equal(exact.unwrap("some").count, 1n));
+        // `fields` naming NO leading fields is just its prefix — a String key
+        // has no fields to lead with.
+        const asPrefix = $.let(find($.const(
+            variant("fields", { values: [], prefix: some("kb") }), Paged.Types.SeekQuery)));
+        $(Assert.equal(asPrefix.unwrap("some").found, true));
+        $(Assert.equal(asPrefix.unwrap("some").row, 2n));
+        // Naming one cannot match a String key at all.
+        const noMatch = $.let(find($.const(
+            variant("fields", { values: ['"ka-1"'], prefix: none }), Paged.Types.SeekQuery)));
+        $(Assert.equal(noMatch.unwrap("some").found, false));
+        $(Assert.equal(noMatch.unwrap("some").count, 0n));
     });
 
     test("a KEYED source windows in key order and seeks its OWN keys (#568)", $ => {
@@ -131,11 +163,12 @@ describeEast("Row-source contract (#567)", (test) => {
         $(Assert.equal(w0.unwrap("some").has("ka-1"), true));
         $(Assert.equal(w0.unwrap("some").has("kb-1"), false));
         // `seek` needs no key accessor here: the collection IS keyed.
-        const hit = $.let(src.seek.unwrap("some")("ka"));
+        const find = $.const(src.seek.unwrap("some"));
+        const hit = $.let(find($.const(variant("prefix", "ka"), Paged.Types.SeekQuery)));
         $(Assert.equal(hit.unwrap("some").found, true));
         $(Assert.equal(hit.unwrap("some").row, 0n));
         $(Assert.equal(hit.unwrap("some").count, 2n));
-        const mid = $.let(src.seek.unwrap("some")("kb"));
+        const mid = $.let(find($.const(variant("prefix", "kb"), Paged.Types.SeekQuery)));
         $(Assert.equal(mid.unwrap("some").row, 2n));
         // The seek row plugs straight into a window — the same row space.
         const at = $.let(src.page(mid.unwrap("some").row, 1n));

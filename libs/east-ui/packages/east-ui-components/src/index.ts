@@ -183,6 +183,14 @@ export {
     type BlendTargetValue,
     type BlendAllocationValue,
     type EastChakraBlendProps,
+    // Key search over a collection's key order (#520; relocated here in #574)
+    DatasetKeySearch,
+    parseKeyInput,
+    keyRangePredicates,
+    type DatasetKeySearchProps,
+    type DatasetKeyMatchRange,
+    type DatasetKeyQuery,
+    type ParsedKeyInput,
 } from "./collections/index.js";
 
 // Navigation

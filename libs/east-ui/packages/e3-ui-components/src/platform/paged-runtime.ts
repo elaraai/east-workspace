@@ -33,20 +33,23 @@ import {
     SortedMap,
     compareFor,
     fromEastTypeValue,
+    type EastType,
     IntegerType,
     OptionType,
     decodeBeast2For,
     none,
+    some,
     variant,
     type EastTypeValue,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
+import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
 import {
     registerReactiveTracker,
     registerPlatformImplementation,
 } from "@elaraai/east-ui-components/platform";
-import { datasetGetPage, type DatasetPage } from "@elaraai/e3-api-client";
+import { datasetGetPage, datasetFindKey, type DatasetPage, type DatasetFindQuery, type DatasetFindResult } from "@elaraai/e3-api-client";
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString } from "./dataset-store.js";
@@ -74,6 +77,10 @@ export interface PagedWindow {
 export interface PagedApi {
     /** Fetch one element window of a collection dataset. */
     getPage(workspace: string, path: TreePath, window: PagedWindow): Promise<DatasetPage>;
+    /** Locate a key query in a Set/Dict dataset's canonical key order. The
+     *  `row` it answers with indexes the SAME row space {@link getPage}'s
+     *  element windows serve, which is what makes a hit addressable. */
+    findKey(workspace: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
 }
 
 /**
@@ -96,6 +103,9 @@ export function createDefaultPagedApi(
         async getPage(workspace, path, window) {
             return datasetGetPage(apiUrl, repo, workspace, path, window, opts());
         },
+        async findKey(workspace, path, query) {
+            return datasetFindKey(apiUrl, repo, workspace, path, query, opts());
+        },
     };
 }
 
@@ -111,6 +121,8 @@ interface PageEntry {
     window?: unknown;
     /** Total elements in the source, learned from any landed window. */
     total?: number;
+    /** Where a key query landed — the answer on a seek channel. */
+    range?: DatasetFindResult;
     /** When the last attempt failed, so a retry can be rate-limited. */
     failedAtMs?: number;
     /** The failure is an authoring error, so retrying can never help. */
@@ -158,20 +170,32 @@ export function keyTypeOf(sourceType: EastTypeValue): EastTypeValue | null {
 }
 
 /**
- * The handle's `seek` field: `some(fn)` for a key-ordered source, `none` for
- * an Array (stream order has nothing to binary-search).
+ * The handle's `seek` field: `some(fn)` for a key-ordered source, `none` for an
+ * Array (stream order has nothing to binary-search).
  *
- * Wired to the server's fence search in a later step; until then a keyed
- * source still advertises the capability and resolves `none` (in flight),
- * which is the contract's "not yet" and leaves the chrome inert rather than
- * wrong.
+ * The capability is decided from the DATASET's own type at bind time, so a
+ * component renders the search affordance only where the server can answer it —
+ * `datasetFindKey` binary-searches the stored blob's segment fences and decodes
+ * at most two segments, which only a Set/Dict blob has.
+ *
+ * The function is an IR-bearing `East.function` over the `data_page_seek`
+ * primitive, capturing only the plain-data path — the same shape `page` /
+ * `total` have, so the whole handle stays serializable (issue #106).
  */
 function buildSeek(
-    _sourceType: EastTypeValue,
-    _pathExpr: unknown,
-    _platform: PlatformFunction[],
+    sourceType: EastTypeValue,
+    T: EastType,
+    pathExpr: unknown,
+    platform: PlatformFunction[],
 ): unknown {
-    return none;
+    if (keyTypeOf(sourceType) === null) return none;
+    const { seek } = DataPagedPrimitives;
+    return some(East.compile(
+        East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
+            $.return(seek([T], pathExpr as never, query));
+        }),
+        platform,
+    ));
 }
 
 /** Tracked-channel key for one window. */
@@ -182,6 +206,35 @@ export function pagedWindowKey(workspace: string, path: TreePath, offset: number
 /** Tracked-channel key for a source's element total. */
 export function pagedTotalKey(workspace: string, path: TreePath): string {
     return `paged:${workspace}:${datasetPathToString(path)}#total`;
+}
+
+/** Tracked-channel key for ONE key query against a source. Every distinct
+ *  query gets its own channel: a search result is as immutable as a window. */
+export function pagedSeekKey(workspace: string, path: TreePath, query: DatasetFindQuery): string {
+    const q = "key" in query
+        ? `k=${query.key}`
+        : "fields" in query
+            ? `f=${query.fields.join("\u0000")}|p=${query.prefix ?? ""}`
+            : `p=${query.prefix}`;
+    return `paged:${workspace}:${datasetPathToString(path)}#seek:${q}`;
+}
+
+/**
+ * The decoded East {@link SeekQueryType} value as e3's wire query.
+ *
+ * The two are deliberately the same three shapes, so this is a re-tagging
+ * rather than a translation: `.east` literals stay text, and the East option on
+ * the `fields` arm becomes an absent property (`exactOptionalPropertyTypes`).
+ */
+export function toFindQuery(query: unknown): DatasetFindQuery {
+    const q = query as { type: string; value: unknown };
+    if (q.type === "key") return { key: q.value as string };
+    if (q.type === "prefix") return { prefix: q.value as string };
+    const f = q.value as { values: string[]; prefix: { type: string; value: unknown } };
+    const fields = [...f.values];
+    return f.prefix.type === "some"
+        ? { fields, prefix: f.prefix.value as string }
+        : { fields };
 }
 
 /**
@@ -354,6 +407,53 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     }
 
     /**
+     * Start the fence search for one key query if it isn't answered or already
+     * in flight — the seek sibling of {@link ensureWindow}, with the same
+     * launch-does-not-notify rule (the read runs inside a render pass).
+     */
+    private ensureSeek(
+        workspace: string,
+        path: TreePath,
+        query: DatasetFindQuery,
+        key: string,
+    ): void {
+        const entry = this.entry(key);
+        if (entry.status === "running" || entry.status === "loaded") return;
+        if (entry.status === "failed") {
+            if (entry.permanent) return;
+            const since = this.now() - (entry.failedAtMs ?? 0);
+            if (since < RETRY_AFTER_MS) return;
+        }
+
+        entry.status = "running";
+        entry.launchSeq += 1;
+        const mySeq = entry.launchSeq;
+        const api = this.api;
+
+        void (async () => {
+            const settle = (mutate: (e: PageEntry) => void): void => {
+                const current = this.entries.get(key);
+                if (!current || current.launchSeq !== mySeq) return; // superseded
+                mutate(current);
+                this.notify(key);
+            };
+            if (!api) {
+                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); });
+                console.error("Data.bindPaged: no PagedApi installed");
+                return;
+            }
+            try {
+                const range = await api.findKey(workspace, path, query);
+                settle(e => { e.status = "loaded"; e.range = range; });
+            } catch (err) {
+                const permanent = isPermanentPageError(err);
+                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent; });
+                console.error(`Data.bindPaged: key search failed for ${key}:`, err);
+            }
+        })();
+    }
+
+    /**
      * The low-level primitives backing handle methods, bound to THIS runtime.
      * Registered globally (extension registry) and included by the scoped
      * platform (e3 `ui()` tasks) so a decoded handle re-binds to whatever
@@ -386,6 +486,22 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     return entry.total !== undefined
                         ? variant("some", BigInt(entry.total))
                         : variant("none", null);
+                }),
+            DataPagedPrimitives.seek.implement((_sourceType: EastTypeValue) =>
+                (pathArg: unknown, queryArg: unknown) => {
+                    const workspace = this.resolveWorkspace();
+                    const path = pathArg as TreePath;
+                    const query = toFindQuery(queryArg);
+                    const key = pagedSeekKey(workspace, path, query);
+                    this.track(key);
+                    this.ensureSeek(workspace, path, query, key);
+                    const entry = this.entry(key);
+                    // `none` is "still searching" — the same in-flight
+                    // convention `page` uses, so the chrome shows nothing
+                    // rather than a wrong answer while the fences are walked.
+                    if (entry.status !== "loaded" || entry.range === undefined) return none;
+                    const r = entry.range;
+                    return some({ found: r.found, row: BigInt(r.row), count: BigInt(r.count) });
                 }),
         ];
     }
@@ -438,7 +554,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // segments) against the stored fences; an Array's stream order has
             // nothing to search. Resolved at bind time from the dataset's own
             // type, so a component renders the affordance only when it works.
-            seek: buildSeek(sourceType, pathExpr, platform),
+            seek: buildSeek(sourceType, T, pathExpr, platform),
         };
         byPath.set(pathKey, handle);
         return handle;

@@ -75,7 +75,7 @@ export {
 // whoever can fetch windows produces one (`Data.bindPaged` in @elaraai/e3-ui,
 // or `Paged.of` for a collection already in hand).
 export {
-    SeekRangeType,
+    SeekRangeType, SeekQueryType,
     PagedSourceType, type PagedSource,
     RowSourceType, type RowSource,
     type PagedSourceLike, type RowSourceInput,
