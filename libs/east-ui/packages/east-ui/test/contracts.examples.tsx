@@ -14,7 +14,6 @@ import {
     StringType,
     StructType,
     example,
-    variant,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { Paged, Plan } from "@elaraai/east-ui";

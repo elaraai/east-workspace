@@ -54,16 +54,23 @@ export interface GroupRowProps {
      *  when the IR declares none (#568: the count is an aggregate like any
      *  other, so it is derived here rather than baked into the row). */
     memberCount?: number | undefined;
+    /** Whether the derived numbers cover an INCOMPLETE prefix (a paged canvas
+     *  still loading) — the count prints `~8 rs` and the band carries
+     *  `data-plan-partial` (#567 D9). The author's own `meta` is never
+     *  rewritten: it is their text, not a derivation. */
+    partial?: boolean | undefined;
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, memberCount }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, memberCount, partial }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     // A declared meta line wins; otherwise the derived member count stands in.
     const meta = row.gutter.meta.type === "some"
         ? row.gutter.meta.value
-        : (memberCount !== undefined && memberCount > 0 ? `${memberCount} rs` : undefined);
+        : (memberCount !== undefined && memberCount > 0
+            ? `${partial === true ? "~" : ""}${memberCount} rs`
+            : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     const summary = collapsed
@@ -79,6 +86,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             height={`${height}px`}
             data-plan-group={row.key}
             data-collapsed={collapsed ? "" : undefined}
+            data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
         >
             <Box css={styles.groupName} paddingLeft={`${12 + depth * INDENT_PX}px`}>

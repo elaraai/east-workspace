@@ -28,7 +28,7 @@
  * offset by the header height.
  */
 
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
@@ -80,6 +80,12 @@ export interface VirtualRowsProps {
     /** Forwarded to the scroll element (e.g. scroll-position persistence). */
     onScroll?: (() => void) | undefined;
     /**
+     * Controlled scroll target: the body row index to bring into view, applied
+     * whenever the value CHANGES (the ValueTree's `scrollToRow` idiom). Only
+     * meaningful in bounded mode — an unbounded frame does not scroll.
+     */
+    scrollToIndex?: number | undefined;
+    /**
      * Receives the bounded-mode scroll element (null when unmounted or
      * unbounded) — for scroll-position restore, which `onScroll` alone
      * cannot do.
@@ -98,6 +104,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, footer, count, estimateSize, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
+        scrollToIndex,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -123,6 +130,15 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         scrollMargin: itemsOffset,
         measureElement: (el) => el?.getBoundingClientRect().height,
     });
+
+    // Bring a requested row into view. Keyed on the index alone, so a row set
+    // that grows underneath a standing target (paged windows landing) does not
+    // re-scroll on every frame.
+    useEffect(() => {
+        if (scrollToIndex === undefined || !bounded) return;
+        virtualizer.scrollToIndex(scrollToIndex, { align: "center" });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index is the trigger
+    }, [scrollToIndex]);
 
     // Unbounded: preserve the exact grow-to-content flow (no scroll, no
     // virtualization) so content-sized output is unchanged.

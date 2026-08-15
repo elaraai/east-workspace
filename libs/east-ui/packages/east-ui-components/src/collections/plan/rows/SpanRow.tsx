@@ -49,10 +49,13 @@ export interface SpanRowProps {
     /** Bar height (20 default / 16 dense; the §8 sheet). */
     barHeight: number;
     storageKey: string;
+    /** Whether the derived bands cover an INCOMPLETE prefix (a paged canvas
+     *  still loading) — their captions print `~×2 · 276 t` (#567 D9). */
+    partial?: boolean | undefined;
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, storageKey }: SpanRowProps) {
+export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, storageKey, partial }: SpanRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
 
@@ -106,9 +109,13 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 if (f1 <= 0 || f0 >= 1) return null;
                 const left = Math.max(0, f0);
                 const width = Math.max(0, Math.min(1, f1) - left);
-                const caption = [band.count > 1 ? `×${band.count}` : undefined, band.quantity].filter(Boolean).join(" · ");
+                const counts = [band.count > 1 ? `×${band.count}` : undefined, band.quantity].filter(Boolean).join(" · ");
+                // A rollup over a partial prefix is an understatement, not a
+                // number — mark it rather than print it as if it were final.
+                const caption = partial === true && counts !== "" ? `~${counts}` : counts;
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)}
+                        data-plan-partial={partial === true ? "" : undefined}
                         left={`${left * 100}%`} width={`${width * 100}%`}>
                         {caption}
                     </Box>

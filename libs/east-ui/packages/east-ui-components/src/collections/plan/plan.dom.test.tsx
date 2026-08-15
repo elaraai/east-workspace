@@ -16,7 +16,7 @@
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
@@ -736,6 +736,198 @@ describe("Plan paged source (P-c)", () => {
         await screen.findByText("R3");
         expect(container.querySelector('[data-plan-row="m3"]')).toBeTruthy();
         expect(calls).toContain(400n);
+    });
+
+    test("the footer carries the transport line, counted in ELEMENTS (#567 D9)", async () => {
+        // `total` / `loadedElements` / `loading` were returned by the hook and
+        // read by NOBODY: no spinner, no progress, no marker that the derived
+        // numbers cover a prefix. The footer is where transport state belongs
+        // (the rail is *narrowing* state), and it counts SOURCE ELEMENTS —
+        // a series can emit any number of canvas rows per element, so a row
+        // count would disagree with `total()` on screen.
+        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const source = {
+            // Window 0 lands; the next is still in flight.
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            total: () => some(600n),
+            id: "dom-test-transport",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-d9-footer");
+        await screen.findByText("R1");
+
+        const line = container.querySelector('[data-slot="footerTransport"]')!;
+        expect(line).toBeTruthy();
+        expect(line.textContent).toBe("200 loaded of 600 · Loading…");
+        expect(line.getAttribute("data-partial")).toBe("");
+        // Every derived number in the body is over that prefix.
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeTruthy();
+    });
+
+    test("an EXHAUSTED source drops every partial mark", async () => {
+        const rows = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(rows)) : some(rowCollection([]))),
+            total: () => some(2n),
+            id: "dom-test-exhausted",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-d9-done");
+        await screen.findByText("R1");
+
+        const line = container.querySelector('[data-slot="footerTransport"]')!;
+        // Loaded is clamped to the total — never "200 loaded of 2".
+        expect(line.textContent).toBe("2 loaded of 2");
+        expect(line.getAttribute("data-partial")).toBeNull();
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
+    });
+
+    test("an INLINE canvas has no transport line at all", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+        ]), "plan-d9-inline");
+        expect(container.querySelector('[data-slot="footerTransport"]')).toBeNull();
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
+    });
+
+    test("derived numbers over a partial prefix are MARKED, not printed as final", async () => {
+        // A group's member count is a renderer-derived aggregate (#568). Over a
+        // loaded prefix it is an understatement, so it prints `~2 rs` and the
+        // band carries `data-plan-partial` — the author's own `meta` is never
+        // rewritten, since that is their text rather than a derivation.
+        const w0 = [
+            planRow("g1", variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
+                { gutter: gutter("Line 1") }),
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
+            planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
+        ];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            total: () => some(600n),
+            id: "dom-test-partial",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-d9-partial");
+        await screen.findByText("R1");
+
+        const band = container.querySelector('[data-plan-group="g1"]')!;
+        expect(band.getAttribute("data-plan-partial")).toBe("");
+        expect(screen.getByText("~2 rs")).toBeTruthy();
+    });
+
+    test("a narrowing affordance is SCOPE-BADGED and `summary` counts elements (#567 D9)", async () => {
+        // `filter` / `cohort` / `breakdown` narrow whatever the host fed, which
+        // on a paged source is the prefix that happened to land — so they keep
+        // working and say what they are working on. `summary` stops reporting
+        // slice results (`N of M matching`) and reports transport instead.
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const handle = buildSliceHandle("plan.paged.chrome", cfg as never, initial as never, [] as never, none) as never;
+        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            total: () => some(600n),
+            id: "dom-test-chrome",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], {
+            source,
+            slice: some({ slice: handle, affordances: [variant("filter", null), variant("summary", null)] }),
+        }), "plan-d9-chrome");
+        await screen.findByText("R1");
+
+        expect(container.querySelector('[data-slot="scopeBadge"]')!.textContent).toBe("loaded rows only");
+        // The toolbar summary is the count WITHOUT the footer's loading suffix.
+        expect(screen.getByText("200 loaded of 600")).toBeTruthy();
+    });
+
+    test("`search` becomes a KEY SEARCH where the source declares seek (#574)", async () => {
+        // The affordance table's paged column: filtering the loaded prefix and
+        // seeking the whole source are different operations, so a seek-capable
+        // source REPLACES the slice search chip rather than sitting beside it.
+        initializeStore(new UIStore());
+        const queries: { type: string; value: unknown }[] = [];
+        const w0 = [
+            planRow("l1m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("l2m9", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+        ];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            total: () => some(600n),
+            id: "dom-test-seek",
+            // The compiled handle's `seek` — `some(fn)` for a key-ordered
+            // source. It answers in SOURCE ELEMENT indices.
+            seek: some((q: { type: string; value: unknown }) => {
+                queries.push(q);
+                return some({ found: true, row: 12n, count: 3n });
+            }),
+        };
+        const cfg = {
+            fields: new Map<string, unknown>(), rangeFieldId: none,
+            searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const handle = buildSliceHandle("plan.seek", cfg as never, initial as never, [] as never, none) as never;
+        const { container } = renderPlan(planRoot([], {
+            source,
+            slice: some({ slice: handle, affordances: [variant("search", null)] }),
+        }), "plan-seek");
+        await screen.findByText("R1");
+
+        const control = container.querySelector('[data-part="dataset-key-search"]');
+        expect(control).toBeTruthy();
+        // The slice's own search chip is gone — one word, one meaning.
+        expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
+
+        // Typing reaches the SOURCE's seek as one debounced prefix query.
+        await userEvent.type(screen.getByPlaceholderText("Search keys"), "l2");
+        await waitFor(() => expect(queries.length).toBeGreaterThan(0));
+        expect(queries[0]!.type).toBe("prefix");
+        expect(queries[0]!.value).toBe("l2");
+        // ... and the answer surfaces as the control's match count.
+        await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
+    });
+
+    test("a source WITHOUT seek keeps `search` as a scope-badged row filter", async () => {
+        initializeStore(new UIStore());
+        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            total: () => some(600n),
+            id: "dom-test-noseek",
+            seek: none,
+        };
+        const cfg = {
+            fields: new Map<string, unknown>(), rangeFieldId: none,
+            searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const handle = buildSliceHandle("plan.noseek", cfg as never, initial as never, [] as never, none) as never;
+        const { container } = renderPlan(planRoot([], {
+            source,
+            slice: some({ slice: handle, affordances: [variant("search", null)] }),
+        }), "plan-noseek");
+        await screen.findByText("R1");
+
+        expect(container.querySelector('[data-part="dataset-key-search"]')).toBeNull();
+        // An Array-backed source cannot be searched, so `search` still filters
+        // — of the loaded prefix, which is what the badge says.
+        expect(container.querySelector('[data-slot="scopeBadge"]')!.textContent).toBe("loaded rows only");
     });
 
     test("a source that cannot be READ renders the reason, not a blank axis (#567 D10)", async () => {

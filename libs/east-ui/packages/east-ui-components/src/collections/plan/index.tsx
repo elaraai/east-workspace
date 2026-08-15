@@ -36,6 +36,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers } from "./context.js";
 import { usePlanPagedRows } from "./use-paged-rows.js";
+import { usePlanSeek } from "./use-seek.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
     initialPlanState, planReducer,
@@ -61,6 +62,7 @@ import { FocusBar } from "./shell/FocusBar.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { PlanRuler } from "./shell/Ruler.js";
 import { PlanFooter } from "./shell/Footer.js";
+import { type PlanTransport } from "./shell/transport.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -145,13 +147,35 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The rows channel: inline rows, or the derived paged source (§3.8)
     //    streamed in as a contiguous prefix by the loader hook. ──────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
-    const paged = usePlanPagedRows(pagedSource);
+    // A key search jumps by asking the loader for a prefix that REACHES the
+    // matched element; the canvas then positions by key (#574 / see use-seek).
+    const [seekWanted, setSeekWanted] = useState<number | undefined>(undefined);
+    const paged = usePlanPagedRows(
+        pagedSource,
+        seekWanted !== undefined ? { start: 0, end: seekWanted } : undefined,
+    );
     // The inline arm is the canvas's KEYED collection (#568) — decoded as a
     // SortedMap, so its values are already in canonical key order.
     const rows = useMemo(
         () => (value.rows.type === "inline" ? [...value.rows.value.values()] : paged.rows),
         [value.rows, paged.rows],
     );
+    // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
+    // the number `total()` reports — never canvas rows, since a series can emit
+    // any number of rows per element. `partial` is what every derived number
+    // (rollup bands, group counts, strip summaries) is qualified by: they are
+    // computed over the loaded prefix until the source is exhausted.
+    const transport = useMemo<PlanTransport | undefined>(() => (pagedSource === undefined ? undefined : {
+        loaded: paged.loadedElements,
+        total: paged.total,
+        loading: paged.loading,
+        partial: paged.total === undefined || paged.loadedElements < paged.total,
+    }), [pagedSource, paged.loadedElements, paged.total, paged.loading]);
+    // Key search over the source (`search` becomes seek — #567 D9's affordance
+    // table). Reads the loaded rows, so it can position a match in canvas key
+    // space without an element→row map, which does not exist.
+    const { search, wantedEnd, targetKey } = usePlanSeek(pagedSource, rows);
+    useEffect(() => { setSeekWanted(wantedEnd); }, [wantedEnd]);
 
     // ── Slice chrome (the Table adopter pattern; chrome-only) ─────────────
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
@@ -417,6 +441,14 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             ? elideForFocus(visible, index, focusCtx)
             : visible.map((row) => ({ kind: "row", row }))),
         [focusCtx, visible, index]);
+    // Where a key search has positioned the canvas. Resolved against the
+    // VISIBLE body (a match inside a collapsed group has no row to scroll to),
+    // and only once that row has actually loaded.
+    const scrollToIndex = useMemo(() => {
+        if (targetKey === undefined) return undefined;
+        const i = bodyItems.findIndex((it) => it.kind === "row" && it.row.key === targetKey);
+        return i >= 0 ? i : undefined;
+    }, [bodyItems, targetKey]);
 
     const renderVisible = useCallback((v: VisibleRow): React.ReactNode => {
         if (scale === undefined) return null;
@@ -469,7 +501,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 <GroupRow row={v.row} kind={kind.value} styles={styles} gridTemplate={gridTemplate}
                     height={h} depth={v.depth} collapsed={v.collapsed}
                     summaryCells={derived.groupSummary.get(v.row.key)}
-                    memberCount={derived.groupMembers.get(v.row.key)} />
+                    memberCount={derived.groupMembers.get(v.row.key)}
+                    partial={transport?.partial} />
             );
         }
         const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
@@ -487,7 +520,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         <SpanRow rowKey={v.row.key} kind={kind.value} styles={styles}
                             bands={derived.bands.get(v.row.key) ?? []}
                             barHeight={v.collapsed && hasChildren ? 12 : barHeight}
-                            storageKey={`${storageKey}.${v.row.key}`} />
+                            storageKey={`${storageKey}.${v.row.key}`}
+                            partial={transport?.partial} />
                     </RowShell>
                 );
             }
@@ -562,7 +596,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 );
         }
     }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
-        focusCtx, linkedKeys, linkFamily, expandRenderFn]);
+        focusCtx, linkedKeys, linkFamily, expandRenderFn, transport]);
 
     // R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
     // rows (their count rides beside the icon, worst hidden tone at right);
@@ -622,7 +656,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 segments ride the slice rail; an unbound canvas has no rail. */}
             {chrome !== undefined && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
-                    resolution={scale.resolution} resolutions={resolutions} />
+                    resolution={scale.resolution} resolutions={resolutions}
+                    transport={transport} search={search} />
             )}
             {slice !== undefined && affordances.includes("brush") && (
                 <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice}
@@ -663,6 +698,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     // The bound lives HERE, not on the frame — the attribute is
                     // the contract (jsdom resolves no Chakra classes).
                     data-plan-bounded={frameFills ? "" : undefined}
+                    // Every derived number in this body is over a prefix.
+                    data-plan-partial={transport?.partial === true ? "" : undefined}
                     {...(frameFills && {
                         display: "flex",
                         flexDirection: "column",
@@ -701,7 +738,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                                         storageKey={`${storageKey}.${expandRow.row.key}.expand`} />
                                 )}
                             </Box>
-                            <PlanFooter styles={styles} items={value.footer} />
+                            <PlanFooter styles={styles} items={value.footer} transport={transport} />
                         </Box>
                     ) : (
                         <VirtualRows
@@ -715,8 +752,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             // fixed-height rows drifts under fractional zoom
                             // and paints hairline seams (#533).
                             measureRows={false}
+                            scrollToIndex={scrollToIndex}
                             header={header}
-                            footer={<PlanFooter styles={styles} items={value.footer} />}
+                            footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
                             count={bodyItems.length}
                             estimateSize={(i) => {
                                 const item = bodyItems[i];
