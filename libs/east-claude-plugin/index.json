@@ -1,15 +1,15 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1109,
-    "totalFiles": 192,
+    "totalEntries": 1090,
+    "totalFiles": 193,
     "packages": {
-      "east": 532,
+      "east": 500,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 323,
-      "e3-ui": 38,
+      "east-ui": 335,
+      "e3-ui": 39,
       "e3": 7,
       "e3-ui-cli": 4,
       "e3-create": 5
@@ -6884,126 +6884,6 @@
       "source": "// Transform each row of a matrix with a mapping function\n// inputs: []  returns: 40.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const result = $.let(m.mapRows(($, row) => row.map(($, x) => x.multiply(10.0))));\n        return result.get(1n, 1n);\n    })"
     },
     {
-      "id": "east:matrix.examples.ts:matrixScale",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/matrix.examples.ts",
-      "suite": "Elementwise Arithmetic and Reductions",
-      "test": "Scale every matrix element by a scalar",
-      "keywords": [
-        "matrix",
-        "MatrixType",
-        "scale",
-        "multiply",
-        "scalar",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Scale every matrix element by a scalar\n// inputs: []  returns: 6.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const scaled = $.let(m.scale(2.0));\n        return scaled.get(1n, 0n);\n    })"
-    },
-    {
-      "id": "east:matrix.examples.ts:matrixAddScaled",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/matrix.examples.ts",
-      "suite": "Elementwise Arithmetic and Reductions",
-      "test": "Add a scaled matrix elementwise (a + alpha * b)",
-      "keywords": [
-        "matrix",
-        "MatrixType",
-        "addScaled",
-        "axpy",
-        "add",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Add a scaled matrix elementwise (a + alpha * b)\n// inputs: []  returns: 12.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const b = $.let(East.Matrix.fromArray([[10.0, 20.0], [30.0, 40.0]]));\n        const result = $.let(a.addScaled(b, 0.5));\n        return result.get(0n, 1n);\n    })"
-    },
-    {
-      "id": "east:matrix.examples.ts:matrixMulElementwise",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/matrix.examples.ts",
-      "suite": "Elementwise Arithmetic and Reductions",
-      "test": "Multiply two matrices elementwise",
-      "keywords": [
-        "matrix",
-        "MatrixType",
-        "mulElementwise",
-        "multiply",
-        "hadamard",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Multiply two matrices elementwise\n// inputs: []  returns: 32.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const b = $.let(East.Matrix.fromArray([[5.0, 6.0], [7.0, 8.0]]));\n        const result = $.let(a.mulElementwise(b));\n        return result.get(1n, 1n);\n    })"
-    },
-    {
-      "id": "east:matrix.examples.ts:matrixRowSums",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/matrix.examples.ts",
-      "suite": "Elementwise Arithmetic and Reductions",
-      "test": "Sum each matrix row into a vector",
-      "keywords": [
-        "matrix",
-        "MatrixType",
-        "rowSums",
-        "sum",
-        "reduction",
-        "row"
-      ],
-      "imports": [
-        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Sum each matrix row into a vector\n// inputs: []  returns: 15.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));\n        const sums = $.let(m.rowSums());\n        return sums.get(1n);\n    })"
-    },
-    {
-      "id": "east:matrix.examples.ts:matrixColSums",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/matrix.examples.ts",
-      "suite": "Elementwise Arithmetic and Reductions",
-      "test": "Sum each matrix column into a vector",
-      "keywords": [
-        "matrix",
-        "MatrixType",
-        "colSums",
-        "sum",
-        "reduction",
-        "column"
-      ],
-      "imports": [
-        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Sum each matrix column into a vector\n// inputs: []  returns: 9.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));\n        const sums = $.let(m.colSums());\n        return sums.get(2n);\n    })"
-    },
-    {
-      "id": "east:matrix.examples.ts:matrixVecMul",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/matrix.examples.ts",
-      "suite": "Elementwise Arithmetic and Reductions",
-      "test": "Multiply a matrix by a vector",
-      "keywords": [
-        "matrix",
-        "MatrixType",
-        "vecMul",
-        "multiply",
-        "vector",
-        "gemv"
-      ],
-      "imports": [
-        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Multiply a matrix by a vector\n// inputs: []  returns: 110.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const v = $.let(East.Vector.fromArray([10.0, 20.0]));\n        const result = $.let(m.vecMul(v));\n        return result.get(1n);\n    })"
-    },
-    {
       "id": "east:patch.examples.ts:patchDiffUnchanged",
       "skill": "east",
       "package": "east",
@@ -9511,7 +9391,7 @@
         "float"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector of zeros\n// inputs: []  returns: 0.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.zeros(3n));\n        return v.get(0n);\n    })"
     },
@@ -9530,7 +9410,7 @@
         "float"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector of ones\n// inputs: []  returns: 1.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.ones(3n));\n        return v.get(1n);\n    })"
     },
@@ -9549,7 +9429,7 @@
         "value"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector filled with a specific value\n// inputs: []  returns: 3.14\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fill(4n, 3.14));\n        return v.get(0n);\n    })"
     },
@@ -9568,7 +9448,7 @@
         "convert"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector from an array\n// inputs: []  returns: 3.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        return v.get(2n);\n    })"
     },
@@ -9587,7 +9467,7 @@
         "count"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Get the length of a vector\n// inputs: []  returns: 3n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        return v.length();\n    })"
     },
@@ -9606,7 +9486,7 @@
         "access"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Get an element from a vector by index\n// inputs: []  returns: 20.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));\n        return v.get(1n);\n    })"
     },
@@ -9626,7 +9506,7 @@
         "functional"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Set an element in a vector by index, returning a new vector\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.zeros(3n));\n        const v2 = $.let(v.set(1n, 42.0));\n        return v2.get(1n);\n    })"
     },
@@ -9645,7 +9525,7 @@
         "range"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Slice a vector to get a sub-range\n// inputs: []  returns: 2.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0, 5.0]));\n        const s = $.let(v.slice(1n, 4n));\n        return s.get(0n);\n    })"
     },
@@ -9664,7 +9544,7 @@
         "combine"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Concatenate two vectors\n// inputs: []  returns: 5n\nEast.function([], IntegerType, ($) => {\n        const a = $.let(East.Vector.fill(2n, 1.0));\n        const b = $.let(East.Vector.fill(3n, 2.0));\n        const c = $.let(a.concat(b));\n        return c.length();\n    })"
     },
@@ -9683,7 +9563,7 @@
         "array"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Convert a vector to an array\n// inputs: []  returns: [1.0, 2.0, 3.0]\nEast.function([], ArrayType(FloatType), ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        return v.toArray();\n    })"
     },
@@ -9702,7 +9582,7 @@
         "matrix"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Reshape a vector into a matrix\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));\n        const m = $.let(v.toMatrix(2n, 3n));\n        return m.rows();\n    })"
     },
@@ -9721,7 +9601,7 @@
         "element"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Map over vector elements with a transformation function\n// inputs: []  returns: 4.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const doubled = $.let(v.map(($, x) => x.multiply(2.0)));\n        return doubled.get(1n);\n    })"
     },
@@ -9740,534 +9620,9 @@
         "accumulate"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Reduce a vector to a single value with an accumulator\n// inputs: []  returns: 10.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0]));\n        return v.reduce(($, acc, val) => acc.add(val), 0.0);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorScale",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Scale every vector element by a scalar",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "scale",
-        "multiply",
-        "scalar",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Scale every vector element by a scalar\n// inputs: []  returns: 4.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const scaled = $.let(v.scale(2.0));\n        return scaled.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorSum",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Sum vector elements in index order",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "sum",
-        "reduction",
-        "total"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Sum vector elements in index order\n// inputs: []  returns: 7.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.5, 2.5, 3.0]));\n        return v.sum();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorAddScaled",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Add a scaled vector elementwise (a + alpha * b)",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "addScaled",
-        "axpy",
-        "add",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Add a scaled vector elementwise (a + alpha * b)\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 2.0]));\n        const b = $.let(East.Vector.fromArray([10.0, 20.0]));\n        const result = $.let(a.addScaled(b, 2.0));\n        return result.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorMul",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Multiply two vectors elementwise",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "mul",
-        "multiply",
-        "elementwise",
-        "product"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Multiply two vectors elementwise\n// inputs: []  returns: 8.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Vector.fromArray([2.0, 3.0]));\n        const b = $.let(East.Vector.fromArray([4.0, 5.0]));\n        const result = $.let(a.mul(b));\n        return result.get(0n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorAddScalar",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Add a scalar to every vector element",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "addScalar",
-        "add",
-        "offset",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Add a scalar to every vector element\n// inputs: []  returns: 1.5\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0]));\n        const result = $.let(v.addScalar(0.5));\n        return result.get(0n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorDot",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Compute the dot product of two vectors",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "dot",
-        "product",
-        "reduction",
-        "inner"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Compute the dot product of two vectors\n// inputs: []  returns: 32.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const b = $.let(East.Vector.fromArray([4.0, 5.0, 6.0]));\n        return a.dot(b);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorMax",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Find the largest vector element",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "max",
-        "maximum",
-        "reduction"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Find the largest vector element\n// inputs: []  returns: 5.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 5.0, 3.0]));\n        return v.max();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorMin",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Find the smallest vector element",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "min",
-        "minimum",
-        "reduction"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Find the smallest vector element\n// inputs: []  returns: 2.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([4.0, 2.0, 9.0]));\n        return v.min();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorArgMax",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Find the index of the largest vector element",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "argMax",
-        "argmax",
-        "index",
-        "maximum"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Find the index of the largest vector element\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 5.0, 3.0]));\n        return v.argMax();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorArgMin",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Find the index of the smallest vector element",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "argMin",
-        "argmin",
-        "index",
-        "minimum"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Find the index of the smallest vector element\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([4.0, 2.0, 9.0]));\n        return v.argMin();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorMean",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Compute the arithmetic mean of a vector as a Float",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "mean",
-        "average",
-        "reduction"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Compute the arithmetic mean of a vector as a Float\n// inputs: []  returns: 2.5\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0]));\n        return v.mean();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorCumSum",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Compute the running sum of a vector",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "cumSum",
-        "cumulative",
-        "running",
-        "prefix"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Compute the running sum of a vector\n// inputs: []  returns: 6.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const sums = $.let(v.cumSum());\n        return sums.get(2n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorAbs",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Take the absolute value of every vector element",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "abs",
-        "absolute",
-        "magnitude",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Take the absolute value of every vector element\n// inputs: []  returns: 1.5\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([-1.5, 2.0]));\n        const result = $.let(v.abs());\n        return result.get(0n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorClamp",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Elementwise Arithmetic",
-      "test": "Clamp every vector element between bounds",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "clamp",
-        "bound",
-        "limit",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Clamp every vector element between bounds\n// inputs: []  returns: 1.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([-1.0, 0.5, 2.0]));\n        const result = $.let(v.clamp(0.0, 1.0));\n        return result.get(2n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorGather",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Gather, Scatter and Sorted Search",
-      "test": "Gather vector elements at the given indices",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "gather",
-        "index",
-        "permute",
-        "lookup"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Gather vector elements at the given indices\n// inputs: []  returns: 30.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));\n        const gathered = $.let(v.gather(new BigInt64Array([2n, 0n])));\n        return gathered.get(0n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorScatterAdd",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Gather, Scatter and Sorted Search",
-      "test": "Add source values into a vector at the given indices",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "scatterAdd",
-        "scatter",
-        "accumulate",
-        "deposit"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Add source values into a vector at the given indices\n// inputs: []  returns: 5.0\nEast.function([], FloatType, ($) => {\n        const dst = $.let(East.Vector.zeros(3n));\n        const result = $.let(dst.scatterAdd(new BigInt64Array([1n, 1n]), new Float64Array([2.0, 3.0])));\n        return result.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorSearchSorted",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Gather, Scatter and Sorted Search",
-      "test": "Find the sorted insertion index for each needle",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "searchSorted",
-        "searchsorted",
-        "binary",
-        "search",
-        "insertion"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Find the sorted insertion index for each needle\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const haystack = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));\n        const found = $.let(haystack.searchSorted(new Float64Array([25.0])));\n        return found.get(0n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorEq",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Masks and Selection",
-      "test": "Compare two vectors elementwise for equality",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "eq",
-        "equal",
-        "mask",
-        "comparison",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Compare two vectors elementwise for equality\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const mask = $.let(a.eq(new Float64Array([1.0, 5.0, 3.0])));\n        return mask.countTrue();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorLt",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Masks and Selection",
-      "test": "Compare two vectors elementwise with less-than",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "lt",
-        "less",
-        "mask",
-        "comparison",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Compare two vectors elementwise with less-than\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 5.0]));\n        const mask = $.let(a.lt(new Float64Array([2.0, 2.0])));\n        return mask.get(0n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorGt",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Masks and Selection",
-      "test": "Compare two vectors elementwise with greater-than",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "gt",
-        "greater",
-        "mask",
-        "comparison",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Compare two vectors elementwise with greater-than\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 5.0]));\n        const mask = $.let(a.gt(new Float64Array([2.0, 2.0])));\n        return mask.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorSelect",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Masks and Selection",
-      "test": "Select elements from two vectors using a Boolean mask",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "select",
-        "mask",
-        "where",
-        "blend",
-        "elementwise"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Select elements from two vectors using a Boolean mask\n// inputs: []  returns: 20.0\nEast.function([], FloatType, ($) => {\n        const mask = $.let(East.Vector.fromArray([true, false]));\n        const a = $.let(East.Vector.fromArray([1.0, 2.0]));\n        const b = $.let(East.Vector.fromArray([10.0, 20.0]));\n        const result = $.let(mask.select(a, b));\n        return result.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorCompress",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Masks and Selection",
-      "test": "Keep the vector elements where the mask is true",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "compress",
-        "filter",
-        "mask",
-        "keep"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Keep the vector elements where the mask is true\n// inputs: []  returns: 3.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0]));\n        const kept = $.let(v.compress(East.Vector.fromArray([true, false, true, false])));\n        return kept.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorCountTrue",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Masks and Selection",
-      "test": "Count the true elements of a Boolean vector",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "countTrue",
-        "count",
-        "mask",
-        "boolean"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Count the true elements of a Boolean vector\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const mask = $.let(East.Vector.fromArray([true, false, true]));\n        return mask.countTrue();\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorSparseAxpy",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Sparse Accumulators",
-      "test": "Merge two sparse accumulators with a scaled right-hand side",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "sparseAxpy",
-        "sparse",
-        "axpy",
-        "merge",
-        "accumulator",
-        "union"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Merge two sparse accumulators with a scaled right-hand side\n// inputs: []  returns: 5.0\nEast.function([], FloatType, ($) => {\n        const merged = $.let(East.Vector.sparseAxpy(\n            new BigInt64Array([0n, 2n]), new Float64Array([1.0, 2.0]),\n            new BigInt64Array([1n, 2n]), new Float64Array([10.0, 20.0]),\n            0.5,\n        ));\n        return merged.v.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorSparseFromPairs",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Sparse Accumulators",
-      "test": "Build a sparse accumulator from unsorted index and value pairs",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "sparseFromPairs",
-        "sparse",
-        "construct",
-        "pairs",
-        "accumulate"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Build a sparse accumulator from unsorted index and value pairs\n// inputs: []  returns: 4.0\nEast.function([], FloatType, ($) => {\n        const sparse = $.let(East.Vector.sparseFromPairs(\n            new BigInt64Array([2n, 0n, 2n]), new Float64Array([1.0, 2.0, 3.0]),\n        ));\n        return sparse.v.get(1n);\n    })"
-    },
-    {
-      "id": "east:vector.examples.ts:vectorSparseFilterGt",
-      "skill": "east",
-      "package": "east",
-      "file": "east/test/vector.examples.ts",
-      "suite": "Sparse Accumulators",
-      "test": "Drop sparse accumulator entries at or below a threshold",
-      "keywords": [
-        "vector",
-        "VectorType",
-        "sparseFilterGt",
-        "sparse",
-        "filter",
-        "threshold",
-        "compact"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
-      ],
-      "source": "// Drop sparse accumulator entries at or below a threshold\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const filtered = $.let(East.Vector.sparseFilterGt(\n            new BigInt64Array([0n, 1n, 2n]), new Float64Array([0.5, 2.0, 0.1]), 1.0,\n        ));\n        return filtered.ix.get(0n);\n    })"
     },
     {
       "id": "east-node-std:console.examples.ts:consoleLog",
@@ -16722,6 +16077,439 @@
       "source": "// Active-trigger colour overrides on a static pager\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const pageBind = $.let(State.bind([IntegerType], \"pagination_custom_page\", 2n));\n            const page = $.let(pageBind.read());\n            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => { $(pageBind.write(next)); }));\n            return (\n                <Pagination page={page} pageSize={10n} count={200n} onPageChange={onPageChange}\n                    activeBackground=\"bg.brand.subtle\" activeColor=\"fg.inverse\" />\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "east-ui:plan.examples.tsx:planTargetState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, review, journeys and a status footer",
+      "keywords": [
+        "Plan",
+        "canvas",
+        "data",
+        "series",
+        "match",
+        "axis",
+        "window",
+        "resolution",
+        "now",
+        "span",
+        "run",
+        "group",
+        "heat",
+        "buckets",
+        "cards",
+        "chip",
+        "events",
+        "mark",
+        "chart",
+        "layers",
+        "drill",
+        "rollup",
+        "bands",
+        "review",
+        "footer",
+        "milestone",
+        "decision",
+        "exception",
+        "pinned",
+        "port",
+        "hovercard",
+        "popover",
+        "slice",
+        "brush",
+        "horizon",
+        "toolbar",
+        "affordances",
+        "journeys",
+        "journey",
+        "resolver",
+        "data-driven",
+        "accessor",
+        "raw",
+        "target state"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, review, journeys and a status footer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType });\n        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });\n        // The RAW job record — what an ops dataset stores: phase + optional\n        // batch, the window, optional tonnage, the lifecycle state, an alert.\n        const JobRow = StructType({\n            key: StringType, phase: StringType, batch: OptionType(StringType),\n            start: DateTimeType, end: DateTimeType,\n            tonnes: OptionType(FloatType), state: EventStateType,\n            alert: OptionType(StatusValueType),\n        });\n        const ShiftRow = StructType({\n            key: StringType, from: DateTimeType, to: DateTimeType,\n            hours: FloatType, state: EventStateType,\n        });\n        const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });\n        // ONE source — row families discriminated by the kind variant (the\n        // natural ops-dataset shape; the same rows page from a dataset). The\n        // arms carry RAW fields; presence (status / drill payload) is\n        // per-row Option DATA the accessors pass through.\n        const OpsRow = StructType({\n            id: StringType,\n            kind: VariantType({\n                kpi: StructType({ name: StringType, headline: StringType, pinned: BooleanType,\n                                  points: ArrayType(MeasureRow) }),\n                machine: StructType({ cap: FloatType,\n                                      status: OptionType(StatusValueType),\n                                      detail: OptionType(Plan.Types.Drill),\n                                      jobs: ArrayType(JobRow),\n                                      decisions: ArrayType(Plan.Types.DecisionMark),\n                                      ports: ArrayType(Plan.Types.Port) }),\n                load: StructType({ name: StringType, sub: StringType, cells: ArrayType(Plan.Types.HeatCell) }),\n                dock: StructType({ name: StringType, allocations: ArrayType(AllocRow),\n                                   markers: ArrayType(Plan.Types.CellMarker) }),\n                crew: StructType({ name: StringType, hours: StringType, shifts: ArrayType(ShiftRow) }),\n                stream: StructType({ name: StringType, marks: ArrayType(Plan.Types.EventMark) }),\n            }),\n        });\n        const cfg = Slice.config(HorizonRow, {\n            fields: { at: { label: \"Despatched\" }, line: { label: \"Line\" } },\n            rangeFieldId: \"at\",\n            searchFieldIds: [\"line\"],\n        });\n\n        return (<Reactive>{$ => {\n            // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The §1\n            // window is W27–W38 (half-open at W39); now = W31.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const covPcts = $.const(\n                [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2],\n                ArrayType(FloatType));\n            const loadPcts = $.const(\n                [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],\n                ArrayType(FloatType));\n            const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) =>\n                ({ week: week(i.add(27n)), pct: covPcts.get(i) })));\n            const loadCells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({\n                at: week(i.add(27n)), value: some(loadPcts.get(i)),\n                label: some(East.Float.printFixed(loadPcts.get(i), 0n)),\n            })));\n            // 36 despatch orders spread over W21–W47 — the horizon fixture.\n            const horizon = $.let(East.Array.generate(36n, HorizonRow, (_$, i) => ({\n                key: East.str`h${East.print(i.add(1n))}`,\n                at: week(i.multiply(27n).divide(36n).add(21n)),\n                line: i.remainder(2n).equal(0n).ifElse(() => \"Line 1\", () => \"Line 2\"),\n            })));\n            // Raw jobs → runs: ONE bound mapping function — the bar label and\n            // the quantity display/number pair derive CLIENT-SIDE from the\n            // raw phase/batch/tonnes fields (the series-make application).\n            const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>\n                jobs.map(($, j) => {\n                    const noQuantity = $.const(none, OptionType(StringType));\n                    const quantity = $.let(j.tonnes.match({\n                        some: (_$, t) => East.value(some(East.str`${East.Float.printFixed(t, 0n)} t`), OptionType(StringType)),\n                        none: (_$) => noQuantity,\n                    }), OptionType(StringType));\n                    const label = $.let(j.batch.match({\n                        some: (_$, b) => East.str`${j.phase} · ${b}`,\n                        none: (_$) => j.phase,\n                    }), StringType);\n                    const run = $.let({\n                        key: j.key, start: j.start, end: j.end, label,\n                        quantity, qty: j.tonnes, state: j.state, status: j.alert,\n                        moved: none, icon: none,\n                    }, Plan.Types.Run);\n                    return run;\n                })));\n            // Raw shifts → chips: hours print as the chip label, an ADDED\n            // proposal wearing the `+` prefix — display derives from the\n            // lifecycle, down to the proposal's flavour (a `removed` shift is\n            // a proposal too, and `+` would read as its opposite).\n            const shiftChips = $.const(East.function([ArrayType(ShiftRow)], ArrayType(Plan.Types.Chip), (_$, shifts) =>\n                shifts.map(($, s) => {\n                    const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);\n                    const label = $.let(s.state.match({\n                        proposed: (_$, p) => p.hasTag(\"removed\").ifElse(\n                            () => East.str`${hrs}h`,\n                            () => East.str`+${hrs}h`),\n                    }, _$ => East.str`${hrs}h`), StringType);\n                    return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });\n                })));\n            // The ONE ops source — every family's rows in one array, RAW: no\n            // display strings the accessors can derive, no built elements.\n            const ops = $.const([\n                { id: \"coverage\", kind: variant(\"kpi\", { name: \"COVERAGE\", headline: \"94.2%\", pinned: true, points: coverage }) },\n                { id: \"L1-M03\", kind: variant(\"machine\", { cap: 120.0, status: some(variant(\"success\", null)), detail: none,\n                  jobs: [\n                      { key: \"set\",  phase: \"SET\", batch: none, start: week(27n), end: week(28n), tonnes: none, state: variant(\"actual\", null), alert: none },\n                      { key: \"b214\", phase: \"RUN\", batch: some(\"B-214\"), start: week(28n), end: week(31n), tonnes: some(96.0), state: variant(\"in-progress\", null), alert: none },\n                      { key: \"cln\",  phase: \"CLN\", batch: none, start: week(31n), end: week(32n), tonnes: none, state: variant(\"confirmed\", null), alert: none },\n                      { key: \"b221\", phase: \"RUN\", batch: some(\"B-221\"), start: week(32n), end: week(35n), tonnes: some(88.0), state: variant(\"proposed\", variant(\"recommended\", null)), alert: none },\n                  ],\n                  decisions: [{ key: \"d1\", at: week(32n), applied: false }],\n                  ports:     [{ at: week(31n), label: some(\"−24 t\") }] }) },\n                { id: \"L1-M04\", kind: variant(\"machine\", { cap: 120.0, status: none,\n                  // The drill payload — a stored presentation record (plain\n                  // data, §3.2); presence is a per-row fact.\n                  detail: some({\n                      lines: [\"120 t · FILL\", \"B-208 · 88 t · 73%\"],\n                      meter: some(0.73),\n                      series: some([\n                          { at: week(27n), value: 10.0 }, { at: week(29n), value: 96.0 },\n                          { at: week(31n), value: 88.0 }, { at: week(34n), value: 64.0 }, { at: week(38n), value: 92.0 },\n                      ]),\n                      events: [\"LEVEL t · DAILY\", \"START 04 JUL\", \"TRANSFER W31 · −24 t\", \"QC W33\"],\n                      journey: some(\"B-208\"),\n                  }),\n                  jobs: [\n                      { key: \"b208\", phase: \"RUN\", batch: some(\"B-208\"), start: week(27n), end: week(30n), tonnes: some(112.0), state: variant(\"actual\", null), alert: none },\n                      { key: \"hld\",  phase: \"HLD\", batch: none, start: week(30n), end: week(31n), tonnes: none, state: variant(\"confirmed\", null), alert: none },\n                      { key: \"qc\",   phase: \"QC\", batch: none, start: week(31n), end: week(33n), tonnes: none, state: variant(\"confirmed\", null), alert: none },\n                      { key: \"b231\", phase: \"RUN\", batch: some(\"B-231\"), start: week(33n), end: week(41n), tonnes: some(104.0), state: variant(\"proposed\", variant(\"recommended\", null)), alert: none },\n                  ],\n                  decisions: [], ports: [] }) },\n                { id: \"L1-M07\", kind: variant(\"machine\", { cap: 80.0, status: some(variant(\"warning\", null)), detail: none,\n                  jobs: [\n                      { key: \"b197\", phase: \"HLD\", batch: some(\"B-197\"), start: week(27n), end: week(31n), tonnes: none, state: variant(\"actual\", null), alert: some(variant(\"warning\", null)) },\n                      { key: \"cln\", phase: \"CLN\", batch: none, start: week(34n), end: week(36n), tonnes: none, state: variant(\"proposed\", variant(\"recommended\", null)), alert: none },\n                  ],\n                  decisions: [], ports: [] }) },\n                { id: \"l2-load\", kind: variant(\"load\", { name: \"L2 load\", sub: \"%/wk\", cells: loadCells }) },\n                { id: \"dock2\", kind: variant(\"dock\", { name: \"Dock 2\",\n                  allocations: [\n                      { key: \"a1\", at: week(27n), state: variant(\"confirmed\", null) },\n                      { key: \"a2\", at: week(28n), state: variant(\"confirmed\", null) },\n                      { key: \"a3\", at: week(29n), state: variant(\"confirmed\", null) },\n                      { key: \"a4\", at: week(30n), state: variant(\"confirmed\", null) },\n                      { key: \"a5\", at: week(31n), state: variant(\"proposed\", variant(\"recommended\", null)) },\n                      { key: \"a6\", at: week(33n), state: variant(\"proposed\", variant(\"recommended\", null)) },\n                      { key: \"a7\", at: week(35n), state: variant(\"confirmed\", null) },\n                      { key: \"a8\", at: week(35n), state: variant(\"proposed\", variant(\"recommended\", null)) },\n                  ],\n                  markers: [{ at: week(35n), lane: none, status: variant(\"warning\", null), message: \"capacity breach — 2 allocations\" }] }) },\n                { id: \"crewA\", kind: variant(\"crew\", { name: \"Crew A\", hours: \"152h → 168h\", shifts: [\n                    { key: \"s1\", from: week(27n), to: week(29n), hours: 80.0, state: variant(\"confirmed\", null) },\n                    { key: \"s2\", from: week(29n), to: week(31n), hours: 72.0, state: variant(\"confirmed\", null) },\n                    { key: \"s3\", from: week(31n), to: week(33n), hours: 64.0, state: variant(\"proposed\", variant(\"recommended\", null)) },\n                    { key: \"s4\", from: week(34n), to: week(35n), hours: 48.0, state: variant(\"estimated\", null) },\n                    { key: \"s5\", from: week(36n), to: week(38n), hours: 56.0, state: variant(\"proposed\", variant(\"recommended\", null)) },\n                ] }) },\n                { id: \"milestones\", kind: variant(\"stream\", { name: \"MILESTONES\", marks: [\n                    { key: \"kick\", at: week(28n), kind: variant(\"milestone\", null), icon: none, label: some(\"KICKOFF\") },\n                    { key: \"d1\", at: week(31n), kind: variant(\"decision\", { applied: true }), icon: none, label: none },\n                    { key: \"rel\", at: week(33n), kind: variant(\"milestone\", null), icon: none, label: some(\"REL 2.4\") },\n                    { key: \"audit\", at: week(35n), kind: variant(\"exception\", null), icon: none, label: some(\"AUDIT\") },\n                    { key: \"d2\", at: week(37n), kind: variant(\"decision\", { applied: false }), icon: none, label: some(\"×3\") },\n                ] }) },\n            ], ArrayType(OpsRow));\n            // The series — one entry per row family, canvas order = series\n            // order; the whole list is an East value typed by the constructor.\n            const series = $.const([\n                Plan.series.chart(OpsRow, {\n                    match: r => r.kind.hasTag(\"kpi\"),\n                    key: r => r.id, label: r => r.kind.unwrap(\"kpi\").name, id: true,\n                    pinned: r => r.kind.unwrap(\"kpi\").pinned,\n                    value: r => some(r.kind.unwrap(\"kpi\").headline),\n                    status: _r => some(variant(\"warning\", null)),\n                    height: \"spark\", expandable: true,\n                    layers: r => [\n                        Plan.layer(Chart.Line(r.kind.unwrap(\"kpi\").points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),\n                        Chart.refLine({ y: 100, label: \"TARGET 100\" }),\n                    ],\n                }),\n                Plan.series.group(OpsRow, { key: \"line1\", label: \"Line 1\", meta: \"8 rs · 82%\" }, [\n                    Plan.series.span(OpsRow, {\n                        match: r => r.kind.hasTag(\"machine\"),\n                        key: r => r.id, label: r => r.id, id: true,\n                        value:  r => some(East.str`${East.Float.printFixed(r.kind.unwrap(\"machine\").cap, 0n)} t`),\n                        status: r => r.kind.unwrap(\"machine\").status,\n                        drill:  r => r.kind.unwrap(\"machine\").detail,\n                        runs: r => jobRuns(r.kind.unwrap(\"machine\").jobs),\n                        decisions: r => r.kind.unwrap(\"machine\").decisions,\n                        ports: r => r.kind.unwrap(\"machine\").ports,\n                    }),\n                ]),\n                Plan.series.group(OpsRow, { key: \"line2\", label: \"Line 2\", value: \"98%\", status: \"warning\", collapsed: true, summaryAggregate: \"mean\" }, [\n                    Plan.series.heat(OpsRow, {\n                        match: r => r.kind.hasTag(\"load\"),\n                        key: r => r.id, label: r => r.kind.unwrap(\"load\").name,\n                        sub: r => some(r.kind.unwrap(\"load\").sub),\n                        cells: r => Plan.heatCells(r.kind.unwrap(\"load\").cells, { min: 0, max: 100, warnAt: 95 }),\n                    }),\n                ]),\n                Plan.series.group(OpsRow, { key: \"docks\", label: \"Docks · In\", meta: \"3 rs\" }, [\n                    Plan.series.buckets(OpsRow, {\n                        match: r => r.kind.hasTag(\"dock\"),\n                        key: r => r.id, label: r => r.kind.unwrap(\"dock\").name,\n                        value: _r => some(\"load/wk\"),\n                        events: r => r.kind.unwrap(\"dock\").allocations.map((_$, a) =>\n                            Plan.event({ key: a.key, at: a.at, state: a.state })),\n                        markers: r => r.kind.unwrap(\"dock\").markers,\n                    }),\n                ]),\n                Plan.series.cards(OpsRow, {\n                    match: r => r.kind.hasTag(\"crew\"),\n                    key: r => r.id, label: r => r.kind.unwrap(\"crew\").name, stacked: true,\n                    sub: r => some(r.kind.unwrap(\"crew\").hours),\n                    chips: r => shiftChips(r.kind.unwrap(\"crew\").shifts),\n                }),\n                Plan.series.events(OpsRow, {\n                    match: r => r.kind.hasTag(\"stream\"),\n                    key: r => r.id, label: r => r.kind.unwrap(\"stream\").name, id: true,\n                    value: r => some(East.print(r.kind.unwrap(\"stream\").marks.length())),\n                    marks: r => r.kind.unwrap(\"stream\").marks,\n                }),\n            ], ArrayType(Plan.Types.Series(OpsRow)));\n            const axis = $.const(Plan.axis({\n                window: { min: week(27n), max: week(39n) },\n                resolution: \"week\", resolutions: [\"month\", \"week\", \"day\"], now: week(31n),\n            }));\n            const slice = $.let(Slice.bind([HorizonRow], \"ex.plan.target\", cfg, Slice.state(), horizon, none));\n            // The K8 journey resolver — called with an item key at interaction time.\n            const journeys = $.const(East.function([StringType], Plan.Types.Journey, (_$, item) => ({\n                title: East.str`JOURNEY · ITEM ${item} · BORN 04 JUL · 118 T`,\n                rows: [\n                    { key: \"anc\", label: \"B-208 · M05\", sublabel: some(\"ancestor\"),\n                      runs: [Plan.run({ key: \"a1\", start: week(27n), end: week(29n), label: \"RUN · 34 t\", qty: 34, state: \"actual\" })] },\n                    { key: \"focus\", label: \"B-214 · M03\", sublabel: some(\"focus item\"),\n                      runs: [Plan.run({ key: \"f1\", start: week(29n), end: week(33n), label: \"RUN · 118 t\", qty: 118, state: \"in-progress\" })] },\n                    { key: \"d60\", label: \"→ M04\", sublabel: some(\"split 60%\"),\n                      runs: [Plan.run({ key: \"s1\", start: week(33n), end: week(35n), label: \"DSP · 71 t\", qty: 71, state: \"recommended\" })] },\n                ],\n                ribbons: [\n                    { fromRow: \"anc\", fromRun: \"a1\", toRow: \"focus\", toRun: \"f1\", quantity: 34.0, label: \"34 t\" },\n                    { fromRow: \"focus\", fromRun: \"f1\", toRow: \"d60\", toRun: \"s1\", quantity: 71.0, label: \"71 t\" },\n                ],\n                decisions: [Plan.decision({ key: \"split\", at: week(33n), applied: false })],\n            })));\n            // The generalized element resolvers — ONE stored popover / hover\n            // function each over Plan.Types.ElementRef (refs carry the row\n            // key on every arm); rich bodies build lazily at interaction\n            // time, and a none result opens no surface.\n            const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n                const noBody = $.const(none, OptionType(UIComponentType));\n                return ref.match({\n                    run: (_$, ev) => ev.run.equal(\"b221\").ifElse(\n                        () => some(<Text>Proposed by run 412 — fills the W32 idle window.</Text>),\n                        () => noBody),\n                    mark: (_$, ev) => ev.row.equal(\"L1-M03\").and(() => ev.mark.equal(\"d1\")).ifElse(\n                        () => some(<Text>Schedule B-221</Text>),\n                        () => noBody),\n                }, _$ => noBody);\n            }));\n            const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n                const noBody = $.const(none, OptionType(UIComponentType));\n                return ref.match({\n                    run: (_$, ev) => ev.run.equal(\"b197\").ifElse(\n                        () => some(<Text>Waiting on QC gate 4 — 2.6× median dwell.</Text>),\n                        () => noBody),\n                }, _$ => noBody);\n            }));\n            // Behavior props — bound once so memoized renderers keep identity.\n            const onRowRef = $.const(East.function([Plan.Types.RowRef], NullType, (_$, _r) => null));\n            const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, (_$, _e) => null));\n            const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, (_$, _e) => null));\n            const onBatch = $.const(East.function([], NullType, (_$) => null));\n            return (\n                <Plan\n                    slice={{ slice, affordances: [\"cohort\", \"filter\", \"search\", \"range\", \"resolution\", \"brush\", \"summary\"] }}\n                    axis={axis}\n                    // The link graph (R1) — the W31 −24 t transfer: hover a\n                    // linked machine for the links-focus control.\n                    links={[\n                        Plan.link({ from: \"L1-M03\", fromRun: \"b214\", to: \"L1-M04\", toRun: \"qc\", quantity: 24, label: \"−24 t\" }),\n                    ]}\n                    data={ops}\n                    series={series}\n                    review={{\n                        summary: <Text>4 JOBS · 2 FLAGGED NEED A CALL · +6H FLOAT</Text>,\n                        onApprove: onRowRef,\n                        onReject: onRowRef,\n                        onApproveAll: onBatch,\n                        onRejectAll: onBatch,\n                        onRerun: onBatch,\n                    }}\n                    journeys={journeys}\n                    popover={popover}\n                    hover={hover}\n                    onSelect={onRowRef}\n                    onDrill={onRowRef}\n                    onRunClick={onRunClick}\n                    onGroupToggle={onGroupToggle}\n                    footer={[\n                        { text: \"512 RESOURCES · 12 GROUPS · 3 IN VIEW\" },\n                        { text: \"318 OBSERVED · 966 PLANNED\" },\n                        { text: \"3 EXCEPTIONS\", tone: \"warning\" },\n                        { text: \"RUN 412 · W27–W38\", end: true },\n                    ]}\n                />\n            );\n        }}</Reactive>);\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planSpanRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Span-row families over ONE raw machine source — jobs carry phase/batch/tonnes/lifecycle and ONE bound mapping function derives every run",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "span",
+        "run",
+        "state",
+        "estimated",
+        "removed",
+        "rejected",
+        "decision",
+        "port",
+        "rollup",
+        "union",
+        "byStatus",
+        "groupBy",
+        "bands",
+        "group",
+        "stacked",
+        "gutter",
+        "links",
+        "link",
+        "focus",
+        "expand",
+        "expandRender",
+        "match",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Span-row families over ONE raw machine source — jobs carry phase/batch/tonnes/lifecycle and ONE bound mapping function derives every run\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });\n        // The RAW job record; `family` picks the series, everything else —\n        // including the expand declaration — is per-row data.\n        const JobRow = StructType({\n            key: StringType, phase: StringType, batch: OptionType(StringType),\n            start: DateTimeType, end: DateTimeType,\n            tonnes: OptionType(FloatType), state: EventStateType,\n        });\n        const MachineRow = StructType({\n            id: StringType, family: StringType, program: StringType,\n            sub: OptionType(StringType), value: OptionType(StringType),\n            expand: OptionType(Plan.Types.Expand),\n            jobs: ArrayType(JobRow),\n            decisions: ArrayType(Plan.Types.DecisionMark),\n            ports: ArrayType(Plan.Types.Port),\n        });\n        const machines = $.const([\n            // Proposal flavours: forecast ghost · proposed cut · declined.\n            { id: \"L1-M07\", family: \"flavours\", program: \"\", sub: none, value: some(\"80 t\"), expand: none,\n              jobs: [\n                  { key: \"run\", phase: \"RUN\", batch: some(\"B-197\"), start: week(27n), end: week(30n), tonnes: some(64.0), state: variant(\"in-progress\", null) },\n                  { key: \"gho\", phase: \"FORECAST\", batch: none, start: week(30n), end: week(32n), tonnes: none, state: variant(\"estimated\", null) },\n                  { key: \"rem\", phase: \"CUT\", batch: none, start: week(33n), end: week(35n), tonnes: none, state: variant(\"proposed\", variant(\"removed\", null)) },\n                  { key: \"rej\", phase: \"DECLINED\", batch: none, start: week(36n), end: week(38n), tonnes: none, state: variant(\"rejected\", null) },\n              ], decisions: [], ports: [] },\n            // Tonnage + an applied decision + a port on a stacked two-line\n            // gutter; the EXPAND DECLARATION is row data (R2) — the render is\n            // the root's expandRender resolver.\n            { id: \"L1-M09\", family: \"detail\", program: \"\", sub: some(\"cap 120 t\"), value: none,\n              expand: some({ height: some(\"152px\"), axis: variant(\"dim\", null) }),\n              jobs: [\n                  { key: \"a\", phase: \"RUN\", batch: some(\"B-208\"), start: week(27n), end: week(31n), tonnes: some(112.0), state: variant(\"actual\", null) },\n                  { key: \"b\", phase: \"RUN\", batch: some(\"B-231\"), start: week(31n), end: week(34n), tonnes: some(104.0), state: variant(\"proposed\", variant(\"recommended\", null)) },\n              ],\n              decisions: [{ key: \"d1\", at: week(31n), applied: true }],\n              ports: [{ at: week(31n), label: some(\"−24 t\") }] },\n            // The rollup family — one union parent per program (renderer-derived bands).\n            { id: \"L1-M03\", family: \"rollup\", program: \"Program A\", sub: none, value: none, expand: none,\n              jobs: [\n                  { key: \"b214\", phase: \"RUN\", batch: some(\"B-214\"), start: week(28n), end: week(31n), tonnes: some(96.0), state: variant(\"actual\", null) },\n                  { key: \"b221\", phase: \"RUN\", batch: some(\"B-221\"), start: week(32n), end: week(35n), tonnes: some(88.0), state: variant(\"proposed\", variant(\"recommended\", null)) },\n              ], decisions: [], ports: [] },\n            { id: \"L2-M11\", family: \"rollup\", program: \"Program A\", sub: none, value: none, expand: none,\n              jobs: [{ key: \"b241\", phase: \"RUN\", batch: some(\"B-241\"), start: week(29n), end: week(33n), tonnes: some(92.0), state: variant(\"confirmed\", null) }],\n              decisions: [], ports: [] },\n            // Linked despatch whose run starts BEYOND the window — in links\n            // focus its landing renders as the edge fade.\n            { id: \"dsp\", family: \"despatch\", program: \"\", sub: none, value: none, expand: none,\n              jobs: [{ key: \"d1\", phase: \"DSP\", batch: none, start: week(39n), end: week(42n), tonnes: some(91.0), state: variant(\"proposed\", variant(\"recommended\", null)) }],\n              decisions: [], ports: [] },\n            // The byStatus family inside the Line 2 strip.\n            { id: \"L2-M12\", family: \"line2\", program: \"Program B\", sub: none, value: none, expand: none,\n              jobs: [\n                  { key: \"r1\", phase: \"RUN\", batch: some(\"B-198\"), start: week(28n), end: week(32n), tonnes: some(64.0), state: variant(\"actual\", null) },\n                  { key: \"r2\", phase: \"RUN\", batch: some(\"B-202\"), start: week(30n), end: week(34n), tonnes: some(40.0), state: variant(\"proposed\", variant(\"recommended\", null)) },\n              ], decisions: [], ports: [] },\n        ], ArrayType(MachineRow));\n        // Raw jobs → runs, once — every span family shares the mapping.\n        const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>\n            jobs.map(($, j) => {\n                const noQuantity = $.const(none, OptionType(StringType));\n                const quantity = $.let(j.tonnes.match({\n                    some: (_$, t) => East.value(some(East.str`${East.Float.printFixed(t, 0n)} t`), OptionType(StringType)),\n                    none: (_$) => noQuantity,\n                }), OptionType(StringType));\n                const label = $.let(j.batch.match({\n                    some: (_$, b) => East.str`${j.phase} · ${b}`,\n                    none: (_$) => j.phase,\n                }), StringType);\n                const run = $.let({\n                    key: j.key, start: j.start, end: j.end, label,\n                    quantity, qty: j.tonnes, state: j.state,\n                    status: none, moved: none, icon: none,\n                }, Plan.Types.Run);\n                return run;\n            })));\n        const series = $.const([\n            Plan.series.span(MachineRow, {\n                match: r => r.family.equal(\"flavours\"),\n                key: r => r.id, label: r => r.id, id: true,\n                value: r => r.value,\n                runs: r => jobRuns(r.jobs),\n            }),\n            Plan.series.span(MachineRow, {\n                match: r => r.family.equal(\"detail\"),\n                key: r => r.id, label: r => r.id, id: true, stacked: true,\n                sub: r => r.sub, expand: r => r.expand,\n                runs: r => jobRuns(r.jobs), decisions: r => r.decisions, ports: r => r.ports,\n            }),\n            Plan.series.span(MachineRow, {\n                match: r => r.family.equal(\"rollup\"),\n                key: r => r.id, label: r => r.id, id: true,\n                runs: r => jobRuns(r.jobs),\n                groupBy: [r => r.program], rollup: \"union\", unit: \"t\",\n            }),\n            Plan.series.span(MachineRow, {\n                match: r => r.family.equal(\"despatch\"),\n                key: r => r.id, label: r => r.id, id: true,\n                runs: r => jobRuns(r.jobs),\n            }),\n            Plan.series.group(MachineRow, { key: \"line2\", label: \"Line 2\", meta: \"1 rs\" }, [\n                Plan.series.span(MachineRow, {\n                    match: r => r.family.equal(\"line2\"),\n                    key: r => r.id, label: r => r.id, id: true,\n                    runs: r => jobRuns(r.jobs),\n                    groupBy: [r => r.program], rollup: \"byStatus\", unit: \"t\",\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(MachineRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        // The R2 developer render — the ROOT's resolver, called with the\n        // focused row's ref; ONE function serves every declaring row.\n        const util = $.let(East.Array.generate(8n, MeasureRow, (_$, i) =>\n            ({ week: week(i.add(27n)), pct: i.multiply(13n).remainder(40n).toFloat().add(55.0) })));\n        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) => (\n            <Chart layers={[Chart.Column(util, { x: r => r.week, y: r => r.pct })]} height={100} grid={false} />\n        )));\n        // The generalized popover resolver — decision diamonds ride the mark\n        // arm of the element ref.\n        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n            const noBody = $.const(none, OptionType(UIComponentType));\n            return ref.match({\n                mark: (_$, ev) => ev.mark.equal(\"d1\").ifElse(\n                    () => some(<Text>Approved by run 411.</Text>),\n                    () => noBody),\n            }, _$ => noBody);\n        }));\n        return (\n            <Plan\n                expandRender={expandRender}\n                popover={popover}\n                // A denser gutter (value + carets) — widen it (the shared\n                // CSS-px height/width vocabulary).\n                style={{ gutterWidth: \"200px\" }}\n                axis={axis}\n                // The link graph (R1) — hover a linked row for the ⌁ control.\n                // The edges deliberately cover the routing permutations:\n                // forward, a same-row seam feed, loopbacks, a rising loop,\n                // and an off-window landing.\n                links={[\n                    Plan.link({ from: \"L1-M07\", fromRun: \"run\", to: \"L1-M09\", toRun: \"a\", quantity: 24, label: \"24 t\" }),\n                    Plan.link({ from: \"L1-M09\", fromRun: \"a\", to: \"L1-M09\", toRun: \"b\", quantity: 40, label: \"40 t\" }),\n                    Plan.link({ from: \"L1-M09\", fromRun: \"b\", to: \"L1-M03\", toRun: \"b221\", quantity: 88, label: \"88 t\" }),\n                    Plan.link({ from: \"L1-M03\", fromRun: \"b214\", to: \"L2-M11\", toRun: \"b241\", quantity: 32, label: \"32 t\" }),\n                    Plan.link({ from: \"L2-M11\", fromRun: \"b241\", to: \"L1-M09\", toRun: \"b\", quantity: 18, label: \"18 t\" }),\n                    Plan.link({ from: \"L1-M09\", fromRun: \"b\", to: \"dsp\", toRun: \"d1\", quantity: 91, label: \"91 t\" }),\n                ]}\n                data={machines}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planBucketRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Bucket-row families over ONE dock source — an unbucketed weekly dock whose raw allocations map to resting ✓/plan tiles in the accessor, and an AM/PM-laned dock inside a static series.group strip whose tiles are STORED canvas-vocabulary records (the §3.2 pure-data element shapes: tones, a pulsing proposal, a full-cell mixed tile, an icon tile) plus a cell marker ring; tile popovers/hovercards resolve through the root over the event arm of the element ref",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "buckets",
+        "Planner",
+        "lane",
+        "lanes",
+        "AM",
+        "PM",
+        "event",
+        "tile",
+        "marker",
+        "tone",
+        "stretch",
+        "pulse",
+        "icon",
+        "hovercard",
+        "popover",
+        "mixed",
+        "unbucketed",
+        "group",
+        "match",
+        "gutter",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Bucket-row families over ONE dock source — an unbucketed weekly dock whose raw allocations map to resting ✓/plan tiles in the accessor, and an AM/PM-laned dock inside a static series.group strip whose tiles are STORED canvas-vocabulary records (the §3.2 pure-data element shapes: tones, a pulsing proposal, a full-cell mixed tile, an icon tile) plus a cell marker ring; tile popovers/hovercards resolve through the root over the event arm of the element ref\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });\n        const DockRow = StructType({\n            id: StringType, family: StringType, label: StringType,\n            sub: OptionType(StringType), value: OptionType(StringType),\n            lanes: ArrayType(Plan.Types.Lane),\n            allocations: ArrayType(AllocRow),\n            tiles: ArrayType(Plan.Types.BucketEvent),\n            markers: ArrayType(Plan.Types.CellMarker),\n        });\n        // Raw weekly allocations; every third one is a proposal.\n        const inbound = $.let(East.Array.generate(6n, AllocRow, ($, i) => {\n            const confirmed = $.const(variant(\"confirmed\", null), EventStateType);\n            const recommended = $.const(variant(\"proposed\", variant(\"recommended\", null)), EventStateType);\n            return {\n                key: East.str`a${East.print(i)}`,\n                at: week(i.add(27n)),\n                state: i.remainder(3n).equal(2n).ifElse(() => recommended, () => confirmed),\n            };\n        }));\n        const docks = $.const([\n            { id: \"dock2\", family: \"inbound\", label: \"Dock 2\", sub: none, value: some(\"load/wk\"),\n              lanes: [], allocations: inbound, tiles: [],\n              markers: [{ at: week(29n), lane: none, status: variant(\"warning\", null), message: \"capacity 90%\" }] },\n            // The grammar showcase — tiles stored IN the element vocabulary\n            // (plain `PlanBucketEventType` records; no builders in data).\n            { id: \"dock5\", family: \"outbound\", label: \"Dock 5\", sub: some(\"day · am/pm\"), value: none,\n              lanes: [{ key: \"am\", label: some(\"AM\") }, { key: \"pm\", label: some(\"PM\") }],\n              allocations: [],\n              tiles: [\n                  { key: \"m1\", at: week(27n), lane: some(\"am\"), label: none, icon: none, state: variant(\"confirmed\", null),\n                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },\n                  { key: \"m2\", at: week(27n), lane: some(\"pm\"), label: none, icon: none, state: variant(\"confirmed\", null),\n                    tone: some(variant(\"warning\", null)), color: none, colorPalette: none, stretch: none, content: none, animation: none },\n                  { key: \"m3\", at: week(28n), lane: some(\"am\"), label: none, icon: none, state: variant(\"proposed\", variant(\"recommended\", null)),\n                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant(\"pulse\", null)) },\n                  { key: \"m4\", at: week(29n), lane: none, label: some(\"MIXED\"), icon: none, state: variant(\"confirmed\", null),\n                    tone: none, color: none, colorPalette: none, stretch: some(variant(\"horizontal\", null)),\n                    content: some({ horizontal: some(variant(\"center\", null)), vertical: none }), animation: none },\n                  { key: \"m5\", at: week(30n), lane: some(\"pm\"), label: none,\n                    icon: some({ prefix: \"fas\", name: \"truck\", label: none, style: none }),\n                    state: variant(\"proposed\", variant(\"recommended\", null)),\n                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },\n                  { key: \"m6\", at: week(31n), lane: some(\"am\"), label: some(\"QC\"), icon: none, state: variant(\"estimated\", null),\n                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },\n              ],\n              markers: [{ at: week(29n), lane: none, status: variant(\"danger\", null), message: \"capacity breach\" }] },\n        ], ArrayType(DockRow));\n        const series = $.const([\n            // Raw allocations → resting tiles, in the accessor.\n            Plan.series.buckets(DockRow, {\n                match: r => r.family.equal(\"inbound\"),\n                key: r => r.id, label: r => r.label,\n                value: r => r.value,\n                events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),\n                markers: r => r.markers,\n            }),\n            Plan.series.group(DockRow, { key: \"outbound\", label: \"Docks · Out\", meta: \"1 rs\" }, [\n                // Stored vocabulary records pass straight through.\n                Plan.series.buckets(DockRow, {\n                    match: r => r.family.equal(\"outbound\"),\n                    key: r => r.id, label: r => r.label,\n                    sub: r => r.sub,\n                    lanes: r => r.lanes, events: r => r.tiles, markers: r => r.markers,\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(DockRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        // The generalized resolvers — tiles ride the event arm of the ref.\n        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n            const noBody = $.const(none, OptionType(UIComponentType));\n            return ref.match({\n                event: (_$, ev) => ev.event.equal(\"m5\").ifElse(\n                    () => some(<Text>Load 41 · 8 pallets</Text>),\n                    () => noBody),\n            }, _$ => noBody);\n        }));\n        const hover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n            const noBody = $.const(none, OptionType(UIComponentType));\n            return ref.match({\n                event: (_$, ev) => ev.event.equal(\"m3\").ifElse(\n                    () => some(<Text>Urgent — overtime window</Text>),\n                    () => noBody),\n            }, _$ => noBody);\n        }));\n        return (\n            <Plan\n                popover={popover}\n                hover={hover}\n                axis={axis}\n                data={docks}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planChartRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Chart-row families over ONE raw measure source — one series per mark kind, layers built from each row",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "chart",
+        "layers",
+        "spark",
+        "expanded",
+        "fixed",
+        "refLine",
+        "refBand",
+        "refDot",
+        "breach",
+        "stacked",
+        "dual-axis",
+        "swatches",
+        "Area",
+        "Band",
+        "Scatter",
+        "Column",
+        "Line",
+        "domain",
+        "tickValues",
+        "group",
+        "match",
+        "gutter",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Chart-row families over ONE raw measure source — one series per mark kind, layers built from each row\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });\n        const BandRow = StructType({ week: DateTimeType, lo: FloatType, hi: FloatType });\n        // ONE raw source — each family's points ride the row (`extra` carries\n        // the second set for stacked / dual compositions).\n        const ChartRow = StructType({\n            id: StringType, family: StringType, label: StringType,\n            sub: OptionType(StringType), value: OptionType(StringType),\n            points: ArrayType(MeasureRow),\n            extra: ArrayType(MeasureRow),\n            band: ArrayType(BandRow),\n        });\n        const pcts = $.const([96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2], ArrayType(FloatType));\n        const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: pcts.get(i) })));\n        const cum = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.toFloat().multiply(14.0).add(40.0) })));\n        const out1 = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(23n).remainder(17n).toFloat().add(28.0) })));\n        const out2 = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(31n).remainder(13n).toFloat().add(14.0) })));\n        const ppm = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(37n).remainder(60n).toFloat().add(120.0) })));\n        const band = $.let(East.Array.generate(12n, BandRow, (_$, i) => ({ week: week(i.add(27n)), lo: pcts.get(i).subtract(3.0), hi: pcts.get(i).add(3.0) })));\n        const measures = $.const([\n            { id: \"spark\", family: \"spark\", label: \"COVERAGE\", sub: none, value: some(\"94.2%\"), points: coverage, extra: [], band: [] },\n            { id: \"cum\", family: \"cum\", label: \"CUMULATIVE · t\", sub: none, value: some(\"194 t\"), points: cum, extra: [], band: [] },\n            { id: \"stacked\", family: \"stacked\", label: \"OUTPUT · t\", sub: some(\"t/wk\"), value: none, points: out1, extra: out2, band: [] },\n            { id: \"ppm\", family: \"ppm\", label: \"DEFECTS · ppm\", sub: none, value: some(\"161\"), points: ppm, extra: [], band: [] },\n            { id: \"refs\", family: \"refs\", label: \"COVERAGE + REFS\", sub: none, value: none, points: coverage, extra: [], band: [] },\n            { id: \"dual\", family: \"dual\", label: \"OUT + COVERAGE\", sub: none, value: none, points: out1, extra: coverage, band },\n        ], ArrayType(ChartRow));\n        const series = $.const([\n            // Line — the KPI spark with a breach threshold; the caret opens\n            // it to a custom 120px (expandedHeight, default 88).\n            Plan.series.chart(ChartRow, {\n                match: r => r.family.equal(\"spark\"),\n                key: r => r.id, label: r => r.label, id: true,\n                value: r => r.value, status: _r => some(variant(\"warning\", null)),\n                height: \"spark\", expandable: true, expandedHeight: \"120px\",\n                layers: r => [Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } })],\n            }),\n            // Area — the cumulative fill.\n            Plan.series.chart(ChartRow, {\n                match: r => r.family.equal(\"cum\"),\n                key: r => r.id, label: r => r.label, id: true, value: r => r.value,\n                layers: r => [Chart.Area(r.points, { x: p => p.week, y: p => p.pct })],\n            }),\n            // Columns — the row's two point sets stacked by one series id,\n            // on a two-line gutter (label over sub).\n            Plan.series.chart(ChartRow, {\n                match: r => r.family.equal(\"stacked\"),\n                key: r => r.id, label: r => r.label, id: true, stacked: true, sub: r => r.sub,\n                layers: r => [\n                    Plan.layer(Chart.Column(r.points, { x: p => p.week, y: p => p.pct }), { series: \"L1\" }),\n                    Plan.layer(Chart.Column(r.extra, { x: p => p.week, y: p => p.pct }), { series: \"L2\" }),\n                ],\n            }),\n            // Scatter — the defect cloud.\n            Plan.series.chart(ChartRow, {\n                match: r => r.family.equal(\"ppm\"),\n                key: r => r.id, label: r => r.label, id: true, value: r => r.value,\n                layers: r => [Chart.Scatter(r.points, { x: p => p.week, y: p => p.pct })],\n            }),\n            // Line + every annotation kind, at expanded density.\n            Plan.series.chart(ChartRow, {\n                match: r => r.family.equal(\"refs\"),\n                key: r => r.id, label: r => r.label, id: true,\n                height: \"expanded\",\n                layers: r => [\n                    Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),\n                    Chart.refLine({ y: 100, label: \"TARGET 100\" }),\n                    Chart.refBand({ x: [week(34n), week(36n)], label: \"CRUNCH\" }),\n                    Chart.refDot({ x: week(36n), y: 91.4, label: \"LOW\" }),\n                ],\n            }),\n            // The composed dual-axis chart inside a static group strip; axes\n            // take Chart.Root's vocabulary — domain / tickValues. Output\n            // columns scale left; the coverage line + its band scale right.\n            Plan.series.group(ChartRow, { key: \"quality\", label: \"Quality\", meta: \"1 rs\" }, [\n                Plan.series.chart(ChartRow, {\n                    match: r => r.family.equal(\"dual\"),\n                    key: r => r.id, label: r => r.label, id: true,\n                    height: Plan.fixed(\"120px\"),\n                    left: { domain: [0, 60], tickValues: [0, 25, 50] },\n                    right: { domain: [80, 105], tickValues: [85, 95, 105] },\n                    swatches: [{ color: \"ink.3\", label: \"out\" }, { color: \"brand.d\", label: \"cov · rh\" }],\n                    layers: r => [\n                        Chart.Column(r.points, { x: p => p.week, y: p => p.pct }),\n                        Plan.layer(Chart.Line(r.extra, { x: p => p.week, y: p => p.pct }), { axis: \"right\" }),\n                        Plan.layer(Chart.Band(r.band, { x: p => p.week, low: p => p.lo, high: p => p.hi }), { axis: \"right\" }),\n                    ],\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(ChartRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        return (\n            <Plan\n                axis={axis}\n                data={measures}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planHeatRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Heat-row families over ONE raw line source — per-bucket samples wrapped by the cells accessors client-side: colour-depth cells with a warn ring and a no-data hatch under a groupBy aggregate-mean parent (renderer-derived), booked-vs-free weight bars with a planned tail on a two-line sub gutter, and status-segment compositions (plain segment records) inside a static series.group strip",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "heat",
+        "Matrix",
+        "cells",
+        "depth",
+        "aggregate",
+        "mean",
+        "groupBy",
+        "scale",
+        "warnAt",
+        "weightCells",
+        "segmentCells",
+        "segment",
+        "no-data",
+        "hatch",
+        "group",
+        "match",
+        "gutter",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Heat-row families over ONE raw line source — per-bucket samples wrapped by the cells accessors client-side: colour-depth cells with a warn ring and a no-data hatch under a groupBy aggregate-mean parent (renderer-derived), booked-vs-free weight bars with a planned tail on a two-line sub gutter, and status-segment compositions (plain segment records) inside a static series.group strip\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const HeatRow = StructType({\n            id: StringType, family: StringType, line: StringType, label: StringType,\n            sub: OptionType(StringType),\n            cells: ArrayType(Plan.Types.HeatCell),\n            weights: ArrayType(Plan.Types.WeightCell),\n            segs: ArrayType(Plan.Types.SegmentCell),\n        });\n        const pcts = $.const(\n            [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],\n            ArrayType(FloatType));\n        const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({\n            at: week(i.add(27n)),\n            value: i.equal(4n).ifElse(() => none, () => some(pcts.get(i))),   // W31 = no data\n            label: i.equal(4n).ifElse(() => none, () => some(East.Float.printFixed(pcts.get(i), 0n))),\n        })));\n        // Booked-vs-free fractions; the back half is the planned pale tail.\n        const weights = $.let(East.Array.generate(6n, Plan.Types.WeightCell, (_$, i) => ({\n            at: week(i.multiply(2n).add(27n)),\n            fraction: i.toFloat().multiply(-0.11).add(0.9),\n            planned: i.greaterEqual(3n),\n        })));\n        const lines = $.const([\n            { id: \"m03h\", family: \"depth\", line: \"Line 1\", label: \"L1-M03\", sub: none, cells, weights: [], segs: [] },\n            { id: \"m04h\", family: \"depth\", line: \"Line 1\", label: \"L1-M04\", sub: none, cells, weights: [], segs: [] },\n            { id: \"booked\", family: \"booked\", line: \"\", label: \"Crew A\", sub: some(\"booked h\"), cells: [], weights, segs: [] },\n            // Segment compositions — plain `{ fill, weight, label }` records.\n            { id: \"pack\", family: \"segments\", line: \"\", label: \"Pack line\", sub: some(\"capacity\"), cells: [], weights: [],\n              segs: [\n                  { at: week(27n), segments: [\n                      { fill: variant(\"success\", null), weight: 60.0, label: some(\"60%\") },\n                      { fill: variant(\"warning\", null), weight: 25.0, label: some(\"25%\") },\n                      { fill: variant(\"slack\", null), weight: 15.0, label: none },\n                  ] },\n                  { at: week(28n), segments: [\n                      { fill: variant(\"success\", null), weight: 70.0, label: some(\"70%\") },\n                      { fill: variant(\"slack\", null), weight: 30.0, label: none },\n                  ] },\n                  { at: week(29n), segments: [\n                      { fill: variant(\"danger\", null), weight: 40.0, label: some(\"40%\") },\n                      { fill: variant(\"free\", null), weight: 60.0, label: none },\n                  ] },\n              ] },\n        ], ArrayType(HeatRow));\n        const series = $.const([\n            // The aggregate-mean parent derives per discovered line value.\n            Plan.series.heat(HeatRow, {\n                match: r => r.family.equal(\"depth\"),\n                key: r => r.id, label: r => r.label, id: true,\n                cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),\n                groupBy: [r => r.line], aggregate: \"mean\", scale: { min: 0, max: 100, warnAt: 95 },\n            }),\n            Plan.series.heat(HeatRow, {\n                match: r => r.family.equal(\"booked\"),\n                key: r => r.id, label: r => r.label,\n                sub: r => r.sub,\n                cells: r => Plan.weightCells(r.weights),\n            }),\n            Plan.series.group(HeatRow, { key: \"packing\", label: \"Packing\", meta: \"1 rs\" }, [\n                Plan.series.heat(HeatRow, {\n                    match: r => r.family.equal(\"segments\"),\n                    key: r => r.id, label: r => r.label,\n                    sub: r => r.sub,\n                    cells: r => Plan.segmentCells(r.segs),\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(HeatRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        return (\n            <Plan\n                axis={axis}\n                data={lines}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planTableRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once (a strong rolled-up actual beside a muted always-signed Δ horizontally; a vertical stack that grows the row)",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "table",
+        "cells",
+        "tableCells",
+        "subtotal",
+        "aggregate",
+        "sum",
+        "format",
+        "emphasis",
+        "footer",
+        "groupBy",
+        "nested",
+        "depth",
+        "em-dash",
+        "neg",
+        "match",
+        "gutter",
+        "tableSeries",
+        "split",
+        "horizontal",
+        "vertical",
+        "multi-value",
+        "strong",
+        "muted",
+        "rollup",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once (a strong rolled-up actual beside a muted always-signed Δ horizontally; a vertical stack that grows the row)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const RawCell = StructType({ at: DateTimeType, value: OptionType(FloatType) });\n        // The RAW order record — actuals and the plan Δ as per-bucket value\n        // arrays; every display decision lives in the series configs.\n        const OrderRow = StructType({\n            key: StringType, family: StringType, name: StringType, top: StringType, program: StringType,\n            sub: OptionType(StringType),\n            act: ArrayType(RawCell),\n            plan: ArrayType(RawCell),\n        });\n        const act = $.let(East.Array.generate(12n, RawCell, (_$, i) => ({\n            at: week(i.add(27n)),\n            value: i.equal(9n).ifElse(() => none, () => some(i.toFloat().multiply(7.0).add(40.0))),\n        })));\n        const deltas = $.let(East.Array.generate(12n, RawCell, (_$, i) => ({\n            at: week(i.add(27n)),\n            value: i.remainder(4n).equal(3n).ifElse(\n                () => none,\n                () => some(i.toFloat().multiply(1.5).subtract(8.0))),\n        })));\n        const outflow = $.let(East.Array.generate(12n, RawCell, (_$, i) => ({\n            at: week(i.add(27n)),\n            value: some(i.toFloat().multiply(-3.0).subtract(12.0)),\n        })));\n        const orders = $.const([\n            // The nested family — two groupBy levels derive their subtotals.\n            { key: \"or-1188\", family: \"orders\", name: \"OR-1188\", top: \"Despatches\", program: \"Program A\", sub: none, act, plan: [] },\n            { key: \"or-1204\", family: \"orders\", name: \"OR-1204\", top: \"Despatches\", program: \"Program A\", sub: none, act, plan: [] },\n            { key: \"or-1219\", family: \"orders\", name: \"OR-1219\", top: \"Despatches\", program: \"Program B\", sub: none, act, plan: [] },\n            { key: \"rt-0031\", family: \"orders\", name: \"RT-0031\", top: \"Returns\", program: \"Program B\", sub: none, act, plan: [] },\n            // Footer emphasis + negative tone + the muted em-dash.\n            { key: \"net\", family: \"net\", name: \"Net flow\", top: \"\", program: \"\", sub: none, plan: [],\n              act: [\n                  { at: week(27n), value: some(22.0) }, { at: week(28n), value: some(-26.0) },\n                  { at: week(29n), value: none },\n              ] },\n            // Multi-value families — raw act + plan arrays per row.\n            { key: \"actplan\", family: \"actplan\", name: \"Act · Δ plan\", top: \"\", program: \"\", sub: some(\"t/wk\"), act, plan: deltas },\n            { key: \"inout\", family: \"inout\", name: \"In / out\", top: \"\", program: \"\", sub: none, act, plan: outflow },\n        ], ArrayType(OrderRow));\n        const series = $.const([\n            Plan.series.table(OrderRow, {\n                match: r => r.family.equal(\"orders\"),\n                key: r => r.key, label: r => r.name,\n                cells: r => Plan.tableCells(r.act),\n                groupBy: [r => r.top, r => r.program], aggregate: \"sum\",\n                format: Format.Number({ maximumFractionDigits: 0n }),\n            }),\n            Plan.series.table(OrderRow, {\n                match: r => r.family.equal(\"net\"),\n                key: r => r.key, label: r => r.name, emphasis: \"footer\",\n                cells: r => Plan.tableCells(r.act),\n                format: Format.Number({ maximumFractionDigits: 0n }),\n            }),\n            // Per-POSITION style declared ONCE, in the CONFIG — a strong\n            // rolled-up actual beside its muted, always-signed plan Δ.\n            Plan.series.table(OrderRow, {\n                match: r => r.family.equal(\"actplan\"),\n                key: r => r.key, label: r => r.name, stacked: true, sub: r => r.sub,\n                series: r => [\n                    Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(r.act) }),\n                    Plan.tableSeries({\n                        tone: \"muted\",\n                        format: Format.Number({ maximumFractionDigits: 0n, signDisplay: \"always\" }),\n                        cells: Plan.tableCells(r.plan),\n                    }),\n                ],\n                format: Format.Number({ maximumFractionDigits: 0n }),\n            }),\n            // The VERTICAL split stacks the positions; the row grows.\n            Plan.series.table(OrderRow, {\n                match: r => r.family.equal(\"inout\"),\n                key: r => r.key, label: r => r.name, split: \"vertical\",\n                series: r => [\n                    Plan.tableSeries({ cells: Plan.tableCells(r.act) }),\n                    Plan.tableSeries({ tone: \"muted\", cells: Plan.tableCells(r.plan) }),\n                ],\n                format: Format.Number({ maximumFractionDigits: 0n }),\n            }),\n        ], ArrayType(Plan.Types.Series(OrderRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        return (\n            <Plan\n                axis={axis}\n                data={orders}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planCardRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Cards-row families over ONE crew source — a raw-shift family whose accessor derives every chip label from hours × lifecycle (the proposal + prefix; confirmed tint, proposed dashed, removed strikethrough, estimated ghost) on a stacked two-line gutter, plus a stored-vocabulary family (plain chip records with an icon) inside a static series.group strip, under a custom ",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "cards",
+        "Roster",
+        "chip",
+        "lifecycle",
+        "confirmed",
+        "recommended",
+        "removed",
+        "estimated",
+        "icon",
+        "popover",
+        "stacked",
+        "format",
+        "axis",
+        "group",
+        "match",
+        "gutter",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Cards-row families over ONE crew source — a raw-shift family whose accessor derives every chip label from hours × lifecycle (the proposal + prefix; confirmed tint, proposed dashed, removed strikethrough, estimated ghost) on a stacked two-line gutter, plus a stored-vocabulary family (plain chip records with an icon) inside a static series.group strip, under a custom \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const ShiftRow = StructType({\n            key: StringType, from: DateTimeType, to: DateTimeType,\n            hours: FloatType, state: EventStateType,\n        });\n        const CrewRow = StructType({\n            id: StringType, family: StringType, name: StringType,\n            sub: OptionType(StringType), value: OptionType(StringType),\n            shifts: ArrayType(ShiftRow),\n            chips: ArrayType(Plan.Types.Chip),\n        });\n        const crews = $.const([\n            // RAW shifts — hours + lifecycle; chip labels derive client-side.\n            { id: \"crewA\", family: \"main\", name: \"Crew A\", sub: some(\"152h → 168h\"), value: none, chips: [], shifts: [\n                { key: \"s1\", from: week(27n), to: week(29n), hours: 80.0, state: variant(\"confirmed\", null) },\n                { key: \"s2\", from: week(29n), to: week(31n), hours: 56.0, state: variant(\"proposed\", variant(\"removed\", null)) },\n                { key: \"s3\", from: week(31n), to: week(33n), hours: 64.0, state: variant(\"proposed\", variant(\"recommended\", null)) },\n                { key: \"s4\", from: week(34n), to: week(35n), hours: 48.0, state: variant(\"estimated\", null) },\n            ] },\n            // STORED vocabulary — plain chip records (the §3.2 element\n            // shapes), here carrying the shift-type icon.\n            { id: \"crewB\", family: \"pool\", name: \"Crew B\", sub: none, value: some(\"128h\"), shifts: [], chips: [\n                { key: \"b1\", from: week(28n), to: week(31n), label: \"96h\", state: variant(\"confirmed\", null),\n                  icon: some({ prefix: \"fas\", name: \"user-group\", label: none, style: none }) },\n                { key: \"b2\", from: week(33n), to: week(36n), label: \"+32h\", state: variant(\"proposed\", variant(\"recommended\", null)), icon: none },\n            ] },\n        ], ArrayType(CrewRow));\n        const series = $.const([\n            Plan.series.cards(CrewRow, {\n                match: r => r.family.equal(\"main\"),\n                key: r => r.id, label: r => r.name, stacked: true,\n                sub: r => r.sub,\n                chips: r => r.shifts.map(($, s) => {\n                    const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);\n                    // The `+` means ADDED hours, so it rides the proposal's\n                    // flavour, not the mere fact of being a proposal — a\n                    // `removed` shift is a proposal too, and prefixing it `+`\n                    // would read as the opposite of what it does.\n                    const label = $.let(s.state.match({\n                        proposed: (_$, p) => p.hasTag(\"removed\").ifElse(\n                            () => East.str`${hrs}h`,\n                            () => East.str`+${hrs}h`),\n                    }, _$ => East.str`${hrs}h`), StringType);\n                    return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });\n                }),\n            }),\n            Plan.series.group(CrewRow, { key: \"pool\", label: \"Relief pool\", meta: \"1 rs\" }, [\n                Plan.series.cards(CrewRow, {\n                    match: r => r.family.equal(\"pool\"),\n                    key: r => r.id, label: r => r.name,\n                    value: r => r.value,\n                    chips: r => r.chips,\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(CrewRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n), format: \"D MMM\" }));\n        // The generalized popover resolver — chips ride the chip arm.\n        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n            const noBody = $.const(none, OptionType(UIComponentType));\n            return ref.match({\n                chip: (_$, ev) => ev.chip.equal(\"s3\").ifElse(\n                    () => some(<Text>Overtime proposal.</Text>),\n                    () => noBody),\n            }, _$ => noBody);\n        }));\n        return (\n            <Plan\n                popover={popover}\n                axis={axis}\n                data={crews}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planEventRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Event-row families over ONE stream source of plain mark records (the §3.2 element shapes — kind variants carry milestone/decision{applied}/exception directly) — milestone dots, pending and applied decision diamonds, an exception triangle, a custom FA glyph swap and a clustered ×3 label on a single-line gutter, plus a stacked two-line release stream inside a static series.group strip; mark detail resolves through the root popover over the mark arm",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "events",
+        "mark",
+        "milestone",
+        "decision",
+        "exception",
+        "markKind",
+        "applied",
+        "icon",
+        "label",
+        "popover",
+        "group",
+        "match",
+        "stacked",
+        "gutter",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Event-row families over ONE stream source of plain mark records (the §3.2 element shapes — kind variants carry milestone/decision{applied}/exception directly) — milestone dots, pending and applied decision diamonds, an exception triangle, a custom FA glyph swap and a clustered ×3 label on a single-line gutter, plus a stacked two-line release stream inside a static series.group strip; mark detail resolves through the root popover over the mark arm\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const StreamRow = StructType({\n            id: StringType, family: StringType, name: StringType,\n            sub: OptionType(StringType), value: OptionType(StringType),\n            marks: ArrayType(Plan.Types.EventMark),\n        });\n        const streams = $.const([\n            { id: \"ms\", family: \"main\", name: \"MILESTONES\", sub: none, value: some(\"5\"), marks: [\n                { key: \"kick\", at: week(28n), kind: variant(\"milestone\", null), icon: none, label: some(\"KICKOFF\") },\n                { key: \"d1\", at: week(31n), kind: variant(\"decision\", { applied: true }), icon: none, label: none },\n                { key: \"rel\", at: week(33n), kind: variant(\"milestone\", null),\n                  icon: some({ prefix: \"fas\", name: \"rocket\", label: none, style: none }), label: some(\"REL 2.4\") },\n                { key: \"audit\", at: week(35n), kind: variant(\"exception\", null), icon: none, label: some(\"AUDIT\") },\n                { key: \"d2\", at: week(37n), kind: variant(\"decision\", { applied: false }), icon: none, label: some(\"×3\") },\n            ] },\n            { id: \"release\", family: \"programs\", name: \"RELEASES\", sub: some(\"6-wk cadence\"), value: none, marks: [\n                { key: \"r1\", at: week(29n), kind: variant(\"milestone\", null), icon: none, label: some(\"2.3\") },\n                { key: \"r2\", at: week(36n), kind: variant(\"milestone\", null), icon: none, label: some(\"2.4\") },\n            ] },\n        ], ArrayType(StreamRow));\n        const series = $.const([\n            Plan.series.events(StreamRow, {\n                match: r => r.family.equal(\"main\"),\n                key: r => r.id, label: r => r.name, id: true,\n                value: r => r.value,\n                marks: r => r.marks,\n            }),\n            Plan.series.group(StreamRow, { key: \"programs\", label: \"Programs\", meta: \"1 rs\" }, [\n                Plan.series.events(StreamRow, {\n                    match: r => r.family.equal(\"programs\"),\n                    key: r => r.id, label: r => r.name, id: true, stacked: true,\n                    sub: r => r.sub,\n                    marks: r => r.marks,\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(StreamRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        // The generalized popover resolver — event marks ride the mark arm.\n        const popover = $.const(East.function([Plan.Types.ElementRef], OptionType(UIComponentType), ($, ref) => {\n            const noBody = $.const(none, OptionType(UIComponentType));\n            return ref.match({\n                mark: (_$, ev) => ev.mark.equal(\"rel\").ifElse(\n                    () => some(<Text>Go/no-go review.</Text>),\n                    () => noBody),\n            }, _$ => noBody);\n        }));\n        return (\n            <Plan\n                popover={popover}\n                axis={axis}\n                data={streams}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planGroupedRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Group-strip forms over ONE raw line source — a static expanded series.group with meta chrome around mixed-kind child families (a span family mapping raw jobs + a heat family), a static collapsed group resting as its DECLARED mean strip, and the DISCOVERED form (series.group with a ",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "group",
+        "groups",
+        "strip",
+        "by",
+        "discovered",
+        "summary",
+        "summaryAggregate",
+        "collapsed",
+        "groupBy",
+        "heterogeneous",
+        "match",
+        "meta",
+        "nesting",
+        "raw"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Group-strip forms over ONE raw line source — a static expanded series.group with meta chrome around mixed-kind child families (a span family mapping raw jobs + a heat family), a static collapsed group resting as its DECLARED mean strip, and the DISCOVERED form (series.group with a \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const JobRow = StructType({\n            key: StringType, batch: StringType,\n            start: DateTimeType, end: DateTimeType, state: EventStateType,\n        });\n        const LineRow = StructType({\n            id: StringType, family: StringType, line: StringType, label: StringType,\n            jobs: ArrayType(JobRow),\n            cells: ArrayType(Plan.Types.HeatCell),\n        });\n        const pcts = $.const(\n            [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],\n            ArrayType(FloatType));\n        const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({\n            at: week(i.add(27n)),\n            value: some(pcts.get(i)),\n            label: some(East.Float.printFixed(pcts.get(i), 0n)),\n        })));\n        const lines = $.const([\n            // Static Line 1 — mixed kinds (a span child + a heat child).\n            { id: \"m03\", family: \"l1span\", line: \"\", label: \"L1-M03\",\n              jobs: [{ key: \"r\", batch: \"B-214\", start: week(28n), end: week(31n), state: variant(\"in-progress\", null) }],\n              cells: [] },\n            { id: \"m03h\", family: \"l1heat\", line: \"\", label: \"L1-M03 load\", jobs: [], cells },\n            // Static collapsed Line 2 — rests as its DECLARED mean strip.\n            { id: \"l2\", family: \"l2\", line: \"\", label: \"L2 load\", jobs: [], cells },\n            // The DISCOVERED form — one strip per distinct line value. Named\n            // apart from the static strips above so the panel reads as three\n            // distinct forms rather than two repeated ones.\n            { id: \"d-m21\", family: \"byline\", line: \"Line 3\", label: \"L3-M21\", jobs: [], cells },\n            { id: \"d-m22\", family: \"byline\", line: \"Line 3\", label: \"L3-M22\", jobs: [], cells },\n            { id: \"d-m31\", family: \"byline\", line: \"Line 4\", label: \"L4-M31\", jobs: [], cells },\n        ], ArrayType(LineRow));\n        const series = $.const([\n            Plan.series.group(LineRow, { key: \"line1\", label: \"Line 1\", meta: \"2 rs · 82%\" }, [\n                Plan.series.span(LineRow, {\n                    match: r => r.family.equal(\"l1span\"),\n                    key: r => r.id, label: r => r.label, id: true,\n                    runs: r => r.jobs.map((_$, j) => Plan.run({\n                        key: j.key, start: j.start, end: j.end,\n                        label: East.str`RUN · ${j.batch}`, state: j.state,\n                    })),\n                }),\n                Plan.series.heat(LineRow, {\n                    match: r => r.family.equal(\"l1heat\"),\n                    key: r => r.id, label: r => r.label,\n                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),\n                }),\n            ]),\n            Plan.series.group(LineRow, { key: \"line2\", label: \"Line 2\", value: \"98%\", status: \"warning\", collapsed: true, summaryAggregate: \"mean\" }, [\n                Plan.series.heat(LineRow, {\n                    match: r => r.family.equal(\"l2\"),\n                    key: r => r.id, label: r => r.label,\n                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),\n                }),\n            ]),\n            // DISCOVERED strips — one collapsed group per distinct `by`\n            // value, wearing the member-count meta.\n            Plan.series.group(LineRow, { by: r => r.line, match: r => r.family.equal(\"byline\"), collapsed: true, summaryAggregate: \"mean\" }, [\n                Plan.series.heat(LineRow, {\n                    match: r => r.family.equal(\"byline\"),\n                    key: r => r.id, label: r => r.label, id: true,\n                    cells: r => Plan.heatCells(r.cells),\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(LineRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        return (\n            <Plan\n                axis={axis}\n                data={lines}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planSeriesData",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "The data + series canvas, minimally — ONE variant-discriminated RAW source (jobs with batch/tonnes/state, shifts with hours); each Plan.series.* builder (row type first) declares a row family over it via match + accessors that DERIVE the canvas vocabulary client-side (run labels + quantity pairs from batch/tonnes, chip labels with the proposal + prefix from hours × lifecycle; span with groupBy rollup parents, cards under a static series.group strip), series.rows carries literal one-off chrome, and the whole list is a $.const-bound East value typed ArrayType(Plan.Types.Series(OpsRow))",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "match",
+        "families",
+        "variant",
+        "span",
+        "cards",
+        "group",
+        "rows",
+        "groupBy",
+        "rollup",
+        "Series",
+        "data-driven",
+        "accessor",
+        "raw",
+        "one source"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The data + series canvas, minimally — ONE variant-discriminated RAW source (jobs with batch/tonnes/state, shifts with hours); each Plan.series.* builder (row type first) declares a row family over it via match + accessors that DERIVE the canvas vocabulary client-side (run labels + quantity pairs from batch/tonnes, chip labels with the proposal + prefix from hours × lifecycle; span with groupBy rollup parents, cards under a static series.group strip), series.rows carries literal one-off chrome, and the whole list is a $.const-bound East value typed ArrayType(Plan.Types.Series(OpsRow))\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        // The RAW domain shape — families discriminated by a variant field\n        // (the natural ops-dataset form; the same rows page from a dataset).\n        const JobRow = StructType({\n            batch: StringType, start: DateTimeType, end: DateTimeType,\n            tonnes: FloatType, state: EventStateType,\n        });\n        const ShiftRow = StructType({\n            key: StringType, from: DateTimeType, to: DateTimeType,\n            hours: FloatType, state: EventStateType,\n        });\n        const OpsRow = StructType({\n            id: StringType, line: StringType,\n            kind: VariantType({\n                machine: StructType({ jobs: ArrayType(JobRow) }),\n                crew:    StructType({ shifts: ArrayType(ShiftRow) }),\n            }),\n        });\n        const ops = $.const([\n            { id: \"L1-M03\", line: \"Line 1\", kind: variant(\"machine\", { jobs: [\n                { batch: \"B-214\", start: week(28n), end: week(31n), tonnes: 96.0, state: variant(\"in-progress\", null) },\n                { batch: \"B-221\", start: week(32n), end: week(35n), tonnes: 88.0, state: variant(\"proposed\", variant(\"recommended\", null)) },\n            ] }) },\n            { id: \"L1-M04\", line: \"Line 1\", kind: variant(\"machine\", { jobs: [\n                { batch: \"B-208\", start: week(27n), end: week(30n), tonnes: 112.0, state: variant(\"actual\", null) },\n            ] }) },\n            { id: \"L2-M11\", line: \"Line 2\", kind: variant(\"machine\", { jobs: [\n                { batch: \"B-241\", start: week(29n), end: week(33n), tonnes: 92.0, state: variant(\"confirmed\", null) },\n            ] }) },\n            { id: \"crewA\", line: \"Line 1\", kind: variant(\"crew\", { shifts: [\n                { key: \"s1\", from: week(27n), to: week(29n), hours: 80.0, state: variant(\"confirmed\", null) },\n                { key: \"s2\", from: week(31n), to: week(33n), hours: 64.0, state: variant(\"proposed\", variant(\"recommended\", null)) },\n            ] }) },\n        ], ArrayType(OpsRow));\n        // The series — real East values bound in the body, typed by the\n        // constructor; canvas order = series order. The accessors are where\n        // raw fields become canvas vocabulary: labels, quantity displays and\n        // chip text all derive CLIENT-SIDE inside each family's stored make.\n        const series = $.const([\n            Plan.series.rows(OpsRow, [Plan.events({ key: \"ms\", label: \"MILESTONES\", id: true, marks: [\n                Plan.mark({ key: \"kick\", at: week(28n), kind: \"milestone\", label: \"KICKOFF\" }),\n                Plan.mark({ key: \"rel\", at: week(33n), kind: \"milestone\", label: \"REL 2.4\" }),\n            ] })]),\n            Plan.series.span(OpsRow, {\n                match: r => r.kind.hasTag(\"machine\"),\n                key: r => r.id, label: r => r.id, id: true,\n                runs: r => r.kind.unwrap(\"machine\").jobs.map((_$, j) => Plan.run({\n                    key: j.batch, start: j.start, end: j.end,\n                    label: East.str`RUN · ${j.batch}`,\n                    quantity: East.str`${East.Float.printFixed(j.tonnes, 0n)} t`,\n                    qty: j.tonnes, state: j.state,\n                })),\n                groupBy: [r => r.line], rollup: \"union\", unit: \"t\",\n            }),\n            Plan.series.group(OpsRow, { key: \"crews\", label: \"Crews\", meta: \"1 rs\" }, [\n                Plan.series.cards(OpsRow, {\n                    match: r => r.kind.hasTag(\"crew\"),\n                    key: r => r.id, label: r => r.id,\n                    chips: r => r.kind.unwrap(\"crew\").shifts.map(($, s) => {\n                        const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);\n                        // `+` marks ADDED hours — a removed proposal keeps the\n                        // plain figure (see planCardRows for the full ladder).\n                        const label = $.let(s.state.match({\n                            proposed: (_$, p) => p.hasTag(\"removed\").ifElse(\n                                () => East.str`${hrs}h`,\n                                () => East.str`+${hrs}h`),\n                        }, _$ => East.str`${hrs}h`), StringType);\n                        return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });\n                    }),\n                }),\n            ]),\n        ], ArrayType(Plan.Types.Series(OpsRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        return (\n            <Plan\n                axis={axis}\n                data={ops}\n                series={series}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:plan.examples.tsx:planLibraryDnd",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/plan.examples.tsx",
+      "suite": "",
+      "test": "Row-library composition — templates carrying their binding via make() (the kind factories are the SUBTREE vocabulary for template bodies), the base canvas defined as raw data + a span series, and the Plan declared as a DnD target with the shared onDrag funnel and a canDrop veto",
+      "keywords": [
+        "Plan",
+        "data",
+        "series",
+        "library",
+        "template",
+        "make",
+        "binding",
+        "DnD",
+        "drag",
+        "drop",
+        "onDrag",
+        "canDrop",
+        "sources",
+        "add",
+        "reorder",
+        "compose"
+      ],
+      "imports": [
+        "import {",
+        "import { DragEventType, EventStateType, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Format, Plan, Reactive, Slice, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Row-library composition — templates carrying their binding via make() (the kind factories are the SUBTREE vocabulary for template bodies), the base canvas defined as raw data + a span series, and the Plan declared as a DnD target with the shared onDrag funnel and a canDrop veto\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });\n        const ShiftRow = StructType({\n            key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,\n        });\n        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        // The base canvas — raw data + a span series, like every Plan.\n        const JobRow = StructType({\n            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,\n        });\n        const MachineRow = StructType({ id: StringType, jobs: ArrayType(JobRow) });\n        const machines = $.const([\n            { id: \"L1-M03\", jobs: [\n                { batch: \"B-214\", start: week(28n), end: week(31n), state: variant(\"in-progress\", null) },\n            ] },\n        ], ArrayType(MachineRow));\n        const series = $.const([\n            Plan.series.span(MachineRow, {\n                key: r => r.id, label: r => r.id, id: true,\n                runs: r => r.jobs.map((_$, j) => Plan.run({\n                    key: j.batch, start: j.start, end: j.end,\n                    label: East.str`RUN · ${j.batch}`, state: j.state,\n                })),\n            }),\n        ], ArrayType(Plan.Types.Series(MachineRow)));\n        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }));\n        const loadPcts = $.const([46.0, 58.0, 66.0, 78.0, 90.0, 98.0], ArrayType(FloatType));\n        const load = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>\n            ({ week: week(i.multiply(2n).add(27n)), pct: loadPcts.get(i) })));\n        const shifts = $.const([\n            { key: \"s1\", from: week(27n), to: week(29n), label: \"80h\", state: variant(\"confirmed\", null) },\n            { key: \"s2\", from: week(31n), to: week(33n), label: \"+64h\", state: variant(\"proposed\", variant(\"recommended\", null)) },\n        ], ArrayType(ShiftRow));\n        // Templates carry their BINDING: `make` builds the live subtree from\n        // the captured data — the kind factories' remaining public role — so\n        // a dropped row renders immediately.\n        const makeUtil = $.const(East.function([], ArrayType(Plan.Types.Row), (_$) =>\n            Plan.chart({\n                key: \"util\", label: \"UTIL %\", id: true, height: \"spark\",\n                layers: [Chart.Column(load, { x: r => r.week, y: r => r.pct })],\n            })));\n        const makeCrew = $.const(East.function([], ArrayType(Plan.Types.Row), (_$) =>\n            Plan.cards({\n                key: \"crew\", label: \"Crew A\", sub: \"152h\", stacked: true,\n                chips: shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),\n            })));\n        const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));\n        const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));\n        return (\n            <Plan\n                axis={axis}\n                data={machines}\n                series={series}\n                library={[\n                    Plan.template({ key: \"util\", label: \"Chart\", sublabel: \"utilisation %\", kind: \"chart\", make: makeUtil }),\n                    Plan.template({ key: \"crew\", label: \"Cards\", sublabel: \"crew assignments\", kind: \"cards\", icon: \"user-group\", make: makeCrew }),\n                ]}\n                id=\"plan\" sources={[\"row-library\"]}\n                onDrag={onDrag}\n                canDrop={canDrop}\n            />\n        );\n    })"
+    },
+    {
       "id": "east-ui:planner.examples.tsx:plannerPoint",
       "skill": "east-ui",
       "package": "east-ui",
@@ -23085,6 +22873,35 @@
       "source": "// The widened filter vocabulary plus the presets surfaces, one captioned row each — expressive filters (\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ sku: StringType, note: StringType, day: DateTimeType, qty: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: { sku: { label: \"SKU\" }, note: { label: \"Note\" }, day: { label: \"Day\" }, qty: { label: \"Qty\" } },\n            searchFieldIds: [\"sku\", \"note\"],\n        });\n        const PresetOrderType = StructType({ sku: StringType, region: StringType, qty: IntegerType });\n        const railCfg = Slice.config(PresetOrderType, {\n            fields: { sku: { label: \"SKU\" }, region: { label: \"Region\" }, qty: { label: \"Qty\" } },\n            searchFieldIds: [\"sku\"],\n        });\n        const barCfg = Slice.config(PresetOrderType, {\n            fields: { sku: { label: \"SKU\" }, region: { label: \"Region\" }, qty: { label: \"Qty\" } },\n        });\n        return (\n            <VStack gap=\"4\" align=\"stretch\">\n                <Separator label=\"EXPRESSIVE FILTERS\" align=\"start\" />\n                <Reactive>{$ => {\n                    const data = $.const([\n                        { sku: \"SKU-100\", note: \"rush order\", day: new Date(\"2025-01-10\"), qty: 10n },\n                        { sku: \"SKU-200\", note: \"  \",         day: new Date(\"2025-02-14\"), qty: 20n },\n                        { sku: \"SKU-300\", note: \"fragile\",    day: new Date(\"2025-03-01\"), qty: 30n },\n                        { sku: \"ALT-400\", note: \"reseller\",   day: new Date(\"2025-02-02\"), qty: 40n },\n                        { sku: \"SKU-500\", note: \"priority\",   day: new Date(\"2025-05-20\"), qty: 50n },\n                    ], ArrayType(OrderType));\n                    const slice = $.let(Slice.bind([OrderType], \"ex.slice.expressive\", cfg, Slice.state({\n                        filters: [\n                            variant(\"string\",   { fieldId: \"sku\",  op: variant(\"startsWith\", \"SKU-\") }),\n                            variant(\"string\",   { fieldId: \"note\", op: variant(\"isNotEmpty\", null) }),\n                            variant(\"datetime\", { fieldId: \"day\",  op: variant(\"between\", { from: new Date(\"2025-01-05\"), to: new Date(\"2025-03-28\") }) }),\n                            variant(\"integer\",  { fieldId: \"qty\",  op: variant(\"in\", new Set([10n, 20n, 30n, 40n, 50n])) }),\n                        ],\n                    }), data, none));\n                    const narrowed = $.let(Slice.rows([OrderType], slice));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Slice.Rail slice={slice} affordances={[\"filter\"]} />\n                            <Table data={narrowed} columns={{\n                                sku:  { header: \"SKU\" },\n                                note: { header: \"Note\" },\n                                day:  { header: \"Day\" },\n                                qty:  { header: \"Qty\" },\n                            }} />\n                            <Slice.Summary slice={slice} />\n                        </VStack>\n                    );\n                }}</Reactive>\n                <Separator label=\"PRESETS RAIL\" align=\"start\" />\n                <Reactive>{$ => {\n                    const data = $.const([\n                        { sku: \"A-100\", region: \"EU\",   qty: 40n },\n                        { sku: \"A-101\", region: \"EU\",   qty: 12n },\n                        { sku: \"B-200\", region: \"NA\",   qty: 55n },\n                        { sku: \"C-300\", region: \"APAC\", qty: 23n },\n                    ], ArrayType(PresetOrderType));\n                    const slice = $.let(Slice.bind([PresetOrderType], \"ex.slice.presets.rail\", railCfg, Slice.state({\n                        cohorts: [\n                            { id: \"eu\",   name: \"EU\",          filters: [variant(\"string\",  { fieldId: \"region\", op: variant(\"eq\", \"EU\") })] },\n                            { id: \"bulk\", name: \"Bulk orders\", filters: [variant(\"integer\", { fieldId: \"qty\",    op: variant(\"gte\", 20n) })] },\n                        ],\n                    }), data, none));\n                    const narrowed = $.let(Slice.rows([PresetOrderType], slice));\n                    return (\n                        <Box width=\"300px\">\n                            <Table data={narrowed} columns={{\n                                sku:    { header: \"SKU\" },\n                                region: { header: \"Region\" },\n                                qty:    { header: \"Qty\" },\n                            }} slice={slice} affordances={[\"presets\", \"filter\", \"search\"]} />\n                        </Box>\n                    );\n                }}</Reactive>\n                <Separator label=\"PRESETS BAR\" align=\"start\" />\n                <Reactive>{$ => {\n                    const data = $.const([\n                        { sku: \"A-100\", region: \"EU\",   qty: 40n },\n                        { sku: \"A-101\", region: \"EU\",   qty: 12n },\n                        { sku: \"B-200\", region: \"NA\",   qty: 55n },\n                        { sku: \"B-201\", region: \"NA\",   qty: 9n },\n                        { sku: \"C-300\", region: \"APAC\", qty: 23n },\n                    ], ArrayType(PresetOrderType));\n                    const slice = $.let(Slice.bind([PresetOrderType], \"ex.slice.presets\", barCfg, Slice.state({\n                        cohorts: [\n                            { id: \"eu\",   name: \"EU\",          filters: [variant(\"string\",  { fieldId: \"region\", op: variant(\"eq\", \"EU\") })] },\n                            { id: \"bulk\", name: \"Bulk orders\", filters: [variant(\"integer\", { fieldId: \"qty\",    op: variant(\"gte\", 20n) })] },\n                        ],\n                        activeCohorts: new Set([\"bulk\"]),\n                    }), data, none));\n                    const narrowed = $.let(Slice.rows([PresetOrderType], slice));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Slice.Presets slice={slice} />\n                            <Table data={narrowed} columns={{\n                                sku:    { header: \"SKU\" },\n                                region: { header: \"Region\" },\n                                qty:    { header: \"Qty\" },\n                            }} />\n                            <Slice.Summary slice={slice} />\n                        </VStack>\n                    );\n                }}</Reactive>\n            </VStack>\n        );\n    })"
     },
     {
+      "id": "east-ui:slice.examples.tsx:sliceResolution",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "The Slice.Range resolution segment — ",
+      "keywords": [
+        "Slice",
+        "Range",
+        "resolution",
+        "resolutions",
+        "segment",
+        "week",
+        "day",
+        "bucket",
+        "re-bucket",
+        "setResolution",
+        "shared",
+        "unit",
+        "seg"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Separator, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The Slice.Range resolution segment — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const BookingType = StructType({ when: DateTimeType, route: StringType, seats: IntegerType });\n        const cfg = Slice.config(BookingType, {\n            fields: {\n                when:  { label: \"Departure\", format: { date: \"MMM DD\" } },\n                route: { label: \"Route\" },\n                seats: { label: \"Seats\" },\n            },\n            rangeFieldId: \"when\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { when: new Date(\"2025-03-03\"), route: \"SYD→MEL\", seats: 140n },\n                    { when: new Date(\"2025-03-10\"), route: \"SYD→BNE\", seats: 96n },\n                    { when: new Date(\"2025-03-17\"), route: \"MEL→SYD\", seats: 152n },\n                    { when: new Date(\"2025-03-24\"), route: \"SYD→MEL\", seats: 88n },\n                    { when: new Date(\"2025-03-31\"), route: \"SYD→PER\", seats: 44n },\n                ], ArrayType(BookingType));\n                const slice = $.let(Slice.bind([BookingType], \"ex.slice.resolution\", cfg, Slice.state({\n                    resolution: some(variant(\"week\", null)),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([BookingType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Range slice={slice} resolutions={[\"week\", \"day\"]} />\n                        <Table data={narrowed} columns={{\n                            when:  { header: \"Departure\" },\n                            route: { header: \"Route\" },\n                            seats: { header: \"Seats\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
       "id": "east-ui:slice.examples.tsx:sliceGanttChrome",
       "skill": "east-ui",
       "package": "east-ui",
@@ -23949,8 +23766,8 @@
         "read"
       ],
       "imports": [
-        "import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from \"@elaraai/east\";",
-        "import { Button, Input, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -23982,8 +23799,8 @@
         "conditional"
       ],
       "imports": [
-        "import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from \"@elaraai/east\";",
-        "import { Button, Input, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -24005,8 +23822,8 @@
         "transactional"
       ],
       "imports": [
-        "import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from \"@elaraai/east\";",
-        "import { Button, Input, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -24036,12 +23853,44 @@
         "diff"
       ],
       "imports": [
-        "import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from \"@elaraai/east\";",
-        "import { Button, Input, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "source": "// Staged-bind variant panel — STAGED SLIDER WRITE: a Slider whose onChange writes to the staged buffer instead of the server; STAGED COMMIT DISCARD: two buttons that commit or discard the staged buffer for a path; STAGED ORIGINAL VS READ: the server snapshot (original) and the overlay (read) side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <VStack gap=\"4\" align=\"stretch\">\n            <Separator label=\"STAGED SLIDER WRITE\" align=\"start\" />\n            <Reactive>{$ => {\n                const thresh = $.let(Data.bind(thresholdInput, { mode: \"staged\" }));\n                const value = $.let(thresh.read(), FloatType);\n                return <Slider value={value} min={0} max={100} onChange={thresh.write} />;\n            }}</Reactive>\n            <Separator label=\"STAGED COMMIT DISCARD\" align=\"start\" />\n            <Reactive>{$ => {\n                const thresh = $.let(Data.bind(thresholdInput, { mode: \"staged\" }));\n                const commit = $.const(East.function([], NullType, $ => {\n                    $(thresh.commit());\n                }), FunctionType([], NullType));\n                const discard = $.const(East.function([], NullType, $ => {\n                    $(thresh.discard());\n                }), FunctionType([], NullType));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text>Pending edits</Text>\n                        <Button onClick={commit}>Commit</Button>\n                        <Button variant=\"outline\" onClick={discard}>Discard</Button>\n                    </VStack>\n                );\n            }}</Reactive>\n            <Separator label=\"STAGED ORIGINAL VS READ\" align=\"start\" />\n            <Reactive>{$ => {\n                const thresh = $.let(Data.bind(thresholdInput, { mode: \"staged\", patch: thresholdPatchInput }));\n                const live = $.let(thresh.read(), FloatType);\n                const server = $.let(thresh.source(), FloatType);\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Stat label=\"Server\" value={server} />\n                        <Stat label=\"Live (with stage)\" value={live} />\n                    </VStack>\n                );\n            }}</Reactive>\n        </VStack>\n    ))"
+    },
+    {
+      "id": "e3-ui:data.examples.tsx:dataBindPagedPlan",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
+      "suite": "",
+      "test": "Bind a collection dataset BY WINDOW and hand it straight to a Plan — ",
+      "keywords": [
+        "Data",
+        "bindPaged",
+        "paged",
+        "page",
+        "total",
+        "window",
+        "windows",
+        "Plan",
+        "canvas",
+        "series",
+        "collection",
+        "large",
+        "dataset",
+        "Reactive",
+        "stream"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data } from \"@elaraai/e3-ui\";",
+        "import * as e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Bind a collection dataset BY WINDOW and hand it straight to a Plan — \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // The paged handle — the dataset's element type comes from the def,\n            // so `page(offset, limit)` is typed Option<Array<OpsRow>> with no\n            // decode step to write.\n            const paged = $.let(Data.bindPaged(opsInput));\n            // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The stored\n            // rows carry week INDICES; instants are the series' business.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const series = $.const([\n                // Machines — each flat row becomes TWO bars: a one-week setup\n                // ahead of the job, then the run itself, with its label and\n                // quantity built from the batch code and tonnage. The line\n                // field drives union rollup parents, so the ×k concurrency\n                // bands are the renderer's, over rows it was handed a window\n                // at a time.\n                Plan.series.span(OpsRow, {\n                    match: r => r.line.equal(\"Docks\").not(),\n                    key: r => r.id, label: r => r.id, id: true,\n                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                    runs: r => [\n                        Plan.run({\n                            key: East.str`${r.batch}-set`,\n                            start: week(r.startWeek.subtract(1n)), end: week(r.startWeek),\n                            label: \"SET\", state: r.state,\n                        }),\n                        Plan.run({\n                            key: r.batch,\n                            start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),\n                            label: East.str`RUN · ${r.batch}`,\n                            quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,\n                            qty: r.tonnes, state: r.state,\n                        }),\n                    ],\n                    groupBy: [r => r.line], rollup: \"union\", unit: \"t\",\n                }),\n                // Docks — the SAME flat row read as a load strip instead: one\n                // scalar `load` expanded by `East.Array.generate` into a cell\n                // per week, drifting with a per-berth phase so the strip reads\n                // as a real profile rather than a flat band.\n                Plan.series.group(OpsRow, { key: \"docks\", label: \"Docks\", meta: \"10 berths\", collapsed: true, summaryAggregate: \"mean\" }, [\n                    Plan.series.heat(OpsRow, {\n                        match: r => r.line.equal(\"Docks\"),\n                        key: r => r.id, label: r => r.id, id: true,\n                        cells: r => Plan.heatCells(\n                            East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {\n                                const drift = $.let(i.toFloat().multiply(2.5).subtract(6.0), FloatType);\n                                const value = $.let(r.load.add(drift), FloatType);\n                                return {\n                                    at: week(r.startWeek.add(i)),\n                                    value: some(value),\n                                    label: some(East.Float.printFixed(value, 0n)),\n                                };\n                            }),\n                            { min: 0, max: 100, warnAt: 95 },\n                        ),\n                    }),\n                ]),\n            ], ArrayType(Plan.Types.Series(OpsRow)));\n            const axis = $.const(Plan.axis({\n                window: { min: week(24n), max: week(42n) },\n                resolution: \"week\", resolutions: [\"month\", \"week\", \"day\"], now: week(31n),\n            }));\n            return <Plan axis={axis} data={paged} series={series} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:func.examples.tsx:funcBindCall",
