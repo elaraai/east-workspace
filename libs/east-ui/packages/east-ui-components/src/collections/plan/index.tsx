@@ -216,12 +216,39 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const uiRef = useRef(ui);
     uiRef.current = ui;
     // Data change re-seeds the ephemeral UI state (the interactive-state rule).
+    const seededCollapse = useRef<Set<string>>(new Set(index.initiallyCollapsed));
     useEffect(() => {
         const next = initialPlanState(initGrain, index.initiallyCollapsed);
         setUi(next);
         uiRef.current = next;
+        seededCollapse.current = new Set(index.initiallyCollapsed);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- reset tracks the VALUE identity
     }, [value]);
+
+    // Rows that arrive LATE carry their own declared collapse. A paged canvas
+    // streams its windows in against an unchanging `value`, so the reset above
+    // — which keys on value identity — never sees them, and an IR-declared
+    // collapsed strip would render open. Seed each declared key ONCE, the
+    // first time its row appears; never re-seed, so a group the user has since
+    // opened stays open when the next window lands.
+    useEffect(() => {
+        const fresh: string[] = [];
+        for (const key of index.initiallyCollapsed) {
+            if (!seededCollapse.current.has(key)) {
+                seededCollapse.current.add(key);
+                fresh.push(key);
+            }
+        }
+        if (fresh.length === 0) return;
+        // Compute `next` OUTSIDE the updater, then assign the ref and set the
+        // state as two statements — the mandatory interactive-state shape (a
+        // StrictMode double-invoked updater must stay pure).
+        const collapsed = new Set(uiRef.current.collapsed);
+        for (const key of fresh) collapsed.add(key);
+        const next = { ...uiRef.current, collapsed };
+        uiRef.current = next;
+        setUi(next);
+    }, [index]);
 
     // Row focus (R1 links / R2 expand) — family closure + height context.
     const linkFamily = useMemo(

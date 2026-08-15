@@ -145,18 +145,19 @@ export const planTargetState = example({
                     }, Plan.Types.Run);
                     return run;
                 })));
-            // Raw shifts → chips: hours print as the chip label, proposals
-            // wearing the `+` prefix — display derives from the lifecycle.
+            // Raw shifts → chips: hours print as the chip label, an ADDED
+            // proposal wearing the `+` prefix — display derives from the
+            // lifecycle, down to the proposal's flavour (a `removed` shift is
+            // a proposal too, and `+` would read as its opposite).
             const shiftChips = $.const(East.function([ArrayType(ShiftRow)], ArrayType(Plan.Types.Chip), (_$, shifts) =>
                 shifts.map(($, s) => {
                     const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
-                    return Plan.chip({
-                        key: s.key, from: s.from, to: s.to,
-                        label: s.state.hasTag("proposed").ifElse(
-                            () => East.str`+${hrs}h`,
-                            () => East.str`${hrs}h`),
-                        state: s.state,
-                    });
+                    const label = $.let(s.state.match({
+                        proposed: (_$, p) => p.hasTag("removed").ifElse(
+                            () => East.str`${hrs}h`,
+                            () => East.str`+${hrs}h`),
+                    }, _$ => East.str`${hrs}h`), StringType);
+                    return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
                 })));
             // The ONE ops source — every family's rows in one array, RAW: no
             // display strings the accessors can derive, no built elements.
@@ -985,13 +986,16 @@ export const planCardRows = example({
                 sub: r => r.sub,
                 chips: r => r.shifts.map(($, s) => {
                     const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
-                    return Plan.chip({
-                        key: s.key, from: s.from, to: s.to,
-                        label: s.state.hasTag("proposed").ifElse(
-                            () => East.str`+${hrs}h`,
-                            () => East.str`${hrs}h`),
-                        state: s.state,
-                    });
+                    // The `+` means ADDED hours, so it rides the proposal's
+                    // flavour, not the mere fact of being a proposal — a
+                    // `removed` shift is a proposal too, and prefixing it `+`
+                    // would read as the opposite of what it does.
+                    const label = $.let(s.state.match({
+                        proposed: (_$, p) => p.hasTag("removed").ifElse(
+                            () => East.str`${hrs}h`,
+                            () => East.str`+${hrs}h`),
+                    }, _$ => East.str`${hrs}h`), StringType);
+                    return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
                 }),
             }),
             Plan.series.group(CrewRow, { key: "pool", label: "Relief pool", meta: "1 rs" }, [
@@ -1125,10 +1129,12 @@ export const planGroupedRows = example({
             { id: "m03h", family: "l1heat", line: "", label: "L1-M03 load", jobs: [], cells },
             // Static collapsed Line 2 — rests as its DECLARED mean strip.
             { id: "l2", family: "l2", line: "", label: "L2 load", jobs: [], cells },
-            // The DISCOVERED form — one strip per distinct line value.
-            { id: "d-m03", family: "byline", line: "Line 1", label: "L1-M03", jobs: [], cells },
-            { id: "d-m04", family: "byline", line: "Line 1", label: "L1-M04", jobs: [], cells },
-            { id: "d-m11", family: "byline", line: "Line 2", label: "L2-M11", jobs: [], cells },
+            // The DISCOVERED form — one strip per distinct line value. Named
+            // apart from the static strips above so the panel reads as three
+            // distinct forms rather than two repeated ones.
+            { id: "d-m21", family: "byline", line: "Line 3", label: "L3-M21", jobs: [], cells },
+            { id: "d-m22", family: "byline", line: "Line 3", label: "L3-M22", jobs: [], cells },
+            { id: "d-m31", family: "byline", line: "Line 4", label: "L4-M31", jobs: [], cells },
         ], ArrayType(LineRow));
         const series = $.const([
             Plan.series.group(LineRow, { key: "line1", label: "Line 1", meta: "2 rs · 82%" }, [
@@ -1247,13 +1253,14 @@ export const planSeriesData = example({
                     key: r => r.id, label: r => r.id,
                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
                         const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
-                        return Plan.chip({
-                            key: s.key, from: s.from, to: s.to,
-                            label: s.state.hasTag("proposed").ifElse(
-                                () => East.str`+${hrs}h`,
-                                () => East.str`${hrs}h`),
-                            state: s.state,
-                        });
+                        // `+` marks ADDED hours — a removed proposal keeps the
+                        // plain figure (see planCardRows for the full ladder).
+                        const label = $.let(s.state.match({
+                            proposed: (_$, p) => p.hasTag("removed").ifElse(
+                                () => East.str`${hrs}h`,
+                                () => East.str`+${hrs}h`),
+                        }, _$ => East.str`${hrs}h`), StringType);
+                        return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
                     }),
                 }),
             ]),

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, variant, example } from "@elaraai/east";
+import { ArrayType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from "@elaraai/east";
 import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
@@ -13,19 +13,120 @@ export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatTy
 export const countInput          = e3.input('count', IntegerType, 0n);
 export const nameInput           = e3.input('name',  StringType,  '');
 
-/** The RAW ops row — one scheduled job per machine, as an ops dataset stores
- *  it (batch / window / tonnage / lifecycle). Big enough in production that it
- *  is read by window, never whole. */
+// Lifecycle shorthands, so a stored row fits on one line. These are plain
+// `EventStateType` values — the shared contracts vocabulary a plan dataset
+// stores, not display strings.
+const ACTUAL    = variant("actual", null);
+const RUNNING   = variant("in-progress", null);
+const CONFIRMED = variant("confirmed", null);
+const PROPOSED  = variant("proposed", variant("recommended", null));
+const ESTIMATED = variant("estimated", null);
+
+/**
+ * The RAW ops row — deliberately FLAT and scalar: an id, its line, a batch
+ * code, the job's window as a start week + a duration, its tonnage, a
+ * utilisation reading, and the lifecycle state. No dates, no nested elements,
+ * no display strings; one line per row in the dataset.
+ *
+ * Everything the canvas shows — the run bars, their labels, quantities, the
+ * per-week load cells — is DERIVED from these scalars by the series
+ * accessors, client-side, per window. That is the whole point of the split:
+ * the wire carries the cheapest honest record, and the reading of it lives in
+ * the series.
+ */
 export const OpsRow = StructType({
-    id:     StringType,
-    line:   StringType,
-    batch:  StringType,
-    start:  DateTimeType,
-    end:    DateTimeType,
-    tonnes: FloatType,
-    state:  EventStateType,
+    id:        StringType,
+    line:      StringType,
+    batch:     StringType,
+    /** ISO week the job starts (2026); the series turns it into an instant. */
+    startWeek: IntegerType,
+    /** Duration in weeks. */
+    weeks:     IntegerType,
+    tonnes:    FloatType,
+    /** % utilisation, which the load series expands into a weekly strip. */
+    load:      FloatType,
+    state:     EventStateType,
 });
-export const opsInput = e3.input('ops', ArrayType(OpsRow), []);
+/**
+ * The seeded ops schedule — an `e3.input`'s default IS the dataset's initial
+ * value, so this is what a freshly-deployed workspace (and the offline
+ * snapshot harness) serves windows out of. Sixty rows across five production
+ * lines plus a dock's load readings: enough that reading it by window is the
+ * obvious thing to do, and small enough to read here.
+ *
+ * Work moves left-to-right through the ladder as it approaches the now-line —
+ * observed at the back, in-progress across it, confirmed then proposed then
+ * estimated ahead of it.
+ */
+export const opsInput = e3.input('ops', ArrayType(OpsRow), [
+    { id: "L1-M01", line: "Line 1", batch: "B-201", startWeek: 25n, weeks: 3n, tonnes: 96.0,  load: 78.0, state: ACTUAL },
+    { id: "L1-M02", line: "Line 1", batch: "B-204", startWeek: 26n, weeks: 2n, tonnes: 64.0,  load: 71.0, state: ACTUAL },
+    { id: "L1-M03", line: "Line 1", batch: "B-214", startWeek: 28n, weeks: 3n, tonnes: 112.0, load: 88.0, state: RUNNING },
+    { id: "L1-M04", line: "Line 1", batch: "B-208", startWeek: 27n, weeks: 4n, tonnes: 104.0, load: 84.0, state: RUNNING },
+    { id: "L1-M05", line: "Line 1", batch: "B-219", startWeek: 31n, weeks: 3n, tonnes: 88.0,  load: 66.0, state: CONFIRMED },
+    { id: "L1-M06", line: "Line 1", batch: "B-223", startWeek: 32n, weeks: 2n, tonnes: 72.0,  load: 59.0, state: CONFIRMED },
+    { id: "L1-M07", line: "Line 1", batch: "B-231", startWeek: 33n, weeks: 4n, tonnes: 120.0, load: 92.0, state: PROPOSED },
+    { id: "L1-M08", line: "Line 1", batch: "B-236", startWeek: 35n, weeks: 3n, tonnes: 96.0,  load: 74.0, state: PROPOSED },
+    { id: "L1-M09", line: "Line 1", batch: "B-242", startWeek: 36n, weeks: 3n, tonnes: 80.0,  load: 63.0, state: ESTIMATED },
+    { id: "L1-M10", line: "Line 1", batch: "B-247", startWeek: 37n, weeks: 2n, tonnes: 56.0,  load: 48.0, state: ESTIMATED },
+
+    { id: "L2-M01", line: "Line 2", batch: "B-302", startWeek: 25n, weeks: 4n, tonnes: 118.0, load: 91.0, state: ACTUAL },
+    { id: "L2-M02", line: "Line 2", batch: "B-307", startWeek: 27n, weeks: 2n, tonnes: 52.0,  load: 55.0, state: ACTUAL },
+    { id: "L2-M03", line: "Line 2", batch: "B-311", startWeek: 29n, weeks: 3n, tonnes: 92.0,  load: 80.0, state: RUNNING },
+    { id: "L2-M04", line: "Line 2", batch: "B-316", startWeek: 30n, weeks: 2n, tonnes: 68.0,  load: 61.0, state: CONFIRMED },
+    { id: "L2-M05", line: "Line 2", batch: "B-320", startWeek: 31n, weeks: 4n, tonnes: 128.0, load: 96.0, state: CONFIRMED },
+    { id: "L2-M06", line: "Line 2", batch: "B-325", startWeek: 33n, weeks: 3n, tonnes: 84.0,  load: 69.0, state: PROPOSED },
+    { id: "L2-M07", line: "Line 2", batch: "B-329", startWeek: 34n, weeks: 2n, tonnes: 60.0,  load: 52.0, state: PROPOSED },
+    { id: "L2-M08", line: "Line 2", batch: "B-334", startWeek: 35n, weeks: 4n, tonnes: 112.0, load: 87.0, state: PROPOSED },
+    { id: "L2-M09", line: "Line 2", batch: "B-338", startWeek: 37n, weeks: 3n, tonnes: 76.0,  load: 64.0, state: ESTIMATED },
+    { id: "L2-M10", line: "Line 2", batch: "B-343", startWeek: 38n, weeks: 2n, tonnes: 48.0,  load: 44.0, state: ESTIMATED },
+
+    { id: "L3-M01", line: "Line 3", batch: "B-401", startWeek: 24n, weeks: 3n, tonnes: 88.0,  load: 73.0, state: ACTUAL },
+    { id: "L3-M02", line: "Line 3", batch: "B-405", startWeek: 26n, weeks: 4n, tonnes: 124.0, load: 94.0, state: ACTUAL },
+    { id: "L3-M03", line: "Line 3", batch: "B-410", startWeek: 29n, weeks: 2n, tonnes: 56.0,  load: 51.0, state: RUNNING },
+    { id: "L3-M04", line: "Line 3", batch: "B-414", startWeek: 30n, weeks: 3n, tonnes: 100.0, load: 82.0, state: RUNNING },
+    { id: "L3-M05", line: "Line 3", batch: "B-419", startWeek: 32n, weeks: 2n, tonnes: 72.0,  load: 62.0, state: CONFIRMED },
+    { id: "L3-M06", line: "Line 3", batch: "B-424", startWeek: 33n, weeks: 4n, tonnes: 116.0, load: 90.0, state: CONFIRMED },
+    { id: "L3-M07", line: "Line 3", batch: "B-428", startWeek: 35n, weeks: 3n, tonnes: 92.0,  load: 76.0, state: PROPOSED },
+    { id: "L3-M08", line: "Line 3", batch: "B-433", startWeek: 36n, weeks: 2n, tonnes: 64.0,  load: 57.0, state: PROPOSED },
+    { id: "L3-M09", line: "Line 3", batch: "B-437", startWeek: 37n, weeks: 4n, tonnes: 108.0, load: 85.0, state: ESTIMATED },
+    { id: "L3-M10", line: "Line 3", batch: "B-441", startWeek: 39n, weeks: 2n, tonnes: 44.0,  load: 41.0, state: ESTIMATED },
+
+    { id: "L4-M01", line: "Line 4", batch: "B-502", startWeek: 25n, weeks: 2n, tonnes: 60.0,  load: 54.0, state: ACTUAL },
+    { id: "L4-M02", line: "Line 4", batch: "B-506", startWeek: 27n, weeks: 3n, tonnes: 96.0,  load: 79.0, state: ACTUAL },
+    { id: "L4-M03", line: "Line 4", batch: "B-511", startWeek: 28n, weeks: 4n, tonnes: 132.0, load: 98.0, state: RUNNING },
+    { id: "L4-M04", line: "Line 4", batch: "B-515", startWeek: 31n, weeks: 2n, tonnes: 68.0,  load: 60.0, state: CONFIRMED },
+    { id: "L4-M05", line: "Line 4", batch: "B-520", startWeek: 32n, weeks: 3n, tonnes: 104.0, load: 83.0, state: CONFIRMED },
+    { id: "L4-M06", line: "Line 4", batch: "B-524", startWeek: 34n, weeks: 2n, tonnes: 76.0,  load: 67.0, state: PROPOSED },
+    { id: "L4-M07", line: "Line 4", batch: "B-529", startWeek: 35n, weeks: 4n, tonnes: 120.0, load: 93.0, state: PROPOSED },
+    { id: "L4-M08", line: "Line 4", batch: "B-533", startWeek: 37n, weeks: 3n, tonnes: 84.0,  load: 70.0, state: ESTIMATED },
+    { id: "L4-M09", line: "Line 4", batch: "B-538", startWeek: 38n, weeks: 2n, tonnes: 52.0,  load: 47.0, state: ESTIMATED },
+    { id: "L4-M10", line: "Line 4", batch: "B-542", startWeek: 39n, weeks: 3n, tonnes: 88.0,  load: 72.0, state: ESTIMATED },
+
+    { id: "L5-M01", line: "Line 5", batch: "B-601", startWeek: 24n, weeks: 4n, tonnes: 110.0, load: 86.0, state: ACTUAL },
+    { id: "L5-M02", line: "Line 5", batch: "B-605", startWeek: 26n, weeks: 2n, tonnes: 58.0,  load: 53.0, state: ACTUAL },
+    { id: "L5-M03", line: "Line 5", batch: "B-609", startWeek: 28n, weeks: 3n, tonnes: 94.0,  load: 77.0, state: RUNNING },
+    { id: "L5-M04", line: "Line 5", batch: "B-613", startWeek: 30n, weeks: 4n, tonnes: 126.0, load: 95.0, state: RUNNING },
+    { id: "L5-M05", line: "Line 5", batch: "B-618", startWeek: 32n, weeks: 2n, tonnes: 70.0,  load: 61.0, state: CONFIRMED },
+    { id: "L5-M06", line: "Line 5", batch: "B-622", startWeek: 33n, weeks: 3n, tonnes: 98.0,  load: 81.0, state: CONFIRMED },
+    { id: "L5-M07", line: "Line 5", batch: "B-627", startWeek: 35n, weeks: 2n, tonnes: 66.0,  load: 58.0, state: PROPOSED },
+    { id: "L5-M08", line: "Line 5", batch: "B-631", startWeek: 36n, weeks: 4n, tonnes: 114.0, load: 89.0, state: PROPOSED },
+    { id: "L5-M09", line: "Line 5", batch: "B-636", startWeek: 38n, weeks: 3n, tonnes: 82.0,  load: 68.0, state: ESTIMATED },
+    { id: "L5-M10", line: "Line 5", batch: "B-640", startWeek: 39n, weeks: 2n, tonnes: 50.0,  load: 45.0, state: ESTIMATED },
+
+    // The dock's berths — carried as the same flat row, but read as weekly
+    // load strips rather than run bars (see the `load` series below).
+    { id: "D-01", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 46.0, state: CONFIRMED },
+    { id: "D-02", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 58.0, state: CONFIRMED },
+    { id: "D-03", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 67.0, state: CONFIRMED },
+    { id: "D-04", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 74.0, state: CONFIRMED },
+    { id: "D-05", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 81.0, state: CONFIRMED },
+    { id: "D-06", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 88.0, state: CONFIRMED },
+    { id: "D-07", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 93.0, state: CONFIRMED },
+    { id: "D-08", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 97.0, state: CONFIRMED },
+    { id: "D-09", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 64.0, state: CONFIRMED },
+    { id: "D-10", line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 52.0, state: CONFIRMED },
+]);
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -157,28 +258,73 @@ export const dataBindPagedPlan = example({
         "Data", "bindPaged", "paged", "page", "total", "window", "windows", "Plan",
         "canvas", "series", "collection", "large", "dataset", "Reactive", "stream",
     ],
-    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns a `{ page, total }` handle that the canvas consumes structurally: the factory wraps `page` with the series' row-building functions, so each window's RAW rows become canvas rows client-side and the renderer streams them in as a prefix. The dataset is never fetched whole, and nothing in the UI code touches bytes, offsets or beast2",
+    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns a `{ page, total }` handle the canvas consumes structurally, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The paged handle — the dataset's element type comes from the def,
             // so `page(offset, limit)` is typed Option<Array<OpsRow>> with no
             // decode step to write.
             const paged = $.let(Data.bindPaged(opsInput));
-            // The series read the RAW row fields and derive the canvas
-            // vocabulary; they run over every window the handle serves.
+            // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The stored
+            // rows carry week INDICES; instants are the series' business.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
             const series = $.const([
+                // Machines — each flat row becomes TWO bars: a one-week setup
+                // ahead of the job, then the run itself, with its label and
+                // quantity built from the batch code and tonnage. The line
+                // field drives union rollup parents, so the ×k concurrency
+                // bands are the renderer's, over rows it was handed a window
+                // at a time.
                 Plan.series.span(OpsRow, {
+                    match: r => r.line.equal("Docks").not(),
                     key: r => r.id, label: r => r.id, id: true,
-                    runs: r => [Plan.run({
-                        key: r.batch, start: r.start, end: r.end,
-                        label: East.str`RUN · ${r.batch}`,
-                        quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                        qty: r.tonnes, state: r.state,
-                    })],
+                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                    runs: r => [
+                        Plan.run({
+                            key: East.str`${r.batch}-set`,
+                            start: week(r.startWeek.subtract(1n)), end: week(r.startWeek),
+                            label: "SET", state: r.state,
+                        }),
+                        Plan.run({
+                            key: r.batch,
+                            start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),
+                            label: East.str`RUN · ${r.batch}`,
+                            quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
+                            qty: r.tonnes, state: r.state,
+                        }),
+                    ],
                     groupBy: [r => r.line], rollup: "union", unit: "t",
                 }),
+                // Docks — the SAME flat row read as a load strip instead: one
+                // scalar `load` expanded by `East.Array.generate` into a cell
+                // per week, drifting with a per-berth phase so the strip reads
+                // as a real profile rather than a flat band.
+                Plan.series.group(OpsRow, { key: "docks", label: "Docks", meta: "10 berths", collapsed: true, summaryAggregate: "mean" }, [
+                    Plan.series.heat(OpsRow, {
+                        match: r => r.line.equal("Docks"),
+                        key: r => r.id, label: r => r.id, id: true,
+                        cells: r => Plan.heatCells(
+                            East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {
+                                const drift = $.let(i.toFloat().multiply(2.5).subtract(6.0), FloatType);
+                                const value = $.let(r.load.add(drift), FloatType);
+                                return {
+                                    at: week(r.startWeek.add(i)),
+                                    value: some(value),
+                                    label: some(East.Float.printFixed(value, 0n)),
+                                };
+                            }),
+                            { min: 0, max: 100, warnAt: 95 },
+                        ),
+                    }),
+                ]),
             ], ArrayType(Plan.Types.Series(OpsRow)));
-            const axis = $.const(Plan.axis({ resolution: "week", resolutions: ["month", "week", "day"] }));
+            const axis = $.const(Plan.axis({
+                window: { min: week(24n), max: week(42n) },
+                resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
+            }));
             return <Plan axis={axis} data={paged} series={series} />;
         }}</Reactive>
     )),
