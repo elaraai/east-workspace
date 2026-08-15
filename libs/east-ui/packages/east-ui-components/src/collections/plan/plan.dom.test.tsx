@@ -82,7 +82,7 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
 
 function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; style?: { height?: string; maxHeight?: string } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("source", opts.source) : variant("rows", rows),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         axis: {
             window: some({ min: W27, max: W39 }),
@@ -686,6 +686,10 @@ describe("Plan paged source (P-c)", () => {
                 return offset === 0n ? some(w1) : some([]);
             },
             total: () => none,
+            // The contract's comparable identity + seek capability (#567): a
+            // fixture source is not key-ordered, so it declares no seek.
+            id: "dom-test",
+            seek: none,
         };
         const { container } = renderPlan(planRoot([], { source }));
         // The loader streams the prefix in an effect — rows appear after it.

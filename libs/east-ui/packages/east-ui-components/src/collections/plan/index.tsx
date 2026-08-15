@@ -144,10 +144,10 @@ function dataExtent(rows: ReadonlyArray<PlanRowValue>): { min: Date; max: Date }
 export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }: EastChakraPlanProps) {
     // ── The rows channel: inline rows, or the derived paged source (§3.8)
     //    streamed in as a contiguous prefix by the loader hook. ──────────────
-    const pagedSource = value.rows.type === "source" ? value.rows.value : undefined;
+    const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
     const paged = usePlanPagedRows(pagedSource);
     const rows = useMemo(
-        () => (value.rows.type === "rows" ? value.rows.value : paged.rows),
+        () => (value.rows.type === "inline" ? value.rows.value : paged.rows),
         [value.rows, paged.rows],
     );
 

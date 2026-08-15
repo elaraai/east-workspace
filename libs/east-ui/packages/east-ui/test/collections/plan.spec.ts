@@ -65,7 +65,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(root.style.unwrap("some").density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "168px"));
         // Empty data × no series ⇒ an empty inline canvas.
-        $(Assert.equal(root.rows.unwrap("rows").length(), 0n));
+        $(Assert.equal(root.rows.unwrap("inline").length(), 0n));
     });
 
     test("review config defaults the column and rerun labels", $ => {
@@ -596,7 +596,7 @@ describeEast("Plan", (test) => {
         }));
         // L1 strip + 2 members, L2 strip + 1 member — strips in
         // first-appearance data order, wearing the member-count meta.
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.length(), 5n));
         $(Assert.equal(rows.get(0n).key, "L1"));
         $(Assert.equal(rows.get(0n).gutter.meta.unwrap("some"), "2 rs"));
@@ -629,7 +629,7 @@ describeEast("Plan", (test) => {
         }));
         // A parent + 2 members, B parent + 1 member; parents DECLARE the
         // rollup + unit (the renderer derives the band values).
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.length(), 5n));
         $(Assert.equal(rows.get(0n).key, "A"));
         $(Assert.equal(rows.get(0n).gutter.label, "A"));
@@ -675,7 +675,7 @@ describeEast("Plan", (test) => {
         }));
         // Per-row presence + display, derived from the raw fields in the
         // stored make — nothing precomputed in the data.
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.get(0n).gutter.value.unwrap("some"), "120 t"));
         $(Assert.equal(rows.get(0n).status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(rows.get(1n).status.hasTag("none"), true));
@@ -748,7 +748,7 @@ describeEast("Plan", (test) => {
                 }),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         // Span family first (L1 rollup parent + its two machines — the crew
         // row filtered out by match), then the cards family; the chip label
         // derives from the raw hours in the stored make.
@@ -789,7 +789,7 @@ describeEast("Plan", (test) => {
             Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MS" })]),
         ], ArrayType(Plan.Types.Series(OpsRow)));
         const p = $.let(Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: ops, series }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.length(), 2n));
         $(Assert.equal(rows.get(0n).key, "m1"));
         $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.length(), 1n));
@@ -828,7 +828,7 @@ describeEast("Plan", (test) => {
                 ]),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("rows"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.length(), 3n));
         $(Assert.equal(rows.get(0n).key, "ms"));
         $(Assert.equal(rows.get(1n).key, "crews"));
@@ -875,7 +875,7 @@ describeEast("Plan", (test) => {
         }));
         // The stored source is the DERIVED handle at the canvas-row type —
         // each window's RAW rows flow through the same accessor derivations.
-        const src = $.let(p.unwrap().unwrap("Plan").rows.unwrap("source"));
+        const src = $.let(p.unwrap().unwrap("Plan").rows.unwrap("paged"));
         $(Assert.equal(src.total().unwrap("some"), 1n));
         const w0 = $.let(src.page(0n, 100n));
         $(Assert.equal(w0.unwrap("some").length(), 1n));

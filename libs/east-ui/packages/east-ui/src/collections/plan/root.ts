@@ -15,7 +15,6 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
-    Expr,
     ArrayType,
     BooleanType,
     FunctionType,
@@ -59,7 +58,8 @@ import {
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
 import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
-import { applySeries, derivePagedSource, seriesRowType, type PlanSeriesInput, type PlanPagedHandleLike } from "./series.js";
+import { applySeries, type PlanSeriesInput } from "./series.js";
+import { resolveRowSource, buildRowSource, type PagedSourceLike } from "../../contracts/source.js";
 
 // ============================================================================
 // Templates
@@ -166,7 +166,7 @@ export interface PlanConfig {
      *  array, `Slice.rows`, `Data.bind(...).read()`) for the INLINE arm, or a
      *  `$.let`-bound paged handle (`Data.bindPaged(ops)`) for the PAGED arm —
      *  the East type is the discriminant. */
-    data: SubtypeExprOrValue<ArrayType<StructType>> | PlanPagedHandleLike;
+    data: SubtypeExprOrValue<ArrayType<StructType>> | PagedSourceLike;
     /** The row families over `data` — `Plan.series.*` values in canvas order
      *  (a TS array or an East expression of `ArrayType(Plan.Types.Series(R))`).
      *  Literal one-off chrome rides a `Plan.series.rows` entry. */
@@ -266,23 +266,16 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
     if (config.data === undefined || config.series === undefined) {
         throw new Error("Plan: `data` and `series` are required — a canvas is its data plus the series over it");
     }
-    let rowsValue: ExprType<PlanRowsType>;
-    const dataExpr = East.value(config.data as SubtypeExprOrValue<ArrayType<StructType>>) as ExprType<ArrayType<StructType>>;
-    const dataType = Expr.type(dataExpr) as { type: string; fields?: Record<string, unknown> };
-    if (dataType.type === "Array") {
-        // INLINE — apply each series' make to the data expression.
-        seriesRowType(dataExpr);        // asserts a struct element type
-        rowsValue = East.value(variant("rows", applySeries(config.series, dataExpr)), PlanRowsType);
-    } else if (dataType.type === "Struct" && dataType.fields?.page !== undefined && dataType.fields?.total !== undefined) {
-        // PAGED — a bound paged handle (Data.bindPaged, or any handle with
-        // the page/total shape); derive the canvas-row source.
-        rowsValue = East.value(
-            variant("source", derivePagedSource(dataExpr as unknown as ExprType<StructType>, config.series)),
-            PlanRowsType,
-        );
-    } else {
-        throw new Error("Plan: `data` must be an Array<R> value/expression or a bound paged handle (Data.bindPaged)");
-    }
+    // The shared row-source resolution (#567): inline collection, paged
+    // source, or a whole-value bind handle — one dispatch, one vocabulary,
+    // and the series pipeline is the `make` that turns each window's domain
+    // rows into canvas rows (the single R-erasure point).
+    const resolved = resolveRowSource(config.data, "Plan");
+    const rowsValue = buildRowSource(
+        resolved,
+        PlanRowType,
+        (rows) => applySeries(config.series, rows as ExprType<ArrayType<StructType>>),
+    ) as unknown as ExprType<PlanRowsType>;
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({

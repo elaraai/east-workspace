@@ -23,7 +23,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
 type PlanRowValue = ValueTypeOf<typeof Plan.Types.Row>;
 /** The decoded `source` arm — the derived paged handle at the canvas-row type. */
-export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "source" }>["value"];
+export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
 
 /** Source elements requested per window. */
 export const PLAN_PAGE_SIZE = 200;

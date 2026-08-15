@@ -36,6 +36,7 @@ import {
     IntegerType,
     OptionType,
     decodeBeast2For,
+    none,
     variant,
     type EastTypeValue,
 } from "@elaraai/east";
@@ -128,6 +129,31 @@ const PERMANENT_PAGE_ERRORS = new Set(["dataset_not_pageable"]);
 function isPermanentPageError(err: unknown): boolean {
     const code = (err as { code?: unknown } | null)?.code;
     return typeof code === "string" && PERMANENT_PAGE_ERRORS.has(code);
+}
+
+/** The Dict key / Set element type of a keyed collection, else null — the
+ *  `seek` capability is decided from the dataset's own type at bind time. */
+export function keyTypeOf(sourceType: EastTypeValue): EastTypeValue | null {
+    if (sourceType.type === "Dict") return (sourceType.value as { key: EastTypeValue }).key;
+    if (sourceType.type === "Set") return sourceType.value as EastTypeValue;
+    return null;
+}
+
+/**
+ * The handle's `seek` field: `some(fn)` for a key-ordered source, `none` for
+ * an Array (stream order has nothing to binary-search).
+ *
+ * Wired to the server's fence search in a later step; until then a keyed
+ * source still advertises the capability and resolves `none` (in flight),
+ * which is the contract's "not yet" and leaves the chrome inert rather than
+ * wrong.
+ */
+function buildSeek(
+    _sourceType: EastTypeValue,
+    _pathExpr: unknown,
+    _platform: PlatformFunction[],
+): unknown {
+    return none;
 }
 
 /** Tracked-channel key for one window. */
@@ -342,6 +368,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         const { page, total } = DataPagedPrimitives;
 
         const handle: Record<string, unknown> = {
+            // The comparable identity east-ui's `PagedSourceType` requires:
+            // East compares every function as EQUAL, so a struct of nothing but
+            // closures is indistinguishable from any other and a memoized
+            // component would never re-render on a source swap (#567 D4). The
+            // dataset path is the natural identity — same path, same rows.
+            id: pathKey,
             page: East.compile(
                 East.function([IntegerType, IntegerType], OptionType(T), ($, offset, limit) => {
                     $.return(page([T], pathExpr, offset, limit));
@@ -354,6 +386,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 }),
                 platform,
             ),
+            // Key search is a KEY-ORDER capability: Set/Dict element windows
+            // ride the canonical East key order, so a key locates in O(log
+            // segments) against the stored fences; an Array's stream order has
+            // nothing to search. Resolved at bind time from the dataset's own
+            // type, so a component renders the affordance only when it works.
+            seek: buildSeek(sourceType, pathExpr, platform),
         };
         byPath.set(pathKey, handle);
         return handle;

@@ -15,6 +15,7 @@ import {
     BooleanType,
     FunctionType,
     IntegerType,
+    StringType,
     StructType,
     VariantType,
     OptionType,
@@ -25,6 +26,10 @@ import {
     type ExprType,
 } from '@elaraai/east';
 import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
+// The row-source contract is east-ui's (#567): a paged handle IS a
+// `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
+// take it without either package importing the other's data layer.
+import { SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
@@ -349,8 +354,10 @@ function bindData<T extends EastType>(
  *   landed; `none` until then.
  */
 export const DataPagedHandleType = <T extends EastType | string>(t: T) => StructType({
+    id:    StringType,
     page:  FunctionType([IntegerType, IntegerType], OptionType(t)),
     total: FunctionType([], OptionType(IntegerType)),
+    seek:  OptionType(FunctionType([StringType], OptionType(SeekRangeType))),
 });
 
 /**
@@ -378,8 +385,10 @@ export const bindPagedPlatformFn = East.genericPlatform(
     ["T"],
     [TreePathType],
     StructType({
+        id:    StringType,
         page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
         total: FunctionType([], OptionType(IntegerType)),
+        seek:  OptionType(FunctionType([StringType], OptionType(SeekRangeType))),
     }),
     { optional: true },
 );

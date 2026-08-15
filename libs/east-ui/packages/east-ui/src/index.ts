@@ -70,6 +70,18 @@ export {
     TimeResolutionType, type TimeResolutionLiteral,
 } from "./contracts/time.js";
 
+// Row-source contract (#567) — how a collection takes its rows: inline, or a
+// windowed source fetched a page at a time. east-ui declares the shape;
+// whoever can fetch windows produces one (`Data.bindPaged` in @elaraai/e3-ui,
+// or `Paged.of` for a collection already in hand).
+export {
+    SeekRangeType,
+    PagedSourceType, type PagedSource,
+    RowSourceType, type RowSource,
+    type PagedSourceLike, type RowSourceInput,
+    Paged, type PagedOfOptions,
+} from "./contracts/source.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
