@@ -700,7 +700,37 @@ describe("Plan paged source (P-c)", () => {
         expect(calls[0]).toBe(0n);
         expect(calls.length).toBeGreaterThanOrEqual(1);
     });
+
+    test("a window that filters to ZERO canvas rows does not end the stream (#567 D2)", async () => {
+        // The series pipeline runs inside `page`, so a window of source
+        // elements matching nothing yields an EMPTY canvas window while the
+        // source still has plenty left. The old loader read that as
+        // exhaustion and silently dropped every later window.
+        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const w2 = [planRow("m3", spanKind([run("r3", W27, new Date("2026-07-13Z"), variant("confirmed", null))]))];
+        const calls: bigint[] = [];
+        const source = {
+            page: (offset: bigint, _limit: bigint) => {
+                calls.push(offset);
+                if (offset === 0n) return some(w0);
+                if (offset === 200n) return some([]);   // filtered to nothing
+                if (offset === 400n) return some(w2);
+                return some([]);
+            },
+            // 600 source elements ⇒ three windows, whatever any window yields.
+            total: () => some(600n),
+            id: "dom-test-filtered",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-d2");
+        await screen.findByText("R1");
+        // The row from AFTER the empty window is what the old loader lost.
+        await screen.findByText("R3");
+        expect(container.querySelector('[data-plan-row="m3"]')).toBeTruthy();
+        expect(calls).toContain(400n);
+    });
 });
+
 
 describe("Plan element resolvers (popover / hover)", () => {
     test("the root popover resolver opens per ref — a some body for the named run, none opens nothing", async () => {

@@ -4,108 +4,126 @@
  */
 
 /**
- * The paged-source loader (`Plan Data Interface.md` §3.7/§3.8) — streams the
- * derived source's windows into the canvas as a sequential prefix: page k is
- * requested at source offset `k × PAGE_SIZE`; a `some` window appends its
- * canvas rows (the series pipeline already ran inside the stored `page`
- * function), an EMPTY window means the source is exhausted, and `none` means
- * the bind impl is still fetching — the loader retries (and the P-c2 impl's
- * reactive tracker re-renders the canvas when the window lands). The
- * ordering contract (§3.7 — series membership and groupBy keys contiguous)
- * makes a loaded prefix a valid canvas at every step; totals/aggregates
- * refine as windows land.
+ * The paged-source loader — streams a `PagedSourceType`'s windows into canvas
+ * rows.
+ *
+ * # The reads run INSIDE a tracked evaluation
+ *
+ * `page()` / `total()` are reactive platform reads: they register the window's
+ * channel as a dependency and return `none` while the fetch is in flight, and
+ * the channel notifies when it settles. That only works where dependency
+ * tracking is enabled — {@link useTrackedEvaluation}. Reading from an effect
+ * instead registers nothing, so nothing ever notifies and the only thing that
+ * makes a landed window appear is a timer. This hook reads during evaluation
+ * and has no poll (#567 D5); StrictMode's double render is likewise harmless,
+ * because a repeated read of the same window is a cache hit rather than a
+ * second fetch (#567 D7).
+ *
+ * # Exhaustion comes from `total()`, never from an empty window
+ *
+ * The empty-window-means-exhausted rule is a SOURCE-element contract, and the
+ * rows here are CANVAS rows: the series pipeline filters, so a window of source
+ * elements matching nothing yields zero canvas rows while the source still has
+ * plenty left. Treating that as the end silently dropped every later window
+ * (#567 D2 — measured: a 600-element source halted at 200 rows, `loading`
+ * false, no error). The window count comes from `total()` instead, which
+ * counts source elements — the only number that means what the walk needs.
+ *
+ * @packageDocumentation
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback } from "react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
+import { useTrackedEvaluation } from "../../reactive/index.js";
+import { planWindows, type RowRange } from "../paged-window-store.js";
 
 type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
 type PlanRowValue = ValueTypeOf<typeof Plan.Types.Row>;
-/** The decoded `source` arm — the derived paged handle at the canvas-row type. */
+/** The decoded `paged` arm — the derived source at the canvas-row type. */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
 
 /** Source elements requested per window. */
 export const PLAN_PAGE_SIZE = 200;
-/** Retry delay while a window resolves `none` (the impl is fetching). */
-const RETRY_MS = 250;
 
 export interface PlanPagedRows {
-    /** The loaded canvas rows (a contiguous prefix, in source order). */
+    /** The loaded canvas rows, in source order. */
     rows: ReadonlyArray<PlanRowValue>;
-    /** The source's total element count, once known. */
+    /** The source's total ELEMENT count, once known — not the canvas-row
+     *  count, since a series can emit any number of rows per element. */
     total: number | undefined;
-    /** Whether more windows remain (loading or not yet requested). */
+    /** Source elements whose window has landed. */
+    loadedElements: number;
+    /** Whether a requested window is still in flight. */
     loading: boolean;
 }
+
+const IDLE: PlanPagedRows = { rows: [], total: undefined, loadedElements: 0, loading: false };
 
 /**
  * Stream a paged source's windows into canvas rows.
  *
- * @param source - The decoded `source` arm (undefined ⇒ inline canvas; the hook idles)
- * @returns The loaded row prefix + totals + loading state
+ * @param source - The decoded `paged` arm (undefined ⇒ inline canvas; idles)
+ * @param wanted - The source-element range the canvas is asking for
+ * @returns The loaded rows + totals + loading state
  */
-export function usePlanPagedRows(source: PlanPagedSourceValue | undefined): PlanPagedRows {
-    const [state, setState] = useState<{ pages: PlanRowValue[][]; nextPage: number; done: boolean }>(
-        { pages: [], nextPage: 0, done: false },
-    );
+export function usePlanPagedRows(
+    source: PlanPagedSourceValue | undefined,
+    wanted?: RowRange,
+): PlanPagedRows {
+    // The canvas keeps a CONTIGUOUS prefix: its model layer (indexRows /
+    // visibleRows / derivePlan) walks a dense row array, so a hole would drop a
+    // parent's children rather than render a placeholder. Demand therefore
+    // grows from 0 to whatever the viewport has reached. Bounding the prefix
+    // itself needs sparse placeholder rows in the model layer (tracked
+    // separately); meanwhile the RUNTIME caps its decoded-window cache, which
+    // is where the bytes actually live.
+    const wantedEnd = wanted?.end;
 
-    // A new source restarts the stream (the interactive-state reset rule).
-    useEffect(() => {
-        setState({ pages: [], nextPage: 0, done: false });
-    }, [source]);
-
-    const total = useMemo(() => {
-        if (source === undefined) return undefined;
+    const read = useCallback((): PlanPagedRows => {
+        if (source === undefined) return IDLE;
+        let total: number | undefined;
         try {
             const t = source.total();
-            return t.type === "some" ? Number(t.value) : undefined;
+            if (t.type === "some") total = Number(t.value);
         } catch (err) {
             console.error("[Plan] paged source total failed:", err);
-            return undefined;
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- total() is a getter on the decoded handle; re-read as windows land (the impl may learn the total late)
-    }, [source, state.nextPage]);
-
-    useEffect(() => {
-        if (source === undefined || state.done) return;
-        const offset = state.nextPage * PLAN_PAGE_SIZE;
-        if (total !== undefined && offset >= total) {
-            setState((s) => (s.done ? s : { ...s, done: true }));
-            return;
-        }
-        let cancelled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const attempt = () => {
-            if (cancelled) return;
+        // With no viewport signal the canvas asks for the whole source: its
+        // model layer needs a dense prefix, and stopping at an arbitrary
+        // margin would hide rows with nothing to reveal them. Narrowing this
+        // to the visible range needs `VirtualRows` to surface its window and
+        // the model layer to tolerate holes — the sparse-placeholder work.
+        const end = wantedEnd ?? total ?? PLAN_PAGE_SIZE;
+        const range: RowRange = { start: 0, end: Math.max(end, PLAN_PAGE_SIZE) };
+        const plan = planWindows(range, PLAN_PAGE_SIZE, total, 1);
+        const rows: PlanRowValue[] = [];
+        let loading = false;
+        let loadedElements = 0;
+        for (const w of plan.needed) {
             let win: ReturnType<PlanPagedSourceValue["page"]>;
             try {
-                win = source.page(BigInt(offset), BigInt(PLAN_PAGE_SIZE));
+                win = source.page(BigInt(w * PLAN_PAGE_SIZE), BigInt(PLAN_PAGE_SIZE));
             } catch (err) {
                 console.error("[Plan] paged source page failed:", err);
-                setState((s) => ({ ...s, done: true }));
-                return;
+                break;
             }
-            if (win.type === "some") {
-                const rows = win.value;
-                setState((s) => ({
-                    pages: [...s.pages, rows],
-                    nextPage: s.nextPage + 1,
-                    // An EMPTY window ⇒ the source is exhausted (loading is
-                    // `none`, never an empty `some`).
-                    done: rows.length === 0,
-                }));
-            } else {
-                timer = setTimeout(attempt, RETRY_MS);
+            if (win.type !== "some") {
+                // In flight. Stop here: the prefix must stay contiguous, so a
+                // later window's rows cannot be appended across the hole.
+                loading = true;
+                break;
             }
-        };
-        attempt();
-        return () => {
-            cancelled = true;
-            if (timer !== undefined) clearTimeout(timer);
-        };
-    }, [source, state.nextPage, state.done, total]);
+            rows.push(...win.value);
+            loadedElements += PLAN_PAGE_SIZE;
+            // An empty window means this WINDOW produced no canvas rows — it
+            // says nothing about the source, whose length `total` governs.
+        }
+        if (total !== undefined) loadedElements = Math.min(loadedElements, total);
+        return { rows, total, loadedElements, loading };
+    }, [source, wantedEnd]);
 
-    const rows = useMemo(() => state.pages.flat(), [state.pages]);
-    return { rows, total, loading: source !== undefined && !state.done };
+    const { result } = useTrackedEvaluation(read);
+    // A throwing read already logged; an empty canvas is the honest fallback.
+    return result.ok ? result.value : IDLE;
 }

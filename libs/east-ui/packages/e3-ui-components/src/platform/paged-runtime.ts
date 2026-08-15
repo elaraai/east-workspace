@@ -119,6 +119,22 @@ interface PageEntry {
 const RETRY_AFTER_MS = 2000;
 
 /**
+ * Decoded windows retained across ALL paged sources (#567 D6).
+ *
+ * A decoded window is the heavy object here — a window of wide rows runs to
+ * megabytes — and windows are immutable once loaded, so nothing ever evicts
+ * them on its own: scrolling a GB-scale dataset end to end would pin every
+ * window it passed. Retention is bounded least-recently-READ, and an evicted
+ * window drops back to `idle` so the next read simply refetches it (the raw
+ * bytes may still be in an HTTP cache, so a return is usually cheap).
+ *
+ * `<PagedDatasetPreview>` caps its own materialized rows the same way
+ * (`MAX_RETAINED_PAGES`); this is the cap for the *bound* path, where the
+ * renderer holds no cache of its own and the runtime is the only holder.
+ */
+const MAX_RETAINED_WINDOWS = 24;
+
+/**
  * Server error codes that no amount of retrying will fix — the bind itself is
  * wrong, not the moment. Everything else (a dataset the dataflow has not
  * produced yet, a hash race, a transport blip) is worth another attempt.
@@ -191,6 +207,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         compareFor(EastTypeType),
     );
 
+    /** Loaded window keys in least-recently-READ order (a Map preserves
+     *  insertion order; a read re-inserts). Bounds the decoded-window cache. */
+    private readonly loadedWindows = new Map<string, true>();
+
     /** Monotonic clock seam so tests can drive the retry gate. */
     protected now(): number {
         return Date.now();
@@ -215,6 +235,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.workspace = null;
         this.clearChannels();
         this.handleCache.clear();
+        this.loadedWindows.clear();
     }
 
     private resolveWorkspace(): string {
@@ -227,6 +248,25 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     }
 
     // ----- window loading --------------------------------------------------
+
+    /** Note a window as most-recently-read, and drop the coldest decoded
+     *  windows once the cache exceeds its cap. An evicted window returns to
+     *  `idle`, so the next read refetches it rather than reading a hole. */
+    private touchWindow(key: string): void {
+        this.loadedWindows.delete(key);
+        this.loadedWindows.set(key, true);
+        while (this.loadedWindows.size > MAX_RETAINED_WINDOWS) {
+            const coldest = this.loadedWindows.keys().next().value;
+            if (coldest === undefined) break;
+            this.loadedWindows.delete(coldest);
+            const entry = this.entries.get(coldest);
+            // Never evict a window that is still in flight — its settle would
+            // land on an entry the next read has already relaunched.
+            if (entry === undefined || entry.status !== "loaded") continue;
+            entry.status = "idle";
+            delete entry.window;
+        }
+    }
 
     /**
      * Start the fetch for a window if it isn't loaded or already in flight.
@@ -296,6 +336,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 return;
             }
             settle(e => { e.status = "loaded"; e.window = decoded; e.total = page.totalElements; });
+            this.touchWindow(key);
             // Any landed window teaches the source's total — publish it on the
             // source-level channel so a reader watching `total()` re-fires.
             const totalKey = pagedTotalKey(workspace, path);
@@ -326,9 +367,11 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     this.track(key);
                     this.ensureWindow(sourceType, workspace, path, offset, limit);
                     const entry = this.entry(key);
-                    return entry.status === "loaded" && entry.window !== undefined
-                        ? variant("some", entry.window)
-                        : variant("none", null);
+                    if (entry.status === "loaded" && entry.window !== undefined) {
+                        this.touchWindow(key);
+                        return variant("some", entry.window);
+                    }
+                    return variant("none", null);
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
                 (pathArg: unknown) => {
