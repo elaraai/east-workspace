@@ -53,8 +53,10 @@ import { datasetPathToString } from "./dataset-store.js";
 import { TrackedChannelStore } from "./tracked-channel.js";
 
 // =============================================================================
-// API seam — the narrow surface the runtime talks through. Tests stub it;
-// the showcase harness swaps in an in-memory implementation.
+// API seam — the narrow surface the runtime talks through. Tests stub it; the
+// React provider installs the real one. There is no offline stand-in: paging is
+// a SERVER capability (segment fences, exact totals, key search), so a paged
+// source resolves only against a live workspace.
 // =============================================================================
 
 /** One element window of a paged source. */
@@ -241,7 +243,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     private resolveWorkspace(): string {
         if (!this.workspace) {
             throw new Error(
-                "Data.bindPaged: no workspace configured — mount a provider (or call initializePagedApi) first",
+                "Data.bindPaged: no paging service — a paged source is served BY THE SERVER " +
+                "(datasetGetPage), so it resolves only inside a live workspace. Render this " +
+                "component against a deployed workspace, or bind the whole value with Data.bind.",
             );
         }
         return this.workspace;
@@ -502,50 +506,6 @@ export function createScopedPagedPlatform(pages: readonly TreePath[]): PlatformF
         defaultPagedRuntime.buildPlatform(allowed),
         ...defaultPagedRuntime.buildPrimitives(),
     ];
-}
-
-// =============================================================================
-// In-memory PagedApi — offline harnesses (showcase, snapshots, tests) serve
-// windows out of a local array, round-tripped through the same beast2 codec a
-// real server uses.
-// =============================================================================
-
-/** One offline paged source for {@link createInMemoryPagedApi}. */
-export interface InMemoryPagedSource {
-    /** The dataset path this source answers for. */
-    path: TreePath;
-    /** Encode one window's elements to beast2 bytes — the server's job. The
-     *  closure carries the collection type, so the source needs no separate
-     *  type field. */
-    encode: (elements: unknown[]) => Uint8Array;
-    /** The whole source, as elements. */
-    elements: unknown[];
-}
-
-/**
- * Build an offline {@link PagedApi} from local element arrays — the
- * showcase/snapshot harnesses' stand-in for a deployed dataset.
- */
-export function createInMemoryPagedApi(sources: InMemoryPagedSource[]): PagedApi {
-    return {
-        async getPage(_workspace, path, window) {
-            const pathStr = datasetPathToString(path);
-            const source = sources.find(s => datasetPathToString(s.path) === pathStr);
-            if (!source) throw new Error(`no in-memory paged source "${pathStr}"`);
-            const slice = source.elements.slice(window.offset, window.offset + window.limit);
-            const data = source.encode(slice);
-            return {
-                data,
-                totalElements: source.elements.length,
-                totalBytes: data.length,
-                totalExact: true,
-                segmentCount: 0,
-                offset: window.offset,
-                count: slice.length,
-                hash: "",
-            };
-        },
-    };
 }
 
 // =============================================================================

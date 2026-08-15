@@ -737,6 +737,30 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-plan-row="m3"]')).toBeTruthy();
         expect(calls).toContain(400n);
     });
+
+    test("a source that cannot be READ renders the reason, not a blank axis (#567 D10)", async () => {
+        // There is no offline stand-in for `Data.bindPaged` — paging is a server
+        // capability — so a bound canvas rendered outside a workspace has
+        // nothing to read. Logging that and drawing an empty axis reads as
+        // "this dataset is empty", which is a lie about the data.
+        const boom = (): never => { throw new Error("no paging service — resolves only inside a live workspace"); };
+        const source = {
+            page: boom,
+            total: boom,
+            id: "dom-test-unreadable",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-d10");
+        const band = await screen.findByText(/NO ROWS — the paged source could not be read/);
+        expect(band).toBeTruthy();
+        // The reason travels with it — not just to the console.
+        expect(band.textContent).toMatch(/no paging service/);
+        expect(container.querySelector("[data-plan-error]")).toBeTruthy();
+        // And no canvas is drawn behind it: an axis with no rows would read as
+        // an empty dataset.
+        expect(container.querySelector("[data-plan-body]")).toBeNull();
+        expect(container.querySelector("[data-plan-row]")).toBeNull();
+    });
 });
 
 

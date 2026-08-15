@@ -588,9 +588,21 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const resolutions = useMemo(() => value.axis.resolutions.map((r) => r.type), [value.axis.resolutions]);
     const now = useMemo(() => getSomeorUndefined(value.axis.now), [value.axis.now]);
 
+    // A paged source that could not be READ outranks every other diagnostic:
+    // there is no offline stand-in for `Data.bindPaged` (paging is a server
+    // capability), so this is what a bound canvas shows outside a workspace —
+    // the reason, not a blank axis that reads as an empty dataset (#567 D10).
+    if (paged.error !== undefined) {
+        return (
+            <Box css={styles.diagnostic} data-plan-empty data-plan-error>
+                {`NO ROWS — the paged source could not be read. ${paged.error}`}
+            </Box>
+        );
+    }
+
     if (scale === undefined) {
         return (
-            <Box css={styles.root} data-plan-empty padding="20px" fontFamily="mono" fontSize="10px" color="fg.subtle">
+            <Box css={styles.diagnostic} data-plan-empty>
                 {pagedSource !== undefined
                     ? "NO WINDOW — a paged plan must declare an axis window or bind a slice range"
                     : "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"}

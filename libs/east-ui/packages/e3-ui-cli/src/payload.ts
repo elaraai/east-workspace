@@ -22,6 +22,7 @@ import { extname } from 'node:path';
 import { encodeEastIR, fromJSONFor, decodeEastIR, encodeBeast2For, type EastIR } from '@elaraai/east';
 import { IRType } from '@elaraai/east/internal';
 import { loadComponentFromSource } from './load-source.js';
+import { assertStandaloneRenderable } from './detect.js';
 
 export type { ComponentPayload, TaskPayload, ShotPayload } from './shot-payload.js';
 import type { ComponentPayload } from './shot-payload.js';
@@ -72,6 +73,13 @@ export async function buildPayload(input: ShotInput): Promise<ComponentPayload> 
                 throw new Error('A TypeScript source cannot be read from stdin — pass a file path.');
             }
             const fn = await loadComponentFromSource(input.path, input.exportName);
+            // A workspace-bound component cannot render standalone (#567 D11) —
+            // refuse here, with the remedy, rather than after a browser launch.
+            await assertStandaloneRenderable(
+                input.path,
+                input.exportName !== undefined ? `"${input.exportName}"` : 'this component',
+                fn,
+            );
             bytes = encodeEastIR(fn.toIR() as EastIR<unknown[], unknown>);
             break;
         }

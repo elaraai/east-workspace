@@ -53,6 +53,8 @@ export const planSlotRecipe = defineSlotRecipe({
         "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText", "tableCellPart",
         // overlays
         "nowLine", "cursorLine", "cursorChip",
+        // diagnostics (no window / unreadable source)
+        "diagnostic",
     ],
     base: {
         root: {
@@ -378,6 +380,16 @@ export const planSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             cursor: "pointer",
             "&:hover": { background: "{colors.brandTint}" },
+        },
+        // A canvas that cannot draw says WHY, in the body's own frame: no
+        // window declared, or a source that could not be read. `data-plan-error`
+        // is the second, louder case.
+        diagnostic: {
+            padding: "20px",
+            fontFamily: "mono",
+            fontSize: "10px",
+            color: "fg.subtle",
+            "&[data-plan-error]": { color: "{colors.status.neg}" },
         },
         focusGapInner: {
             display: "flex",

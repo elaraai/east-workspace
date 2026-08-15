@@ -31,7 +31,6 @@ import {
     PagedRuntime,
     pagedWindowKey,
     pagedTotalKey,
-    createInMemoryPagedApi,
     type PagedApi,
     type PagedWindow,
 } from "../src/platform/paged-runtime.js";
@@ -282,12 +281,15 @@ describe("PagedRuntime", () => {
         assert.notEqual(a, b, "a different source type must not reuse the handle");
     });
 
-    test("no workspace configured is a named error, not a silent none", () => {
+    test("no paging service is a named, ACTIONABLE error — not a silent none", () => {
+        // With the offline stand-in deleted (#573) this IS the offline path: a
+        // paged bind rendered outside a workspace must say so and say what to
+        // do, rather than hand back `none` and spin behind an empty canvas.
         const runtime = new PagedRuntime();
-        assert.throws(
-            () => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n),
-            /no workspace configured/,
-        );
+        const call = (): unknown => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
+        assert.throws(call, /no paging service/, "names the missing capability");
+        assert.throws(call, /live workspace/, "names where it does resolve");
+        assert.throws(call, /Data\.bind/, "names the whole-value alternative");
     });
 
     test("clear() drops the api, the workspace and every window", async () => {
@@ -300,31 +302,7 @@ describe("PagedRuntime", () => {
         assert.equal((callPage(runtime, rowsTypeValue, opsPath, 0n, 2n) as { type: string }).type, "some");
 
         runtime.clear();
-        assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /no workspace configured/);
+        assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /no paging service/);
     });
 });
 
-describe("createInMemoryPagedApi", () => {
-    test("serves windows out of a local array, with exact totals", async () => {
-        const elements = [
-            { id: "a", v: 1.0 }, { id: "b", v: 2.0 }, { id: "c", v: 3.0 },
-        ];
-        const api = createInMemoryPagedApi([{
-            path: opsPath,
-            encode: e => encodeRows(e as { id: string; v: number }[]),
-            elements,
-        }]);
-
-        const first = await api.getPage(ws, opsPath, { offset: 0, limit: 2 });
-        assert.equal(first.count, 2);
-        assert.equal(first.totalElements, 3);
-
-        const past = await api.getPage(ws, opsPath, { offset: 10, limit: 2 });
-        assert.equal(past.count, 0, "past the end is an empty window, not an error");
-    });
-
-    test("an unknown path is an error, not an empty window", async () => {
-        const api = createInMemoryPagedApi([]);
-        await assert.rejects(() => api.getPage(ws, opsPath, { offset: 0, limit: 1 }), /no in-memory paged source/);
-    });
-});

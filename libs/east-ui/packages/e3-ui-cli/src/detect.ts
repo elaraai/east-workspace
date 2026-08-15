@@ -224,3 +224,38 @@ export function classifyExport(name: string, value: unknown, ctx: DetectContext)
 export function classifyExports(moduleExports: Record<string, unknown>, ctx: DetectContext): ExportClassification[] {
     return Object.entries(moduleExports).map(([name, value]) => classifyExport(name, value, ctx));
 }
+
+/**
+ * Refuse a standalone `--from-source` render that cannot work — BEFORE bundling
+ * a payload and launching a browser.
+ *
+ * Component mode mounts `<EncodedEastFunction>` with no provider and no
+ * workspace, so a component reading e3 data (`data_*` / `func_*` / `record_*`)
+ * has nothing to read from: it throws at render, the capture driver reports
+ * `Render failed`, and no PNG is written (#567 D11). There is deliberately no
+ * offline stand-in — paging and dataset reads are server capabilities — so the
+ * honest outcome is an early, actionable refusal naming `--from-task`.
+ *
+ * The sweep already skips these exports via {@link classifyExport}; this is the
+ * same verdict applied to a single explicit render. Only `workspace-bound` is
+ * refused here — every other skip reason is already surfaced by
+ * `loadComponentFromSource`.
+ *
+ * @param sourceFile - The `--from-source` file (the resolution anchor)
+ * @param label - How to name the export in the error (its name, or a fallback)
+ * @param fn - The East function resolved from that export
+ * @throws {Error} When the function reads workspace-backed data
+ */
+export async function assertStandaloneRenderable(
+    sourceFile: string,
+    label: string,
+    fn: EastFunctionLike,
+): Promise<void> {
+    // No resolvable east in the target project — leave the verdict to the render
+    // path rather than refusing on an un-analysable IR.
+    const ctx = await detectContextFor(sourceFile);
+    if (ctx === null) return;
+    const verdict = classifyExport(label, fn, ctx);
+    if (verdict.skip?.kind !== 'workspace-bound') return;
+    throw new Error(`Cannot render ${label} standalone: ${describeSkip(verdict.skip)}`);
+}

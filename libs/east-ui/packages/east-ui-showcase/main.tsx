@@ -20,13 +20,10 @@ import {
     createInMemoryFunctionApi,
     initializeRecordApi,
     createInMemoryRecordApi,
-    initializePagedApi,
-    createInMemoryPagedApi,
     datasetCacheKey,
     type DatasetApi,
     type InMemoryFunctionDef,
     type InMemoryRecordDef,
-    type InMemoryPagedSource,
 } from "@elaraai/e3-ui-components";
 import { encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
 import type { DatasetDef, FunctionDef, RecordDef, MutationDef } from "@elaraai/e3";
@@ -142,24 +139,16 @@ function exampleFunctionApi() {
 async function seedE3DatasetCache(): Promise<void> {
     const seed = new Map<string, Uint8Array>();
     const inputPaths: TreePath[] = [];
-    // `Data.bindPaged` reads the same inputs BY WINDOW, through its own api
-    // seam rather than the whole-value cache — so every collection input is
-    // registered as an offline paged source too. Without this the paged
-    // handle has no workspace, `page()` throws, and the canvas renders empty.
-    const pagedSources: InMemoryPagedSource[] = [];
+    // NOTE: `Data.bindPaged` is NOT seeded. Paging is a server capability —
+    // windows, exact totals and key search all come from the stored segments —
+    // so a local stand-in would only teach the canvas something the deployed
+    // dataset never promises. A paged example refuses here and is viewed
+    // against a real workspace instead.
     for (const mod of e3ExampleModules) {
         for (const value of Object.values(mod)) {
             if (!isSeedableInput(value)) continue;
             seed.set(datasetCacheKey(WORKSPACE, value.path), encodeBeast2For(value.type)(value.default));
             inputPaths.push(value.path);
-            if ((value.type as { type: string }).type === "Array") {
-                const encode = encodeBeast2For(value.type);
-                pagedSources.push({
-                    path: value.path,
-                    encode: (elements) => encode(elements as never),
-                    elements: [...(value.default as unknown[])],
-                });
-            }
         }
     }
 
@@ -180,7 +169,6 @@ async function seedE3DatasetCache(): Promise<void> {
     cache.setScheduler((notify) => queueMicrotask(notify));
     initializeReactiveDatasetCache(cache);
     initializeFunctionApi(exampleFunctionApi(), WORKSPACE);
-    initializePagedApi(createInMemoryPagedApi(pagedSources), WORKSPACE);
 
     // Offline `Record.bind` impls — seeds each record's initial state into the
     // cache (so `read()` resolves) and stands in for the mutation backend.

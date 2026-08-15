@@ -93,8 +93,6 @@ export {
     clearPagedApi,
     pagedWindowKey,
     pagedTotalKey,
-    createInMemoryPagedApi,
-    type InMemoryPagedSource,
     type PagedApi,
     type PagedWindow,
 } from "./paged-runtime.js";

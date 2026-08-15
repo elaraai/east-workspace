@@ -39,6 +39,14 @@
  * false, no error). The window count comes from `total()` instead, which
  * counts source elements — the only number that means what the walk needs.
  *
+ * # A source that cannot be READ is not an empty canvas
+ *
+ * There is no offline stand-in for `Data.bindPaged` — paging is a server
+ * capability (segment fences, exact totals, key search), so a bound canvas
+ * rendered outside a workspace has nothing to read from. Logging that to the
+ * console and returning zero rows renders a blank axis that looks like an empty
+ * dataset (#567 D10): the failure is reported here so the canvas can say why.
+ *
  * @packageDocumentation
  */
 
@@ -60,6 +68,11 @@ export const PLAN_PAGE_SIZE = 200;
  *  sorted by East's ordering, and the merged prefix must match it). */
 const ROW_KEY_ORDER = compareFor(StringType);
 
+/** One line naming why a source read failed. */
+function readFailure(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
 export interface PlanPagedRows {
     /** The loaded canvas rows, in canonical key order. */
     rows: ReadonlyArray<PlanRowValue>;
@@ -70,9 +83,12 @@ export interface PlanPagedRows {
     loadedElements: number;
     /** Whether a requested window is still in flight. */
     loading: boolean;
+    /** Why the source could not be read, when it could not be — the canvas
+     *  renders this instead of a blank axis. */
+    error: string | undefined;
 }
 
-const IDLE: PlanPagedRows = { rows: [], total: undefined, loadedElements: 0, loading: false };
+const IDLE: PlanPagedRows = { rows: [], total: undefined, loadedElements: 0, loading: false, error: undefined };
 
 /**
  * Stream a paged source's windows into canvas rows.
@@ -97,11 +113,13 @@ export function usePlanPagedRows(
     const read = useCallback((): PlanPagedRows => {
         if (source === undefined) return IDLE;
         let total: number | undefined;
+        let error: string | undefined;
         try {
             const t = source.total();
             if (t.type === "some") total = Number(t.value);
         } catch (err) {
             console.error("[Plan] paged source total failed:", err);
+            error = readFailure(err);
         }
         // With no viewport signal the canvas asks for the whole source: its
         // model layer needs a dense prefix, and stopping at an arbitrary
@@ -120,6 +138,7 @@ export function usePlanPagedRows(
                 win = source.page(BigInt(w * PLAN_PAGE_SIZE), BigInt(PLAN_PAGE_SIZE));
             } catch (err) {
                 console.error("[Plan] paged source page failed:", err);
+                error ??= readFailure(err);
                 break;
             }
             if (win.type !== "some") {
@@ -136,10 +155,11 @@ export function usePlanPagedRows(
             // says nothing about the source, whose length `total` governs.
         }
         if (total !== undefined) loadedElements = Math.min(loadedElements, total);
-        return { rows: [...merged.values()], total, loadedElements, loading };
+        return { rows: [...merged.values()], total, loadedElements, loading, error };
     }, [source, wantedEnd]);
 
     const { result } = useTrackedEvaluation(read);
-    // A throwing read already logged; an empty canvas is the honest fallback.
-    return result.ok ? result.value : IDLE;
+    // A read that threw past the per-call catches still has to reach the canvas
+    // as a REASON — an empty canvas would claim the source is empty.
+    return result.ok ? result.value : { ...IDLE, error: readFailure(result.error) };
 }

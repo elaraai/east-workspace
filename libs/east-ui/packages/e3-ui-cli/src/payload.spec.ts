@@ -97,3 +97,20 @@ test('buildPayload: .json IR path round-trips to renderable bytes', async () => 
         await rm(tmp, { force: true });
     }
 });
+
+test('buildPayload refuses a workspace-bound component up front, naming --from-task', async () => {
+    // #567 D11 / #573: component mode has no provider and no workspace, and
+    // there is deliberately no offline stand-in for `data_*` — so the refusal
+    // must arrive here, with the remedy, instead of as `Render failed` after a
+    // browser launch. Same verdict the sweep already applies.
+    const fixture = resolve(dirname(FIXTURE), 'sweep-project', 'src', 'kinds.tsx');
+    await assert.rejects(
+        () => buildPayload({ path: fixture, from: 'ts', exportName: 'workspaceBound' }),
+        (err: Error) => /Cannot render "workspaceBound" standalone/.test(err.message)
+            && /data_read/.test(err.message)
+            && /--from-task/.test(err.message),
+    );
+    // A browser-local `State.bind` component in the SAME file still renders.
+    const { kind } = await buildPayload({ path: fixture, from: 'ts', exportName: 'stateBound' });
+    assert.equal(kind, 'component');
+});
