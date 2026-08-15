@@ -80,9 +80,17 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
+/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
+ *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
+ *  iterates it, and INSERTION order keeps these fixtures readable in the order
+ *  they are written. Key ORDER itself is covered in `model.test.ts`. */
+function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
+    return new Map(rows.map((r) => [r.key, r]));
+}
+
 function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; style?: { height?: string; maxHeight?: string } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
         links: opts?.links ?? [],
         axis: {
             window: some({ min: W27, max: W39 }),
@@ -683,7 +691,7 @@ describe("Plan paged source (P-c)", () => {
             // Window 0 carries the rows; the NEXT window is empty (= end).
             page: (offset: bigint, _limit: bigint) => {
                 calls.push(offset);
-                return offset === 0n ? some(w1) : some([]);
+                return offset === 0n ? some(rowCollection(w1)) : some(rowCollection([]));
             },
             total: () => none,
             // The contract's comparable identity + seek capability (#567): a
@@ -712,10 +720,10 @@ describe("Plan paged source (P-c)", () => {
         const source = {
             page: (offset: bigint, _limit: bigint) => {
                 calls.push(offset);
-                if (offset === 0n) return some(w0);
-                if (offset === 200n) return some([]);   // filtered to nothing
-                if (offset === 400n) return some(w2);
-                return some([]);
+                if (offset === 0n) return some(rowCollection(w0));
+                if (offset === 200n) return some(rowCollection([]));   // filtered to nothing
+                if (offset === 400n) return some(rowCollection(w2));
+                return some(rowCollection([]));
             },
             // 600 source elements ⇒ three windows, whatever any window yields.
             total: () => some(600n),

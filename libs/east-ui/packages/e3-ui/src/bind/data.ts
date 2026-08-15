@@ -445,19 +445,25 @@ export const DataPagedPrimitives = {
  *
  * @example
  * ```ts
- * import { East } from "@elaraai/east";
+ * import { ArrayType, DictType, East, StringType } from "@elaraai/east";
  * import { Plan, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
- * const ops = e3.input("ops", ArrayType(OpsRow), []);
+ * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
+ * // same key space `page` windows and `seek` searches.
+ * const ops = e3.input("ops", DictType(StringType, OpsRow), new Map());
  *
  * // Mirrors `dataBindPagedPlan` in test/bind/data/data.examples.tsx.
  * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
  *         const paged = $.let(Data.bindPaged(ops));
  *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsRow)));
- *         const axis = $.const(Plan.axis({ resolution: "week" }));
+ *         // A paged canvas DECLARES its window: fitting the axis to whatever
+ *         // prefix has landed re-fits it on every window (#567 D8).
+ *         const axis = $.const(Plan.axis({
+ *             window: { min: week(24n), max: week(42n) }, resolution: "week",
+ *         }));
  *         return Plan.Root({ axis, data: paged, series });
  *     }));
  * });

@@ -6,14 +6,17 @@
 /**
  * Row assembly — the shared row envelope (gutter / drill / `makeRow`),
  * subtree normalization and re-parenting, the `.of` accessor override
- * channel, and the eager engines: span rollup bands (union / byStatus),
- * per-bucket heat aggregation and table subtotals.
+ * channel, and the group-parent constructor every grouped form shares.
+ *
+ * Subtrees are KEYED collections (`Dict<String, PlanRow>`), so composition is
+ * `union` with an explicit conflict policy rather than `concat`: every step
+ * states what happens on a collision instead of one resolver at the end
+ * absorbing all of them, and a row can no longer appear twice (#568).
  *
  * @packageDocumentation
  */
 
 import {
-    type BlockBuilder,
     type ExprType,
     type SubtypeExprOrValue,
     East,
@@ -39,6 +42,7 @@ import {
     PlanExpandType,
     PlanRowKindType,
     PlanRowType,
+    PlanRowsCollectionType,
     type PlanRowsValue,
 } from "./types.js";
 import { resolveTag, emptyRows } from "./builders.js";
@@ -178,7 +182,19 @@ function buildExpand(input: PlanExpandInput): ExprType<PlanExpandType> {
     }, PlanExpandType);
 }
 
-/** Assemble one row from its base input + kind value, as a 1-row subtree. */
+/**
+ * Row composition is LAST WINS — a later copy of a synthesized row (a group
+ * parent a second paged window re-emits) replaces the earlier one. Declared
+ * once and passed to every `union`, so the policy is stated at each step
+ * rather than assumed.
+ */
+export const LAST_WINS = East.function(
+    [PlanRowType, PlanRowType, StringType], PlanRowType,
+    (_$, _existing, incoming) => incoming);
+
+/** Assemble one row from its base input + kind value, as a 1-row subtree.
+ *  Keying it HERE is where uniqueness becomes structural: a factory cannot
+ *  emit two rows under one key. */
 export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): PlanRowsValue {
     const row = East.value({
         key:      base.key,
@@ -192,7 +208,7 @@ export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>)
         drill:    base.drill !== undefined ? some(buildDrill(base.drill)) : none,
         expand:   base.expand !== undefined ? some(buildExpand(base.expand)) : none,
     }, PlanRowType);
-    return East.value([row], ArrayType(PlanRowType));
+    return East.value(new Map([[base.key, row]]), PlanRowsCollectionType);
 }
 
 /**
@@ -200,22 +216,27 @@ export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>)
  * `Plan.rows` result) or a TS array of them.
  */
 export type PlanRowsInput =
-    | SubtypeExprOrValue<ArrayType<PlanRowType>>
-    | SubtypeExprOrValue<ArrayType<PlanRowType>>[];
+    | SubtypeExprOrValue<PlanRowsCollectionType>
+    | SubtypeExprOrValue<PlanRowsCollectionType>[];
 
-/** Normalize a nested-rows input into one concatenated subtree expression. */
+/** Normalize a nested-rows input into ONE subtree — the authored siblings
+ *  unioned, last wins on a repeated key. */
 export function normalizeRows(input: PlanRowsInput | undefined): PlanRowsValue {
     if (input === undefined) return emptyRows();
     if (Array.isArray(input)) {
         return input.reduce<PlanRowsValue>(
-            (acc, x) => acc.concat(East.value(x as SubtypeExprOrValue<ArrayType<PlanRowType>>, ArrayType(PlanRowType)) as PlanRowsValue) as PlanRowsValue,
+            (acc, x) => acc.union(
+                East.value(x as SubtypeExprOrValue<PlanRowsCollectionType>, PlanRowsCollectionType),
+                LAST_WINS) as PlanRowsValue,
             emptyRows(),
         );
     }
-    return East.value(input as SubtypeExprOrValue<ArrayType<PlanRowType>>, ArrayType(PlanRowType)) as PlanRowsValue;
+    return East.value(input as SubtypeExprOrValue<PlanRowsCollectionType>, PlanRowsCollectionType) as PlanRowsValue;
 }
 
-/** Re-parent the ROOTS of a flattened subtree (rows with `parent: none`). */
+/** Re-parent the ROOTS of a subtree (rows with `parent: none`). Values only —
+ *  re-parenting never renames a row, so the keys are untouched and any
+ *  author-written `links` / grandchild `parent` refs keep pointing. */
 export function reparentRoots(rows: PlanRowsValue, parentKey: SubtypeExprOrValue<StringType>): PlanRowsValue {
     const parentOpt = East.value(some(parentKey), OptionType(StringType));
     return rows.map((_$, r) => East.value({
@@ -232,37 +253,42 @@ export function reparentRoots(rows: PlanRowsValue, parentKey: SubtypeExprOrValue
     }, PlanRowType)) as PlanRowsValue;
 }
 
-/** The subtree ROOTS of a flattened child array (rows with `parent: none`). */
+/** The subtree ROOTS of a child collection (rows with `parent: none`). */
 export function rootsOf(rows: PlanRowsValue): PlanRowsValue {
     return rows.filter((_$, r) => r.parent.hasTag("none")) as PlanRowsValue;
 }
 
 /** The per-level group-parent constructor the grouping engine calls per group. */
 export type PlanGroupParentFn =
-    ExprType<FunctionType<[StringType, StringType, ArrayType<PlanRowType>], ArrayType<PlanRowType>>>;
+    ExprType<FunctionType<[StringType, StringType, PlanRowsCollectionType], PlanRowsCollectionType>>;
 
 /**
  * Builds the per-level group-parent constructor shared by every grouped form
- * (`Plan.rows` groups, `span.of` / `heat.of` / `table.of` parents) — one
- * reified East function `(pathKey, label, children) => subtree`: the parent
- * row (its `kind` fully declared by the caller) leads its re-parented
- * children. `meta` optionally builds the gutter meta line from the
- * pre-reparent children (e.g. the `"8 rs"` member count).
+ * — one reified East function `(pathKey, label, children) => subtree`: the
+ * parent row (its `kind` fully declared by the caller) joined with its
+ * re-parented children in one keyed collection.
+ *
+ * @remarks
+ * The parent's POSITION is no longer load-bearing — its key orders it, and the
+ * renderer walks the tree from the roots. `meta` is a CONSTANT gutter meta line
+ * (the `.of` aggregate tag); anything derived from the members — the `"8 rs"`
+ * count — is computed renderer-side, because a parent synthesized per paged
+ * window would otherwise bake THAT window's count into the row (#568).
+ *
+ * @param kind - The parent row's fully-declared kind
+ * @param meta - Optional constant gutter meta line
+ * @returns The reified `(pathKey, label, children) => subtree` function
  */
 export function groupParentFn(
     kind: ExprType<PlanRowKindType>,
-    meta?: (
-        $: BlockBuilder<ArrayType<PlanRowType>>,
-        children: ExprType<ArrayType<PlanRowType>>,
-    ) => SubtypeExprOrValue<OptionType<StringType>>,
+    meta?: SubtypeExprOrValue<OptionType<StringType>>,
 ): PlanGroupParentFn {
     return East.function(
-        [StringType, StringType, ArrayType(PlanRowType)],
-        ArrayType(PlanRowType),
+        [StringType, StringType, PlanRowsCollectionType],
+        PlanRowsCollectionType,
         ($, pathKey, label, children) => {
-            const reparented = $.let(reparentRoots(children as PlanRowsValue, pathKey), ArrayType(PlanRowType));
-            const metaValue = meta !== undefined ? meta($, children) : none;
-            const metaOpt = $.const(metaValue, OptionType(StringType));
+            const reparented = $.let(reparentRoots(children as PlanRowsValue, pathKey), PlanRowsCollectionType);
+            const metaOpt = $.const(meta ?? none, OptionType(StringType));
             const parent = $.const({
                 key:    pathKey,
                 parent: none,
@@ -274,8 +300,9 @@ export function groupParentFn(
                 kind,
                 pinned: none, height: none, status: none, approval: none, drill: none, expand: none,
             }, PlanRowType);
-            const out = $.const([parent], ArrayType(PlanRowType));
-            return out.concat(reparented);
+            const out = $.let(new Map([[pathKey, parent]]), PlanRowsCollectionType);
+            $(out.unionInPlace(reparented, LAST_WINS));
+            return out;
         },
     );
 }
@@ -329,8 +356,8 @@ export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): Pla
 
 /**
  * Assemble a nesting parent — the parent row (its kind fully declared; the
- * renderer computes any derived numbers) leads its re-parented children in
- * the flattened result.
+ * renderer computes any derived numbers) joined with its re-parented children
+ * in one keyed collection.
  */
 export function assembleNested(
     base: PlanRowBaseInput,
@@ -350,5 +377,6 @@ export function assembleNested(
         drill:    base.drill !== undefined ? some(buildDrill(base.drill)) : none,
         expand:   base.expand !== undefined ? some(buildExpand(base.expand)) : none,
     }, PlanRowType);
-    return East.value([parent], ArrayType(PlanRowType)).concat(reparentRoots(children, base.key)) as PlanRowsValue;
+    return East.value(new Map([[base.key, parent]]), PlanRowsCollectionType)
+        .union(reparentRoots(children, base.key), LAST_WINS) as PlanRowsValue;
 }

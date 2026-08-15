@@ -17,6 +17,7 @@ import {
     East,
     ArrayType,
     BooleanType,
+    DictType,
     FunctionType,
     NullType,
     OptionType,
@@ -51,7 +52,7 @@ import {
     PlanTemplateKindType,
     type PlanTemplateKindLiteral,
     PlanElementRefType,
-    PlanRowType,
+    PlanRowsCollectionType,
     PlanRowsType,
     PlanTemplateType,
     PlanJourneyType,
@@ -86,8 +87,9 @@ export interface PlanTemplateInput {
     kind: PlanTemplateKindLiteral | SubtypeExprOrValue<PlanTemplateKindType>;
     /** Optional card-icon override. */
     icon?: PlanIconInput;
-    /** The binding — an `East.function([], ArrayType(Plan.Types.Row))` building the live subtree from captured data / bind-handles. */
-    make: SubtypeExprOrValue<FunctionType<[], ArrayType<PlanRowType>>>;
+    /** The binding — an `East.function([], Plan.Types.Rows)` building the live
+     *  keyed subtree from captured data / bind-handles. */
+    make: SubtypeExprOrValue<FunctionType<[], PlanRowsCollectionType>>;
 }
 
 /**
@@ -110,7 +112,7 @@ export function createTemplate(input: PlanTemplateInput): ExprType<PlanTemplateT
         // `expandedContent` pattern) — the widened input form erases
         // `UIComponentType`'s nominal identity, which the `component.ts`
         // arm's recursion-marker slots unify against.
-        make:     East.value(input.make, FunctionType([], ArrayType(PlanRowType))),
+        make:     East.value(input.make, FunctionType([], PlanRowsCollectionType)),
     }, PlanTemplateType);
 }
 
@@ -133,7 +135,7 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  *
  * @property axis - The shared time-axis declaration (`Plan.axis`)
  * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
- * @property data - The raw data source (an `Array<R>` value/expression); pairs with `series`
+ * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
  * @property series - The row families over `data` — `Plan.series.*` values, in canvas order
  * @property grain - Initial grain (`"group"` / `"resource"` / `"item"`; default resource)
  * @property library - Row-library templates (`Plan.template` values)
@@ -162,11 +164,21 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
 export interface PlanConfig {
     /** The shared time-axis declaration (`Plan.axis`). */
     axis: SubtypeExprOrValue<PlanAxisType>;
-    /** The raw data source — an `Array<R>` value or expression (a `$.let`-bound
-     *  array, `Slice.rows`, `Data.bind(...).read()`) for the INLINE arm, or a
-     *  `$.let`-bound paged handle (`Data.bindPaged(ops)`) for the PAGED arm —
-     *  the East type is the discriminant. */
-    data: SubtypeExprOrValue<ArrayType<StructType>> | PagedSourceLike;
+    /** The raw data source — a KEYED collection: a `Dict<String, R>` value or
+     *  expression (a `$.let`-bound map, `Data.bind(...).read()`) for the INLINE
+     *  arm, or a `$.let`-bound paged handle over one (`Data.bindPaged(ops)`)
+     *  for the PAGED arm; the East type is the discriminant.
+     *
+     *  The keys are load-bearing: a leaf row's key IS its data key, so the
+     *  canvas is ordered and addressed by the same keys the source is
+     *  (`datasetGetPage` windows and `datasetFindKey` searches that key order).
+     *  A positional collection is refused — key it at the call site with
+     *  `rows.toDict((_$, r) => r.id)`, which makes the choice explicit.
+     *
+     *  A PAGED canvas must also declare `axis.window` (or bind a slice range):
+     *  fitting the axis to whatever prefix has landed would re-fit it on every
+     *  window (#567 D8). */
+    data: SubtypeExprOrValue<DictType<StringType, StructType>> | PagedSourceLike;
     /** The row families over `data` — `Plan.series.*` values in canvas order
      *  (a TS array or an East expression of `ArrayType(Plan.Types.Series(R))`).
      *  Literal one-off chrome rides a `Plan.series.rows` entry. */
@@ -271,10 +283,26 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
     // and the series pipeline is the `make` that turns each window's domain
     // rows into canvas rows (the single R-erasure point).
     const resolved = resolveRowSource(config.data, "Plan");
+    // The canvas is KEYED, so its source must be: a leaf row's key is its data
+    // key, which is what keeps the canvas addressable by the keys the source is
+    // searched and windowed by (#568). Refuse anything else here rather than
+    // inventing keys the source does not have.
+    const keyType = (resolved.keyType as { type?: string } | undefined)?.type;
+    if (keyType !== "String") {
+        const got = (resolved.collectionType as { type: string }).type;
+        const keyed = keyType !== undefined ? ` keyed by ${keyType}` : "";
+        throw new Error(
+            "Plan: `data` must be a keyed collection (`Dict<String, R>`) — its keys become the " +
+            "canvas row keys, so the canvas is ordered and addressed the same way the source is " +
+            "(the row space a paged source windows and seeks). " +
+            `Got a ${got}${keyed}; key it at the call site, e.g. ` +
+            "`data={rows.toDict((_$, r) => r.id)}`.",
+        );
+    }
     const rowsValue = buildRowSource(
         resolved,
-        PlanRowType,
-        (rows) => applySeries(config.series, rows as ExprType<ArrayType<StructType>>),
+        PlanRowsCollectionType,
+        (source) => applySeries(config.series, source as ExprType<DictType<StringType, StructType>>),
     ) as unknown as ExprType<PlanRowsType>;
     const style = config.style;
     const styleValue = style !== undefined

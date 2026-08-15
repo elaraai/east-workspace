@@ -5,9 +5,14 @@
 
 /**
  * The Plan's decoded-value view model (`Plan Spec.md` §6.2) — pure selectors
- * over the flat `parent`-keyed row array: the row-tree index, the visible-row
+ * over the flat `parent`-keyed rows: the row-tree index, the visible-row
  * derivation (grain × collapsed subtrees × drill), and per-row height
  * estimation for the virtualizer. No React, no DOM.
+ *
+ * Rows arrive in the collection's canonical KEY order (the IR's row collection
+ * is a `Dict`, decoded as a `SortedMap` — #568), and every traversal here
+ * walks the TREE the `parent` keys encode rather than that flat order, so a
+ * subtree need not be contiguous and no derivation depends on the container.
  *
  * @packageDocumentation
  */
@@ -25,13 +30,13 @@ export type PlanLinkValue = ValueTypeOf<typeof Plan.Types.Link>;
 
 /** The flat rows indexed for traversal. */
 export interface PlanRowIndex {
-    /** Rows in IR (depth-first) order. */
+    /** Rows in the collection's canonical key order. */
     rows: ReadonlyArray<PlanRowValue>;
     /** Row lookup by key. */
     byKey: ReadonlyMap<RowKey, PlanRowValue>;
-    /** Direct children (IR order) by parent key. */
+    /** Direct children (key order) by parent key. */
     children: ReadonlyMap<RowKey, PlanRowValue[]>;
-    /** Root rows (`parent: none`), IR order. */
+    /** Root rows (`parent: none`), key order. */
     roots: ReadonlyArray<PlanRowValue>;
     /** Nesting depth by key (roots = 0). */
     depth: ReadonlyMap<RowKey, number>;
@@ -39,7 +44,13 @@ export interface PlanRowIndex {
     initiallyCollapsed: ReadonlySet<RowKey>;
 }
 
-/** Build the row index once per decoded value. */
+/**
+ * Build the row index once per decoded value.
+ *
+ * @param rows - The decoded rows in collection order (a keyed collection's
+ *   values, already in key order — the caller flattens the `SortedMap`)
+ * @returns The tree index every other selector walks
+ */
 export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
     const byKey = new Map<RowKey, PlanRowValue>();
     const children = new Map<RowKey, PlanRowValue[]>();
@@ -420,21 +431,37 @@ export interface PlanDerived {
     tableCells: ReadonlyMap<RowKey, TableCellValue[]>;
     /** Strip summary cells by group row key. */
     groupSummary: ReadonlyMap<RowKey, HeatCellValue[]>;
+    /** Direct-member count by group row key — the `"8 rs"` gutter meta.
+     *  Derived here, not baked into the IR: a group parent synthesized per
+     *  paged window would otherwise carry THAT window's count (#568). */
+    groupMembers: ReadonlyMap<RowKey, number>;
 }
 
 /**
  * Derive every declared rollup / aggregate / summary over the decoded rows.
  *
- * Rows are walked BOTTOM-UP (the flat array is depth-first, so reverse order
- * processes descendants before their parents): a declared parent whose
- * children are themselves declared parents aggregates their DERIVED cells —
- * nesting composes to arbitrary depth, level by level.
+ * @remarks
+ * The walk is an explicit POST-ORDER traversal from the roots: a declared
+ * parent whose children are themselves declared parents aggregates their
+ * DERIVED cells, so nesting composes to arbitrary depth — and it is correct
+ * for ANY container order. (It used to walk the flat array in reverse, which
+ * was only right while that array happened to be depth-first; under a keyed
+ * collection a parent can sort before its children, and feeding a bottom-up
+ * aggregation the wrong order yields wrong numbers, not an error — #568.)
+ *
+ * Rows outside the tree — a `parent` naming a key that does not exist — are
+ * unreachable from the roots and derive nothing, exactly as they render
+ * nothing (`visibleRows` walks the same tree).
+ *
+ * @param index - The row-tree index
+ * @returns Every derived number, keyed by row
  */
 export function derivePlan(index: PlanRowIndex): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatCells = new Map<RowKey, HeatCellValue[]>();
     const tableCells = new Map<RowKey, TableCellValue[]>();
     const groupSummary = new Map<RowKey, HeatCellValue[]>();
+    const groupMembers = new Map<RowKey, number>();
     // A row's effective cells — its own, or (for declared parents) its
     // already-derived cells from the bottom-up walk.
     const resolvedHeatCells = (row: PlanRowValue): readonly HeatCellValue[] => {
@@ -448,10 +475,12 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
         if (own.length > 0) return own;
         return tableCells.get(row.key) ?? [];
     };
-    for (let i = index.rows.length - 1; i >= 0; i--) {
-        const row = index.rows[i]!;
-        const kind = row.kind;
+    const visit = (row: PlanRowValue): void => {
         const children = index.children.get(row.key) ?? [];
+        // Descendants first — a declared parent reads its children's DERIVED
+        // cells, which must already be in the maps.
+        for (const child of children) visit(child);
+        const kind = row.kind;
         if (kind.type === "span" && kind.value.rollup.type === "some") {
             const unit = kind.value.unit.type === "some" ? kind.value.unit.value : undefined;
             const runs = [...kind.value.runs, ...subtreeRuns(index, row.key)];
@@ -468,12 +497,16 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
                 children.flatMap(resolvedTableCells),
                 kind.value.aggregate.value.type));
         }
-        if (kind.type === "group" && kind.value.summaryAggregate.type === "some") {
-            groupSummary.set(row.key, deriveHeatCells(
-                children.flatMap(resolvedHeatCells), kind.value.summaryAggregate.value.type));
+        if (kind.type === "group") {
+            groupMembers.set(row.key, children.length);
+            if (kind.value.summaryAggregate.type === "some") {
+                groupSummary.set(row.key, deriveHeatCells(
+                    children.flatMap(resolvedHeatCells), kind.value.summaryAggregate.value.type));
+            }
         }
-    }
-    return { bands, heatCells, tableCells, groupSummary };
+    };
+    for (const root of index.roots) visit(root);
+    return { bands, heatCells, tableCells, groupSummary, groupMembers };
 }
 
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────

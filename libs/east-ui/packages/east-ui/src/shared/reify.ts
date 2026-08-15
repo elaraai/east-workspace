@@ -26,11 +26,13 @@
 import {
     ArrayType,
     type BlockBuilder,
+    type DictType,
     East,
     type EastType,
     Expr,
     type ExprType,
     type FunctionType,
+    StringType,
     type StructType,
     type SubtypeExprOrValue,
     type TypeOf,
@@ -140,4 +142,55 @@ export function flatMapRowsBlock<T extends EastType>(
         (_$, acc, row) => acc.concat(fn(row)),
         East.value([], ArrayType(outType)),
     ) as unknown as ExprType<ArrayType<T>>;
+}
+
+/**
+ * `flatMapRowsBlock` for per-ENTRY constructors that produce a KEYED subtree —
+ * a `Dict` of output elements per source entry — folded into one dictionary
+ * (Plan row construction, where the source is a keyed collection and the
+ * canvas rows inherit its keys, so duplicates are unconstructable).
+ *
+ * @remarks
+ * The body receives the entry's `(value, key)`, because a keyed dataset does
+ * not repeat its key inside the value — the key is where a row's identity
+ * comes from, not a field to re-derive.
+ *
+ * The accumulator is folded with `unionInPlace`, never with the pure `union`:
+ * `union` copies the whole B-tree per step, so a 200-entry window would rebuild
+ * the dictionary 200 times. `reduce` threads ONE accumulator and each entry's
+ * subtree is merged into it — the same shape `groupToArrays` uses for arrays.
+ *
+ * @typeParam K - The output dictionary's key type
+ * @typeParam V - The output dictionary's value type
+ * @param entries - The caller's keyed source expression
+ * @param dictType - The fixed East output dictionary type
+ * @param merge - Conflict policy when two entries produce the same key, as `(existing, incoming, key) => kept`
+ * @param body - Per-entry subtree constructor; expanded exactly once against typed placeholders
+ * @returns The folded dictionary expression
+ *
+ * @internal
+ */
+export function foldEntriesToDict<K extends EastType, V extends EastType>(
+    entries: ExprType<DictType<StringType, StructType>>,
+    dictType: DictType<K, V>,
+    // `dictType` is the ONLY inference site: the loose `SubtypeExprOrValue`
+    // faces below would otherwise widen `V` to the subtype form and the result
+    // would stop being assignable to the exact collection type.
+    merge: SubtypeExprOrValue<FunctionType<[NoInfer<V>, NoInfer<V>, NoInfer<K>], NoInfer<V>>>,
+    body: (
+        $: BlockBuilder<DictType<NoInfer<K>, NoInfer<V>>>,
+        value: ExprType<StructType>,
+        key: ExprType<StringType>,
+    ) => SubtypeExprOrValue<DictType<NoInfer<K>, NoInfer<V>>>,
+): ExprType<DictType<K, V>> {
+    const valueType = (Expr.type(entries) as DictType<StringType, StructType>).value;
+    const fn = East.function([valueType, StringType], dictType,
+        ($, value, key) => body($ as BlockBuilder<DictType<K, V>>, value, key));
+    return entries.reduce(
+        ($, acc, value, key) => {
+            $((acc as ExprType<DictType<K, V>>).unionInPlace(fn(value, key), merge));
+            return acc;
+        },
+        East.value(new Map(), dictType),
+    ) as unknown as ExprType<DictType<K, V>>;
 }

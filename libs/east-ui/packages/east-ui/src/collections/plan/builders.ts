@@ -70,7 +70,7 @@ import {
     PlanChipType,
     PlanEventMarkType,
     PlanLaneType,
-    PlanRowType,
+    PlanRowsCollectionType,
     type PlanRowsValue,
 } from "./types.js";
 
@@ -133,9 +133,9 @@ export function resolveIcon(icon: PlanIconInput): SubtypeExprOrValue<IconType> {
     return icon as SubtypeExprOrValue<IconType>;
 }
 
-/** An empty flattened-subtree value. */
+/** An empty flattened-subtree value — the keyed collection with no rows. */
 export function emptyRows(): PlanRowsValue {
-    return East.value([], ArrayType(PlanRowType));
+    return East.value(new Map(), PlanRowsCollectionType);
 }
 
 // ============================================================================

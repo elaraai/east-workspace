@@ -10,13 +10,15 @@
  * cells / bucketed numerals), cards rows (Roster chips) and event rows —
  * sliced and reviewed as one surface.
  *
- * Rows are **flat** in the IR with `parent` keys; the kind factories nest via
- * `rows:` / `groupBy` and compute parent aggregates **eagerly**: span rollup
- * bands (union / byStatus, `×k` peak concurrency, summed quantities,
- * pessimistic certainty), per-bucket heat `mean`/`max`/`sum`, and table
- * subtotals. Every factory returns the row's **flattened subtree**
- * (`ExprType<ArrayType<PlanRowType>>`), so factories compose: a nested
- * `rows:` input is just other factories' results.
+ * Rows are **flat and KEYED** in the IR (`Dict<String, PlanRow>`) with
+ * `parent` keys; the kind factories nest via `rows:` / `groupBy`, and the
+ * declared aggregates — span rollup bands (union / byStatus, `×k` peak
+ * concurrency, summed quantities, pessimistic certainty), per-bucket heat
+ * `mean`/`max`/`sum`, table subtotals, strip summaries and member counts — are
+ * derived renderer-side from the tree the `parent` keys encode. Every factory
+ * returns the row's **subtree** (`ExprType<PlanRowsCollectionType>`), so
+ * factories compose: a nested `rows:` input is just other factories' results,
+ * and a repeated key is one row, not two (#568).
  *
  * The module is the namespace assembler over the split sources:
  * `types.ts` (UIComp-free data) · `ir.ts` (resolved IR types) ·
@@ -80,6 +82,7 @@ import {
     PlanLaneType,
     PlanRowKindType,
     PlanRowType,
+    PlanRowsCollectionType,
     PlanTemplateType,
     PlanJourneyType,
 } from "./types.js";
@@ -202,6 +205,7 @@ export {
     PlanLaneType,
     PlanRowKindType,
     PlanRowType,
+    PlanRowsCollectionType,
     PlanTemplateType,
     PlanJourneyType,
     type PlanRowsValue,
@@ -367,6 +371,8 @@ export interface PlanNamespace {
         Grain: typeof PlanGrainType;
         /** One flat canvas row. */
         Row: typeof PlanRowType;
+        /** The canvas's row COLLECTION — rows keyed by their stable `key`. */
+        Rows: typeof PlanRowsCollectionType;
         /** The eight-arm row kind. */
         RowKind: typeof PlanRowKindType;
         /** The gutter identity. */
@@ -531,6 +537,7 @@ export const Plan: PlanNamespace = {
         Axis: PlanAxisType,
         Grain: PlanGrainType,
         Row: PlanRowType,
+        Rows: PlanRowsCollectionType,
         RowKind: PlanRowKindType,
         Gutter: PlanGutterType,
         Drill: PlanDrillType,

@@ -10,11 +10,16 @@
  * Chart measures, Matrix heat cells, Table numerals, Roster chips and event
  * marks — sliced and reviewed as one surface.
  *
- * Rows are **flat** in the IR (`ArrayType(PlanRowType)`, depth-first order)
- * with `parent: Option<String>` keys — no nested `RecursiveType`. The
- * factories accept nested `rows: [...]` input and flatten, computing parent
- * aggregates (rollup bands, per-bucket heat means, table subtotals) eagerly
- * on the way.
+ * Rows are **flat and KEYED** in the IR (`DictType(StringType, PlanRowType)`)
+ * with `parent: Option<String>` keys — no nested `RecursiveType`. A row has
+ * identity, not position: its `key` is what `parent` references, what `links`
+ * address, what drag refs name and what focus / collapse / selection state is
+ * keyed on, so the collection is a dictionary and two rows under one key are
+ * unconstructable (#568). Dictionaries decode to a `SortedMap`, so the canvas
+ * order is canonical KEY order — the order a paged Dict source's windows
+ * already arrive in. The factories accept nested `rows: [...]` input and
+ * flatten; parent aggregates (rollup bands, per-bucket heat means, table
+ * subtotals) are derived renderer-side from the tree the `parent` keys encode.
  *
  * This file holds only plain data — no UIComponent slots — so `component.ts`
  * can import it without a circular dependency. Since the data-interface
@@ -39,6 +44,7 @@ import {
     ArrayType,
     BooleanType,
     DateTimeType,
+    DictType,
     FloatType,
     FunctionType,
     IntegerType,
@@ -1013,8 +1019,10 @@ export type PlanRowKindType = typeof PlanRowKindType;
  * (no `UIComponentType`, no `FunctionType`).
  *
  * @remarks
- * Rows are flat, in depth-first order; `parent` keys encode the tree
- * (depth structurally unlimited — the Table `groupBy` guarantee). `pinned`
+ * Rows are flat and keyed, in canonical KEY order; `parent` keys encode the
+ * tree (depth structurally unlimited — the Table `groupBy` guarantee), which
+ * the renderer walks from the roots, so a subtree need not be contiguous in
+ * the collection. `pinned`
  * rows render above the virtualised body under the ruler; `height` is a
  * fixed CSS-px override; `status` the quiet gutter dot; `approval` the
  * review verdict (rendered only with the root's review chrome); `drill`
@@ -1036,37 +1044,52 @@ export const PlanRowType = StructType({
 /** Type alias for {@link PlanRowType}. */
 export type PlanRowType = typeof PlanRowType;
 
-/** The flattened-subtree shape every kind factory returns. */
-export type PlanRowsValue = ExprType<ArrayType<PlanRowType>>;
+/**
+ * The canvas's row COLLECTION — rows keyed by their stable `key` (#568).
+ *
+ * @remarks
+ * A `Dict` cannot hold two entries under one key, so the duplicate rows a
+ * per-window pipeline used to synthesize (a group parent re-emitted per paged
+ * window) are unconstructable rather than gated. `Dict` also decodes to a
+ * `SortedMap`, so the collection's order is canonical and deterministic —
+ * `Array` preserved construction order and nothing else.
+ */
+export const PlanRowsCollectionType = DictType(StringType, PlanRowType);
+/** Type alias for {@link PlanRowsCollectionType}. */
+export type PlanRowsCollectionType = typeof PlanRowsCollectionType;
+
+/** The flattened-subtree shape every kind factory returns — a keyed collection. */
+export type PlanRowsValue = ExprType<PlanRowsCollectionType>;
 
 /**
  * The paged source of a `data` + `series` canvas — the SHARED row-source
- * contract ({@link PagedSourceType}) instantiated at the canvas-row type
- * (`Plan Data Interface.md` §3.8). The factory builds it from the author's
- * source (a `Data.bindPaged` handle, a `Paged.of` fixture) by wrapping each
- * window with the series' `make` functions, so the renderer only ever sees
- * typed canvas-row windows — no bytes, no domain types.
+ * contract ({@link PagedSourceType}) instantiated at the canvas-row
+ * COLLECTION (`Plan Data Interface.md` §3.8). The factory builds it from the
+ * author's source (a `Data.bindPaged` handle, a `Paged.of` fixture) by
+ * wrapping each window with the series' `make` functions, so the renderer only
+ * ever sees typed, KEYED canvas-row windows — no bytes, no domain types, and
+ * no row a later window can duplicate.
  */
-export const PlanPagedSourceType = PagedSourceType(PlanRowType);
+export const PlanPagedSourceType = PagedSourceType(PlanRowsCollectionType);
 /** Type alias for {@link PlanPagedSourceType}. */
 export type PlanPagedSourceType = typeof PlanPagedSourceType;
 
 /**
  * The root's rows channel — the shared {@link RowSourceType} at the canvas-row
- * type: `inline` rows (what a `data`+`series` canvas over a collection
- * collapses to) or a `paged` source. One vocabulary across every collection,
- * so a component never sniffs shapes of its own (#567).
+ * COLLECTION: `inline` rows (what a `data`+`series` canvas over a collection
+ * collapses to) or a `paged` source of the same shape. One vocabulary across
+ * every collection, so a component never sniffs shapes of its own (#567).
  */
-export const PlanRowsType = RowSourceType(PlanRowType);
+export const PlanRowsType = RowSourceType(PlanRowsCollectionType);
 /** Type alias for {@link PlanRowsType}. */
 export type PlanRowsType = typeof PlanRowsType;
 
 /**
  * One row-library template — a kind + label card whose `make` function IS
- * the binding: it builds the live row subtree (`ArrayType(PlanRowType)` —
- * the same flattened shape every kind factory returns) from captured data
- * and bind-handles, so a dropped row is live immediately. Templates are
- * plain East data: a host can store the library in a dataset.
+ * the binding: it builds the live row subtree ({@link PlanRowsCollectionType}
+ * — the same keyed shape every kind factory returns) from captured data and
+ * bind-handles, so a dropped row is live immediately. Templates are plain
+ * East data: a host can store the library in a dataset.
  */
 export const PlanTemplateType = StructType({
     key: StringType,
@@ -1074,7 +1097,7 @@ export const PlanTemplateType = StructType({
     sublabel: OptionType(StringType),
     kind: PlanTemplateKindType,
     icon: OptionType(IconType),
-    make: FunctionType([], ArrayType(PlanRowType)),
+    make: FunctionType([], PlanRowsCollectionType),
 });
 /** Type alias for {@link PlanTemplateType}. */
 export type PlanTemplateType = typeof PlanTemplateType;

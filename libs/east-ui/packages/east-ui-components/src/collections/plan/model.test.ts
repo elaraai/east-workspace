@@ -269,6 +269,38 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
     });
 });
 
+/** One decoded row at a key, optionally parented. */
+function trow(key: string, parent: string | undefined, kind: unknown): PlanRowValue {
+    return {
+        key,
+        parent: parent !== undefined ? some(parent) : none,
+        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        kind,
+        pinned: none, height: none, status: none, approval: none, drill: none, expand: none,
+    } as unknown as PlanRowValue;
+}
+
+/** `gp → (mid → a, b), leaf` — two declared-subtotal levels over raw cells. */
+function nestedTableRows(): PlanRowValue[] {
+    const tableKind = (cells: unknown[], aggregate: boolean) => variant("table", {
+        series: cells.length > 0
+            ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
+            : [],
+        split: variant("horizontal", null),
+        aggregate: aggregate ? some(variant("sum", null)) : none,
+        format: none,
+        emphasis: variant("body", null),
+    });
+    const cell = (at: Date, v: number) => ({ at, value: some(v), text: none, tone: none });
+    return [
+        trow("gp", undefined, tableKind([], true)),
+        trow("mid", "gp", tableKind([], true)),
+        trow("a", "mid", tableKind([cell(W27, 96)], false)),
+        trow("b", "mid", tableKind([cell(W27, 54)], false)),
+        trow("leaf", "gp", tableKind([cell(W27, 10)], false)),
+    ];
+}
+
 describe("Plan derived heat / table aggregates", () => {
     test("heat mean skips no-data cells and prints whole-number labels", () => {
         const cells = deriveHeatCells([
@@ -283,33 +315,46 @@ describe("Plan derived heat / table aggregates", () => {
     });
 
     test("declared parents nest — a grandparent aggregates its children's DERIVED cells", () => {
-        const tableKind = (cells: unknown[], aggregate: boolean) => variant("table", {
-            series: cells.length > 0
-                ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
-                : [],
-            split: variant("horizontal", null),
-            aggregate: aggregate ? some(variant("sum", null)) : none,
-            format: none,
-            emphasis: variant("body", null),
-        });
-        const trow = (key: string, parent: string | undefined, kind: unknown): PlanRowValue => ({
-            key,
-            parent: parent !== undefined ? some(parent) : none,
-            gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
-            kind,
-            pinned: none, height: none, status: none, approval: none, drill: none, expand: none,
-        } as unknown as PlanRowValue);
-        const cell = (at: Date, v: number) => ({ at, value: some(v), text: none, tone: none });
-        const rows = [
-            trow("gp", undefined, tableKind([], true)),
-            trow("mid", "gp", tableKind([], true)),
-            trow("a", "mid", tableKind([cell(W27, 96)], false)),
-            trow("b", "mid", tableKind([cell(W27, 54)], false)),
-            trow("leaf", "gp", tableKind([cell(W27, 10)], false)),
-        ];
-        const derived = derivePlan(indexRows(rows as PlanRowValue[]));
+        const derived = derivePlan(indexRows(nestedTableRows()));
         expect(derived.tableCells.get("mid")![0]).toMatchObject({ value: { type: "some", value: 150 } });
         expect(derived.tableCells.get("gp")![0]).toMatchObject({ value: { type: "some", value: 160 } });    // 150 derived + 10 leaf
+    });
+
+    test("the walk follows the TREE, not the container order (#568)", () => {
+        // The collection is a Dict, so its order is KEY order and a parent can
+        // sit after its own children. Feeding a bottom-up aggregation the wrong
+        // order produces WRONG NUMBERS, not an error — this is the regression
+        // that guards `derivePlan`'s post-order traversal. Same rows, three
+        // orders (depth-first, key order, and reversed), identical results.
+        const depthFirst = nestedTableRows();
+        const keyOrder = [...depthFirst].sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+        const reversed = [...depthFirst].reverse();
+        expect(keyOrder.map((r) => r.key)).toEqual(["a", "b", "gp", "leaf", "mid"]);   // parents interleaved
+        const fromDepthFirst = derivePlan(indexRows(depthFirst));
+        for (const order of [keyOrder, reversed]) {
+            const derived = derivePlan(indexRows(order));
+            expect(derived.tableCells.get("mid")![0]).toMatchObject({ value: { type: "some", value: 150 } });
+            expect(derived.tableCells.get("gp")![0]).toMatchObject({ value: { type: "some", value: 160 } });
+            expect(derived.tableCells).toEqual(fromDepthFirst.tableCells);
+        }
+    });
+
+    test("a group's member count is DERIVED, not carried by the IR (#568)", () => {
+        // A group parent synthesized once per paged window would otherwise bake
+        // that window's count into the row; the renderer counts the members it
+        // actually has.
+        const group = (key: string, parent?: string) => trow(key, parent,
+            variant("group", { summary: none, summaryAggregate: none, collapsed: none }));
+        const rows = [
+            group("g"),
+            trow("m1", "g", spanKind),
+            trow("m2", "g", spanKind),
+            group("nested", "g"),
+            trow("m3", "nested", spanKind),
+        ];
+        const derived = derivePlan(indexRows(rows));
+        expect(derived.groupMembers.get("g")).toBe(3);          // m1, m2 and the nested group
+        expect(derived.groupMembers.get("nested")).toBe(1);
     });
 
     test("table sum subtotals carry raw values; text and tone stay renderer-owned", () => {

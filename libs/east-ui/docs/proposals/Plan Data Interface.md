@@ -82,7 +82,7 @@ Legend — **KEEP** unchanged · **RESHAPE** same intent, new mechanism ·
 
 | Field | Verdict | Change |
 |---|---|---|
-| `rows: Array<PlanRowType>` | **RESHAPE** | Becomes `rows: variant<rows: Array<PlanRowType>, source: DataPagedHandleType(ArrayType(PlanRowType))>` (§3.8) — inline unchanged for small canvases; a derived paged handle at the canvas-row type otherwise. |
+| `rows: Array<PlanRowType>` | **RESHAPE** | Becomes `rows: RowSourceType(Dict<String, PlanRowType>)` — the shared row-source contract at the canvas-row COLLECTION (§3.8): `inline` for small canvases, `paged` otherwise, both speaking the same keyed shape. Rows are KEYED because they have identity, not position, and a leaf's key is its data key (#568). |
 | `links` | KEEP | Small root data; under paged rows the focus gather fetches progressively (§3.7). |
 | `axis / grain / slice / footer / style / Dn D / callbacks` | KEEP | — |
 | `library` (templates) | KEEP | `make` returns inline subtrees; dropped rows are host-added data by definition. |
@@ -212,22 +212,26 @@ variant type, one arm per kind, whose `make` is a typed function:
 
 ```ts
 export const PlanSeriesType = <R extends EastType>(r: R) => VariantType({
-    span:    StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    buckets: StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
+    span:    StructType({ make: FunctionType([DictType(StringType, r)], PlanRows) }),
+    buckets: StructType({ make: FunctionType([DictType(StringType, r)], PlanRows) }),
     // …chart / heat / table / cards / events / group…
-    rows:    StructType({ rows: ArrayType(PlanRowType) }),      // literal one-off chrome
+    rows:    StructType({ rows: PlanRows }),                    // literal one-off chrome
 });
+// PlanRows = DictType(StringType, PlanRowType) — the canvas's row collection.
 ```
 
 Each builder — `Plan.series.span(OpsRow, cfg)` — reifies its accessors
 ONCE (Table's per-column `valueFn` move) and returns a real East value
 (`variant("span", { make })`). Everything is typed end to end: `make` is
-`Fn(Array<OpsRow>) → Array<PlanRowType>`, built from the same leaf
-constructors and groupBy engine the `.of` forms already use. The INLINE
-arm is then exactly Table's `rows_mapped`: the factory applies each
-series' `make` to the data expression and concatenates, storing the
-resulting rows expression — one function per series, applied, never
-expanded, and **no serialization of any kind is involved**.
+`Fn(Dict<String, OpsRow>) → Dict<String, PlanRowType>`, built from the
+same leaf constructors and groupBy engine. A leaf row's key is the source
+ENTRY's key — there is no `key` accessor — and accessors read
+`(value, key)`, since a keyed dataset does not repeat its key inside the
+value. The INLINE arm is then Table's `rows_mapped` with a union instead
+of a concat: the factory applies each series' `make` to the data
+expression and merges (last wins), storing the resulting rows expression
+— one function per series, applied, never expanded, and **no
+serialization of any kind is involved**.
 
 Because series are expressions, they bind like any other East value —
 `$.const([...], ArrayType(Plan.Types.Series(OpsRow)))` in the function
@@ -401,19 +405,20 @@ DERIVED paged handle at the canvas-row type (concrete, since
 `PlanRowType` is fixed):
 
 ```ts
-// IR — the root's rows field:
-rows: variant<
-    rows:   ArrayType(PlanRowType),                           // inline (today's path)
-    source: DataPagedHandleType(ArrayType(PlanRowType)),      // paged
->;
+// IR — the root's rows field, the shared contract at the canvas COLLECTION:
+rows: RowSourceType(DictType(StringType, PlanRowType));
+//   inline: Dict<String, PlanRowType>
+//   paged:  PagedSourceType(Dict<String, PlanRowType>)   // { id, page, total, seek }
 ```
 
-The factory derives it from the author's `DataPagedHandleType(Array<R>)`
-handle — `page` wrapped with the series `make`s, `total` / `status` /
-`binding` passed through. That wrap is the single internal point where
-`R` is erased; the renderer consumes the same standard handle interface
-as everything else (`page(offset, limit) → Option<Array<PlanRowType>>`,
-`total()` for the scrollbar estimate). The ordering ask
+The factory derives it from the author's `PagedSourceType(Dict<String, R>)`
+handle — `page` wrapped with the series `make`s, `total` / `seek` / `id`
+passed through. That wrap is the single internal point where `R` is
+erased; the renderer consumes the same contract as every other paged
+component (`page(offset, limit) → Option<Dict<String, PlanRowType>>`,
+`total()` for the scrollbar estimate, `seek` for key navigation). Because
+the canvas keys ARE the source keys, a window's rows land under the keys
+that window's elements have, and a `seek` row indexes the same space. The ordering ask
 (§3.7) applies to the one dataset: rows sorted so series membership and
 groupBy keys are contiguous. Slice narrowing stays client-side over
 loaded rows; server narrowing is an author's derived dataset, never

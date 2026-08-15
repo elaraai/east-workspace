@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, East, IntegerType, StringType, StructType, variant, some, none } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, StringType, StructType, variant, some, none } from "@elaraai/east";
 import { DragEventType, CellRefType, LibraryRefType, Paged } from "@elaraai/east-ui";
 
 describeEast("Drag grammar contract", (test) => {
@@ -113,6 +113,35 @@ describeEast("Row-source contract (#567)", (test) => {
         const miss = $.let(keyed.seek.unwrap("some")("kz"));
         $(Assert.equal(miss.unwrap("some").found, false));
         $(Assert.equal(miss.unwrap("some").count, 0n));
+    });
+
+    test("a KEYED source windows in key order and seeks its OWN keys (#568)", $ => {
+        // The invariant the keyed pipeline exists for: `seek` returns a row in
+        // the source's canonical key order, and that row indexes the very
+        // window space `page` serves — so a search result addresses a real row.
+        const Row = StructType({ n: IntegerType });
+        const rows = $.const(new Map([
+            ["ka-1", { n: 1n }], ["ka-2", { n: 2n }], ["kb-1", { n: 3n }], ["kc-9", { n: 4n }],
+        ]), DictType(StringType, Row));
+        const src = $.let(Paged.of("units", rows));
+        $(Assert.equal(src.total().unwrap("some"), 4n));
+        // A window is a DICT — the collection it was given, in key order.
+        const w0 = $.let(src.page(0n, 2n));
+        $(Assert.equal(w0.unwrap("some").size(), 2n));
+        $(Assert.equal(w0.unwrap("some").has("ka-1"), true));
+        $(Assert.equal(w0.unwrap("some").has("kb-1"), false));
+        // `seek` needs no key accessor here: the collection IS keyed.
+        const hit = $.let(src.seek.unwrap("some")("ka"));
+        $(Assert.equal(hit.unwrap("some").found, true));
+        $(Assert.equal(hit.unwrap("some").row, 0n));
+        $(Assert.equal(hit.unwrap("some").count, 2n));
+        const mid = $.let(src.seek.unwrap("some")("kb"));
+        $(Assert.equal(mid.unwrap("some").row, 2n));
+        // The seek row plugs straight into a window — the same row space.
+        const at = $.let(src.page(mid.unwrap("some").row, 1n));
+        $(Assert.equal(at.unwrap("some").has("kb-1"), true));
+        // Past the end ⇒ the EMPTY window, exactly as the array form.
+        $(Assert.equal(src.page(4n, 2n).unwrap("some").size(), 0n));
     });
 
     test("two sources at different ids compare UNEQUAL — the memo discriminator", $ => {

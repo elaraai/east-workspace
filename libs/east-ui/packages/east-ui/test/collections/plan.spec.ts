@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Plan, Text } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -38,7 +38,7 @@ describeEast("Plan", (test) => {
 
     test("root carries axis, grain, footer, dnd identity and style; data + series is the definition", $ => {
         const Row = StructType({ id: StringType });
-        const data = $.const([], ArrayType(Row));
+        const data = $.const(new Map(), DictType(StringType, Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week", resolutions: ["week", "day"], now: W31, format: "W" }),
             data,
@@ -64,13 +64,13 @@ describeEast("Plan", (test) => {
         $(Assert.equal(root.style.unwrap("some").height.unwrap("some"), "fill"));
         $(Assert.equal(root.style.unwrap("some").density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "168px"));
-        // Empty data × no series ⇒ an empty inline canvas.
-        $(Assert.equal(root.rows.unwrap("inline").length(), 0n));
+        // Empty data × no series ⇒ an empty inline canvas (a keyed collection).
+        $(Assert.equal(root.rows.unwrap("inline").size(), 0n));
     });
 
     test("review config defaults the column and rerun labels", $ => {
         const Row = StructType({ id: StringType });
-        const data = $.const([], ArrayType(Row));
+        const data = $.const(new Map(), DictType(StringType, Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data,
@@ -91,7 +91,7 @@ describeEast("Plan", (test) => {
             { src: "m03", srcRun: "b214", dst: "m04", dstRun: "b208", t: 24.0 },
             { src: "m04", srcRun: "b208", dst: "dock2", dstRun: "d1", t: 18.0 },
         ], ArrayType(TransferRow));
-        const data = $.const([], ArrayType(Row));
+        const data = $.const(new Map(), DictType(StringType, Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data,
@@ -115,17 +115,17 @@ describeEast("Plan", (test) => {
             key: "m13", label: "L4-M13",
             expand: { height: "152px", axis: "dim" },
         }));
-        const declared = $.let(rows.get(0n).expand.unwrap("some"));
+        const declared = $.let(rows.get("m13").expand.unwrap("some"));
         $(Assert.equal(declared.height.unwrap("some"), "152px"));
         $(Assert.equal(declared.axis.hasTag("dim"), true));
         // Defaults: axis keep, height none (the renderer's default) — the
         // empty declaration just marks the row expandable.
         const dflt = $.let(Plan.span({ key: "d", label: "D", expand: {} }));
-        $(Assert.equal(dflt.get(0n).expand.unwrap("some").axis.hasTag("keep"), true));
-        $(Assert.equal(dflt.get(0n).expand.unwrap("some").height.hasTag("none"), true));
+        $(Assert.equal(dflt.get("d").expand.unwrap("some").axis.hasTag("keep"), true));
+        $(Assert.equal(dflt.get("d").expand.unwrap("some").height.hasTag("none"), true));
         // Rows without a declaration carry none — no expand control renders.
         const bare = $.let(Plan.span({ key: "b", label: "B" }));
-        $(Assert.equal(bare.get(0n).expand.hasTag("none"), true));
+        $(Assert.equal(bare.get("b").expand.hasTag("none"), true));
     });
 
     test("the root carries the generalized popover/hover resolvers over element refs and the expandRender", $ => {
@@ -143,7 +143,7 @@ describeEast("Plan", (test) => {
         }));
         const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) =>
             Text.Root("UTIL RENDER")));
-        const data = $.const([], ArrayType(Row));
+        const data = $.const(new Map(), DictType(StringType, Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data,
@@ -203,11 +203,11 @@ describeEast("Plan", (test) => {
     });
 
     // =========================================================================
-    // Flatten — nested rows, parent keys, depth-first order (the SUBTREE
-    // vocabulary — template `make` bodies and `series.rows` chrome)
+    // Composition — nested rows, parent keys, one keyed collection (the
+    // SUBTREE vocabulary — template `make` bodies and `series.rows` chrome)
     // =========================================================================
 
-    test("span nesting flattens depth-first with re-parented roots", $ => {
+    test("span nesting composes into ONE keyed collection with re-parented roots", $ => {
         const rows = $.let(Plan.span({
             key: "prog", label: "Program", rows: [
                 Plan.span({ key: "m1", label: "M1", runs: [
@@ -220,17 +220,32 @@ describeEast("Plan", (test) => {
                 ] }),
             ],
         }));
-        $(Assert.equal(rows.length(), 4n));
-        $(Assert.equal(rows.get(0n).key, "prog"));
-        $(Assert.equal(rows.get(0n).parent.hasTag("none"), true));
-        $(Assert.equal(rows.get(1n).key, "m1"));
-        $(Assert.equal(rows.get(1n).parent.unwrap("some"), "prog"));
-        $(Assert.equal(rows.get(2n).key, "m2"));
-        $(Assert.equal(rows.get(2n).parent.unwrap("some"), "prog"));
-        // Depth-first: m2's own child keeps ITS parent (m2), re-parenting only
-        // touches subtree roots.
-        $(Assert.equal(rows.get(3n).key, "m2a"));
-        $(Assert.equal(rows.get(3n).parent.unwrap("some"), "m2"));
+        $(Assert.equal(rows.size(), 4n));
+        // A row is addressed by its KEY, never by position.
+        $(Assert.equal(rows.get("prog").parent.hasTag("none"), true));
+        $(Assert.equal(rows.get("m1").parent.unwrap("some"), "prog"));
+        $(Assert.equal(rows.get("m2").parent.unwrap("some"), "prog"));
+        // Re-parenting only touches subtree ROOTS: m2's own child keeps ITS
+        // parent, and no key is ever rewritten.
+        $(Assert.equal(rows.get("m2a").parent.unwrap("some"), "m2"));
+    });
+
+    test("two rows under ONE key collapse to a single entry (#568 — the D3 regression)", $ => {
+        // A Dict cannot hold two entries under one key, so the duplicate a
+        // per-window pipeline used to synthesize is unconstructable rather
+        // than gated. Composition is last-wins, so the LATER row stands.
+        const one = $.let(Plan.span({ key: "dup", label: "first" }));
+        const merged = $.let(Plan.group({
+            key: "g", label: "G", rows: [
+                Plan.span({ key: "dup", label: "first" }),
+                Plan.span({ key: "dup", label: "second" }),
+            ],
+        }));
+        $(Assert.equal(one.size(), 1n));
+        // The group plus ONE member — not two.
+        $(Assert.equal(merged.size(), 2n));
+        $(Assert.equal(merged.get("dup").gutter.label, "second"));
+        $(Assert.equal(merged.get("dup").parent.unwrap("some"), "g"));
     });
 
     test("gutter and row envelope fields round-trip", $ => {
@@ -245,7 +260,7 @@ describeEast("Plan", (test) => {
             drill: { lines: ["a"], meter: 0.5, events: ["e"], journey: "B-208" },
             layers: Chart.Line(series, { x: r => r.week, y: r => r.pct }),
         }));
-        const row = $.let(rows.get(0n));
+        const row = $.let(rows.get("cov"));
         $(Assert.equal(row.gutter.label, "COVERAGE"));
         $(Assert.equal(row.gutter.id.unwrap("some"), true));
         $(Assert.equal(row.gutter.sub.unwrap("some"), "demand"));
@@ -276,12 +291,12 @@ describeEast("Plan", (test) => {
                 ] }),
             ],
         }));
-        const kind = $.let(rows.get(0n).kind.unwrap("span"));
+        const kind = $.let(rows.get("p").kind.unwrap("span"));
         $(Assert.equal(kind.rollup.unwrap("some").hasTag("union"), true));
         $(Assert.equal(kind.unit.unwrap("some"), "t"));
         $(Assert.equal(kind.runs.length(), 0n));
         // Leaves declare no rollup.
-        $(Assert.equal(rows.get(1n).kind.unwrap("span").rollup.hasTag("none"), true));
+        $(Assert.equal(rows.get("a").kind.unwrap("span").rollup.hasTag("none"), true));
         const byStatus = $.let(Plan.span({
             key: "q", label: "Q", rollup: "byStatus", rows: [
                 Plan.span({ key: "b", label: "B", runs: [
@@ -289,7 +304,7 @@ describeEast("Plan", (test) => {
                 ] }),
             ],
         }));
-        $(Assert.equal(byStatus.get(0n).kind.unwrap("span").rollup.unwrap("some").hasTag("byStatus"), true));
+        $(Assert.equal(byStatus.get("q").kind.unwrap("span").rollup.unwrap("some").hasTag("byStatus"), true));
     });
 
     // =========================================================================
@@ -306,14 +321,14 @@ describeEast("Plan", (test) => {
                 ]) }),
             ],
         }));
-        const kind = $.let(rows.get(0n).kind.unwrap("heat"));
+        const kind = $.let(rows.get("line").kind.unwrap("heat"));
         $(Assert.equal(kind.aggregate.unwrap("some").hasTag("mean"), true));
         const cells = $.let(kind.cells.unwrap("heat"));
         $(Assert.equal(cells.cells.length(), 0n));
         $(Assert.equal(cells.min.unwrap("some"), 0.0));
         $(Assert.equal(cells.max.unwrap("some"), 100.0));
         // The child keeps its real cells.
-        $(Assert.equal(rows.get(1n).kind.unwrap("heat").cells.unwrap("heat").cells.length(), 2n));
+        $(Assert.equal(rows.get("a").kind.unwrap("heat").cells.unwrap("heat").cells.length(), 2n));
     });
 
     test("table parents DECLARE their subtotal mode + shared Format spec; cells carry raw values", $ => {
@@ -329,7 +344,7 @@ describeEast("Plan", (test) => {
                 ]) }),
             ],
         }));
-        const kind = $.let(rows.get(0n).kind.unwrap("table"));
+        const kind = $.let(rows.get("desp").kind.unwrap("table"));
         // The parent carries the declaration; the renderer derives the cells
         // and prints every numeral through the shared `TickFormatType` spec.
         $(Assert.equal(kind.series.length(), 0n));
@@ -340,12 +355,12 @@ describeEast("Plan", (test) => {
         // The `cells` sugar wraps into ONE unstyled series; leaf cells carry
         // raw values — text and tone are renderer-derived (explicit
         // overrides stay `none` from the builder).
-        const leafA = $.let(rows.get(1n).kind.unwrap("table").series.get(0n).cells);
+        const leafA = $.let(rows.get("a").kind.unwrap("table").series.get(0n).cells);
         $(Assert.equal(leafA.get(1n).value.unwrap("some"), -4.0));
         $(Assert.equal(leafA.get(1n).text.hasTag("none"), true));
         $(Assert.equal(leafA.get(1n).tone.hasTag("none"), true));
-        $(Assert.equal(rows.get(1n).kind.unwrap("table").series.get(0n).tone.hasTag("none"), true));
-        const leafB = $.let(rows.get(2n).kind.unwrap("table").series.get(0n).cells);
+        $(Assert.equal(rows.get("a").kind.unwrap("table").series.get(0n).tone.hasTag("none"), true));
+        const leafB = $.let(rows.get("b").kind.unwrap("table").series.get(0n).cells);
         $(Assert.equal(leafB.get(1n).value.hasTag("none"), true));
     });
 
@@ -361,7 +376,7 @@ describeEast("Plan", (test) => {
                     cells: Plan.tableCells([{ at: W27, value: some(-8.0) }]) }),
             ],
         }));
-        const kind = $.let(rows.get(0n).kind.unwrap("table"));
+        const kind = $.let(rows.get("flow").kind.unwrap("table"));
         $(Assert.equal(kind.split.hasTag("vertical"), true));
         $(Assert.equal(kind.series.length(), 2n));
         const s0 = $.let(kind.series.get(0n));
@@ -398,7 +413,7 @@ describeEast("Plan", (test) => {
             })],
             markers: [Plan.marker({ at: W28, lane: "pm", message: "breach" })],
         }));
-        const b = $.let(rows.get(0n).kind.unwrap("buckets"));
+        const b = $.let(rows.get("dock").kind.unwrap("buckets"));
         $(Assert.equal(b.lanes.length(), 2n));
         $(Assert.equal(b.lanes.get(0n).label.unwrap("some"), "AM"));
         $(Assert.equal(b.lanes.get(1n).label.hasTag("none"), true));
@@ -424,7 +439,7 @@ describeEast("Plan", (test) => {
                 Plan.chip({ key: "c1", from: W27, to: W29, label: "80h", state: "removed" }),
             ],
         }));
-        const chip = $.let(cardRows.get(0n).kind.unwrap("cards").chips.get(0n));
+        const chip = $.let(cardRows.get("crew").kind.unwrap("cards").chips.get(0n));
         $(Assert.equal(chip.from, W27));
         $(Assert.equal(chip.to, W29));
         $(Assert.equal(chip.state.unwrap("proposed").hasTag("removed"), true));
@@ -435,7 +450,7 @@ describeEast("Plan", (test) => {
                 Plan.mark({ key: "m3", at: W30, kind: "exception" }),
             ],
         }));
-        const marks = $.let(eventRows.get(0n).kind.unwrap("events").marks);
+        const marks = $.let(eventRows.get("ms").kind.unwrap("events").marks);
         $(Assert.equal(marks.get(0n).kind.hasTag("milestone"), true));
         $(Assert.equal(marks.get(0n).label.unwrap("some"), "GO"));
         $(Assert.equal(marks.get(1n).kind.unwrap("decision").applied, true));
@@ -464,7 +479,7 @@ describeEast("Plan", (test) => {
                 Chart.refDot({ x: W28, y: 20, label: "LOW" }),
             ],
         }));
-        const chart = $.let(rows.get(0n).kind.unwrap("chart"));
+        const chart = $.let(rows.get("c").kind.unwrap("chart"));
         $(Assert.equal(chart.height.unwrap("fixed"), "120px"));
         // The expanded state's pixel override (default 88 when `none`).
         $(Assert.equal(chart.expandedHeight.unwrap("some"), "96px"));
@@ -510,7 +525,7 @@ describeEast("Plan", (test) => {
                 Chart.Column(series, { x: r => r.week, y: r => r.pct }),
             ],
         }));
-        const chart = $.let(rows.get(0n).kind.unwrap("chart"));
+        const chart = $.let(rows.get("out").kind.unwrap("chart"));
         $(Assert.equal(chart.height.hasTag("spark"), true));
         $(Assert.equal(chart.expandedHeight.hasTag("none"), true));
         $(Assert.equal(chart.layers.get(0n).unwrap("column").series.unwrap("some"), "L1"));
@@ -566,77 +581,105 @@ describeEast("Plan", (test) => {
                 ]) }),
             ],
         }));
-        $(Assert.equal(rows.length(), 3n));
-        const g = $.let(rows.get(0n).kind.unwrap("group"));
+        $(Assert.equal(rows.size(), 3n));
+        const g = $.let(rows.get("line2").kind.unwrap("group"));
         $(Assert.equal(g.collapsed.unwrap("some"), true));
         // The declaration; the renderer derives the strip cells.
         $(Assert.equal(g.summaryAggregate.unwrap("some").hasTag("mean"), true));
         $(Assert.equal(g.summary.hasTag("none"), true));
-        $(Assert.equal(rows.get(1n).parent.unwrap("some"), "line2"));
+        $(Assert.equal(rows.get("a").parent.unwrap("some"), "line2"));
     });
 
     test("series.group discovered form builds one collapsed strip per by value with member-count meta", $ => {
-        const LineRow = StructType({ id: StringType, line: StringType, v: FloatType });
-        const data = $.const([
-            { id: "a", line: "L1", v: 40.0 },
-            { id: "b", line: "L1", v: 60.0 },
-            { id: "c", line: "L2", v: 80.0 },
-        ], ArrayType(LineRow));
+        // The source is KEYED: the entry keys become the canvas row keys, so
+        // the row's identity is the dataset's, not something re-derived.
+        const LineRow = StructType({ line: StringType, v: FloatType });
+        const data = $.const(new Map([
+            ["a", { line: "L1", v: 40.0 }],
+            ["b", { line: "L1", v: 60.0 }],
+            ["c", { line: "L2", v: 80.0 }],
+        ]), DictType(StringType, LineRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [
-                Plan.series.group(LineRow, { by: r => r.line, collapsed: true, summaryAggregate: "mean" }, [
+                Plan.series.group(LineRow, { by: r => r.line, prefix: "line-", collapsed: true, summaryAggregate: "mean" }, [
                     Plan.series.heat(LineRow, {
-                        key: r => r.id, label: r => r.id,
+                        label: (_r, k) => k,
                         cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
                     }),
                 ]),
             ],
         }));
-        // L1 strip + 2 members, L2 strip + 1 member — strips in
-        // first-appearance data order, wearing the member-count meta.
+        // L1 strip + 2 members, L2 strip + 1 member. Member keys are the
+        // DATA's; strip keys carry the series' `prefix`, so two families
+        // grouping the same column cannot land on one key.
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        $(Assert.equal(rows.length(), 5n));
-        $(Assert.equal(rows.get(0n).key, "L1"));
-        $(Assert.equal(rows.get(0n).gutter.meta.unwrap("some"), "2 rs"));
-        $(Assert.equal(rows.get(0n).kind.unwrap("group").summaryAggregate.unwrap("some").hasTag("mean"), true));
-        $(Assert.equal(rows.get(0n).kind.unwrap("group").collapsed.unwrap("some"), true));
-        $(Assert.equal(rows.get(1n).parent.unwrap("some"), "L1"));
-        $(Assert.equal(rows.get(2n).parent.unwrap("some"), "L1"));
-        $(Assert.equal(rows.get(3n).key, "L2"));
-        $(Assert.equal(rows.get(4n).parent.unwrap("some"), "L2"));
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get("line-L1").kind.unwrap("group").summaryAggregate.unwrap("some").hasTag("mean"), true));
+        $(Assert.equal(rows.get("line-L1").kind.unwrap("group").collapsed.unwrap("some"), true));
+        // The member count is NOT baked in — it is a renderer-side derivation
+        // like every other aggregate (#568), so the IR carries no meta.
+        $(Assert.equal(rows.get("line-L1").gutter.meta.hasTag("none"), true));
+        $(Assert.equal(rows.get("a").parent.unwrap("some"), "line-L1"));
+        $(Assert.equal(rows.get("b").parent.unwrap("some"), "line-L1"));
+        $(Assert.equal(rows.get("c").parent.unwrap("some"), "line-L2"));
     });
 
     test("series span groupBy builds rollup parents per discovered value", $ => {
         const SpanRow = StructType({
-            id: StringType, program: StringType,
+            program: StringType,
             start: DateTimeType, end: DateTimeType, tonnes: FloatType,
         });
-        const data = $.const([
-            { id: "m1", program: "A", start: W27, end: W29, tonnes: 96.0 },
-            { id: "m2", program: "A", start: W28, end: W30, tonnes: 50.0 },
-            { id: "m3", program: "B", start: W27, end: W28, tonnes: 10.0 },
-        ], ArrayType(SpanRow));
+        const data = $.const(new Map([
+            ["m1", { program: "A", start: W27, end: W29, tonnes: 96.0 }],
+            ["m2", { program: "A", start: W28, end: W30, tonnes: 50.0 }],
+            ["m3", { program: "B", start: W27, end: W28, tonnes: 10.0 }],
+        ]), DictType(StringType, SpanRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [Plan.series.span(SpanRow, {
-                key: r => r.id, label: r => r.id, id: true,
-                runs: r => [Plan.run({ key: r.id, start: r.start, end: r.end, label: r.id, qty: r.tonnes, state: variant("confirmed", null) })],
+                label: (_r, k) => k, id: true,
+                runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, qty: r.tonnes, state: variant("confirmed", null) })],
                 groupBy: [r => r.program], rollup: "union", unit: "t",
             })],
         }));
-        // A parent + 2 members, B parent + 1 member; parents DECLARE the
-        // rollup + unit (the renderer derives the band values).
+        // A parent + 2 members, B parent + 1 member. LEAF keys are the data's
+        // own — untouched — and the synthesized parents key on the group value;
+        // parents DECLARE the rollup + unit (the renderer derives the bands).
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        $(Assert.equal(rows.length(), 5n));
-        $(Assert.equal(rows.get(0n).key, "A"));
-        $(Assert.equal(rows.get(0n).gutter.label, "A"));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").unit.unwrap("some"), "t"));
-        $(Assert.equal(rows.get(1n).parent.unwrap("some"), "A"));
-        $(Assert.equal(rows.get(3n).key, "B"));
+        $(Assert.equal(rows.size(), 5n));
+        $(Assert.equal(rows.get("A").gutter.label, "A"));
+        $(Assert.equal(rows.get("A").kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
+        $(Assert.equal(rows.get("A").kind.unwrap("span").unit.unwrap("some"), "t"));
+        $(Assert.equal(rows.get("m1").parent.unwrap("some"), "A"));
+        $(Assert.equal(rows.get("m2").parent.unwrap("some"), "A"));
+        $(Assert.equal(rows.get("m3").parent.unwrap("some"), "B"));
+    });
+
+    test("a series `prefix` namespaces its whole family — leaves included (#568)", $ => {
+        // Two families over the SAME keyed source would otherwise emit two rows
+        // under one key. A prefix is the author moving one family off the
+        // source key space deliberately; the default keeps the source's keys.
+        const Row = StructType({ v: FloatType });
+        const data = $.const(new Map([["m1", { v: 1.0 }], ["m2", { v: 2.0 }]]),
+            DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data,
+            series: [
+                Plan.series.events(Row, { label: (_r, k) => k, marks: _r => [] }),
+                Plan.series.events(Row, { prefix: "alt/", label: (_r, k) => k, marks: _r => [] }),
+            ],
+        }));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        $(Assert.equal(rows.size(), 4n));
+        // The unprefixed family keeps the SOURCE's keys — the property a paged
+        // canvas needs, since `seek` addresses that key space.
+        $(Assert.equal(rows.get("m1").gutter.label, "m1"));
+        $(Assert.equal(rows.get("alt/m1").gutter.label, "m1"));
+        $(Assert.equal(rows.get("alt/m2").gutter.label, "m2"));
     });
 
     test("series accessor channel: value/status/drill Options flow per row from raw fields", $ => {
@@ -644,24 +687,24 @@ describeEast("Plan", (test) => {
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
         });
         const MachineRow = StructType({
-            id: StringType, cap: FloatType, warn: BooleanType,
+            cap: FloatType, warn: BooleanType,
             drill: OptionType(Plan.Types.Drill),
             jobs: ArrayType(JobRow),
         });
-        const data = $.const([
+        const data = $.const(new Map([
             // The drill payload is a stored plain-data record (§3.2) —
             // presence is a per-row fact; no builders in the data.
-            { id: "m1", cap: 120.0, warn: true,
+            ["m1", { cap: 120.0, warn: true,
               drill: some({ lines: ["120 t · FILL"], meter: some(0.5), series: none, events: [], journey: some("B-208") }),
-              jobs: [{ batch: "B-1", start: W27, end: W28, state: variant("actual", null) }] },
-            { id: "m2", cap: 80.0, warn: false, drill: none,
-              jobs: [{ batch: "B-2", start: W28, end: W29, state: variant("confirmed", null) }] },
-        ], ArrayType(MachineRow));
+              jobs: [{ batch: "B-1", start: W27, end: W28, state: variant("actual", null) }] }],
+            ["m2", { cap: 80.0, warn: false, drill: none,
+              jobs: [{ batch: "B-2", start: W28, end: W29, state: variant("confirmed", null) }] }],
+        ]), DictType(StringType, MachineRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [Plan.series.span(MachineRow, {
-                key: r => r.id, label: r => r.id, id: true,
+                label: (_r, k) => k, id: true,
                 value: r => some(East.str`${East.Float.printFixed(r.cap, 0n)} t`),
                 status: r => r.warn.ifElse(
                     () => East.value(some(variant("warning", null)), OptionType(StatusValueType)),
@@ -676,21 +719,21 @@ describeEast("Plan", (test) => {
         // Per-row presence + display, derived from the raw fields in the
         // stored make — nothing precomputed in the data.
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        $(Assert.equal(rows.get(0n).gutter.value.unwrap("some"), "120 t"));
-        $(Assert.equal(rows.get(0n).status.unwrap("some").hasTag("warning"), true));
-        $(Assert.equal(rows.get(1n).status.hasTag("none"), true));
-        $(Assert.equal(rows.get(0n).drill.hasTag("some"), true));
-        $(Assert.equal(rows.get(0n).drill.unwrap("some").journey.unwrap("some"), "B-208"));
-        $(Assert.equal(rows.get(0n).drill.unwrap("some").meter.unwrap("some"), 0.5));
-        $(Assert.equal(rows.get(1n).drill.hasTag("none"), true));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
+        $(Assert.equal(rows.get("m1").gutter.value.unwrap("some"), "120 t"));
+        $(Assert.equal(rows.get("m1").status.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(rows.get("m2").status.hasTag("none"), true));
+        $(Assert.equal(rows.get("m1").drill.hasTag("some"), true));
+        $(Assert.equal(rows.get("m1").drill.unwrap("some").journey.unwrap("some"), "B-208"));
+        $(Assert.equal(rows.get("m1").drill.unwrap("some").meter.unwrap("some"), 0.5));
+        $(Assert.equal(rows.get("m2").drill.hasTag("none"), true));
+        $(Assert.equal(rows.get("m1").kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
     });
 
     test("bucket lanes accept East arrays of PlanLaneType values", $ => {
         const lanes = $.const([{ key: "am", label: some("AM") }, { key: "pm", label: none }],
             ArrayType(Plan.Types.Lane));
         const rows = $.let(Plan.buckets({ key: "d", label: "D", lanes }));
-        const b = $.let(rows.get(0n).kind.unwrap("buckets"));
+        const b = $.let(rows.get("d").kind.unwrap("buckets"));
         $(Assert.equal(b.lanes.length(), 2n));
         $(Assert.equal(b.lanes.get(0n).label.unwrap("some"), "AM"));
         $(Assert.equal(b.lanes.get(1n).label.hasTag("none"), true));
@@ -708,27 +751,27 @@ describeEast("Plan", (test) => {
             key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
         });
         const OpsRow = StructType({
-            id: StringType, line: StringType,
+            line: StringType,
             kind: VariantType({
                 machine: StructType({ jobs: ArrayType(JobRow) }),
                 crew:    StructType({ shifts: ArrayType(ShiftRow) }),
             }),
         });
-        const ops = $.const([
-            { id: "m1", line: "L1", kind: variant("machine", { jobs: [
-                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) },
-            { id: "m2", line: "L1", kind: variant("machine", { jobs: [
-                { batch: "B-2", start: W28, end: W30, state: variant("confirmed", null) }] }) },
-            { id: "c1", line: "L1", kind: variant("crew", { shifts: [
-                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) },
-        ], ArrayType(OpsRow));
+        const ops = $.const(new Map([
+            ["m1", { line: "L1", kind: variant("machine", { jobs: [
+                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
+            ["m2", { line: "L1", kind: variant("machine", { jobs: [
+                { batch: "B-2", start: W28, end: W30, state: variant("confirmed", null) }] }) }],
+            ["c1", { line: "L1", kind: variant("crew", { shifts: [
+                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) }],
+        ]), DictType(StringType, OpsRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data: ops,
             series: [
                 Plan.series.span(OpsRow, {
                     match: r => r.kind.hasTag("machine"),
-                    key: r => r.id, label: r => r.id, id: true,
+                    label: (_r, k) => k, id: true,
                     runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                         key: j.batch, start: j.start, end: j.end,
                         label: East.str`RUN · ${j.batch}`, state: j.state,
@@ -737,7 +780,7 @@ describeEast("Plan", (test) => {
                 }),
                 Plan.series.cards(OpsRow, {
                     match: r => r.kind.hasTag("crew"),
-                    key: r => r.id, label: r => r.id,
+                    label: (_r, k) => k,
                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
                         const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
                         return Plan.chip({
@@ -749,20 +792,17 @@ describeEast("Plan", (test) => {
             ],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        // Span family first (L1 rollup parent + its two machines — the crew
-        // row filtered out by match), then the cards family; the chip label
+        // The span family's rollup parent + its two machines (the crew row
+        // filtered out by match), plus the cards family's row; the chip label
         // derives from the raw hours in the stored make.
-        $(Assert.equal(rows.length(), 4n));
-        $(Assert.equal(rows.get(0n).key, "L1"));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").unit.unwrap("some"), "t"));
-        $(Assert.equal(rows.get(1n).key, "m1"));
-        $(Assert.equal(rows.get(1n).parent.unwrap("some"), "L1"));
-        $(Assert.equal(rows.get(1n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
-        $(Assert.equal(rows.get(2n).key, "m2"));
-        $(Assert.equal(rows.get(3n).key, "c1"));
-        $(Assert.equal(rows.get(3n).kind.unwrap("cards").chips.length(), 1n));
-        $(Assert.equal(rows.get(3n).kind.unwrap("cards").chips.get(0n).label, "80h"));
+        $(Assert.equal(rows.size(), 4n));
+        $(Assert.equal(rows.get("L1").kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
+        $(Assert.equal(rows.get("L1").kind.unwrap("span").unit.unwrap("some"), "t"));
+        $(Assert.equal(rows.get("m1").parent.unwrap("some"), "L1"));
+        $(Assert.equal(rows.get("m1").kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
+        $(Assert.equal(rows.get("m2").parent.unwrap("some"), "L1"));
+        $(Assert.equal(rows.get("c1").kind.unwrap("cards").chips.length(), 1n));
+        $(Assert.equal(rows.get("c1").kind.unwrap("cards").chips.get(0n).label, "80h"));
     });
 
     test("a $.const-bound series expression applies via the East fold", $ => {
@@ -770,17 +810,16 @@ describeEast("Plan", (test) => {
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
         });
         const OpsRow = StructType({
-            id: StringType,
             kind: VariantType({ machine: StructType({ jobs: ArrayType(JobRow) }) }),
         });
-        const ops = $.const([
-            { id: "m1", kind: variant("machine", { jobs: [
-                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) },
-        ], ArrayType(OpsRow));
+        const ops = $.const(new Map([
+            ["m1", { kind: variant("machine", { jobs: [
+                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
+        ]), DictType(StringType, OpsRow));
         // The series list is itself an East VALUE — typed by the constructor.
         const series = $.const([
             Plan.series.span(OpsRow, {
-                key: r => r.id, label: r => r.id,
+                label: (_r, k) => k,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
                     label: East.str`RUN · ${j.batch}`, state: j.state,
@@ -790,11 +829,9 @@ describeEast("Plan", (test) => {
         ], ArrayType(Plan.Types.Series(OpsRow)));
         const p = $.let(Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: ops, series }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        $(Assert.equal(rows.length(), 2n));
-        $(Assert.equal(rows.get(0n).key, "m1"));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.length(), 1n));
-        $(Assert.equal(rows.get(1n).key, "ms"));
-        $(Assert.equal(rows.get(1n).kind.hasTag("events"), true));
+        $(Assert.equal(rows.size(), 2n));
+        $(Assert.equal(rows.get("m1").kind.unwrap("span").runs.length(), 1n));
+        $(Assert.equal(rows.get("ms").kind.hasTag("events"), true));
     });
 
     test("series.group wraps child families under a strip; series.rows carries literal chrome", $ => {
@@ -802,13 +839,12 @@ describeEast("Plan", (test) => {
             key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
         });
         const OpsRow = StructType({
-            id: StringType,
             kind: VariantType({ crew: StructType({ shifts: ArrayType(ShiftRow) }) }),
         });
-        const ops = $.const([
-            { id: "crewA", kind: variant("crew", { shifts: [
-                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) },
-        ], ArrayType(OpsRow));
+        const ops = $.const(new Map([
+            ["crewA", { kind: variant("crew", { shifts: [
+                { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) }],
+        ]), DictType(StringType, OpsRow));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data: ops,
@@ -816,7 +852,7 @@ describeEast("Plan", (test) => {
                 Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
                 Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
                     Plan.series.cards(OpsRow, {
-                        key: r => r.id, label: r => r.id,
+                        label: (_r, k) => k,
                         chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
                             const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
                             return Plan.chip({
@@ -829,13 +865,12 @@ describeEast("Plan", (test) => {
             ],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        $(Assert.equal(rows.length(), 3n));
-        $(Assert.equal(rows.get(0n).key, "ms"));
-        $(Assert.equal(rows.get(1n).key, "crews"));
-        $(Assert.equal(rows.get(1n).kind.hasTag("group"), true));
-        $(Assert.equal(rows.get(1n).gutter.meta.unwrap("some"), "1 rs"));
-        $(Assert.equal(rows.get(2n).key, "crewA"));
-        $(Assert.equal(rows.get(2n).parent.unwrap("some"), "crews"));
+        $(Assert.equal(rows.size(), 3n));
+        $(Assert.equal(rows.get("ms").kind.hasTag("events"), true));
+        $(Assert.equal(rows.get("crews").kind.hasTag("group"), true));
+        // Static chrome keeps its AUTHORED meta line verbatim.
+        $(Assert.equal(rows.get("crews").gutter.meta.unwrap("some"), "1 rs"));
+        $(Assert.equal(rows.get("crewA").parent.unwrap("some"), "crews"));
     });
 
     test("a paged data handle derives the canvas-row source — page wraps the series makes, total passes through", $ => {
@@ -843,30 +878,31 @@ describeEast("Plan", (test) => {
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
         });
         const OpsRow = StructType({
-            id: StringType,
             kind: VariantType({ machine: StructType({ jobs: ArrayType(JobRow) }) }),
         });
-        const ops = $.const([
-            { id: "m1", kind: variant("machine", { jobs: [
-                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) },
-        ], ArrayType(OpsRow));
-        // A hermetic paged handle — pure East fns windowing the captured
-        // array (the shape Data.bindPaged produces; no platform involved).
+        const OpsSource = DictType(StringType, OpsRow);
+        const ops = $.const(new Map([
+            ["m1", { kind: variant("machine", { jobs: [
+                { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
+        ]), OpsSource);
+        // A hermetic paged handle — pure East fns windowing the captured KEYED
+        // collection (the shape Data.bindPaged produces over a Dict dataset;
+        // no platform involved).
         const handle = $.const({
-            page: East.function([IntegerType, IntegerType], OptionType(ArrayType(OpsRow)), ($, o, _l) => {
-                const noPage = $.const(none, OptionType(ArrayType(OpsRow)));
+            page: East.function([IntegerType, IntegerType], OptionType(OpsSource), ($, o, _l) => {
+                const noPage = $.const(none, OptionType(OpsSource));
                 return o.equal(0n).ifElse(() => some(ops), () => noPage);
             }),
             total: East.function([], OptionType(IntegerType), (_$) => some(1n)),
         }, StructType({
-            page: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(OpsRow))),
+            page: FunctionType([IntegerType, IntegerType], OptionType(OpsSource)),
             total: FunctionType([], OptionType(IntegerType)),
         }));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ resolution: "week" }),
             data: handle,
             series: [Plan.series.span(OpsRow, {
-                key: r => r.id, label: r => r.id,
+                label: (_r, k) => k,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
                     label: East.str`RUN · ${j.batch}`, state: j.state,
@@ -877,11 +913,11 @@ describeEast("Plan", (test) => {
         // each window's RAW rows flow through the same accessor derivations.
         const src = $.let(p.unwrap().unwrap("Plan").rows.unwrap("paged"));
         $(Assert.equal(src.total().unwrap("some"), 1n));
+        // A window is the canvas's KEYED collection, not an array (#568).
         const w0 = $.let(src.page(0n, 100n));
-        $(Assert.equal(w0.unwrap("some").length(), 1n));
-        $(Assert.equal(w0.unwrap("some").get(0n).key, "m1"));
-        $(Assert.equal(w0.unwrap("some").get(0n).kind.unwrap("span").runs.length(), 1n));
-        $(Assert.equal(w0.unwrap("some").get(0n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
+        $(Assert.equal(w0.unwrap("some").size(), 1n));
+        $(Assert.equal(w0.unwrap("some").get("m1").kind.unwrap("span").runs.length(), 1n));
+        $(Assert.equal(w0.unwrap("some").get("m1").kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
         // A window the author's handle can't serve stays none (loading).
         $(Assert.equal(src.page(1n, 100n).hasTag("none"), true));
     });
@@ -891,7 +927,7 @@ describeEast("Plan", (test) => {
     // =========================================================================
 
     test("templates carry their kind, icon and binding", $ => {
-        const make = $.const(East.function([], ArrayType(Plan.Types.Row), (_$) =>
+        const make = $.const(East.function([], Plan.Types.Rows, (_$) =>
             Plan.events({ key: "ms", label: "MS", marks: [] })));
         const t = $.let(Plan.template({
             key: "ms", label: "Events", sublabel: "milestones", kind: "events", icon: "flag", make,
@@ -900,7 +936,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(t.sublabel.unwrap("some"), "milestones"));
         $(Assert.equal(t.icon.unwrap("some").name, "flag"));
         const made = $.let(t.make());
-        $(Assert.equal(made.length(), 1n));
-        $(Assert.equal(made.get(0n).key, "ms"));
+        $(Assert.equal(made.size(), 1n));
+        $(Assert.equal(made.get("ms").gutter.label, "MS"));
     });
 }, { platformFns: TestImpl });

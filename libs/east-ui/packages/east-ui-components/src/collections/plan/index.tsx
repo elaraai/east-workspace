@@ -146,8 +146,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     //    streamed in as a contiguous prefix by the loader hook. ──────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
     const paged = usePlanPagedRows(pagedSource);
+    // The inline arm is the canvas's KEYED collection (#568) — decoded as a
+    // SortedMap, so its values are already in canonical key order.
     const rows = useMemo(
-        () => (value.rows.type === "inline" ? value.rows.value : paged.rows),
+        () => (value.rows.type === "inline" ? [...value.rows.value.values()] : paged.rows),
         [value.rows, paged.rows],
     );
 
@@ -183,6 +185,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         let window: PlanWindow | undefined = sliceRange ?? axisWindow;
         let res: PlanResolution;
         if (window === undefined) {
+            // A PAGED canvas must DECLARE its window. Fitting to the data means
+            // fitting to whatever prefix has landed, so the axis widens and
+            // every bar re-flows as each window arrives (#567 D8) — the canvas
+            // says so instead, and the author declares `axis.window` or binds a
+            // slice range.
+            if (pagedSource !== undefined) return undefined;
             const extent = dataExtent(rows);
             if (extent === undefined) return undefined;
             res = effectiveResolution(declaredResolution, extent);
@@ -195,7 +203,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const now = getSomeorUndefined(value.axis.now);
         const format = getSomeorUndefined(value.axis.format);
         return planScale(window, res, now, format);
-    }, [sliceRange, axisWindow, declaredResolution, rows, value.axis.now, value.axis.format]);
+    }, [sliceRange, axisWindow, declaredResolution, rows, pagedSource, value.axis.now, value.axis.format]);
 
     // ── The one state machine ─────────────────────────────────────────────
     const index = useMemo(() => indexRows(rows), [rows]);
@@ -460,7 +468,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             return (
                 <GroupRow row={v.row} kind={kind.value} styles={styles} gridTemplate={gridTemplate}
                     height={h} depth={v.depth} collapsed={v.collapsed}
-                    summaryCells={derived.groupSummary.get(v.row.key)} />
+                    summaryCells={derived.groupSummary.get(v.row.key)}
+                    memberCount={derived.groupMembers.get(v.row.key)} />
             );
         }
         const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
@@ -582,7 +591,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     if (scale === undefined) {
         return (
             <Box css={styles.root} data-plan-empty padding="20px" fontFamily="mono" fontSize="10px" color="fg.subtle">
-                NO WINDOW — give the plan an axis window, a bound slice range, or dated rows
+                {pagedSource !== undefined
+                    ? "NO WINDOW — a paged plan must declare an axis window or bind a slice range"
+                    : "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"}
             </Box>
         );
     }

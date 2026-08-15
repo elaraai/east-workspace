@@ -9,7 +9,7 @@
  * {@link PlanSeriesType} is a type constructor (the `DataBindHandleType`
  * pattern) instantiated per row type, and every `Plan.series.*` builder
  * reifies its accessors ONCE into the arm's typed `make` function
- * (`Fn(Array<R>) → Array<PlanRowType>` — Table's per-column `valueFn` move)
+ * (`Fn(Dict<String, R>) → Dict<String, PlanRow>` — Table's per-column `valueFn` move)
  * and returns `variant(kind, { make })`. Application is eager expression
  * composition, typed end to end: the inline arm applies each series' `make`
  * to the data expression (Table's `rows_mapped`); the paged arm (P-c) wraps
@@ -19,7 +19,6 @@
  */
 
 import {
-    type BlockBuilder,
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
@@ -27,6 +26,7 @@ import {
     Expr,
     ArrayType,
     BooleanType,
+    DictType,
     FunctionType,
     OptionType,
     StringType,
@@ -38,24 +38,24 @@ import {
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
-import { flatMapRowsBlock } from "../../shared/reify.js";
+import { foldEntriesToDict } from "../../shared/reify.js";
 import { TableAggregateType } from "../table/types.js";
 import {
     PlanAggregateType,
     type PlanAggregateLiteral,
     PlanDrillType,
     PlanExpandType,
-    PlanRowType,
     PlanRowKindType,
     PlanLaneType,
     PlanBucketEventType,
     PlanCellMarkerType,
     PlanChipType,
     PlanEventMarkType,
+    PlanRowsCollectionType,
     type PlanRowsValue,
 } from "./types.js";
 import { resolveTag, emptyRows } from "./builders.js";
-import { groupParentFn, rootsOf, applyRowOverrides, normalizeRows, type PlanRowsInput, type PlanRowBaseInput } from "./assemble.js";
+import { groupParentFn, applyRowOverrides, normalizeRows, LAST_WINS, type PlanRowsInput, type PlanRowBaseInput } from "./assemble.js";
 import {
     createBuckets,
     createCards,
@@ -73,6 +73,8 @@ import {
     type PlanHeatOfConfig,
     type PlanTableOfConfig,
     type PlanResolvedLevel,
+    type PlanLeafFn,
+    prefixedKey,
     reifyLevelKey,
     groupRows,
     spanParentKind,
@@ -95,25 +97,27 @@ import {
  * data of another).
  *
  * @remarks
- * Every kind arm carries `make: Fn(Array<R>) → Array<PlanRowType>` — the
- * series' whole pipeline (match filter → per-row construction → groupBy
- * parents) reified once by its builder. The `rows` arm is literal one-off
- * chrome and carries the finished rows directly.
+ * Every kind arm carries `make: Fn(Dict<String, R>) → Dict<String, PlanRow>` — the
+ * series' whole pipeline (match filter → per-entry construction → groupBy
+ * parents) reified once by its builder, taking the source's KEYED collection
+ * and producing the canvas's. A leaf row's key is the source entry's key, so
+ * the canvas is addressable by the keys the source is searched by (#568). The `rows` arm is literal one-off chrome and carries the
+ * finished rows directly.
  *
  * @typeParam R - The East row type of the canvas's data source
  * @param r - The row type value
  * @returns The concrete `VariantType` of a series over `r`
  */
 const seriesShape = (r: EastType) => VariantType({
-    span:    StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    buckets: StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    chart:   StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    heat:    StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    table:   StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    cards:   StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    events:  StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    group:   StructType({ make: FunctionType([ArrayType(r)], ArrayType(PlanRowType)) }),
-    rows:    StructType({ rows: ArrayType(PlanRowType) }),
+    span:    StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    buckets: StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    chart:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    heat:    StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    table:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    cards:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    events:  StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    group:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+    rows:    StructType({ rows: PlanRowsCollectionType }),
 });
 
 /** The one TS-face series shape (`R` erased to `StructType`). */
@@ -145,18 +149,26 @@ export type PlanSeriesInput =
 // Series configs — the accessor surfaces
 // ============================================================================
 
+/** Row-family membership over one source ENTRY (value + key). */
+export type PlanMatchFn = (row: ExprType<StructType>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
+
 /**
  * The row-envelope accessors every kind series shares (the `.of` channel:
  * optional accessors return the envelope fields' `Option` types, so
  * presence is a per-row data fact).
  *
+ * @remarks
+ * There is no `key` accessor: a leaf row's key IS the source entry's key
+ * (#568). Accessors take `(value, key)` — a keyed dataset does not repeat its
+ * key inside the value, so `label: (_r, k) => k` is the normal spelling.
+ *
  * @typeParam R - The data row type
  */
 export interface PlanSeriesEnvelopeConfig<R extends StructType> {
-    /** Row-family membership — omitted ⇒ every data row belongs. */
-    match?: (row: ExprType<R>) => SubtypeExprOrValue<BooleanType>;
-    /** Row-key accessor. */
-    key: PlanAccessor<R, StringType>;
+    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
+    /** Key prefix for this family's rows; omit ⇒ the source's keys, unchanged. */
+    prefix?: string;
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
@@ -177,20 +189,20 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> {
 
 /** Config for {@link Plan.series.span} — the span `.of` surface plus `match`. */
 export interface PlanSpanSeriesConfig<R extends StructType> extends PlanSpanOfConfig<R> {
-    /** Row-family membership — omitted ⇒ every data row belongs. */
-    match?: (row: ExprType<R>) => SubtypeExprOrValue<BooleanType>;
+    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.heat} — the heat `.of` surface plus `match`. */
 export interface PlanHeatSeriesConfig<R extends StructType> extends PlanHeatOfConfig<R> {
-    /** Row-family membership — omitted ⇒ every data row belongs. */
-    match?: (row: ExprType<R>) => SubtypeExprOrValue<BooleanType>;
+    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.table} — the table `.of` surface plus `match`. */
 export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTableOfConfig<R> {
-    /** Row-family membership — omitted ⇒ every data row belongs. */
-    match?: (row: ExprType<R>) => SubtypeExprOrValue<BooleanType>;
+    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -199,23 +211,23 @@ export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTable
  */
 export interface PlanBucketsSeriesConfig<R extends StructType> extends PlanSeriesEnvelopeConfig<R> {
     /** Per-row sub-slot lanes accessor; omitted ⇒ unbucketed rows. */
-    lanes?: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanLaneType>>;
+    lanes?: PlanAccessor<R, ArrayType<PlanLaneType>>;
     /** Per-row tiles accessor. */
-    events: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanBucketEventType>>;
+    events: PlanAccessor<R, ArrayType<PlanBucketEventType>>;
     /** Per-row cell-marker accessor. */
-    markers?: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanCellMarkerType>>;
+    markers?: PlanAccessor<R, ArrayType<PlanCellMarkerType>>;
 }
 
 /** Config for {@link Plan.series.cards} — one cards row per matched data row. */
 export interface PlanCardsSeriesConfig<R extends StructType> extends PlanSeriesEnvelopeConfig<R> {
     /** Per-row shift-chips accessor. */
-    chips: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanChipType>>;
+    chips: PlanAccessor<R, ArrayType<PlanChipType>>;
 }
 
 /** Config for {@link Plan.series.events} — one event row per matched data row. */
 export interface PlanEventsSeriesConfig<R extends StructType> extends PlanSeriesEnvelopeConfig<R> {
     /** Per-row instant-marks accessor. */
-    marks: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<PlanEventMarkType>>;
+    marks: PlanAccessor<R, ArrayType<PlanEventMarkType>>;
 }
 
 /**
@@ -226,7 +238,7 @@ export interface PlanChartSeriesConfig<R extends StructType> extends PlanSeriesE
     /** Per-row pinned accessor (`true` ⇒ above the virtualised body). */
     pinned?: PlanAccessor<R, BooleanType>;
     /** Per-row Chart layers accessor (`Chart.*` builders, bare or `Plan.layer`-wrapped). */
-    layers: (row: ExprType<R>) => PlanChartLayerInput | PlanChartLayerInput[];
+    layers: (row: ExprType<R>, key: ExprType<StringType>) => PlanChartLayerInput | PlanChartLayerInput[];
     /** The left y-axis declaration (shared by the family's rows). */
     left?: PlanChartAxisInput;
     /** The right y-axis declaration. */
@@ -246,19 +258,26 @@ export type PlanGroupSeriesChrome = Omit<PlanGroupInput, "rows">;
 
 /**
  * Config for {@link Plan.series.group}'s DISCOVERED form — one group strip
- * per distinct `by` value (first-appearance data order), the child series
- * applied to each group's member rows and re-parented beneath its strip.
+ * per distinct `by` value (KEY order — the collection is a dictionary), the
+ * child series applied to each group's member rows and re-parented beneath its
+ * strip.
  *
  * @property match - Strip membership (omitted ⇒ every data row)
  * @property by - The group-key accessor
+ * @property prefix - Key prefix for the synthesized strip keys (omit ⇒ the bare group value)
  * @property collapsed - Strips start collapsed
  * @property summaryAggregate - DECLARED strip aggregation over descendant heat rows
  */
 export interface PlanGroupSeriesByConfig<R extends StructType> {
-    /** Strip membership (omitted ⇒ every data row). */
-    match?: (row: ExprType<R>) => SubtypeExprOrValue<BooleanType>;
+    /** Strip membership (omitted ⇒ every data entry). */
+    match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
     /** The group-key accessor — one strip per discovered value. */
     by: PlanAccessor<R, StringType>;
+    /** Key prefix for the synthesized strip keys — a strip's key is
+     *  `${prefix}${groupValue}`. Omit ⇒ the bare group value. Supply one to
+     *  keep two families grouping the same column apart, or where a group
+     *  value could collide with a source key. */
+    prefix?: string;
     /** Strips start collapsed. */
     collapsed?: boolean;
     /** DECLARED strip aggregation over descendant heat rows — `"mean"`/`"max"`/`"sum"` or a `PlanAggregateType` expression. */
@@ -281,25 +300,25 @@ function seriesValue<R extends StructType>(
     ) as PlanSeriesValue;
 }
 
-/** Filter the rows param by the reified match predicate (all rows when omitted). */
+/** Filter the source ENTRIES by the reified match predicate (all when omitted). */
 function matchedRows(
-    rows: ExprType<ArrayType<StructType>>,
+    entries: ExprType<DictType<StringType, StructType>>,
     rowType: StructType,
-    match: ((row: ExprType<StructType>) => SubtypeExprOrValue<BooleanType>) | undefined,
-): ExprType<ArrayType<StructType>> {
-    if (match === undefined) return rows;
-    const pred = East.function([rowType], BooleanType, (_$, r) => match(r));
-    return rows.filter((_$, r) => pred(r)) as ExprType<ArrayType<StructType>>;
+    match: PlanMatchFn | undefined,
+): ExprType<DictType<StringType, StructType>> {
+    if (match === undefined) return entries;
+    const pred = East.function([rowType, StringType], BooleanType, (_$, r, k) => match(r, k));
+    return entries.filter((_$, r, k) => pred(r, k)) as ExprType<DictType<StringType, StructType>>;
 }
 
-/** The envelope's accessor-supplied Option fields for one data row. */
-function envelopeOverrides(cfg: PlanSeriesEnvelopeConfig<StructType>, r: ExprType<StructType>) {
+/** The envelope's accessor-supplied Option fields for one data entry. */
+function envelopeOverrides(cfg: PlanSeriesEnvelopeConfig<StructType>, r: ExprType<StructType>, k: ExprType<StringType>) {
     return {
-        ...(cfg.sub !== undefined ? { sub: cfg.sub(r) } : {}),
-        ...(cfg.value !== undefined ? { value: cfg.value(r) } : {}),
-        ...(cfg.status !== undefined ? { status: cfg.status(r) } : {}),
-        ...(cfg.drill !== undefined ? { drill: cfg.drill(r) } : {}),
-        ...(cfg.expand !== undefined ? { expand: cfg.expand(r) } : {}),
+        ...(cfg.sub !== undefined ? { sub: cfg.sub(r, k) } : {}),
+        ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
+        ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
+        ...(cfg.drill !== undefined ? { drill: cfg.drill(r, k) } : {}),
+        ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
     };
 }
 
@@ -312,15 +331,17 @@ function envelopeOverrides(cfg: PlanSeriesEnvelopeConfig<StructType>, r: ExprTyp
  */
 function seriesScaffold(
     rowType: StructType,
-    match: ((row: ExprType<StructType>) => SubtypeExprOrValue<BooleanType>) | undefined,
+    match: PlanMatchFn | undefined,
     groupBy: PlanAccessor<StructType, StringType>[] | undefined,
     parentFn: (() => PlanResolvedLevel["parentFn"]) | undefined,
-    leaf: ($: BlockBuilder<ArrayType<PlanRowType>>, row: ExprType<StructType>) => SubtypeExprOrValue<ArrayType<PlanRowType>>,
-): ExprType<FunctionType<[ArrayType<StructType>], ArrayType<PlanRowType>>> {
-    return East.function([ArrayType(rowType)], ArrayType(PlanRowType), ($, rows) => {
-        const matched = $.let(matchedRows(rows, rowType, match), ArrayType(rowType));
+    leaf: PlanLeafFn,
+    prefix?: string,
+): ExprType<FunctionType<[DictType<StringType, StructType>], PlanRowsCollectionType>> {
+    const sourceType = DictType(StringType, rowType);
+    return East.function([sourceType], PlanRowsCollectionType, ($, entries) => {
+        const matched = $.let(matchedRows(entries, rowType, match), sourceType);
         if (groupBy === undefined || groupBy.length === 0 || parentFn === undefined) {
-            return flatMapRowsBlock(matched, PlanRowType, leaf);
+            return foldEntriesToDict(matched, PlanRowsCollectionType, LAST_WINS, leaf);
         }
         // Every level shares ONE parent constructor (the ofScaffold shape).
         const shared = parentFn();
@@ -328,14 +349,18 @@ function seriesScaffold(
             by: reifyLevelKey(rowType, by),
             parentFn: shared,
         }));
-        return groupRows(matched, levels, (subset) => flatMapRowsBlock(subset, PlanRowType, leaf), "");
-    }) as ExprType<FunctionType<[ArrayType<StructType>], ArrayType<PlanRowType>>>;
+        // The prefix keys the SYNTHESIZED parents; leaf keys are the source's
+        // own, carried through by `leaf` — see `groupRows`.
+        return groupRows(matched, levels,
+            (subset, _prefix) => foldEntriesToDict(subset, PlanRowsCollectionType, LAST_WINS, leaf),
+            prefix ?? "");
+    }) as ExprType<FunctionType<[DictType<StringType, StructType>], PlanRowsCollectionType>>;
 }
 
 /** Apply one series value to a rows expression (the exhaustive-arm call). */
 export function applySeriesValue(
     s: PlanSeriesValue,
-    rows: ExprType<ArrayType<StructType>>,
+    rows: ExprType<DictType<StringType, StructType>>,
 ): PlanRowsValue {
     return s.match({
         span:    (_$, v) => v.make(rows),
@@ -355,20 +380,28 @@ export function applySeriesValue(
  * application (Table's `rows_mapped`, per family). A TS array applies each
  * value in declared order; an East expression folds at evaluation, so
  * `$.const`-bound and computed series lists work identically.
+ *
+ * @remarks
+ * Families are unioned, not concatenated: the canvas is one keyed collection,
+ * and two families that emit the same key resolve last-wins instead of both
+ * rows surviving to be walked twice.
  */
 export function applySeries(
     series: PlanSeriesInput,
-    data: ExprType<ArrayType<StructType>>,
+    data: ExprType<DictType<StringType, StructType>>,
 ): PlanRowsValue {
     if (Array.isArray(series)) {
         return series.reduce<PlanRowsValue>(
-            (acc, s) => acc.concat(applySeriesValue(s, data)) as PlanRowsValue,
+            (acc, s) => acc.union(applySeriesValue(s, data), LAST_WINS) as PlanRowsValue,
             emptyRows(),
         );
     }
     const list = series;
     return list.reduce(
-        (_$, acc, s) => acc.concat(applySeriesValue(s as PlanSeriesValue, data)),
+        ($, acc, s) => {
+            $((acc as PlanRowsValue).unionInPlace(applySeriesValue(s as PlanSeriesValue, data), LAST_WINS));
+            return acc;
+        },
         emptyRows(),
     ) as PlanRowsValue;
 }
@@ -388,7 +421,8 @@ export function applySeries(
  */
 export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanSpanSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanSpanSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, cfg.groupBy, () => groupParentFn(spanParentKind(cfg)), spanLeafOf(cfg));
+    const make = seriesScaffold(rowType, cfg.match, cfg.groupBy,
+        () => groupParentFn(spanParentKind(cfg)), spanLeafOf(cfg), cfg.prefix);
     return seriesValue(rowType, "span", { make });
 }
 
@@ -405,8 +439,8 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
     const cfg = config as PlanHeatSeriesConfig<StructType>;
     const mode = cfg.aggregate ?? "mean";
     const make = seriesScaffold(rowType, cfg.match, cfg.groupBy,
-        () => groupParentFn(heatParentKind(cfg), () => some(resolveTag(mode, PlanAggregateType).getTag())),
-        heatLeafOf(cfg));
+        () => groupParentFn(heatParentKind(cfg), some(resolveTag(mode, PlanAggregateType).getTag())),
+        heatLeafOf(cfg), cfg.prefix);
     return seriesValue(rowType, "heat", { make });
 }
 
@@ -423,8 +457,8 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
     const cfg = config as PlanTableSeriesOfConfig<StructType>;
     const mode = cfg.aggregate ?? "sum";
     const make = seriesScaffold(rowType, cfg.match, cfg.groupBy,
-        () => groupParentFn(tableParentKind(cfg), () => some(resolveTag(mode, TableAggregateType).getTag())),
-        tableLeafOf(cfg));
+        () => groupParentFn(tableParentKind(cfg), some(resolveTag(mode, TableAggregateType).getTag())),
+        tableLeafOf(cfg), cfg.prefix);
     return seriesValue(rowType, "table", { make });
 }
 
@@ -439,18 +473,18 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
  */
 export function createSeriesBuckets<R extends StructType>(rowType: R, config: PlanBucketsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanBucketsSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r) => applyRowOverrides(
+    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createBuckets({
-            key:   cfg.key(r),
-            label: cfg.label(r),
+            key:   prefixedKey(cfg.prefix, k),
+            label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
-            ...(cfg.lanes !== undefined ? { lanes: cfg.lanes(r) } : {}),
-            events: cfg.events(r),
-            ...(cfg.markers !== undefined ? { markers: cfg.markers(r) } : {}),
+            ...(cfg.lanes !== undefined ? { lanes: cfg.lanes(r, k) } : {}),
+            events: cfg.events(r, k),
+            ...(cfg.markers !== undefined ? { markers: cfg.markers(r, k) } : {}),
         }),
-        envelopeOverrides(cfg, r),
-    ));
+        envelopeOverrides(cfg, r, k),
+    ), cfg.prefix);
     return seriesValue(rowType, "buckets", { make });
 }
 
@@ -465,16 +499,16 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
  */
 export function createSeriesCards<R extends StructType>(rowType: R, config: PlanCardsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanCardsSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r) => applyRowOverrides(
+    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createCards({
-            key:   cfg.key(r),
-            label: cfg.label(r),
+            key:   prefixedKey(cfg.prefix, k),
+            label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
-            chips: cfg.chips(r),
+            chips: cfg.chips(r, k),
         }),
-        envelopeOverrides(cfg, r),
-    ));
+        envelopeOverrides(cfg, r, k),
+    ), cfg.prefix);
     return seriesValue(rowType, "cards", { make });
 }
 
@@ -488,16 +522,16 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
  */
 export function createSeriesEvents<R extends StructType>(rowType: R, config: PlanEventsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanEventsSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r) => applyRowOverrides(
+    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createEvents({
-            key:   cfg.key(r),
-            label: cfg.label(r),
+            key:   prefixedKey(cfg.prefix, k),
+            label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
-            marks: cfg.marks(r),
+            marks: cfg.marks(r, k),
         }),
-        envelopeOverrides(cfg, r),
-    ));
+        envelopeOverrides(cfg, r, k),
+    ), cfg.prefix);
     return seriesValue(rowType, "events", { make });
 }
 
@@ -512,13 +546,13 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
  */
 export function createSeriesChart<R extends StructType>(rowType: R, config: PlanChartSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanChartSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r) => applyRowOverrides(
+    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createChart({
-            key:   cfg.key(r),
-            label: cfg.label(r),
+            key:   prefixedKey(cfg.prefix, k),
+            label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
-            layers: cfg.layers(r),
+            layers: cfg.layers(r, k),
             ...(cfg.left !== undefined ? { left: cfg.left } : {}),
             ...(cfg.right !== undefined ? { right: cfg.right } : {}),
             ...(cfg.height !== undefined ? { height: cfg.height } : {}),
@@ -527,10 +561,10 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
             ...(cfg.swatches !== undefined ? { swatches: cfg.swatches } : {}),
         }),
         {
-            ...envelopeOverrides(cfg, r),
-            ...(cfg.pinned !== undefined ? { pinned: some(cfg.pinned(r)) } : {}),
+            ...envelopeOverrides(cfg, r, k),
+            ...(cfg.pinned !== undefined ? { pinned: some(cfg.pinned(r, k)) } : {}),
         },
-    ));
+    ), cfg.prefix);
     return seriesValue(rowType, "chart", { make });
 }
 
@@ -549,15 +583,18 @@ export function createSeriesGroup<R extends StructType>(
     chromeOrBy: PlanGroupSeriesChrome | PlanGroupSeriesByConfig<R>,
     children: PlanSeriesValue[],
 ): PlanSeriesValue {
-    const applyChildren = (subset: ExprType<ArrayType<StructType>>): PlanRowsValue =>
+    const applyChildren = (subset: ExprType<DictType<StringType, StructType>>): PlanRowsValue =>
         children.reduce<PlanRowsValue>(
-            (acc, c) => acc.concat(applySeriesValue(c, subset)) as PlanRowsValue,
+            (acc, c) => acc.union(applySeriesValue(c, subset), LAST_WINS) as PlanRowsValue,
             emptyRows(),
         );
     if ("by" in chromeOrBy && typeof chromeOrBy.by === "function") {
         // DISCOVERED strips — one group per distinct key, mirroring the
-        // grouped data form: the strip DECLARES its summary aggregation and
-        // wears the member-count meta; children apply to each group's rows.
+        // grouped data form: the strip DECLARES its summary aggregation;
+        // children apply to each group's rows. The member count is NOT baked
+        // in here — a strip re-synthesized per paged window would carry that
+        // window's count — it is derived renderer-side like every other
+        // aggregate (#568).
         const cfg = chromeOrBy as PlanGroupSeriesByConfig<StructType>;
         const kind = East.value(variant("group", {
             summary:          none,
@@ -566,22 +603,21 @@ export function createSeriesGroup<R extends StructType>(
                 : none,
             collapsed:        cfg.collapsed !== undefined ? some(cfg.collapsed) : none,
         }), PlanRowKindType);
-        const parentFn = groupParentFn(kind, ($, kids) => {
-            const roots = $.let(rootsOf(kids as PlanRowsValue), ArrayType(PlanRowType));
-            return some(East.str`${roots.length()} rs`);
-        });
+        const parentFn = groupParentFn(kind);
+        const prefix = cfg.prefix ?? "";
         const rt: StructType = rowType;
-        const make = East.function([ArrayType(rt)], ArrayType(PlanRowType), ($, rows) => {
-            const matched = $.let(matchedRows(rows, rt, cfg.match), ArrayType(rt));
+        const sourceType = DictType(StringType, rt);
+        const make = East.function([sourceType], PlanRowsCollectionType, ($, rows) => {
+            const matched = $.let(matchedRows(rows, rt, cfg.match), sourceType);
             const levels: PlanResolvedLevel[] = [{ by: reifyLevelKey(rt, cfg.by), parentFn }];
-            return groupRows(matched, levels, applyChildren, "");
+            return groupRows(matched, levels, (subset, _prefix) => applyChildren(subset), prefix);
         });
         return seriesValue(rowType, "group", { make });
     }
     // STATIC chrome — one literal strip around the children.
     const chrome = chromeOrBy as PlanGroupSeriesChrome;
-    const make = East.function([ArrayType(rowType)], ArrayType(PlanRowType), (_$, rows) => {
-        return createGroup({ ...(chrome as PlanGroupInput), rows: applyChildren(rows as unknown as ExprType<ArrayType<StructType>>) });
+    const make = East.function([DictType(StringType, rowType)], PlanRowsCollectionType, (_$, rows) => {
+        return createGroup({ ...(chrome as PlanGroupInput), rows: applyChildren(rows as unknown as ExprType<DictType<StringType, StructType>>) });
     });
     return seriesValue(rowType, "group", { make });
 }
@@ -609,6 +645,6 @@ export function createSeriesRows<R extends StructType>(rowType: R, rows: PlanRow
  * wraps each window with this module's `applySeries` — the one place the
  * domain row type is erased to the canvas row type (#567).
  */
-export function seriesRowType(data: ExprType<ArrayType<StructType>>): StructType {
-    return (Expr.type(data) as ArrayType<StructType>).value;
+export function seriesRowType(data: ExprType<DictType<StringType, StructType>>): StructType {
+    return (Expr.type(data) as DictType<StringType, StructType>).value;
 }

@@ -50,13 +50,20 @@ export interface GroupRowProps {
     collapsed: boolean;
     /** Renderer-derived strip cells (`summaryAggregate` declared in the IR). */
     summaryCells?: readonly HeatCellValue[] | undefined;
+    /** Renderer-derived direct-member count — printed as the `"8 rs"` meta
+     *  when the IR declares none (#568: the count is an aggregate like any
+     *  other, so it is derived here rather than baked into the row). */
+    memberCount?: number | undefined;
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, memberCount }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
-    const meta = row.gutter.meta.type === "some" ? row.gutter.meta.value : undefined;
+    // A declared meta line wins; otherwise the derived member count stands in.
+    const meta = row.gutter.meta.type === "some"
+        ? row.gutter.meta.value
+        : (memberCount !== undefined && memberCount > 0 ? `${memberCount} rs` : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     const summary = collapsed

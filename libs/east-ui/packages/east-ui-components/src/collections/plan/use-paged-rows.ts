@@ -19,6 +19,16 @@
  * because a repeated read of the same window is a cache hit rather than a
  * second fetch (#567 D7).
  *
+ * # Windows merge into ONE keyed collection
+ *
+ * A window is a `Dict<String, PlanRow>` (#568), so accumulating windows is a
+ * merge by key, not an append: a row a later window re-emits — a group parent
+ * every window synthesizes — replaces the earlier copy instead of appearing
+ * twice, and the merged collection stays in canonical key order however the
+ * windows interleave. That is the renderer half of the IR's composition
+ * policy; the amplification it used to produce (15 rows / 3 windows → 39
+ * visible lines) is now unconstructable.
+ *
  * # Exhaustion comes from `total()`, never from an empty window
  *
  * The empty-window-means-exhausted rule is a SOURCE-element contract, and the
@@ -33,7 +43,7 @@
  */
 
 import { useCallback } from "react";
-import { type ValueTypeOf } from "@elaraai/east";
+import { SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { planWindows, type RowRange } from "../paged-window-store.js";
@@ -46,8 +56,12 @@ export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged
 /** Source elements requested per window. */
 export const PLAN_PAGE_SIZE = 200;
 
+/** East's own total order on the row keys — never JS `<` (the collection is
+ *  sorted by East's ordering, and the merged prefix must match it). */
+const ROW_KEY_ORDER = compareFor(StringType);
+
 export interface PlanPagedRows {
-    /** The loaded canvas rows, in source order. */
+    /** The loaded canvas rows, in canonical key order. */
     rows: ReadonlyArray<PlanRowValue>;
     /** The source's total ELEMENT count, once known — not the canvas-row
      *  count, since a series can emit any number of rows per element. */
@@ -97,7 +111,7 @@ export function usePlanPagedRows(
         const end = wantedEnd ?? total ?? PLAN_PAGE_SIZE;
         const range: RowRange = { start: 0, end: Math.max(end, PLAN_PAGE_SIZE) };
         const plan = planWindows(range, PLAN_PAGE_SIZE, total, 1);
-        const rows: PlanRowValue[] = [];
+        const merged = new SortedMap<string, PlanRowValue>(undefined, ROW_KEY_ORDER);
         let loading = false;
         let loadedElements = 0;
         for (const w of plan.needed) {
@@ -114,13 +128,15 @@ export function usePlanPagedRows(
                 loading = true;
                 break;
             }
-            rows.push(...win.value);
+            // Merged by key, last wins: a row this window re-emits replaces
+            // the earlier copy rather than duplicating it.
+            for (const [key, row] of win.value) merged.set(key, row);
             loadedElements += PLAN_PAGE_SIZE;
             // An empty window means this WINDOW produced no canvas rows — it
             // says nothing about the source, whose length `total` governs.
         }
         if (total !== undefined) loadedElements = Math.min(loadedElements, total);
-        return { rows, total, loadedElements, loading };
+        return { rows: [...merged.values()], total, loadedElements, loading };
     }, [source, wantedEnd]);
 
     const { result } = useTrackedEvaluation(read);

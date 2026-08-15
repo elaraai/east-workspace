@@ -162,12 +162,29 @@ export const PlanAxisType = StructType({
 export const PlanGrainType = VariantType({ group: NullType, resource: NullType, item: NullType });
 ```
 
-### 4.2 Rows — flat tree, nested authoring
+### 4.2 Rows — flat KEYED tree, nested authoring
 
-Rows are **flat** in the IR (`ArrayType(PlanRowType)`, depth-first order) with
-`parent: Option<String>` keys — no nested `RecursiveType` (beast2-simple,
-virtualizer-native). The **factories** take nested `rows: [...]` input and
-flatten, computing parent aggregates eagerly on the way.
+Rows are **flat and keyed** in the IR (`DictType(StringType, PlanRowType)`)
+with `parent: Option<String>` keys — no nested `RecursiveType` (beast2-simple,
+virtualizer-native). A row has identity, not position: its `key` is what
+`parent` references, what `links` address, what drag refs name and what
+focus / collapse / selection state is keyed on, so two rows under one key are
+unconstructable (#568). The collection decodes to a `SortedMap`, so canvas
+order is canonical KEY order.
+
+**The keys come from the data.** A canvas's `data` is itself a keyed
+collection — `Dict<String, R>`, or a paged source of one — and a leaf row's key
+IS its data key. Canvas key order is therefore the source's key order: the row
+space `datasetGetPage` element windows serve and `datasetFindKey` searches, so
+a `seek` result addresses a real canvas row and a paged window's key range is a
+canvas key range. Synthesized rows (groupBy parents, discovered strips) key on
+`${prefix}${groupValue}`; a series' optional `prefix` namespaces its whole
+family when two families share one source.
+
+The **factories** take nested `rows: [...]` input and compose keyed subtrees;
+parent aggregates — rollup bands, per-bucket heat means, table subtotals, strip
+summaries, member counts — are DERIVED renderer-side from the tree the `parent`
+keys encode, never baked into a row a paged window might re-emit.
 
 ```ts
 // component.ts arm (spelled with `node`); PlanRowKindType payloads below.
@@ -457,7 +474,7 @@ state → recipe, nothing else does):
 
 ```ts
 Plan: StructType({
-    rows:     ArrayType(PlanRowType),
+    rows:     RowSourceType(DictType(StringType, PlanRowType)),   // inline | paged, at the canvas-row COLLECTION
     axis:     PlanAxisType,
     grain:    OptionType(PlanGrainType),           // group | resource | item — initial (default resource; §5)
     library:  ArrayType(PlanTemplateType),         // §7 row library; [] ⇒ no composition affordance
