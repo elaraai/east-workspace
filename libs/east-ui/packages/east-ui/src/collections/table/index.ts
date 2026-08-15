@@ -66,6 +66,10 @@ import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
 import { mapRowsBlock, reifyAccessor } from "../../shared/reify.js";
+import {
+    RowSourceType, resolveRowSource, buildRowSource,
+    type PagedSource, type RowSource,
+} from "../../contracts/source.js";
 
 // ============================================================================
 // Table Footer Cell
@@ -290,7 +294,7 @@ export type TableCellType = typeof TableCellType;
  * `selection`), and behaviour (callbacks); `style` carries visual
  * fields only.
  *
- * @property rows - Row dict array
+ * @property rows - The row source: the whole mapped collection, or a paged one (#576)
  * @property columns - Column definitions
  * @property frozen - Column keys to pin left
  * @property columnGroups - Optional column-group heading row
@@ -312,8 +316,28 @@ export type TableCellType = typeof TableCellType;
  * @property onSortChange - Sort change callback
  * @property style - Optional visual style sub-struct
  */
+/**
+ * The Table's own row COLLECTION — one dict of primitive cells per row, in
+ * data order.
+ *
+ * @remarks
+ * Table is POSITIONAL: its rows have no identity field, so the collection is an
+ * `Array` and a row is addressed by index. That is the counterpart to the
+ * Plan's keyed `Dict<String, PlanRow>` (#568), and the reason the row-source
+ * contract is parameterised on the COLLECTION rather than the row (#576) — one
+ * vocabulary, two differently-shaped components, neither sniffing shapes.
+ */
+export const TableRowsCollectionType = ArrayType(DictType(StringType, TableCellType));
+/** Type alias for {@link TableRowsCollectionType}. */
+export type TableRowsCollectionType = typeof TableRowsCollectionType;
+
+/** How a Table's rows arrive: inline, or a window at a time (#576). */
+export const TableRowsType = RowSourceType(TableRowsCollectionType);
+/** Type alias for {@link TableRowsType}. */
+export type TableRowsType = typeof TableRowsType;
+
 export const TableRootType: StructType<{
-    rows: ArrayType<DictType<StringType, typeof TableCellType>>,
+    rows: TableRowsType,
     columns: ArrayType<typeof TableColumnType>,
     frozen: ArrayType<StringType>,
     columnGroups: OptionType<ArrayType<TableColumnGroupType>>,
@@ -340,7 +364,7 @@ export const TableRootType: StructType<{
     groupBy: OptionType<ArrayType<typeof TableGroupLevelType>>,
     style: OptionType<TableStyleType>,
 }> = StructType({
-    rows: ArrayType(DictType(StringType, TableCellType)),
+    rows: TableRowsType,
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
     columnGroups: OptionType(ArrayType(TableColumnGroupType)),
@@ -526,26 +550,52 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
     data: T,
     columns: ColumnSpec<T>,
     style?: TableOptions<DataFieldKeys<T>, DataRowType<T>>
+): ExprType<UIComponentType>;
+/**
+ * The PAGED arm (#576): the same table over a windowed source. The row type
+ * rides structurally in the source's `page` signature, so columns are checked
+ * against it exactly as they are for an inline array.
+ */
+export function createTable<R extends StructType>(
+    data: PagedSource<ArrayType<R>>,
+    columns: ColumnSpec<ExprType<ArrayType<R>>>,
+    style?: TableOptions<Extract<keyof R["fields"], string>, R>
+): ExprType<UIComponentType>;
+export function createTable(
+    data: unknown,
+    columns: unknown,
+    // The erased implementation signature — the overloads above are what
+    // callers see. `ColumnSpec` is a mapped type over the row's fields, which
+    // has no common supertype across the two arms.
+    style?: TableOptions<string, StructType>,
 ): ExprType<UIComponentType> {
-    const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
-    const field_types = Expr.type(data_expr).value.fields;
+    // ONE dispatch for both arms — the shared row-source contract (#567/#576).
+    // Table is POSITIONAL, so it speaks `Array<Row>` where the Plan speaks
+    // `Dict<String, Row>`; neither component sniffs shapes of its own.
+    const resolved = resolveRowSource(data, "Table");
+    const rowType = resolved.elementType as StructType;
+    if ((rowType as { type: string }).type !== "Struct") {
+        throw new Error(
+            `Table: rows must be structs — got ${(rowType as { type: string }).type}. ` +
+            `Map the collection to a struct per row before passing it.`,
+        );
+    }
+    const field_types = rowType.fields;
 
     // Normalize columns to object format
     // dataType: the original field type from the data struct
     // valueType: the type after applying value function (computed during row mapping)
     const columnEntries = Array.isArray(columns)
         ? (columns as string[]).map(key => [key, undefined] as const)
-        : Object.entries(columns);
+        : Object.entries(columns as Record<string, TableColumnConfig | undefined>);
 
     const columns_obj = Object.fromEntries(columnEntries.map(([key, config]) => {
         const fieldType = field_types[key as keyof typeof field_types] as EastType;
         return [key, {
-            ...config,
+            ...(config ?? {}),
             dataType: toEastTypeValue(fieldType),
         }];
     })) as Record<string, TableColumnConfig & { dataType: EastTypeValue, valueType: EastTypeValue, }>;
-
-    const rowType = Expr.type(data_expr).value as StructType;
 
     // Reify each column's value extractor ONCE into a real East function and
     // derive the column's valueType from the function's output type — checked
@@ -582,7 +632,12 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         }
     }
 
-    const rows_mapped = mapRowsBlock(data_expr, DictType(StringType, TableCellType), ($, datum) => {
+    // `make` — the DOMAIN collection to the Table's own row collection. The
+    // inline arm applies it to the whole array; the paged arm applies it inside
+    // `page`, so one window's rows are built once per window rather than per
+    // render, and everything downstream sees one row space (#576).
+    const makeRows = (collection: ExprType<EastType>) =>
+        mapRowsBlock(collection as ExprType<ArrayType<StructType>>, DictType(StringType, TableCellType), ($, datum) => {
         const cells = $.let(new Map(), DictType(StringType, TableCellType));
         for (const [col_key, col_config] of Object.entries(columns_obj)) {
             const field_value = (datum as any)[col_key];
@@ -600,6 +655,8 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         }
         return cells
     });
+    const rows_source: RowSource<TableRowsCollectionType> =
+        buildRowSource(resolved, TableRowsCollectionType, makeRows);
 
     // Create columns array from the columns config
     const columns_mapped: SubtypeExprOrValue<ArrayType<typeof TableColumnType>> = []
@@ -765,13 +822,30 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
     // `rows`), so the renderer folds the sorted row model into group-headed
     // segments without re-deriving keys. Non-string keys go through
     // `East.print` for a stable text label.
+    if (resolved.kind === "paged" && style?.groupBy !== undefined && style.groupBy.length > 0) {
+        throw new Error(
+            "Table: `groupBy` cannot be combined with a paged source — group keys ride as " +
+            "arrays PARALLEL to the rows, and a window carries no keys for rows it has not " +
+            "loaded, so every group would be computed over whichever prefix happened to land. " +
+            "Group upstream (in the dataset) or bind the whole value with Data.bind.",
+        );
+    }
+    if (resolved.kind === "paged" && style?.pagination !== undefined) {
+        throw new Error(
+            "Table: `pagination` cannot be combined with a paged source — the source is " +
+            "already read a window at a time. Drop `pagination`; the table scrolls its windows.",
+        );
+    }
     const groupByValue = style?.groupBy !== undefined && style.groupBy.length > 0
         ? East.value(style.groupBy.map((lvl) => {
             const accessor = typeof lvl === "function" ? lvl : lvl.value;
             const collapsed = typeof lvl === "function" ? false : (lvl.collapsed ?? false);
             const keyFn = reifyAccessor([rowType], accessor as (row: ExprType<StructType>) => SubtypeExprOrValue<StringType>);
             const outType = (Expr.type(keyFn) as FunctionType).output as EastType;
-            const keys = mapRowsBlock(data_expr, StringType, (_$, datum) =>
+            // Guarded above: `groupBy` is refused on a paged source, so the
+            // whole collection is in hand here.
+            const inlineRows = (resolved as Extract<typeof resolved, { kind: "inline" }>).rows;
+            const keys = mapRowsBlock(inlineRows as ExprType<ArrayType<StructType>>, StringType, (_$, datum) =>
                 outType.type === "String"
                     ? keyFn(datum) as ExprType<StringType>
                     : East.print(keyFn(datum)));
@@ -793,7 +867,7 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         : undefined;
 
     return East.value(variant("Table", {
-        rows: rows_mapped,
+        rows: rows_source,
         columns: columns_expr,
         frozen: frozen_expr,
         columnGroups: columnGroupsValue ? some(columnGroupsValue) : none,

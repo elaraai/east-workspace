@@ -37,6 +37,7 @@ import { CodeBlockType } from "./typography/code-block/types.js";
 
 // Layout
 import { DensityType, AlignType, LabelInputType } from "./style.js";
+import { RowSourceType } from "./contracts/source.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
@@ -896,7 +897,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     Table: StructType({
-        rows: ArrayType(DictType(StringType, LiteralValueType)),
+        // The row SOURCE (#576): the whole mapped collection, or a window at a
+        // time. Mirrors `TableRootType.rows` — this inline copy exists because
+        // container arms need `node` for their recursive children.
+        rows: RowSourceType(ArrayType(DictType(StringType, LiteralValueType))),
         columns: ArrayType(StructType({
             key: StringType,
             dataType: EastTypeType,

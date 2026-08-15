@@ -65,7 +65,7 @@ describeEast("Table", (test) => {
 
         $(Assert.equal(table.unwrap().getTag(), "Table"));
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 2n));
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
     });
 
     // =========================================================================
@@ -167,7 +167,7 @@ describeEast("Table", (test) => {
             }
         ));
 
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
     });
 
     // =========================================================================
@@ -249,7 +249,7 @@ describeEast("Table", (test) => {
             }
         ));
 
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 2n));
     });
 
@@ -270,7 +270,7 @@ describeEast("Table", (test) => {
             }
         ));
 
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
     });
 
     test("render function accesses multiple row fields", $ => {
@@ -312,7 +312,7 @@ describeEast("Table", (test) => {
             { variant: "line", striped: true }
         ));
 
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 3n));
     });
 
@@ -343,7 +343,7 @@ describeEast("Table", (test) => {
         ));
 
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 2n));
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
     });
 
     test("creates table with struct field using value function", $ => {
@@ -369,7 +369,7 @@ describeEast("Table", (test) => {
         ));
 
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 2n));
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
     });
 
     test("creates table with array field extracting string value", $ => {
@@ -421,7 +421,7 @@ describeEast("Table", (test) => {
         ));
 
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 3n));
-        $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+        $(Assert.equal(table.unwrap().unwrap("Table").rows.unwrap("inline").size(), 2n));
     });
 
     // =========================================================================

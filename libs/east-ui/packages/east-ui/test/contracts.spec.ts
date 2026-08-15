@@ -68,7 +68,10 @@ describeEast("Drag grammar contract", (test) => {
 }, { platformFns: TestImpl });
 
 describeEast("Row-source contract (#567)", (test) => {
-    Assert.examples(test, { pagedSourceCanvas: ex.pagedSourceCanvas });
+    Assert.examples(test, {
+        pagedSourceCanvas: ex.pagedSourceCanvas,
+        pagedTableSource: ex.pagedTableSource,
+    });
 
     test("Paged.of windows a collection, reports the total and exhausts on an EMPTY window", $ => {
         const Row = StructType({ id: StringType, n: IntegerType });

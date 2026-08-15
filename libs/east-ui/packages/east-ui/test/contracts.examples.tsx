@@ -16,7 +16,7 @@ import {
     example,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Paged, Plan } from "@elaraai/east-ui";
+import { Paged, Plan, Table } from "@elaraai/east-ui";
 
 // The row-source contract (#567/#574). A component's `data` takes the whole
 // collection or a WINDOWED source of it, and `Paged.of` is the in-memory
@@ -65,6 +65,28 @@ export const pagedSourceCanvas = example({
             window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
         }));
         return <Plan axis={axis} data={source} series={series} />;
+    }),
+    inputs: [],
+});
+
+export const pagedTableSource = example({
+    keywords: [
+        "Paged", "of", "paged", "source", "Table", "window", "page", "total",
+        "row-source", "contract", "positional", "sort", "partial", "in-memory",
+    ],
+    description: "The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), where a Plan's keyed windows merge by key. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table",
+    fn: East.function([], UIComponentType, ($) => {
+        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });
+        const units = $.const([
+            { unit: "L1-M07", line: "Line 1", tonnes: 64.0 },
+            { unit: "L1-M09", line: "Line 1", tonnes: 112.0 },
+            { unit: "L2-M11", line: "Line 2", tonnes: 92.0 },
+            { unit: "L2-M12", line: "Line 2", tonnes: 88.0 },
+        ], ArrayType(UnitRow));
+        // POSITIONAL: an array source, so no key accessor and no `seek` — an
+        // Array's stream order has nothing to binary-search.
+        const source = $.const(Paged.of("units", units));
+        return <Table data={source} columns={["unit", "line", "tonnes"]} />;
     }),
     inputs: [],
 });

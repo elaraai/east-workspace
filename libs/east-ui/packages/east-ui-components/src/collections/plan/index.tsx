@@ -446,7 +446,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // and only once that row has actually loaded.
     const scrollToIndex = useMemo(() => {
         if (targetKey === undefined) return undefined;
-        const i = bodyItems.findIndex((it) => it.kind === "row" && it.row.key === targetKey);
+        // `it.row` is the VisibleRow envelope; the row value is `it.row.row`.
+        const i = bodyItems.findIndex((it) => it.kind === "row" && it.row.row.key === targetKey);
         return i >= 0 ? i : undefined;
     }, [bodyItems, targetKey]);
 
