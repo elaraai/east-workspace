@@ -29,6 +29,7 @@ describeEast("Plan", (test) => {
         planGroupedRows: ex.planGroupedRows,
         planSeriesData: ex.planSeriesData,
         planLibraryDnd: ex.planLibraryDnd,
+        planFill: ex.planFill,
     });
 
     // =========================================================================

@@ -80,7 +80,7 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; style?: { height?: string; maxHeight?: string } }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("source", opts.source) : variant("rows", rows),
         links: opts?.links ?? [],
@@ -104,7 +104,14 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         onSelect: none, onDrill: none,
         onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none,
         onCellClick: none, onGroupToggle: none, onGrainChange: none,
-        style: none,
+        style: opts?.style !== undefined
+            ? some({
+                height: opts.style.height !== undefined ? some(opts.style.height) : none,
+                maxHeight: opts.style.maxHeight !== undefined ? some(opts.style.maxHeight) : none,
+                density: none,
+                gutterWidth: none,
+            })
+            : none,
     } as unknown as PlanRootValue;
 }
 
@@ -754,5 +761,41 @@ describe("Plan event rows (§4·K7)", () => {
         const swapped = container.querySelector('[data-mark="k4"]')!;
         expect(swapped.getAttribute("data-kind")).toBe("milestone");
         expect(swapped.querySelector("svg")).toBeTruthy();
+    });
+});
+
+describe("Plan sizing (#320 / #567 D1)", () => {
+    // 60 single-run span rows — enough that virtualization is observable.
+    const many = Array.from({ length: 60 }, (_unused, i) =>
+        planRow(`r${i}`, spanKind([
+            run(`x${i}`, new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null)),
+        ])));
+
+    test("a declared height binds the WRAPPER and virtualizes the body", () => {
+        const { container } = renderPlan(planRoot(many, { style: { height: "fill" } }), "plan-bounded");
+        const body = container.querySelector("[data-plan-body]")!;
+        // The bound must land on the wrapper: a percentage passed inward
+        // resolves against an auto-height parent and silently unbinds, leaving
+        // every row in flow (#567 D1).
+        expect(body.hasAttribute("data-plan-bounded")).toBe(true);
+        expect(container.querySelectorAll("[data-plan-row]").length).toBeLessThan(many.length);
+    });
+
+    test("an explicit px height binds the same way", () => {
+        const { container } = renderPlan(planRoot(many, { style: { height: "400px" } }), "plan-bounded-px");
+        expect(container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-bounded")).toBe(true);
+        expect(container.querySelectorAll("[data-plan-row]").length).toBeLessThan(many.length);
+    });
+
+    test("maxHeight alone binds", () => {
+        const { container } = renderPlan(planRoot(many, { style: { maxHeight: "50%" } }), "plan-bounded-max");
+        expect(container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-bounded")).toBe(true);
+    });
+
+    test("no declared size keeps the grow-to-content flow — every row in flow", () => {
+        const { container } = renderPlan(planRoot(many), "plan-unbounded");
+        const body = container.querySelector("[data-plan-body]")!;
+        expect(body.hasAttribute("data-plan-bounded")).toBe(false);
+        expect(container.querySelectorAll("[data-plan-row]").length).toBe(many.length);
     });
 });

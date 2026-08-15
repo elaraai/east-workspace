@@ -22,7 +22,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Chart, Format, Plan, Reactive, Slice, Text } from "@elaraai/east-ui";
+import { Box, Chart, Format, Plan, Reactive, Slice, Text } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1352,6 +1352,55 @@ export const planLibraryDnd = example({
                 onDrag={onDrag}
                 canDrop={canDrop}
             />
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planFill — the bounded sizing isolate (#320 / #567 D1)
+// ============================================================================
+
+/** Fill (#320) — `height="fill"` resolves against the bounded Box and
+ *  virtualizes 200 span rows. The bound must land on the canvas WRAPPER: a
+ *  percentage passed inward resolves against an auto-height parent, computes
+ *  to `auto`, and silently unbinds — the frame reports bounded, renders its
+ *  spacer, and never scrolls (#567 D1). */
+export const planFill = example({
+    keywords: ["Plan", "fill", "height", "maxHeight", "#320", "virtual", "bounded", "Box", "scroll", "sizing", "data", "series", "span"],
+    description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 span rows from a data + series canvas",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W38 (half-open).
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        const UnitRow = StructType({
+            id: StringType, start: DateTimeType, end: DateTimeType, tonnes: FloatType,
+        });
+        // 200 raw rows, generated in East — the row count is the point.
+        const units = $.const(East.Array.range(0n, 200n).map((_$, i) => ({
+            id: East.str`UNIT-${i}`,
+            start: week(i.modulo(9n).add(27n)),
+            end: week(i.modulo(9n).add(30n)),
+            tonnes: i.toFloat().multiply(1.5).add(40.0),
+        })), ArrayType(UnitRow));
+        const series = $.const([
+            Plan.series.span(UnitRow, {
+                key: r => r.id, label: r => r.id, id: true,
+                runs: r => [Plan.run({
+                    key: r.id, start: r.start, end: r.end,
+                    label: East.str`RUN · ${r.id}`,
+                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
+                    qty: r.tonnes, state: variant("confirmed", null),
+                })],
+            }),
+        ], ArrayType(Plan.Types.Series(UnitRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+        return (
+            <Box height="240px">
+                <Plan axis={axis} data={units} series={series} style={{ height: "fill" }} />
+            </Box>
         );
     }),
     inputs: [],

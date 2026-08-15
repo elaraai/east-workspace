@@ -382,6 +382,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const gridTemplate = `${gutterW}px 1fr`;
     const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
+    // A declared bound goes on the WRAPPER and the frame fills the remainder
+    // (`fillParent`) — the Board / Roster / Planner / ValueTree discipline.
+    // Passing it inward instead leaves a percentage (`"fill"` → `"100%"`)
+    // resolving against the auto-height wrapper, which computes to `auto`: the
+    // frame reports bounded, renders the spacer, and never scrolls.
+    const frameFills = height !== undefined || maxHeight !== undefined;
     const barHeight = dense ? 16 : 20;
 
     // ── Rows ──────────────────────────────────────────────────────────────
@@ -630,6 +636,17 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     position="relative"
                     width="100%"
                     minWidth={0}
+                    data-plan-body
+                    // The bound lives HERE, not on the frame — the attribute is
+                    // the contract (jsdom resolves no Chakra classes).
+                    data-plan-bounded={frameFills ? "" : undefined}
+                    {...(frameFills && {
+                        display: "flex",
+                        flexDirection: "column",
+                        minHeight: 0,
+                        height,
+                        maxHeight,
+                    })}
                     onKeyDown={(e) => {
                         const target = e.target as HTMLElement;
                         if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
@@ -648,7 +665,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     }}
                 >
                     {expandRow !== undefined ? (
-                        <Box css={styles.root} height={height} maxHeight={maxHeight} data-plan-expandfocus>
+                        <Box css={styles.root} data-plan-expandfocus
+                            {...(frameFills
+                                ? { flex: "1 1 auto", minHeight: 0, overflowY: "auto" }
+                                : { height, maxHeight })}>
                             {header}
                             {renderVisible(expandRow)}
                             <Box css={styles.expandRender} data-plan-expandrender
@@ -662,8 +682,16 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         </Box>
                     ) : (
                         <VirtualRows
-                            height={height}
-                            maxHeight={maxHeight}
+                            height={frameFills ? undefined : height}
+                            maxHeight={frameFills ? undefined : maxHeight}
+                            fillParent={frameFills}
+                            // Every body item pins an exact height matching
+                            // `estimateSize` — `RowShell` sets `height: {h}px`
+                            // from the same `rowHeight()`, and the rail / gap
+                            // bands pin 11px / 22px in the recipe. Measuring
+                            // fixed-height rows drifts under fractional zoom
+                            // and paints hairline seams (#533).
+                            measureRows={false}
                             header={header}
                             footer={<PlanFooter styles={styles} items={value.footer} />}
                             count={bodyItems.length}
