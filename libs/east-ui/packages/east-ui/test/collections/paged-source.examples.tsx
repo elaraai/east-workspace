@@ -14,6 +14,7 @@ import {
     StringType,
     StructType,
     example,
+    some,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { Paged, Plan, Table } from "@elaraai/east-ui";
@@ -69,6 +70,31 @@ export const pagedSourceCanvas = example({
     inputs: [],
 });
 
+// ── A source big enough to actually WINDOW ────────────────────────────────
+// The two examples above are four rows each: one page, so they show the
+// contract but never the paging. This one is 1,000 elements — five windows at
+// the canvas's 200-element page — so the card shows what a paged canvas
+// actually does: the opening windows land, everything below is ONE band sized
+// from the ledger, and the footer counts elements as the run walks.
+//
+// Generated at MODULE scope: an East body never calls a host helper (east
+// 990020), so the rows are built here and handed in as data.
+
+/** Monday of ISO week `n`, 2026 (W1 Monday = 2025-12-29). */
+const MONDAY_W1 = Date.UTC(2025, 11, 29);
+const mondayOfWeek = (n: number): Date => new Date(MONDAY_W1 + (n - 1) * 7 * 86_400_000);
+
+/** 1,000 units across four lines. Keys sort by LINE first, so canonical key
+ *  order is deliberately not build order — the thing a windowed keyed source
+ *  has to get right. */
+const WIDE_UNITS = new Map(Array.from({ length: 1_000 }, (_, i) => {
+    const startWeek = 27 + (i % 10);
+    return [
+        `L${1 + (i % 4)}-U${String(i).padStart(4, "0")}`,
+        { start: mondayOfWeek(startWeek), end: mondayOfWeek(startWeek + 2), tonnes: 40 + (i % 80) },
+    ] as const;
+}));
+
 export const pagedTableSource = example({
     keywords: [
         "Paged", "of", "paged", "source", "Table", "window", "page", "total",
@@ -87,6 +113,39 @@ export const pagedTableSource = example({
         // Array's stream order has nothing to binary-search.
         const source = $.const(Paged.of("units", units));
         return <Table data={source} columns={["unit", "line", "tonnes"]} />;
+    }),
+    inputs: [],
+});
+
+export const pagedSourceWindows = example({
+    keywords: [
+        "Paged", "of", "paged", "window", "windows", "band", "transport", "footer",
+        "total", "scroll", "virtual", "large", "collection", "Plan", "canvas",
+        "key order", "residency", "offline",
+    ],
+    description: "The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable",
+    fn: East.function([], UIComponentType, ($) => {
+        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+        const units = $.const(WIDE_UNITS, DictType(StringType, UnitRow));
+        const source = $.const(Paged.of("units", units));
+        const series = $.const([
+            Plan.series.span(UnitRow, {
+                label: (_r, k) => k, id: true,
+                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                runs: (r, k) => [Plan.run({
+                    key: "run", start: r.start, end: r.end,
+                    label: East.str`RUN · ${k}`,
+                    qty: r.tonnes, state: "actual",
+                })],
+            }),
+        ], ArrayType(Plan.Types.Series(UnitRow)));
+        const axis = $.const(Plan.axis({
+            window: { min: mondayOfWeek(27), max: mondayOfWeek(40) }, resolution: "week",
+            now: mondayOfWeek(31),
+        }));
+        // Bounded, so the canvas virtualizes: an unbounded paged canvas would
+        // mount every resident row at once and page purely on demand.
+        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: "420px" }} />;
     }),
     inputs: [],
 });

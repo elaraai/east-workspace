@@ -23,6 +23,7 @@ describeEast("Row-source contract (#567)", (test) => {
     Assert.examples(test, {
         pagedSourceCanvas: ex.pagedSourceCanvas,
         pagedTableSource: ex.pagedTableSource,
+        pagedSourceWindows: ex.pagedSourceWindows,
     });
 
     test("Paged.of windows a collection, reports the total and exhausts on an EMPTY window", $ => {

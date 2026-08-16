@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1093,
+    "totalEntries": 1094,
     "totalFiles": 194,
     "packages": {
       "east": 500,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 338,
+      "east-ui": 339,
       "e3-ui": 39,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -16059,6 +16059,40 @@
         "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
       ],
       "source": "// The SAME row-source contract over a positional component — a \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const([\n            { unit: \"L1-M07\", line: \"Line 1\", tonnes: 64.0 },\n            { unit: \"L1-M09\", line: \"Line 1\", tonnes: 112.0 },\n            { unit: \"L2-M11\", line: \"Line 2\", tonnes: 92.0 },\n            { unit: \"L2-M12\", line: \"Line 2\", tonnes: 88.0 },\n        ], ArrayType(UnitRow));\n        // POSITIONAL: an array source, so no key accessor and no `seek` — an\n        // Array's stream order has nothing to binary-search.\n        const source = $.const(Paged.of(\"units\", units));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
+    },
+    {
+      "id": "east-ui:paged-source.examples.tsx:pagedSourceWindows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
+      "suite": "",
+      "test": "The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable",
+      "keywords": [
+        "Paged",
+        "of",
+        "paged",
+        "window",
+        "windows",
+        "band",
+        "transport",
+        "footer",
+        "total",
+        "scroll",
+        "virtual",
+        "large",
+        "collection",
+        "Plan",
+        "canvas",
+        "key order",
+        "residency",
+        "offline"
+      ],
+      "imports": [
+        "import {",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        const units = $.const(WIDE_UNITS, DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                label: (_r, k) => k, id: true,\n                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`,\n                    qty: r.tonnes, state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        const axis = $.const(Plan.axis({\n            window: { min: mondayOfWeek(27), max: mondayOfWeek(40) }, resolution: \"week\",\n            now: mondayOfWeek(31),\n        }));\n        // Bounded, so the canvas virtualizes: an unbounded paged canvas would\n        // mount every resident row at once and page purely on demand.\n        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: \"420px\" }} />;\n    })"
     },
     {
       "id": "east-ui:pagination.examples.tsx:paginationBasic",
