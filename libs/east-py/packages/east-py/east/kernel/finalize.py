@@ -1,0 +1,495 @@
+#
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under the Business Source License 1.1. See LICENSE.md for details.
+#
+"""Turning the lazy traced tree into the final homoiconic IR value.
+
+Three concerns, in dependency order: computing a nested function's ``captures``
+(``_free_vars``), the trace-time common-subexpression pass that binds a shared
+subtree to one ``Let`` (``_finalize_ir``, which also converts every plain-list
+child into its proper ``EastArray``), and the top-level assembly of a kernel's
+Function node (``_function_ir``).
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from east.ir.builders import ir_let
+from east.kernel.nodes import (
+    _MUTATING_BUILTINS,
+    _fresh_name,
+    _k_block,
+    _k_function,
+    _root_var_name,
+    _var,
+)
+from east.types.types import EastType, FunctionType
+from east.types.values import EastArray, EastStruct, EastVariant
+
+if TYPE_CHECKING:
+    from east.kernel.expr import KernelExpr
+
+
+def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
+    """Collect Variable nodes under ``node`` not bound within it, by name.
+
+    A nested Function IR node must LIST outer variables it uses in its
+    ``captures`` — east-c resolves captures from the enclosing scope when the
+    function value is created, and an unlisted one compiles to "Undefined
+    variable". The traced tree may still hold lazy python lists (#411).
+    """
+    from east.types.values import is_east_struct, is_east_variant
+
+    if isinstance(node, list):
+        for x in node:
+            _free_vars(x, bound, out)
+        return
+    if is_east_struct(node):
+        for _f, v in node.items():
+            _free_vars(v, bound, out)
+        return
+    if not is_east_variant(node):
+        return
+    kind = node.type
+    p = node.value
+    if kind == "Variable":
+        name = p["name"]
+        if name not in bound and name not in out:
+            out[name] = node
+        return
+    if kind == "Function":
+        for c in p["captures"]:
+            cname = c.value["name"]
+            if cname not in bound and cname not in out:
+                out[cname] = c
+        inner = bound | {v.value["name"] for v in p["parameters"]} \
+                      | {c.value["name"] for c in p["captures"]}
+        _free_vars(p["body"], inner, out)
+        return
+    if kind == "Block":
+        scope = set(bound)
+        for stmt in p["statements"]:
+            if is_east_variant(stmt) and stmt.type == "Let":
+                _free_vars(stmt.value["value"], frozenset(scope), out)
+                scope.add(stmt.value["variable"].value["name"])
+            else:
+                _free_vars(stmt, frozenset(scope), out)
+        return
+    if kind == "Match":
+        _free_vars(p["variant"], bound, out)
+        for case in p["cases"]:
+            _free_vars(case["body"], bound | {case["variable"].value["name"]}, out)
+        return
+    if kind in ("ForArray", "ForSet", "ForDict"):
+        # The loop variables BIND in the body. Left to the generic walk below
+        # they would be collected as free and land in an enclosing function's
+        # captures, where east-c resolves captures from the creating scope and
+        # finds nothing — "Undefined variable" at compile time.
+        source = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[kind]
+        _free_vars(p[source], bound, out)
+        loop_vars = {p["key"].value["name"]}
+        if kind != "ForSet":
+            loop_vars.add(p["value"].value["name"])
+        _free_vars(p["body"], bound | loop_vars, out)
+        return
+    if kind == "Value":
+        return  # literals only
+    if not is_east_struct(p):
+        return  # scalar/None payload (type atoms, raw values)
+    for fname, v in p.items():
+        if fname in ("type", "loc_id", "type_parameters"):
+            continue
+        _free_vars(v, bound, out)
+
+
+def _capturing_fn(fn_t: EastType, params: list, body_ir: Any):
+    """A Function IR node whose ``captures`` are computed from the body."""
+    free: dict[str, Any] = {}
+    _free_vars(body_ir, frozenset(p.value["name"] for p in params), free)
+    return _k_function(fn_t, list(free.values()), params, body_ir)
+
+
+def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
+    """A Function IR node ignoring its parameters and returning `body`."""
+    from east.types.types import FunctionType as _FnType
+
+    params = [_var(f"__d{i}", t) for i, t in enumerate(param_types)]
+    fn_t = _FnType(list(param_types), out_t)
+    return _capturing_fn(fn_t, params, body.ir)
+
+# ─── Trace-time CSE + finalize: shared subexpressions bind once (#411) ──────
+#
+# Reusing one KernelExpr object at N sites makes the traced (lazy) tree a
+# DAG. The finalize pass walks it once: every non-trivial node referenced
+# more than once — whose free variables are the kernel's own parameters or
+# hoisted constants — binds to a Let at the top of the kernel body (this
+# includes loop-invariant hoisting out of nested lambdas); everything else
+# re-emits inline. The SAME rebuild converts every plain-list child into its
+# proper EastArray, producing the final homoiconic value.
+
+_CSE_SKIP_KINDS = frozenset({"Value", "Variable"})
+
+#: node kind -> (child field specs, extra array fields converted not walked).
+#: A child spec is a field name, ("field", "list", ElementTypeThunk), or
+#: ("field", "structs", ElementTypeThunk, (subfields...)).
+def _node_specs():
+    from east.types.type_of_type import (
+        DictEntryType,
+        EastTypeType,
+        IfCaseType,
+        IRType,
+        MatchCaseType,
+        StructFieldIRType,
+    )
+
+    ir = lambda: IRType  # noqa: E731
+    return {
+        "Value": ((), ()),
+        "Variable": ((), ()),
+        "Builtin": ((("arguments", "list", ir),), (("type_parameters", EastTypeType),)),
+        "GetField": (("struct",), ()),
+        "Struct": ((("fields", "structs", lambda: StructFieldIRType, ("value",)),), ()),
+        "Variant": (("value",), ()),
+        "NewArray": ((("values", "list", ir),), ()),
+        "NewSet": ((("values", "list", ir),), ()),
+        "NewDict": ((("values", "structs", lambda: DictEntryType, ("key", "value")),), ()),
+        "Match": (("variant", ("cases", "structs", lambda: MatchCaseType, ("variable", "body"))), ()),
+        "IfElse": ((("ifs", "structs", lambda: IfCaseType, ("predicate", "body")), "else_body"), ()),
+        "Call": (("function", ("arguments", "list", ir)), ()),
+        "TryCatch": (("try_body", "catch_body", "message", "stack", "finally_body"), ()),
+        "Function": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
+        "Let": (("variable", "value"), ()),
+        "Block": ((("statements", "list", ir),), ()),
+        "Error": (("message",), ()),
+        "NewRef": (("value",), ()),
+        "While": (("predicate", "body"), ()),
+        "ForArray": (("array", "key", "value", "body"), ()),
+        "ForSet": (("set", "key", "body"), ()),
+        "ForDict": (("dict", "key", "value", "body"), ()),
+        "Break": ((), ()),
+        "Continue": ((), ()),
+    }
+
+
+_SPECS = None
+
+
+def _specs():
+    global _SPECS
+    if _SPECS is None:
+        _SPECS = _node_specs()
+    return _SPECS
+
+
+def _node_children(node):
+    """Yield the direct child IR nodes of a (lazy or final) node."""
+    spec = _specs().get(node.type)
+    if spec is None:
+        return
+    payload = node.value
+    for entry in spec[0]:
+        if isinstance(entry, str):
+            yield payload[entry]
+        elif entry[1] == "list":
+            yield from payload[entry[0]]
+        else:
+            for sub in payload[entry[0]]:
+                for f in entry[3]:
+                    yield sub[f]
+
+
+def _finalize_ir(top, param_names: set, kernel_fn=None):
+    """CSE + arrayify the whole lazy tree; returns the final homoiconic node.
+
+    ``top`` is the (lazy) top-level Function node — or a Block wrapping it
+    when constants hoisted; the CSE lets land inside ``kernel_fn``'s body
+    (the FIRST Function node encountered from the top).
+    """
+    counts: dict[int, int] = {}
+    keep: dict[int, Any] = {}
+    visited: set[int] = set()
+
+    def count(node):
+        i = id(node)
+        if node.type not in _CSE_SKIP_KINDS:
+            counts[i] = counts.get(i, 0) + 1
+            keep[i] = node
+        if i in visited:
+            return
+        visited.add(i)
+        for child in _node_children(node):
+            count(child)
+
+    count(top)
+
+    # A name that is REBOUND between the kernel body and a node's occurrence
+    # (an inner-lambda param or match/catch variable shadowing a top param)
+    # must block the hoist — at the top the name resolves to the wrong
+    # binder. scope[i] accumulates every such rebound name over all of the
+    # node's occurrences.
+    scope: dict[int, set] = {}
+
+    def binder_names(node):
+        if node.type == "Function" and node is not kernel_fn:
+            return {p.value["name"] for p in node.value["parameters"]}
+        if node.type == "Match":
+            return {c["variable"].value["name"] for c in node.value["cases"]}
+        if node.type == "TryCatch":
+            return {node.value["message"].value["name"], node.value["stack"].value["name"]}
+        if node.type in ("ForArray", "ForSet", "ForDict"):
+            names = {node.value["key"].value["name"]}
+            if node.type != "ForSet":
+                names.add(node.value["value"].value["name"])
+            return names
+        return None
+
+    def scope_walk(node, inner):
+        i = id(node)
+        prev = scope.get(i)
+        if prev is None:
+            scope[i] = set(inner)
+        elif inner <= prev:
+            return
+        else:
+            prev |= inner
+        bound = binder_names(node)
+        if bound:
+            inner = inner | bound
+        for child in _node_children(node):
+            scope_walk(child, inner)
+
+    scope_walk(top, set())
+
+    # A node whose EVERY occurrence sits inside a conditional arm (an IfElse
+    # case body / else body, a Match case body, a catch/finally) must NOT
+    # hoist to the top of the kernel: the hoisted Let evaluates it
+    # unconditionally, so a guarded PARTIAL operation — `d[k]` under
+    # `if_else(d.has(k), …)` — raises on the very path the guard excludes
+    # (#558 A). Sharing the value through one python variable is what makes
+    # the node multiply-referenced, so the natural guarded-build spelling
+    # was precisely the one that crashed. An occurrence on any
+    # unconditional path keeps the hoist (predicates themselves, and the
+    # #525 loop-invariant receivers, are unaffected).
+    uncond_seen: set[int] = set()
+    cond_seen: set[int] = set()
+
+    def cond_walk(node, conditional):
+        i = id(node)
+        seen = cond_seen if conditional else uncond_seen
+        if i in seen or (conditional and i in uncond_seen):
+            return
+        seen.add(i)
+        if node.type == "IfElse":
+            payload = node.value
+            for n, case in enumerate(payload["ifs"]):
+                # the first predicate always evaluates; later predicates only
+                # when every earlier one was false, and every body only when
+                # its predicate held
+                cond_walk(case["predicate"], conditional or n > 0)
+                cond_walk(case["body"], True)
+            cond_walk(payload["else_body"], True)
+            return
+        if node.type == "Match":
+            payload = node.value
+            cond_walk(payload["variant"], conditional)
+            for case in payload["cases"]:
+                cond_walk(case["variable"], True)
+                cond_walk(case["body"], True)
+            return
+        if node.type == "TryCatch":
+            payload = node.value
+            cond_walk(payload["try_body"], conditional)
+            for f in ("catch_body", "message", "stack", "finally_body"):
+                cond_walk(payload[f], True)
+            return
+        if node.type == "While":
+            payload = node.value
+            # the predicate always runs at least once; the body may run zero
+            # times, so a partial operation inside it is guarded exactly the
+            # way an IfElse arm is
+            cond_walk(payload["predicate"], conditional)
+            cond_walk(payload["body"], True)
+            return
+        if node.type in ("ForArray", "ForSet", "ForDict"):
+            payload = node.value
+            source = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[node.type]
+            cond_walk(payload[source], conditional)
+            cond_walk(payload["body"], True)  # empty collection: never
+            return
+        for child in _node_children(node):
+            cond_walk(child, conditional)
+
+    cond_walk(top, False)
+
+    def free_vars(node, bound):
+        if node.type == "Variable":
+            name = node.value["name"]
+            return set() if name in bound else {name}
+        if node.type == "Block":
+            # A Let scopes over the statements that FOLLOW it, so walk in order
+            # and widen as we go — the same rule the module-level `_free_vars`
+            # already applies. Without this a Block's OWN binding is reported
+            # free, `fv <= param_names` fails, and every composed expression
+            # that binds its receiver (mean, find_maximum, find_minimum,
+            # find_all) becomes un-hoistable: reusing one such expression
+            # re-emits and RE-EXECUTES it per use site (#525).
+            scope = set(bound)
+            block_out: set = set()
+            for stmt in node.value["statements"]:
+                if getattr(stmt, "type", None) == "Let":
+                    block_out |= free_vars(stmt.value["value"], scope)
+                    scope.add(stmt.value["variable"].value["name"])
+                else:
+                    block_out |= free_vars(stmt, scope)
+            return block_out
+        inner = bound
+        if node.type == "Function":
+            inner = bound | {p.value["name"] for p in node.value["parameters"]}
+        out: set = set()
+        for child in _node_children(node):
+            out |= free_vars(child, inner)
+        return out
+
+    def mutated_free(node, bound):
+        """Names a subtree MUTATES without itself binding them.
+
+        Hoisting evaluates a node ONCE at the top of the kernel, so a node
+        that mutates something it did not create must never hoist: the effect
+        would leave its loop or its conditional and happen a different number
+        of times. A self-contained mutation — the ``Let``-bound copy inside a
+        traced ``union``, the fresh accumulator inside a grouped fold — binds
+        its own target and stays hoistable.
+        """
+        if node.type == "Block":
+            scope_ = set(bound)
+            block_out: set = set()
+            for stmt in node.value["statements"]:
+                if getattr(stmt, "type", None) == "Let":
+                    block_out |= mutated_free(stmt.value["value"], scope_)
+                    scope_.add(stmt.value["variable"].value["name"])
+                else:
+                    block_out |= mutated_free(stmt, scope_)
+            return block_out
+        inner = bound
+        if node.type == "Function":
+            inner = bound | {p.value["name"] for p in node.value["parameters"]}
+        out: set = set()
+        if node.type == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS:
+            target = _root_var_name(node.value["arguments"][0])
+            if target is not None and target not in inner:
+                out.add(target)
+        for child in _node_children(node):
+            out |= mutated_free(child, inner)
+        return out
+
+    hoistable: dict[int, str] = {}
+    for i, n in counts.items():
+        if n < 2:
+            continue
+        if i not in uncond_seen:
+            continue          # every occurrence is branch-guarded — see above
+        fv = free_vars(keep[i], set())
+        if not (fv <= param_names) or (fv & scope[i]):
+            continue
+        if mutated_free(keep[i], set()):
+            continue          # the effect must stay where the trace put it
+        hoistable[i] = _fresh_name()
+
+    lets: list = []
+    emitted: set[int] = set()
+    memo: dict[int, Any] = {}
+    kernel_fn_seen = False
+
+    def arrayify(node, children):
+        spec = _specs()[node.type]
+        payload = node.value
+        fields = {k: payload[k] for k in payload}
+        it = iter(children)
+        for entry in spec[0]:
+            if isinstance(entry, str):
+                fields[entry] = next(it)
+            elif entry[1] == "list":
+                fields[entry[0]] = EastArray(entry[2](), [next(it) for _ in payload[entry[0]]])
+            else:
+                rebuilt: list[Any] = []
+                for sub in payload[entry[0]]:
+                    sf = {k: sub[k] for k in sub}
+                    for f in entry[3]:
+                        sf[f] = next(it)
+                    rebuilt.append(EastStruct(sf))
+                fields[entry[0]] = EastArray(entry[2](), rebuilt)
+        for fname, etype in spec[1]:
+            fields[fname] = EastArray(etype, list(payload[fname]))
+        return EastVariant(node.type, EastStruct(fields))
+
+    def emit_let(i):
+        if i in emitted:
+            return
+        emitted.add(i)
+        node = keep[i]
+        value = rewrite(node, binding=i)
+        lets.append(ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value))
+
+    def rewrite(node, binding=None):
+        nonlocal kernel_fn_seen
+        i = id(node)
+        if i in hoistable and i != binding:
+            emit_let(i)
+            return _var(hoistable[i], node.value["type"])
+        if binding is None and i in memo:
+            return memo[i]
+        is_kernel_fn = node is kernel_fn or (
+            kernel_fn is None and node.type == "Function" and not kernel_fn_seen
+        )
+        if is_kernel_fn:
+            kernel_fn_seen = True
+        children = [rewrite(c) for c in _node_children(node)]
+        if is_kernel_fn and (lets or hoistable):
+            # splice the collected lets at the head of the kernel body —
+            # rewriting the body above already emitted every needed let
+            body = children[-1]
+            if lets:
+                from east.types.type_of_type import IRType
+
+                body_type = node.value["type"].value["output"]
+                block: Any = EastVariant("Block", EastStruct({
+                    "type": body_type, "loc_id": 0,
+                    "statements": EastArray(IRType, [*lets, body]),
+                }))
+                children[-1] = block
+        result = arrayify(node, children)
+        if binding is None:
+            memo[i] = result
+        return result
+
+    return rewrite(top)
+
+
+# ─── Tracing + compilation ──────────────────────────────────────────────────
+
+
+def _function_ir(
+    param_types: list[EastType],
+    params: list,
+    body: KernelExpr,
+    consts: list[tuple[str, Any, EastType]] = (),  # type: ignore[assignment]
+) -> Any:
+    """The kernel's top-level IR value: a Function node, or — when constants
+    hoisted — ``Block[Let …, Function(captures)]`` so each constant evaluates
+    ONCE when the kernel compiles, not per call. Finalization runs the
+    identity CSE (#411) and converts the lazy tree to real East arrays."""
+    fn_type = FunctionType(list(param_types), body.east_type)
+    fn_node = _k_function(
+        fn_type,
+        # Hoisted constants are captured so they survive the enclosing block.
+        [_var(name, t) for name, _n, t in consts],
+        params,
+        body.ir,
+    )
+    top = fn_node
+    if consts:
+        lets = [ir_let(t, _var(name, t), node) for name, node, t in consts]
+        top = _k_block(fn_type, [*lets, fn_node])
+    param_names = {p.value["name"] for p in params} | {name for name, _n, _t in consts}
+    return _finalize_ir(top, param_names, kernel_fn=fn_node)

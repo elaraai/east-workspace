@@ -4,8 +4,8 @@
 #
 """Kernel-tracer hardening (#543): the proxy bail for f-strings (#530), the
 one-mode loud-fallback contract (a pure-looking callback that fails to
-trace RAISES; genuinely-python lambdas keep their fallback; deliberate
-implementation python paths declare ``_east_trace_fallback``), and the
+trace RAISES; genuinely-python lambdas keep their fallback; a deliberate
+python path declares ``_east_trace_fallback``), and the
 #536 keyword sweep — ``out=``-family pins accepted by the traced twins AND
 threaded into the callback's trace as its expected type (so a pinned
 callback can build a general variant, #541).
@@ -23,9 +23,9 @@ from east import (
     StructType,
     VariantType,
     east_null,
+    if_else,
     kernel,
     variant,
-    where,
 )
 from east.kernel import KernelTraceError
 
@@ -104,7 +104,7 @@ def test_filter_map_out_types_the_some_payload():
     from east import none, some
 
     out = _rows().filter_map(
-        lambda r: where(r["code"] == "ADDED", none, some(variant("vessel", r["code"]))),
+        lambda r: if_else(r["code"] == "ADDED", none, some(variant("vessel", r["code"]))),
         out=Source,
     )
     assert [(v.type, v.value) for v in out] == [("vessel", "TANK-1")]
@@ -142,7 +142,7 @@ def test_to_dict_key_and_value_outs_type_the_projections():
 def test_group_reduce_key_out_types_a_variant_group_key():
     d = EastDict(StringType, IntegerType, {"a": 1, "ADDED": 2})
     got = d.group_reduce(
-        lambda k, _v: where(k == "ADDED", variant("added", east_null),
+        lambda k, _v: if_else(k == "ADDED", variant("added", east_null),
                             variant("vessel", k)),
         lambda _gk: 0,
         lambda acc, _k, v: acc + v,

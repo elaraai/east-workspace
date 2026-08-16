@@ -120,8 +120,7 @@ syntax, fastest first:
    callback on a 300k-row map, and it composes with chaining).
 
    Collection methods on traced expressions are a **closed, enumerated
-   surface** (an unsupported method raises `KernelTraceError` naming it;
-   with no loop IR these ARE the kernel language's iteration constructs).
+   surface** (an unsupported method raises `KernelTraceError` naming it).
    Nested lambdas trace recursively and may reference outer parameters;
    `some`/`every`/`first_map` compile to the native short-circuiting
    FirstMap scans, so traced and eager forms have identical early-exit
@@ -137,26 +136,31 @@ syntax, fastest first:
      `group_sum` `group_mean` `group_every` `group_some` `group_maximum`
      `group_minimum` `group_to_arrays` `group_to_sets` `group_to_dicts`
      `group_find_all` `group_find_first` `group_find_maximum`
-     `group_find_minimum` `[index_expr]`
+     `group_find_minimum` `[index_expr]` — plus the in-place `append`
+     `extend` `clear`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_dict` `to_set` `union` `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
      `copy` `size` `has` `reduce` `sum` `mean` `every` `some` `group_reduce`
      (`group_fold` = deprecated alias, #535)
      `group_size` `group_sum` `group_mean` `group_every` `group_some`
-     `group_to_arrays` `group_to_sets` `group_to_dicts`
+     `group_to_arrays` `group_to_sets` `group_to_dicts` — plus the in-place
+     `insert` `try_insert` `delete` `try_delete` `clear`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_set` `to_dict` `union` `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
      `try_get` `reduce` `sum` `mean` `every` `some` `group_reduce`
      (`group_fold` = deprecated alias, #535) `group_size`
      `group_sum` `group_mean` `group_every` `group_some` `group_to_arrays`
-     `group_to_sets` `group_to_dicts` `[key_expr]`
+     `group_to_sets` `group_to_dicts` `[key_expr]` — plus the in-place
+     `insert` `insert_or_update` `delete` `try_delete` `clear`
 
-   Mutators and side-effecting methods are deliberately absent (the kernel
-   language is pure), so a whole `record → legs → values` descent — or a
-   `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
-   with no materialised intermediate between stages. Methods that
+   Every transform is pure, so a whole `record → legs → values` descent — or
+   a `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
+   with no materialised intermediate between stages. The in-place mutators
+   are the loop-accumulator surface (see **Loops and control flow**): each
+   returns what its EAGER twin returns (Null, or Boolean for the `try_`
+   forms), so sequence them with `East.block(...)`. Methods that
    exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
    inference otherwise samples the lambda on a decoded python value):
 
@@ -202,7 +206,7 @@ syntax, fastest first:
    `east.ir.builders`) are accepted the same way:
 
    ```python
-   from east import kernel, where, FloatType
+   from east import kernel, FloatType
 
    amount = kernel(Row, lambda r: r.price * r.qty)     # compile once
    for blob in batches:
@@ -225,7 +229,7 @@ syntax, fastest first:
 - Reference only the lambda's parameters, plain scalar constants
   (closure floats/ints/strings/datetimes are baked — same value per
   element either way), East types/values (`east_null` included), the `East` builtin
-  namespace, `where`/`some`/`none`, **precompiled `kernel()` results**
+  namespace, `East.if_else`/`some`/`none`, **precompiled `kernel()` results**
   (dual-mode: they re-trace from their source, at any nesting depth,
   #470), **compiled East function values** (`.bind` results,
   `compile_from_*` functions — a CALL on one lowers to a native IR Call,
@@ -243,9 +247,10 @@ syntax, fastest first:
   against proxies — it samples on a real element instead).
 - Python won't let a library overload `and`/`or`/`not`/`if`, so traced
   kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
-  `where(cond, then, otherwise)` for conditionals. `where` is dual-mode:
-  eager on plain values, an East `IfElse` on traced expressions — the same
-  lambda works on both paths.
+  `East.if_else(cond, value, …, otherwise)` for conditionals — cond/value
+  pairs then the else, so an if/elif/else chain is ONE `IfElse` node.
+  It is dual-mode: eager on plain values, an East `IfElse` on traced
+  expressions — the same lambda works on both paths.
 - Arithmetic follows East types exactly: no implicit Integer↔Float mixing
   (`.to_float()` / `.to_integer()` convert), `//` is East IntegerDivide —
   truncation toward zero, NOT python's floored `//` — and `/` is Float
@@ -262,6 +267,73 @@ syntax, fastest first:
   kernel — hoist a `kernel(...)` and pass the varying value as a bound
   parameter instead. When in doubt, `eager_stats()` (lever 6 below) shows
   whether a hot loop is tracing or trampolining per call.
+
+### Loops and control flow (`East.while_`, `East.for_`)
+
+Prefer the collection methods above: `map`/`filter`/`fold`/`group_reduce`
+express most work and are the fastest thing in the runtime. Reach here when
+the next step **depends on the last** — a worklist, a BFS, a fixpoint, a
+topological replay — which no data-parallel method can express.
+
+Python cannot overload `=`, and `while`/`if` collapse to a `bool` before any
+tracer sees them. That is the constraint that produced `East.if_else`, and the
+answer is the same shape: **`while_` is to `while` what `if_else` is to `if`**.
+The body is a pure function of the state that RETURNS the next state, and the
+state struct IS the loop's local variables:
+
+```python
+from east import East
+
+total = East.while_({"i": 0, "acc": 0},
+                    cond=lambda s: s.i < n,
+                    body=lambda s: {"acc": s.acc + s.i, "i": s.i + 1}).acc
+
+# `East.if_else` is the `if`; a field left as `s.field` is the empty else;
+# `{**s, …}` changes one field and keeps the rest
+East.for_(rows, {"n": 0, "hi": 0.0},
+          lambda s, r: {"n": s.n + 1,
+                        "hi": East.if_else(r.price > s.hi, r.price, s.hi)})
+```
+
+This lowers to a `Ref` holding the state, a `While`/`For*` node whose body is
+one `RefUpdate`, and a final read — the whole loop runs inside east-c. Every
+construct is dual-mode like `East.if_else`: outside a trace it runs the plain
+python loop, so a callback that falls back still works. A worked example is in
+[Key Patterns](#sequential-logic-that-stays-in-east-c-worklist--replay).
+
+| Call | Emits | Notes |
+|---|---|---|
+| `East.if_else(cond, value, …, otherwise)` | `IfElse` | cond/value pairs then the else — an if/elif/else chain is ONE node; exactly one arm evaluates |
+| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` |
+| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` |
+| `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators |
+| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop) |
+| `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn)` |
+| `East.label(name=None)` | — | names a loop, for `break_`/`continue_` from a NESTED one |
+| `East.break_(state=…, label=…)` | `Break` | leave, optionally committing a last state |
+| `East.continue_(state=…, label=…)` | `Continue` | next iteration, optionally committing |
+| `East.try_catch(body, handler, finally_=None)` | `TryCatch` | `handler(message[, stack])`, same East type as `body` |
+| `East.new_array/new_set/new_dict(…)` | `NewArray`/`NewSet`/`NewDict` | a FRESH collection per evaluation — the loop accumulator |
+
+**Accumulate in place.** Threading a collection through the state rebuilds it
+every iteration (`order.concat(…)` copies — O(n²) over the loop). The
+mutators extend it in O(1). Each returns what its EAGER twin returns, so
+sequence with `East.block`; a mutation written as a bare statement is
+evaluated and thrown away, and the tracer says so rather than compiling a
+loop that silently does nothing:
+
+```python
+counts = East.for_(rows, {"counts": East.new_dict(StringType, IntegerType)},
+                   lambda s, r: East.block(
+                       s.counts.insert_or_update(r.sku, 1, lambda a, b: a + b),
+                       s)).counts
+```
+
+⚠️ Seed accumulators with `East.new_array/new_set/new_dict`. A captured
+`EastArray(T)` works too — a loop's seed is built fresh per call — but
+anywhere ELSE in a kernel a captured collection is a build-time snapshot
+shared by every call, and mutating one raises rather than leaking state
+between calls.
 
 ### Maximum performance — the levers, ranked
 
@@ -451,7 +523,7 @@ Task → What do you need?
     │   └─ Infer a value's type → type_of(value)
     │
     ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
-    │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/where()/greatest()/least() author them explicitly)
+    │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/East.if_else()/greatest()/least() author them explicitly)
     │   ├─ Array<T>  (element callbacks take fn(el) — or fn(el, idx) when declared, the builtin's index)
     │   │   ├─ Access → get(i) ❗bounds · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] (pythonic) · len() · iterate
     │   │   ├─ Reorder → sort(key=, reverse=) (in place) · sorted(key=, reverse=) · reverse() · reversed()
@@ -537,7 +609,7 @@ Task → What do you need?
     │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() · .sign() ·
     │   │   │                .sqrt()/.exp()/.log()/.sin()/.cos()/.tan() (Float) · .log()/.sign() (Integer)
     │   │   ├─ Compare → == != < <= > >= (East total order, any comparable type) · greatest(a, b) · least(a, b)
-    │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · where(cond, then, otherwise)
+    │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · East.if_else(cond, value, …, otherwise) — pairs then the else, one node
     │   │   ├─ String → + (concat) · .contains/.starts_with/.ends_with · .upper()/.lower() · .strip()/.lstrip()/.rstrip() ·
     │   │   │            .length() · .split(sep) · .replace(old, new) · .substring(a, b) · .index_of(s) · .repeat(n) ·
     │   │   │            .regex_contains/.regex_index_of(pat, flags=) · .regex_replace(pat, repl, flags=) · .encode_utf8/16 ·
@@ -545,12 +617,12 @@ Task → What do you need?
     │   │   ├─ DateTime → .get_year/month/day_of_month/day_of_week/hour/minute/second/millisecond() ·
     │   │   │              .to_epoch_milliseconds() · .add_/subtract_{milliseconds,seconds,minutes,hours,days,weeks}(n) ·
     │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD") ·
-    │   │   │              python datetime literals lift as DateTime constants (unwrap_or defaults, where branches, captures)
-    │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
+    │   │   │              python datetime literals lift as DateTime constants (unwrap_or defaults, if_else arms, captures)
+    │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in if_else arms)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
     │   │   │             construct with variant(case, payload) typed from context: the kernel's declared
-    │   │   │             out= (types the whole result, incl. a where() over variant branches), a typed
-    │   │   │             where() sibling, or a declared struct field
+    │   │   │             out= (types the whole result, incl. an if_else() over variant arms), a typed
+    │   │   │             if_else() sibling, or a declared struct field
     │   │   ├─ Collections → the FULL closed surface enumerated in [Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)
     │   │   │                 (#452) — that list is the ONE registry, pinned against `_TRACED_SURFACE`; highlights:
     │   │   │                 map · filter · filter_map · fold · scan · map_reduce · flatten_to_array/set ·
@@ -569,9 +641,35 @@ Task → What do you need?
     │   │   │   spelling does NOT trace (python coerces the index via __index__ and the trace bails)
     │   │   └─ Shared subexpressions → REUSE the python variable (fields = r.data.split("|"); read it N times)
     │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
-    │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
+    │   ├─ Conditionals → East.if_else(cond, value, …, otherwise) — cond/value pairs THEN the else, so a
+    │   │                  chain is ONE IfElse node; exactly one arm evaluates; dual-mode (eager off-trace)
+    │   ├─ Sequential logic — the next step depends on the LAST (worklist · BFS/DFS · fixpoint · topological replay)
+    │   │   │   (no data-parallel method expresses it; before #578 this ran per element in PYTHON)
+    │   │   ├─ Loop with state → East.while_(state, cond, body, label=) · East.for_(coll, state, body, label=)
+    │   │   │   ├─ state = a dict of fields (read `s.name`) or one value; the body RETURNS the next state,
+    │   │   │   │   with the SAME fields and East types (a change in either is a named KernelTraceError)
+    │   │   │   ├─ branch in the body → East.if_else · keep a field → s.field · change one → {**s, "k": …}
+    │   │   │   └─ callbacks: while_ cond(s)/body(s) · for_ Array body(s, el[, i]) · Set body(s, el) · Dict body(s, k, v)
+    │   │   ├─ Leave / skip → East.break_(state=…, label=…) · East.continue_(state=…, label=…) — as an if_else arm;
+    │   │   │   the optional state COMMITS before the jump (without it the iteration's work is discarded)
+    │   │   ├─ Leave an OUTER loop from an inner one → lbl = East.label("outer") on it + break_(state, label=lbl)
+    │   │   ├─ Accumulate IN PLACE (threading a collection through the state rebuilds it — O(n²) over the loop)
+    │   │   │   ├─ A fresh loop-local collection → East.new_array/new_set/new_dict(types, items=…) (per evaluation)
+    │   │   │   ├─ Array → .append(v) · .extend(other) · .clear()
+    │   │   │   ├─ Set → .insert(v) ❗exists · .try_insert(v)→bool · .delete(v) ❗absent · .try_delete(v)→bool · .clear()
+    │   │   │   ├─ Dict → .insert(k,v) ❗exists · .insert_or_update(k, v, combine) · .delete(k) ❗ · .try_delete(k) · .clear()
+    │   │   │   │   (each yields exactly what its EAGER twin yields — Null, or Boolean for the try_ forms)
+    │   │   │   ├─ ❗sequence with East.block(mutation, result): a bare `acc.append(x)` STATEMENT is evaluated at
+    │   │   │   │   trace time and thrown away, so the tracer raises rather than compile a loop that does nothing
+    │   │   │   └─ ❗mutating a CAPTURED collection raises — it is a build-time snapshot shared by every call;
+    │   │   │       build it with new_* (a loop's SEED is exempt: it is rebuilt per call) or bind it as a parameter
+    │   │   ├─ Sequence / bind / cell → East.block(a, b, …) (yields the last) · East.let(value, fn(bound)) ·
+    │   │   │   East.ref(v) → .get() / .set(v) / .update(fn(current))
+    │   │   └─ Catch an East runtime error → East.try_catch(body, handler(message[, stack]), finally_=…)
+    │   │       (both arms must produce the SAME East type)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
-    │   ├─ Compile IR you built programmatically (east.ir.builders values) → compile_from_value — no serialization round-trip
+    │   ├─ Compile IR you built programmatically (east.ir.builders values) → from east import compile_from_value
+    │   │   → builtin NAMES and signatures: east/runtime/builtin_signatures.py (RefUpdate not RefSet; Less, type-parameterised, not IntegerLess)
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
     │
@@ -707,7 +805,7 @@ that still run python, so you can reason about cost and semantics:
 - **Pure lambdas become native kernels.** Callback methods trace pure lambdas into
   East IR (once, at call time) and run loop + kernel entirely in east-c; impure
   lambdas keep exact per-element python semantics. `east.kernel(...)` compiles one
-  explicitly (loud on untraceable) and `east.where(cond, a, b)` is the traced
+  explicitly (loud on untraceable) and `East.if_else(cond, a, b)` is the traced
   conditional.
 - **Methods vs namespaces.** You can't attach methods to Python's `float`/`int`/
   `str`/`bool`/`datetime`, so their builtins live on the `East.<Type>` namespaces.
@@ -996,13 +1094,16 @@ with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as
   the TS variant expr surface, and the same shapes trace inside kernels.
 - **`EastRef`** — mutable cell: `get()` · `set(value)` · `update(fn(current))` ·
   `merge(patch, combine(current, patch))` (delegates to east-c `RefMerge`). Use `set`/`update`
-  for a bare local `EastRef`; `merge` is for refs East passes a platform function.
+  for a bare local `EastRef`; `merge` is for refs East passes a platform function. Inside a
+  kernel the traced twin is `East.ref(v)` with the same `get`/`set`/`update`.
 
 ### Container generators (classmethods)
 
 east-py exposes **no** `East.Array`/`East.Set`/`East.Dict`/`East.Vector`/`East.Matrix` namespaces
-(the only `East.<X>` namespaces are the scalar ones below). Factories are **classmethods** on the
-container classes (snake_case):
+(the only `East.<Type>` namespaces are the scalar ones below). Eager factories are **classmethods**
+on the container classes (snake_case). Do not confuse them with `East.new_array`/`new_set`/
+`new_dict`, which are the CONTROL-FLOW constructors: a fresh loop-local collection built per
+evaluation inside a kernel (see the decision tree's *Sequential logic* branch).
 
 | Signature | Example |
 |-----------|---------|
@@ -1253,6 +1354,75 @@ with open_beast2_file("events.beast2") as events:   # Array<Event> sorted by tim
     span = events.find_sorted_range(cutoff_event)
     window = events.slice(span["start"], span["end"])
 ```
+
+### Sequential logic that stays in east-c (worklist / replay)
+
+When the next step depends on the last — a worklist, a BFS, a fixpoint, a
+topological replay — no `map`/`filter`/`group_reduce` expresses it, and a
+python loop over decoded rows is the whole job's cost. `East.while_`/`for_`
+thread a state through the loop natively: the body is a pure function of the
+state that RETURNS the next state, so the whole thing is ONE compiled kernel.
+
+Two rules carry most of the weight. **Accumulate in place** — a collection
+threaded through the state is rebuilt every iteration, so `order.concat(...)`
+is O(n²) over the loop where `order.append(...)` is O(1). And **sequence the
+mutation with `East.block`** — a bare `acc.append(x)` statement is evaluated
+at trace time and thrown away (the tracer raises rather than compile a loop
+that silently does nothing).
+
+```python
+from east import (ArrayType, DictType, East, IntegerType, StringType,
+                  kernel, platform_function)
+
+Node, Edges = StringType, DictType(StringType, ArrayType(StringType))
+Indeg = DictType(StringType, IntegerType)
+
+# Kahn's algorithm — ONE kernel: a worklist the loop appends to, a cursor
+# into it, and per-node successors decremented in place.
+topo_order = kernel(
+    [ArrayType(Node), Edges, Indeg],
+    lambda roots, succ, indeg: East.while_(
+        # .copy() because task inputs arrive frozen and the loop mutates
+        {"ready": roots.copy(), "indeg": indeg.copy(),
+         "order": East.new_array(Node), "i": 0},
+        cond=lambda s: s.i < s.ready.size(),
+        body=lambda s: East.let(s.ready.get(s.i), lambda node: East.block(
+            s.order.append(node),
+            East.for_(
+                succ.get_or_default(node, East.new_array(Node)),
+                {**s, "i": s.i + 1},                      # inner loop's state
+                lambda t, v: East.block(
+                    t.indeg.insert_or_update(v, -1, lambda old, d: old + d),
+                    East.if_else(t.indeg.get(v) == 0,     # newly ready?
+                                 East.block(t.ready.append(v), t),
+                                 t))))),                  # else: unchanged
+    ).order,
+    out=ArrayType(Node))
+
+@platform_function(inputs=[ArrayType(Node), Edges, Indeg], output=ArrayType(Node))
+def replay_order(roots, succ, indeg):
+    return topo_order(roots, succ, indeg)
+```
+
+The same shape covers any carried state — a forward fill is a `for_` whose
+state remembers the last stated value:
+
+```python
+forward_fill = kernel(
+    [ArrayType(StringType)],
+    lambda cells: East.for_(
+        cells, {"last": "", "out": East.new_array(StringType)},
+        lambda s, cell: East.let(
+            East.if_else(cell == "", s.last, cell),
+            lambda v: East.block(s.out.append(v), {"last": v, "out": s.out}))).out,
+    out=ArrayType(StringType))
+```
+
+To stop early, put `East.break_(state)` in an `if_else` arm — the state
+argument commits before the jump, so the answer survives; `East.label(...)` on
+an outer loop lets an inner one break all the way out. Reach for all of this
+only when the work is genuinely sequential: a `group_reduce` or a `fold` is
+both shorter and faster when it fits.
 
 ### Sort uses East's total order
 

@@ -1044,15 +1044,16 @@ class EastArray(MutableSequence, Generic[T]):
                 DictType(k2, bucket_type),
             )
 
-        def _append(acc: EastArray, el: Any, _idx: int) -> EastArray:
-            acc.append(el)
-            return acc
+        from east.kernel import block
 
-        # Only reached when the KEY already fell back to python — this
-        # companion is the deliberate python accumulation for that path
-        # (`append` is a mutator with no traced spelling), declared so the
-        # push-down's loud contract skips it (#543).
-        _append._east_trace_fallback = True
+        # Reached when the KEY fell back to python. The accumulation itself
+        # still traces: `block` sequences the append and yields the
+        # accumulator on BOTH paths, where the statement form
+        # (`acc.append(el); return acc`) traces to a body of just `acc` (#578).
+        # `acc` is an EastArray on the python path and a traced expression on
+        # the native one, so it is typed for both.
+        def _append(acc: Any, el: Any, _idx: int) -> Any:
+            return block(acc.append(el), acc)
 
         init_cb = EastFunction(lambda _gk: EastArray(self.element_type, []), [k2], bucket_type)
         fold_cb = EastFunction(_append, [bucket_type, self.element_type, IntegerType], bucket_type)
@@ -1187,7 +1188,7 @@ class EastArray(MutableSequence, Generic[T]):
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
         """Shared native short-circuit scan: some(True) on the deciding element."""
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, IntegerType, NullType, VariantType
@@ -1200,7 +1201,7 @@ class EastArray(MutableSequence, Generic[T]):
                 ~r if isinstance(r, KernelExpr) else not bool(r)
             )
             if isinstance(decided, KernelExpr):
-                return where(decided, _some(True), _none)
+                return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
         out_variant = VariantType([("none", NullType), ("some", BooleanType)])
@@ -1236,7 +1237,7 @@ class EastArray(MutableSequence, Generic[T]):
         """Indices whose element (or projection) equals ``value`` (native
         ArrayFilterMap), in order.
         """
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import ArrayType, IntegerType, NullType, VariantType
@@ -1247,7 +1248,7 @@ class EastArray(MutableSequence, Generic[T]):
         def _probe(el, i):  # noqa: ANN001, ANN202
             r = (proj(el, i) if wants_idx else proj(el)) == value
             if isinstance(r, KernelExpr):
-                return where(r, _some(i), _none)
+                return if_else(r, _some(i), _none)
             return _some(i) if r else _none
 
         out_variant = VariantType([("none", NullType), ("some", IntegerType)])
@@ -1415,7 +1416,7 @@ class EastArray(MutableSequence, Generic[T]):
                 python callback per group per segment — O(rows) trampolines
                 on a file whose segments are small (#470).
         """
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.namespace import East
         from east.types.coercion import coerce_to
         from east.types.construct import none as _none
@@ -1446,7 +1447,7 @@ class EastArray(MutableSequence, Generic[T]):
             r = East.equal(p_t, pf(el, i), value)
             gi = i + base if base else i
             if isinstance(r, KernelExpr):
-                return where(r, _some({"i": gi, "k": kf(el, i)}), _none)
+                return if_else(r, _some({"i": gi, "k": kf(el, i)}), _none)
             return _some({"i": gi, "k": kf(el, i)}) if r else _none
 
         out_variant = VariantType([("none", NullType), ("some", pair_t)])
@@ -1528,13 +1529,13 @@ class EastArray(MutableSequence, Generic[T]):
         this traces instead of trampolining. Shared with the beast2 file
         surface, which merges per-segment pairs under the same rule.
         """
-        from east.kernel import where
+        from east.kernel import if_else
         from east.namespace import East
 
         p_t = next(f["type"] for f in pair_t.value if f["name"] == "by")
         return EastFunction(
-            (lambda a, b, _k: where(East.greater_equal(p_t, a["by"], b["by"]), a, b)) if want_max
-            else (lambda a, b, _k: where(East.less_equal(p_t, a["by"], b["by"]), a, b)),
+            (lambda a, b, _k: if_else(East.greater_equal(p_t, a["by"], b["by"]), a, b)) if want_max
+            else (lambda a, b, _k: if_else(East.less_equal(p_t, a["by"], b["by"]), a, b)),
             [pair_t, pair_t, key_type], pair_t)
 
     def _group_find_extreme_pairs(self, key: Any, by: Any, want_max: bool) -> EastDict:
@@ -1681,8 +1682,7 @@ class EastArray(MutableSequence, Generic[T]):
         """Dicts of ``key2 -> value`` per group key.
 
         Without ``combine`` a duplicate inner key errors (TS parity); with it,
-        collisions resolve as ``combine(existing, incoming)`` (the collision
-        handling runs per inner insert on the python path).
+        collisions resolve as ``combine(existing, incoming)``.
         """
         from east.kernel import _dict_insert_fields_kernel, _empty_dict_kernel
         from east.types.types import DictType, IntegerType
@@ -1712,15 +1712,16 @@ class EastArray(MutableSequence, Generic[T]):
         inner = combine if _callback_arity(combine, 2) >= 3 \
             else (lambda ex, inc, _key: combine(ex, inc))
 
-        def _fold(acc: EastDict, p: Any, _i: Any) -> EastDict:
-            acc.insert_or_update(p["k2"], p["v"], inner)
-            return acc
+        from east.kernel import block
 
-        # A DELIBERATE per-element python path: the collision handling runs
-        # per inner insert (docstring above), and `insert_or_update` is a
-        # mutator with no traced spelling. Declared so the push-down's loud
-        # contract skips it — nativising this path is tracked on #543.
-        _fold._east_trace_fallback = True
+        # `insert_or_update` gained a traced spelling in #578, so this fold no
+        # longer has to run per element in python. `block` sequences the
+        # insert and yields the accumulator on both paths; the statement form
+        # would trace to a body of just `acc`, silently dropping every insert.
+        # `acc` is an EastDict on the python path and a traced expression on
+        # the native one, so it is typed for both.
+        def _fold(acc: Any, p: Any, _i: Any) -> Any:
+            return block(acc.insert_or_update(p["k2"], p["v"], inner), acc)
 
         init_cb = _empty_dict_kernel(k1, k2t, v_t)
         fold_cb = EastFunction(_fold, [DictType(k2t, v_t), pair_t, IntegerType], DictType(k2t, v_t))
@@ -2494,7 +2495,7 @@ class EastSet(Generic[T]):
         return total / float(n)
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
@@ -2505,7 +2506,7 @@ class EastSet(Generic[T]):
                 ~r if isinstance(r, KernelExpr) else not bool(r)
             )
             if isinstance(decided, KernelExpr):
-                return where(decided, _some(True), _none)
+                return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
         out_variant = VariantType([("none", NullType), ("some", BooleanType)])
@@ -2927,7 +2928,7 @@ class EastDict(Generic[K, V]):
         ``(key, value)`` like every other eager Dict callback, while the
         builtin's own slot is ``(value, key)``.
         """
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
@@ -2938,7 +2939,7 @@ class EastDict(Generic[K, V]):
                 ~r if isinstance(r, KernelExpr) else not bool(r)
             )
             if isinstance(decided, KernelExpr):
-                return where(decided, _some(True), _none)
+                return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
         out_variant = VariantType([("none", NullType), ("some", BooleanType)])

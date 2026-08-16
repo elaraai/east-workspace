@@ -36,8 +36,8 @@ from east import (
     SetType,
     StringType,
     array,
+    if_else,
     kernel,
-    where,
 )
 from east.kernel import greatest
 from east.runtime.compiler import eager_stats
@@ -46,7 +46,7 @@ from east.types.values.collections import EastDict, EastSet
 
 def _ffill_step(acc, c):
     """The forward-fill step, dual-mode: eager on values, IR under a trace."""
-    return where(c == "", acc, c)
+    return if_else(c == "", acc, c)
 
 
 # ── the fold algebra, pinned ─────────────────────────────────────────────────
@@ -166,7 +166,7 @@ def test_beast2_array_file_scan_threads_segments(tmp_path):
         assert list(f.scan(0, lambda acc, x: acc + x)) == \
             list(f.load().scan(0, lambda acc, x: acc + x))
         # (acc, el, idx) steps must see GLOBAL row indices across segments.
-        step = lambda acc, x, i: where(i % 2 == 0, acc + x, acc)  # noqa: E731
+        step = lambda acc, x, i: if_else(i % 2 == 0, acc + x, acc)  # noqa: E731
         assert list(f.scan(0, step)) == list(f.load().scan(0, step))
 
 

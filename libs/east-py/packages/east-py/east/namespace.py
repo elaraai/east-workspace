@@ -24,6 +24,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from east.kernel.control import (
+    block,
+    break_,
+    continue_,
+    for_,
+    label,
+    let,
+    new_array,
+    new_dict,
+    new_set,
+    ref,
+    try_catch,
+    while_,
+)
+from east.kernel.lift import if_else
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -982,13 +997,32 @@ class _BooleanNamespace:
 
 
 class _East:
-    """The ``East`` namespace object — primitive builtins + comparisons."""
+    """The ``East`` namespace object — primitive builtins, comparisons and
+    the block-level control flow."""
 
     Float = _FloatNamespace()
     Integer = _IntegerNamespace()
     String = _StringNamespace()
     Boolean = _BooleanNamespace()
     DateTime = _DateTimeNamespace()
+
+    # ── block-level control flow (#578, east/kernel/control.py) ──────────
+    # Attached rather than defined here: they are dual-mode expression
+    # builders, and this is the spelling — the python name is the IR node
+    # name, so an error, an IR dump and the docs all say the same word.
+    if_else = staticmethod(if_else)
+    while_ = staticmethod(while_)
+    for_ = staticmethod(for_)
+    block = staticmethod(block)
+    let = staticmethod(let)
+    ref = staticmethod(ref)
+    label = staticmethod(label)
+    break_ = staticmethod(break_)
+    continue_ = staticmethod(continue_)
+    try_catch = staticmethod(try_catch)
+    new_array = staticmethod(new_array)
+    new_set = staticmethod(new_set)
+    new_dict = staticmethod(new_dict)
 
     @staticmethod
     def equal(typ: EastType, a: EastValue, b: EastValue) -> bool:

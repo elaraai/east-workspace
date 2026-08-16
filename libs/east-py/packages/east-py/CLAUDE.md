@@ -62,17 +62,31 @@ All structured data uses two base classes:
      environment-passing style
    - `platform.py` — platform function integration API
 
-4. **`east/builtins/`** — 212+ builtin functions
+4. **`east/kernel/`** — the tracer that turns python lambdas into East IR
+   (the push-down behind every eager collection method). One module per
+   concern; `__init__.py` re-exports the whole surface, so importers only
+   ever say `from east.kernel import …`.
+   - `nodes.py` / `lift.py` / `finalize.py` — IR construction, lifting python
+     values into traced expressions, and the trace-time CSE
+   - `expr.py` + `ops/` — `KernelExpr` and its method surface, one op mixin
+     per domain (a mixin builds results with `self._expr(…)`: it cannot name
+     `KernelExpr`, because `expr.py` imports it to build that class)
+   - `control.py` — the block-level constructs (`East.while_`, `East.for_`,
+     `block`/`let`/`ref`/`label`/`break_`/`continue_`/`try_catch`)
+   - `trace.py` / `pushdown.py` — `kernel()`, and the purity gate + trace
+     cache that decide whether an eager callback goes native
+
+5. **`east/builtins/`** — 212+ builtin functions
    - Auto-register on import via registry pattern
    - Generic builtins receive type parameters as trailing arguments
 
-5. **`east/serialization/`** — parsing and printing
+6. **`east/serialization/`** — parsing and printing
    - `east_parser.py` / `east_printer.py` — East text format
    - `json.py` — JSON encoding/decoding
    - `beast2.py` — Binary East format
    - `csv.py` — CSV encoding/decoding
 
-6. **`east/datetime_format/`** — datetime formatting
+7. **`east/datetime_format/`** — datetime formatting
    - `parse.py` / `print.py` — parse/print datetime with format strings
    - `tokenize.py` — format string tokenization
 

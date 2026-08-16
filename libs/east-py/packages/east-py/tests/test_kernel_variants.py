@@ -7,7 +7,7 @@
 The 2-arg ``variant(case, payload)`` construction carries no VariantType, so
 a traced kernel needs the type from context. These pin every context that
 supplies it — the kernel's declared ``out=`` (threaded to the root lift), a
-``where()`` sibling, a typed struct field — and the deferred ``where`` over
+``if_else()`` sibling, a typed struct field — and the deferred ``if_else`` over
 variant branches in both arms. The exact spellings are the issue's repro.
 """
 
@@ -20,11 +20,11 @@ from east import (
     StructType,
     VariantType,
     east_null,
+    if_else,
     kernel,
     none,
     some,
     variant,
-    where,
 )
 from east.kernel import KernelTraceError
 from east.types.values import is_east_null
@@ -38,7 +38,7 @@ def _rows() -> EastArray:
 
 
 def _classify(r):
-    return where(r["code"] == "ADDED", variant("added", east_null),
+    return if_else(r["code"] == "ADDED", variant("added", east_null),
                  variant("vessel", r["code"]))
 
 
@@ -91,7 +91,7 @@ def test_bare_variant_without_any_context_raises_the_actionable_error():
 def test_options_still_trace_without_out():
     # The pre-existing some/none contract, untouched by the general fix.
     out = _rows().map(
-        kernel(Row, lambda r: where(r["code"] == "ADDED", none, some(r["code"])))
+        kernel(Row, lambda r: if_else(r["code"] == "ADDED", none, some(r["code"])))
     )
     assert [v.type for v in out] == [("some"), ("none")]
     assert out[0].value == "TANK-1"
@@ -103,7 +103,7 @@ def test_where_sibling_types_a_variant_branch():
     # expression whose type is already known.
     typed = kernel(Row, lambda r: variant("vessel", r["code"]), out=Source)
     out = _rows().map(
-        kernel(Row, lambda r: where(r["code"] == "ADDED", variant("added", east_null),
+        kernel(Row, lambda r: if_else(r["code"] == "ADDED", variant("added", east_null),
                                     typed(r)), out=Source)
     )
     assert [v.type for v in out] == ["vessel", "added"]

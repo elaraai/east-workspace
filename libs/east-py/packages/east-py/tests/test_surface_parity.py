@@ -23,12 +23,12 @@ from east import (
     StructType,
     VariantType,
     greatest,
+    if_else,
     kernel,
     least,
     none,
     some,
     variant,
-    where,
 )
 
 ROW = StructType([("sku", StringType), ("price", FloatType), ("qty", IntegerType)])
@@ -82,7 +82,7 @@ def test_traced_option_access_and_construction():
     assert k_unwrap({"p": none}) == 0.0
     assert kernel(Row, lambda v: v.p.is_some())({"p": none}) is False
     assert kernel(Row, lambda v: v.p.is_none())({"p": none}) is True
-    k_fill = kernel(Row, lambda v: where(v.p.is_some(), v.p, some(9.0)))
+    k_fill = kernel(Row, lambda v: if_else(v.p.is_some(), v.p, some(9.0)))
     assert k_fill({"p": none}).value == 9.0
     assert k_fill({"p": some(1.0)}).value == 1.0
 
@@ -101,7 +101,7 @@ def test_traced_general_variants():
     assert u(act) == 2.5
     with pytest.raises(Exception, match="unwrap: expected variant case"):
         u(clo)
-    c = kernel(Row, lambda v: where(v.st.has_tag("active"), v.st, variant("active", -1.0)))
+    c = kernel(Row, lambda v: if_else(v.st.has_tag("active"), v.st, variant("active", -1.0)))
     assert c(clo).value == -1.0
 
 

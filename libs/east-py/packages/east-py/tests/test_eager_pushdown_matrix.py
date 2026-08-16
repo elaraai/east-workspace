@@ -40,10 +40,10 @@ from east import (
     StringType,
     StructType,
     array,
+    if_else,
     kernel,
     none,
     some,
-    where,
 )
 from east.runtime.compiler import eager_stats
 
@@ -57,14 +57,14 @@ def _rows():
 
 
 def _callbacks(mode):
-    """The same projections in both spellings; ``where``/``some``/``none``
+    """The same projections in both spellings; ``if_else``/``some``/``none``
     are dual-mode, so one body serves eager and traced execution."""
     specs = {
         "g":      (Row, lambda r: r["g"]),
         "k":      (Row, lambda r: r["k"]),
         "v":      (Row, lambda r: r["v"]),
         "pred":   (Row, lambda r: r["v"] > 5.0),
-        "opt":    (Row, lambda r: where(r["v"] > 5.0, some(r["g"]), none)),
+        "opt":    (Row, lambda r: if_else(r["v"] > 5.0, some(r["g"]), none)),
         "flat":   (Row, lambda r: r["k"].split("|")),
         "folder": ([FloatType, Row], lambda acc, r: acc + r["v"]),
         "comb":   ([FloatType, FloatType], lambda a, b: a + b),
@@ -75,7 +75,7 @@ def _callbacks(mode):
         "dv":     ([StringType, FloatType], lambda k, v: v),
         "dpred":  ([StringType, FloatType], lambda k, v: v > 5.0),
         "dopt":   ([StringType, FloatType],
-                   lambda k, v: where(v > 5.0, some(k), none)),
+                   lambda k, v: if_else(v > 5.0, some(k), none)),
     }
     if mode == "kernel":
         return {name: kernel(types, fn) for name, (types, fn) in specs.items()}

@@ -392,12 +392,10 @@ class EagerEvaluator:
         inside a trace must emit constructor IR even with no traced children:
         an eager value would lift as a hoisted CONSTANT shared across calls —
         an init callback returning `[]` would hand every group one aliased
-        accumulator. (`east.kernel` the attribute is the kernel() function,
-        shadowing the submodule — go through sys.modules.)"""
-        import sys as _sys
+        accumulator."""
+        from east.kernel import _tracing
 
-        mod = _sys.modules.get("east.kernel")
-        return mod is not None and mod._const_registry is not None
+        return _tracing()
 
     # ── program entry ──
 
