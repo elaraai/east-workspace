@@ -402,11 +402,20 @@ export interface PlanTableOfConfig<R extends StructType> {
     format?: SubtypeExprOrValue<TickFormatType>;
 }
 
-/** The table PARENT kind — a subtotal declaration (header emphasis). */
+/**
+ * The table PARENT kind — a subtotal declaration (header emphasis).
+ *
+ * @remarks
+ * `split` is the family's, not a fixed `horizontal`: a subtotal lays its
+ * positions out the way its members do, or a vertical family renders stacked
+ * rows under a parent that puts the same two numbers side by side — and, since
+ * the row height follows the split, a parent that is one line tall while its
+ * members are two.
+ */
 export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<PlanRowKindType> {
     return East.value(variant("table", {
         series:    [],
-        split:     variant("horizontal", null),
+        split:     resolveTag(cfg.split ?? "horizontal", PlanTableSplitType),
         aggregate: some(resolveTag(cfg.aggregate ?? "sum", TableAggregateType)),
         format:    cfg.format !== undefined ? some(East.value(cfg.format, TickFormatType)) : none,
         emphasis:  variant("header", null),

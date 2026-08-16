@@ -849,8 +849,8 @@ export const planHeatRows = example({
 });
 
 export const planTableRows = example({
-    keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "groupBy", "nested", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "stacked", "two-line", "strong", "muted", "rollup", "raw"],
-    description: "Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once — all four combinations of the two INDEPENDENT choices, since a cell split implies nothing about a gutter: horizontal beside a two-line gutter (a strong rolled-up actual and its muted always-signed \u0394) and beside a one-line one, vertical under a one-line gutter and under a two-line one (the row then grows in both directions at once)",
+    keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "groupBy", "nested", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "stacked", "two-line", "strong", "muted", "rollup", "mirror", "position", "raw"],
+    description: "Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once — all four combinations of the two INDEPENDENT choices, since a cell split implies nothing about a gutter: horizontal beside a two-line gutter (a strong rolled-up actual and its muted always-signed \u0394) and beside a one-line one, vertical under a one-line gutter and under a two-line one (the row then grows in both directions at once) — plus the two GROUPED multi-value families, laid out side by side and stacked, whose subtotal parents mirror their members position for position rather than collapsing to one number",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -909,6 +909,10 @@ export const planTableRows = example({
             // an act subtotal beside a Δ subtotal.
             ["fl-1", { family: "flow", name: "FL-2201", top: "Flows", program: "", sub: none, act, plan: deltas }],
             ["fl-2", { family: "flow", name: "FL-2202", top: "Flows", program: "", sub: none, act, plan: deltas }],
+            // The same, STACKED: members and their subtotal both put the two
+            // positions on their own lines, so the parent has to grow too.
+            ["st-1", { family: "stack", name: "ST-3301", top: "Stacks", program: "", sub: none, act, plan: outflow }],
+            ["st-2", { family: "stack", name: "ST-3302", top: "Stacks", program: "", sub: none, act, plan: outflow }],
         ]), DictType(StringType, OrderRow));
         const series = $.const([
             Plan.series.table(OrderRow, {
@@ -975,6 +979,21 @@ export const planTableRows = example({
                         format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
                         cells: Plan.tableCells(r.plan),
                     }),
+                ],
+                groupBy: [r => r.top], aggregate: "sum",
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            // GROUPED and VERTICAL — the subtotal stacks its positions the way
+            // its members do. The parent carries no series of its own (they are
+            // derived), so its height comes from the DERIVED count: estimating
+            // from its own empty list would call this a one-line row and render
+            // it as two.
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("stack"),
+                label: r => r.name, split: "vertical",
+                series: r => [
+                    Plan.tableSeries({ strong: true, cells: Plan.tableCells(r.act) }),
+                    Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(r.plan) }),
                 ],
                 groupBy: [r => r.top], aggregate: "sum",
                 format: Format.Number({ maximumFractionDigits: 0n }),
@@ -1438,45 +1457,122 @@ export const planLibraryDnd = example({
  *  different row heights (a rollup band is taller than a leaf), so the
  *  `estimateSize` path is exercised rather than a single constant. */
 export const planFill = example({
-    keywords: ["Plan", "fill", "height", "maxHeight", "#320", "virtual", "virtualization", "bounded", "Box", "scroll", "sizing", "data", "series", "span", "group", "groupBy", "rollup", "union", "collapse", "parent"],
-    description: "Fill sizing under grouping — height=\"fill\" resolves against the bounded Box and virtualizes 200 span rows nested under 8 groupBy rollup parents, so collapsing a strip changes the virtualizer's item count and total size mid-scroll while the parents give the list two different row heights to estimate",
+    keywords: ["Plan", "fill", "height", "maxHeight", "#320", "virtual", "virtualization", "bounded", "Box", "scroll", "sizing", "data", "series", "span", "chart", "heat", "spark", "sub", "two-line", "mixed", "variable", "estimateSize", "group", "groupBy", "rollup", "union", "collapse", "parent"],
+    description: "Fill sizing over VARIABLE row heights — height=\"fill\" resolves against the bounded Box and virtualizes 200 rows of mixed kinds (span / chart spark / heat) whose gutters alternate one-line and two-line, nested under 8 groupBy rollup parents: four different heights interleaved, so a collapse changes the item count and total size mid-scroll and no constant estimate can stand in for the real one",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open).
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
             return w1.addWeeks(n.subtract(1n));
         }));
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const UnitRow = StructType({
-            line: StringType,
+            line: StringType, family: StringType,
+            sub: OptionType(StringType),
             start: DateTimeType, end: DateTimeType, tonnes: FloatType,
+            points: ArrayType(MeasureRow),
+            cells: ArrayType(Plan.Types.HeatCell),
         });
         // 200 raw rows, generated in East — the row count is the point. The
         // KEYS are the point too: they order the canvas, so they are numbered
         // to sort as written (`UNIT-1000` … `UNIT-1199`) rather than
         // lexicographically (`UNIT-1`, `UNIT-10`, `UNIT-100`, …).
+        //
         // `line` is the grouping level: 8 strips of 25, so a single collapse
         // takes an eighth of the list out of the virtualizer at once.
+        //
+        // Everything else here exists to make the row heights DISAGREE, which
+        // is the case a virtualizer gets wrong. `family` cycles span / chart /
+        // heat (32 / 32 / 28px), `sub` alternates so every other row floors at
+        // the 42px two-line gutter, and the rollup parents add a fourth height
+        // again — so consecutive estimates differ in both directions and no
+        // constant can stand in for `estimateSize`.
         const units = $.const(East.Array.range(0n, 200n).toDict(
             (_$, i) => East.str`UNIT-${East.print(i.add(1000n))}`,
-            (_$, i) => ({
+            ($, i) => {
+              const m = $.let(i.modulo(10n), IntegerType);
+              return {
                 line: East.str`LINE ${East.print(i.modulo(8n).add(1n))}`,
+                // The kind cycles with the KEY, so every stretch of the canvas
+                // holds the same mix — clustering the tall rows at one end
+                // would leave most of the scroll a single height again.
+                family: m.equal(4n).ifElse(() => "heat",
+                    () => m.equal(5n).ifElse(() => "spark",
+                    () => m.equal(6n).ifElse(() => "chartM",
+                    () => m.equal(7n).ifElse(() => "chartL",
+                    () => m.equal(8n).ifElse(() => "chartXL", () => "span"))))),
+                // Alternating one-line / two-line gutters.
+                sub: i.modulo(2n).equal(0n).ifElse(
+                    () => some(East.str`cap ${East.print(i.modulo(9n).add(40n))} t`),
+                    () => $.const(none, OptionType(StringType))),
                 start: week(i.modulo(9n).add(27n)),
                 end: week(i.modulo(9n).add(30n)),
                 tonnes: i.toFloat().multiply(1.5).add(40.0),
-            })), DictType(StringType, UnitRow));
+                points: East.Array.generate(6n, MeasureRow, (_$, j) => ({
+                    week: week(j.multiply(2n).add(27n)),
+                    pct: j.multiply(17n).add(i).remainder(60n).toFloat().add(40.0),
+                })),
+                cells: East.Array.generate(6n, Plan.Types.HeatCell, (_$, j) => ({
+                    at: week(j.multiply(2n).add(27n)),
+                    value: some(j.multiply(13n).add(i).remainder(100n).toFloat()),
+                    label: none,
+                })),
+              };
+            }), DictType(StringType, UnitRow));
+        // ONE discovered group per line, wrapping EVERY kind — the strip form
+        // takes child series, so each line's members are all its rows whatever
+        // kind they are. (`groupBy` on the span series alone would nest only
+        // the spans and leave every chart / heat row a root, which sorts them
+        // as a block after all eight subtrees; the chart series has no
+        // `groupBy` at all.) Inside a strip the members are in KEY order, so
+        // the kinds interleave the way the keys do.
         const series = $.const([
-            Plan.series.span(UnitRow, {
-                label: (_r, k) => k, id: true,
-                runs: (r, k) => [Plan.run({
-                    key: k, start: r.start, end: r.end,
-                    label: East.str`RUN · ${k}`,
-                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                    qty: r.tonnes, state: variant("confirmed", null),
-                })],
-                // One union-rollup parent per line — 8 more rows, each
-                // collapsible over 25 children.
-                groupBy: [r => r.line], rollup: "union", unit: "t",
-            }),
+            Plan.series.group(UnitRow, { by: r => r.line }, [
+                Plan.series.span(UnitRow, {
+                    match: r => r.family.equal("span"),
+                    label: (_r, k) => k, id: true, sub: r => r.sub,
+                    runs: (r, k) => [Plan.run({
+                        key: k, start: r.start, end: r.end,
+                        label: East.str`RUN · ${k}`,
+                        quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
+                        qty: r.tonnes, state: variant("confirmed", null),
+                    })],
+                }),
+                // Heat rows are 28px — shorter than everything around them.
+                Plan.series.heat(UnitRow, {
+                    match: r => r.family.equal("heat"),
+                    label: (_r, k) => k, id: true, sub: r => r.sub,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                }),
+                // Four chart heights. `height` is a SERIES declaration, not a
+                // per-row accessor, so distinct heights mean distinct series —
+                // which is the point here: a spark, then three EXPANDED rows
+                // several times taller, scattered through the same key order.
+                Plan.series.chart(UnitRow, {
+                    match: r => r.family.equal("spark"),
+                    label: (_r, k) => k, id: true, sub: r => r.sub,
+                    height: "spark", expandable: true,
+                    layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+                Plan.series.chart(UnitRow, {
+                    match: r => r.family.equal("chartM"),
+                    label: (_r, k) => k, id: true, sub: r => r.sub,
+                    height: Plan.fixed("72px"),
+                    layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+                Plan.series.chart(UnitRow, {
+                    match: r => r.family.equal("chartL"),
+                    label: (_r, k) => k, id: true, sub: r => r.sub,
+                    height: "expanded",
+                    layers: r => [Chart.Area(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+                Plan.series.chart(UnitRow, {
+                    match: r => r.family.equal("chartXL"),
+                    label: (_r, k) => k, id: true, sub: r => r.sub,
+                    height: "expanded", expandedHeight: "140px",
+                    layers: r => [Chart.Column(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+            ]),
         ], ArrayType(Plan.Types.Series(UnitRow)));
         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
         return (
