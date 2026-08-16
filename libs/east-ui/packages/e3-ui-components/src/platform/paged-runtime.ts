@@ -312,14 +312,26 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     private touchWindow(key: string): void {
         this.loadedWindows.delete(key);
         this.loadedWindows.set(key, true);
-        while (this.loadedWindows.size > MAX_RETAINED_WINDOWS) {
-            const coldest = this.loadedWindows.keys().next().value;
-            if (coldest === undefined) break;
-            this.loadedWindows.delete(coldest);
-            const entry = this.entries.get(coldest);
+        if (this.loadedWindows.size <= MAX_RETAINED_WINDOWS) return;
+        // Evict coldest-first, but SKIP anything the current evaluation has
+        // already read. A reader walking a prefix longer than this cache would
+        // otherwise evict its own head partway through the pass; the next pass
+        // finds window 0 `idle`, gets `none`, stops at the hole, and the canvas
+        // renders zero rows — a source over ~4,800 elements blinked empty and
+        // reloaded forever (#581).
+        //
+        // If EVERY loaded window is in the current read set the cache is left
+        // over its cap for this pass, which is the right trade: exceeding a
+        // memory target beats blanking the surface. The readers additionally
+        // bound their own demand so this is not reached in practice.
+        for (const candidate of [...this.loadedWindows.keys()]) {
+            if (this.loadedWindows.size <= MAX_RETAINED_WINDOWS) break;
+            if (this.isTracked(candidate)) continue;
+            const entry = this.entries.get(candidate);
             // Never evict a window that is still in flight — its settle would
             // land on an entry the next read has already relaunched.
             if (entry === undefined || entry.status !== "loaded") continue;
+            this.loadedWindows.delete(candidate);
             entry.status = "idle";
             delete entry.window;
         }

@@ -930,6 +930,41 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-slot="scopeBadge"]')!.textContent).toBe("loaded rows only");
     });
 
+    test("a source far larger than the window cache STOPS at its budget instead of emptying (#581)", async () => {
+        // The runtime retains a bounded number of decoded windows across all
+        // paged sources. A reader that walks past that asks the cache to hold
+        // more than it can: each landing evicted the coldest window, which was
+        // the head the reader needs next pass, so the canvas blinked empty and
+        // reloaded forever past ~4,800 elements. The prefix now stops at a
+        // stated budget and the chrome reports the shortfall.
+        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const offsets: bigint[] = [];
+        const source = {
+            page: (offset: bigint) => {
+                offsets.push(offset);
+                return offset === 0n ? some(rowCollection(w0)) : some(rowCollection([]));
+            },
+            // 40 windows — well past the runtime's retention cap.
+            total: () => some(8000n),
+            id: "dom-test-budget",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-budget");
+        await screen.findByText("R1");
+
+        // It walked a bounded prefix, not the whole source.
+        const highest = offsets.reduce((a, b) => (b > a ? b : a), 0n);
+        expect(highest).toBeLessThan(8000n);
+        // ... and says so, rather than showing a blank canvas or claiming
+        // the whole source landed.
+        const line = container.querySelector('[data-slot="footerTransport"]')!;
+        expect(line.textContent).toMatch(/loaded of 8,000$/);
+        expect(line.getAttribute("data-partial")).toBe("");
+        // The rows it did load are still there — the failure mode was that they
+        // vanished on the next evaluation.
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+    });
+
     test("a source that cannot be READ renders the reason, not a blank axis (#567 D10)", async () => {
         // There is no offline stand-in for `Data.bindPaged` — paging is a server
         // capability — so a bound canvas rendered outside a workspace has

@@ -64,6 +64,22 @@ export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged
 /** Source elements requested per window. */
 export const PLAN_PAGE_SIZE = 200;
 
+/**
+ * Windows the dense prefix may span (#581).
+ *
+ * The runtime retains a bounded number of DECODED windows across all paged
+ * sources; a reader that asks for more than that in one pass is asking the
+ * cache to hold more than it can. The prefix therefore stops here and the
+ * chrome reports the shortfall (`N loaded of M`) rather than silently walking
+ * off the end.
+ *
+ * This cap is the interim bound. #577 replaces the dense prefix with
+ * viewport-shaped demand, at which point the budget is a retention policy
+ * rather than a ceiling on how far the reader may go.
+ */
+const MAX_PREFIX_WINDOWS = 20;
+
+
 /** East's own total order on the row keys — never JS `<` (the collection is
  *  sorted by East's ordering, and the merged prefix must match it). */
 const ROW_KEY_ORDER = compareFor(StringType);
@@ -129,10 +145,11 @@ export function usePlanPagedRows(
         const end = wantedEnd ?? total ?? PLAN_PAGE_SIZE;
         const range: RowRange = { start: 0, end: Math.max(end, PLAN_PAGE_SIZE) };
         const plan = planWindows(range, PLAN_PAGE_SIZE, total, 1);
+        const needed = plan.needed.slice(0, MAX_PREFIX_WINDOWS);
         const merged = new SortedMap<string, PlanRowValue>(undefined, ROW_KEY_ORDER);
         let loading = false;
         let loadedElements = 0;
-        for (const w of plan.needed) {
+        for (const w of needed) {
             let win: ReturnType<PlanPagedSourceValue["page"]>;
             try {
                 win = source.page(BigInt(w * PLAN_PAGE_SIZE), BigInt(PLAN_PAGE_SIZE));

@@ -38,6 +38,22 @@ export type TableRowValue = ValueTypeOf<typeof Table.Types.Root>["rows"] extends
 /** Source elements requested per window. */
 export const TABLE_PAGE_SIZE = 200;
 
+/**
+ * Windows the dense prefix may span (#581).
+ *
+ * The runtime retains a bounded number of DECODED windows across all paged
+ * sources; a reader that asks for more than that in one pass is asking the
+ * cache to hold more than it can. The prefix therefore stops here and the
+ * chrome reports the shortfall (`N loaded of M`) rather than silently walking
+ * off the end.
+ *
+ * This cap is the interim bound. #577 replaces the Plan's dense prefix with
+ * viewport-shaped demand, at which point the budget is a retention policy
+ * rather than a ceiling on how far the reader may go.
+ */
+const MAX_PREFIX_WINDOWS = 20;
+
+
 export interface TablePagedRows {
     /** The loaded rows, in stream order. */
     rows: TableRowValue[];
@@ -88,10 +104,11 @@ export function useTablePagedRows(
         const end = wantedEnd ?? total ?? TABLE_PAGE_SIZE;
         const range: RowRange = { start: 0, end: Math.max(end, TABLE_PAGE_SIZE) };
         const plan = planWindows(range, TABLE_PAGE_SIZE, total, 1);
+        const needed = plan.needed.slice(0, MAX_PREFIX_WINDOWS);
         const rows: TableRowValue[] = [];
         let loading = false;
         let loadedElements = 0;
-        for (const w of plan.needed) {
+        for (const w of needed) {
             let win: ReturnType<TablePagedSourceValue["page"]>;
             try {
                 win = source.page(BigInt(w * TABLE_PAGE_SIZE), BigInt(TABLE_PAGE_SIZE));

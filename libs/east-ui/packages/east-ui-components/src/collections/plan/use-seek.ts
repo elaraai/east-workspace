@@ -14,10 +14,16 @@
  * element index is not a canvas row index and never will be. What makes the
  * jump well-defined is #568: a leaf row's key IS its data key, and both the
  * source and the canvas collection are in canonical key order. So a query's
- * matches — one CONTIGUOUS run in the source's key order — are also a
- * contiguous run of canvas rows starting at the first row at-or-after the
- * sought key. The i-th match is the i-th canvas row of that run, derived
- * entirely in key space.
+ * matches — one CONTIGUOUS run in the source's key order — begin at the first
+ * canvas row at-or-after the sought key, and THAT row is addressable in key
+ * space alone.
+ *
+ * The k-th match is NOT the k-th row of that run. An earlier draft assumed so
+ * and positioned every match after the first on the wrong row (#582): a series
+ * emits any number of canvas rows per source element, so the element delta the
+ * control steps by is not a row delta. Locating the k-th match needs the
+ * element→window origin map #577 introduces; until then a jump loads to the
+ * target element and the canvas holds the first match.
  *
  * The element index is still needed for one thing: knowing how FAR to load. The
  * loader keeps a contiguous prefix, so jumping to element 5,000 means asking
@@ -117,8 +123,13 @@ export function usePlanSeek(
     const [query, setQuery] = useState<unknown>(null);
     /** The key the query sought, and where its run started in the source. */
     const [sought, setSought] = useState<{ key: string; row: number } | null>(null);
-    /** The match offset within the run the user last committed to. */
-    const [offset, setOffset] = useState(0);
+    // NOTE: there is deliberately no "which match" index here. `seek` answers in
+    // SOURCE ELEMENT indices and a series can emit any number of canvas rows per
+    // element, so an element delta cannot index the canvas-row run — doing that
+    // positioned every match after the first on the wrong row (#582). Until the
+    // window-origin tracking of #577 lands, a jump LOADS to the target element
+    // and the canvas anchors on the first row at-or-after the sought key, which
+    // is right rather than plausibly wrong.
     const [wantedEnd, setWantedEnd] = useState<number | undefined>(undefined);
     const pending = useRef<{
         resolve: (r: DatasetKeyMatchRange) => void;
@@ -169,7 +180,6 @@ export function usePlanSeek(
         // sequence guard ignores a late answer anyway.
         pending.current?.reject(new Error("superseded by a newer query"));
         pending.current = { resolve, reject };
-        setOffset(0);
         setSought({ key: soughtKeyOf(q) ?? "", row: 0 });
         setQuery(toSeekQuery(q));
     }), []);
@@ -183,18 +193,16 @@ export function usePlanSeek(
     }, [run, sought]);
 
     const jump = useCallback((row: number) => {
-        setOffset(sought === null ? 0 : Math.max(0, row - sought.row));
         // The loader keeps a contiguous prefix, so reaching element `row` means
         // asking for everything up to it (#577 makes this viewport-shaped).
         setWantedEnd((prev) => Math.max(prev ?? 0, row + 1));
-    }, [sought]);
+    }, []);
 
     const clear = useCallback(() => {
         pending.current?.reject(new Error("search cleared"));
         pending.current = null;
         setQuery(null);
         setSought(null);
-        setOffset(0);
         setWantedEnd(undefined);
     }, []);
 
@@ -206,6 +214,9 @@ export function usePlanSeek(
     return {
         search,
         wantedEnd,
-        targetKey: run[offset]?.key,
+        // The first canvas row at-or-after the sought key. See the note above:
+        // positioning on the k-th match needs the element→window origin map
+        // that #577 introduces.
+        targetKey: run[0]?.key,
     };
 }
