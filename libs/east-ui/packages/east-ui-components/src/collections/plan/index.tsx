@@ -56,7 +56,7 @@ import { HeatCells } from "./rows/HeatRow.js";
 import { BucketsRow } from "./rows/BucketsRow.js";
 import { CardsRow } from "./rows/CardsRow.js";
 import { EventsRow } from "./rows/EventsRow.js";
-import { TableRowCells, plainSeries } from "./rows/TableRow.js";
+import { TableRowCells } from "./rows/TableRow.js";
 import { PlanToolbar } from "./shell/Toolbar.js";
 import { HorizonBrush } from "./shell/HorizonBrush.js";
 import { FocusBar } from "./shell/FocusBar.js";
@@ -434,7 +434,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // `measureRows={false}`, so `rowHeight()` IS the layout.
     heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
         windowRows.reduce((sum, row) =>
-            sum + rowHeight({ row, depth: 0, drilled: false, collapsed: false }, dense, ui.chartsExpanded, focusCtx), 0);
+            sum + rowHeight({ row, depth: 0, drilled: false, collapsed: false }, dense, ui.chartsExpanded, focusCtx, derived), 0);
 
     // ── Rows ──────────────────────────────────────────────────────────────
     const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
@@ -489,7 +489,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const renderVisible = useCallback((v: VisibleRow): React.ReactNode => {
         if (scale === undefined) return null;
         const kind = v.row.kind;
-        const h = rowHeight(v, dense, ui.chartsExpanded, focusCtx);
+        const h = rowHeight(v, dense, ui.chartsExpanded, focusCtx, derived);
         const cursorFrac = ui.cursor?.frac;
         // R1 rails — unrelated rows collapse to 11px, never removed: order,
         // scroll and the status dot survive, and the rail itself returns.
@@ -603,14 +603,14 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 // A declared-aggregate parent renders its derived subtotal
                 // cells as ONE plain series; leaf rows render their declared
                 // series (per-position style, raw cells).
-                const derivedCells = derived.tableCells.get(v.row.key);
+                const derivedSeries = derived.tableSeries.get(v.row.key);
                 const emphasis = kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type;
                 return (
                     <RowShell {...shellBase} height={h} emphasis={emphasis}
                         caret={hasChildren ? { collapsed: v.collapsed } : undefined}
                         onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
                         <TableRowCells rowKey={v.row.key}
-                            series={derivedCells !== undefined ? plainSeries(derivedCells) : kind.value.series}
+                            series={derivedSeries ?? kind.value.series}
                             split={kind.value.split.type}
                             format={getSomeorUndefined(kind.value.format)} styles={styles} />
                     </RowShell>
@@ -810,7 +810,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                                 if (item === undefined) return 32;
                                 if (item.kind === "gap") return GAP_H;
                                 if (item.kind === "band") return Math.max(1, item.band.px);
-                                return rowHeight(item.row, dense, ui.chartsExpanded, focusCtx);
+                                return rowHeight(item.row, dense, ui.chartsExpanded, focusCtx, derived);
                             }}
                             renderRow={(i) => {
                                 const item = bodyItems[i];

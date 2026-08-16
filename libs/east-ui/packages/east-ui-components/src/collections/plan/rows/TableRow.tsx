@@ -16,7 +16,7 @@
  * emphasis (header / footer) rides the shell's `data-emphasis`.
  */
 
-import { none, type ValueTypeOf } from "@elaraai/east";
+import { type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanScale } from "../context.js";
@@ -26,14 +26,9 @@ type Styles = Record<string, Record<string, unknown>>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
 type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
 
-/** Wrap derived subtotal cells as ONE plain series (no declarations). */
-export function plainSeries(cells: readonly TableCellValue[]): readonly TableSeriesValue[] {
-    return [{ cells, format: none, tone: none, strong: none, rollup: none } as unknown as TableSeriesValue];
-}
-
 export interface TableRowCellsProps {
     rowKey: string;
-    /** The rendered series — the row's own, or `plainSeries(derived)`. */
+    /** The rendered series — the row's own, or its derived subtotal positions. */
     series: readonly TableSeriesValue[];
     /** The part layout (visible only with more than one series). */
     split: "horizontal" | "vertical";

@@ -316,8 +316,8 @@ describe("Plan derived heat / table aggregates", () => {
 
     test("declared parents nest — a grandparent aggregates its children's DERIVED cells", () => {
         const derived = derivePlan(indexRows(nestedTableRows()));
-        expect(derived.tableCells.get("mid")![0]).toMatchObject({ value: { type: "some", value: 150 } });
-        expect(derived.tableCells.get("gp")![0]).toMatchObject({ value: { type: "some", value: 160 } });    // 150 derived + 10 leaf
+        expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
+        expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 160 } });    // 150 derived + 10 leaf
     });
 
     test("the walk follows the TREE, not the container order (#568)", () => {
@@ -333,10 +333,94 @@ describe("Plan derived heat / table aggregates", () => {
         const fromDepthFirst = derivePlan(indexRows(depthFirst));
         for (const order of [keyOrder, reversed]) {
             const derived = derivePlan(indexRows(order));
-            expect(derived.tableCells.get("mid")![0]).toMatchObject({ value: { type: "some", value: 150 } });
-            expect(derived.tableCells.get("gp")![0]).toMatchObject({ value: { type: "some", value: 160 } });
-            expect(derived.tableCells).toEqual(fromDepthFirst.tableCells);
+            expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
+            expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 160 } });
+            expect(derived.tableSeries).toEqual(fromDepthFirst.tableSeries);
         }
+    });
+
+    test("a subtotal mirrors its members' SHAPE — every position rolls up, not just the first", () => {
+        // The defect this replaced: `rollup` defaulted to "the first series",
+        // so a parent over two-position children printed one number per bucket
+        // and looked complete. A subtotal that silently drops a column is worse
+        // than no subtotal.
+        const multi = (a: number, b: number) => variant("table", {
+            series: [
+                { cells: [{ at: W27, value: some(a), text: none, tone: none }],
+                  format: none, tone: none, strong: some(true), rollup: none },
+                { cells: [{ at: W27, value: some(b), text: none, tone: none }],
+                  format: none, tone: some(variant("muted", null)), strong: none, rollup: none },
+            ],
+            split: variant("horizontal", null), aggregate: none, format: none,
+            emphasis: variant("body", null),
+        });
+        const empty = variant("table", {
+            series: [], split: variant("horizontal", null),
+            aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
+        });
+        const derived = derivePlan(indexRows([
+            trow("p", undefined, empty),
+            trow("x", "p", multi(96, -8)),
+            trow("y", "p", multi(54, -2)),
+        ]));
+        const positions = derived.tableSeries.get("p")!;
+        expect(positions).toHaveLength(2);
+        expect(positions[0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
+        expect(positions[1]!.cells[0]).toMatchObject({ value: { type: "some", value: -10 } });
+        // ...and each derived position wears its members' declarations, so the
+        // subtotal is styled like the numbers it totals.
+        expect(positions[0]!.strong).toMatchObject({ type: "some", value: true });
+        expect(positions[1]!.tone).toMatchObject({ type: "some", value: { type: "muted" } });
+    });
+
+    test("`rollup: true` still NARROWS — an author can say which position is the number", () => {
+        const flagged = (a: number, b: number) => variant("table", {
+            series: [
+                { cells: [{ at: W27, value: some(a), text: none, tone: none }],
+                  format: none, tone: none, strong: none, rollup: some(true) },
+                { cells: [{ at: W27, value: some(b), text: none, tone: none }],
+                  format: none, tone: none, strong: none, rollup: none },
+            ],
+            split: variant("horizontal", null), aggregate: none, format: none,
+            emphasis: variant("body", null),
+        });
+        const empty = variant("table", {
+            series: [], split: variant("horizontal", null),
+            aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
+        });
+        const derived = derivePlan(indexRows([
+            trow("p", undefined, empty),
+            trow("x", "p", flagged(96, -8)),
+            trow("y", "p", flagged(54, -2)),
+        ]));
+        const positions = derived.tableSeries.get("p")!;
+        expect(positions).toHaveLength(1);                                   // the Δ is commentary
+        expect(positions[0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
+    });
+
+    test("a VERTICAL subtotal grows for its DERIVED positions, not its (empty) own", () => {
+        // A subtotal parent carries no series of its own — they are derived —
+        // so estimating from `kind.value.series.length` would call a two-line
+        // stack one line and render taller than the virtualizer was told.
+        const vmulti = (a: number, b: number) => variant("table", {
+            series: [
+                { cells: [{ at: W27, value: some(a), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: W27, value: some(b), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+            ],
+            split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
+        });
+        const parent = variant("table", {
+            series: [], split: variant("vertical", null),
+            aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
+        });
+        const rows = [trow("p", undefined, parent), trow("x", "p", vmulti(1, 2))];
+        const index = indexRows(rows);
+        const derived = derivePlan(index);
+        const pv = visible(index.byKey.get("p")!);
+        // Without the derived width it estimates the bare 24px floor.
+        expect(rowHeight(pv, false, new Set())).toBe(24);
+        // With it, the same 6 + n×11 the members use.
+        expect(rowHeight(pv, false, new Set(), undefined, derived)).toBe(28);
     });
 
     test("a group's member count is DERIVED, not carried by the IR (#568)", () => {

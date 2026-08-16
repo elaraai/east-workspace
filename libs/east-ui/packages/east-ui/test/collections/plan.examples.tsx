@@ -905,6 +905,10 @@ export const planTableRows = example({
             // Vertical, on a TWO-line gutter — the stack needs the unit spelled
             // out, because the positions are the same measure at two times.
             ["overunder", { family: "overunder", name: "Act / plan", top: "", program: "", sub: some("t/wk"), act, plan: deltas }],
+            // GROUPED and multi-value: the subtotal parent mirrors its members,
+            // an act subtotal beside a Δ subtotal.
+            ["fl-1", { family: "flow", name: "FL-2201", top: "Flows", program: "", sub: none, act, plan: deltas }],
+            ["fl-2", { family: "flow", name: "FL-2202", top: "Flows", program: "", sub: none, act, plan: deltas }],
         ]), DictType(StringType, OrderRow));
         const series = $.const([
             Plan.series.table(OrderRow, {
@@ -955,6 +959,24 @@ export const planTableRows = example({
                     Plan.tableSeries({ strong: true, cells: Plan.tableCells(r.act) }),
                     Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(r.plan) }),
                 ],
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            // A MULTI-VALUE family under a subtotal parent — every position
+            // rolls up, so the parent shows an act subtotal beside a Δ subtotal
+            // instead of collapsing to one number and looking complete. Flag a
+            // position `rollup: true` to narrow it back to that one.
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("flow"),
+                label: r => r.name,
+                series: r => [
+                    Plan.tableSeries({ strong: true, cells: Plan.tableCells(r.act) }),
+                    Plan.tableSeries({
+                        tone: "muted",
+                        format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                        cells: Plan.tableCells(r.plan),
+                    }),
+                ],
+                groupBy: [r => r.top], aggregate: "sum",
                 format: Format.Number({ maximumFractionDigits: 0n }),
             }),
             // VERTICAL on a TWO-line gutter — the remaining combination, and

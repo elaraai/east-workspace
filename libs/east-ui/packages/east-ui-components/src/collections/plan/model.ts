@@ -190,6 +190,11 @@ export function rowHeight(
     dense: boolean,
     chartsExpanded: ReadonlySet<RowKey>,
     focus?: PlanFocusCtx,
+    /** The derived numbers, when available. A subtotal parent carries NO
+     *  series of its own — its positions are derived — so without this a
+     *  vertical multi-position subtotal would estimate as a single line and
+     *  render taller than the virtualizer was told. */
+    derived?: PlanDerived,
 ): number {
     // A links focus rails unrelated DATA rows; family rows fall through to
     // their normal kind heights and group bands stay wayfinding. An expand
@@ -233,7 +238,7 @@ export function rowHeight(
         case "heat": return floor(HEAT_ROW_H);
         case "table": {
             // A vertical multi-series stack grows the row (~11px per line).
-            const n = kind.value.series.length;
+            const n = derived?.tableSeries.get(v.row.key)?.length ?? kind.value.series.length;
             if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(TABLE_H, 6 + n * 11));
             return floor(TABLE_H);
         }
@@ -260,11 +265,22 @@ type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
 type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
 
-/** A table row's AGGREGABLE cells — its `rollup: some(true)` series, else
- *  the first (parents derive their subtotals from these). */
-export function tableRollupCells(series: readonly TableSeriesValue[]): readonly TableCellValue[] {
-    const s = series.find((x) => x.rollup.type === "some" && x.rollup.value) ?? series[0];
-    return s?.cells ?? [];
+/**
+ * A table row's AGGREGABLE positions — the ones a parent subtotals.
+ *
+ * `rollup: some(true)` NARROWS: flag a position and only the flagged ones roll
+ * up, which is how a row says "the actual is the number, the Δ beside it is
+ * commentary". Flag nothing and EVERY position rolls up, so a subtotal mirrors
+ * the shape of the rows it totals — a parent over `act`/`Δ` children shows an
+ * act subtotal beside a Δ subtotal rather than silently dropping one.
+ *
+ * (It used to return one position's cells unconditionally — the unflagged case
+ * fell back to `series[0]`, so a multi-value row's second position vanished
+ * into a parent that looked complete.)
+ */
+export function tableRollupSeries(series: readonly TableSeriesValue[]): readonly TableSeriesValue[] {
+    const flagged = series.filter((x) => x.rollup.type === "some" && x.rollup.value);
+    return flagged.length > 0 ? flagged : series;
 }
 
 /** One derived rollup band (`×k · qty`, pessimistic state). */
@@ -401,6 +417,36 @@ export function deriveTableCells(
     });
 }
 
+/**
+ * Derive a parent's subtotal SERIES — position by position.
+ *
+ * Position `i` of the parent aggregates position `i` of every child that has
+ * one, and inherits that position's declarations (format / tone / strong /
+ * rollup) from the first child carrying it, so the subtotal is styled like the
+ * numbers it totals rather than as anonymous plain text.
+ *
+ * @param positions - Each child's aggregable positions (see {@link tableRollupSeries})
+ * @param mode - The declared aggregate
+ * @returns One derived series per position
+ */
+export function deriveTableSeries(
+    positions: ReadonlyArray<readonly TableSeriesValue[]>,
+    mode: "sum" | "mean" | "min" | "max" | "count",
+): TableSeriesValue[] {
+    const width = positions.reduce((m, p) => Math.max(m, p.length), 0);
+    const out: TableSeriesValue[] = [];
+    for (let i = 0; i < width; i++) {
+        const at = positions.map((p) => p[i]).filter((s): s is TableSeriesValue => s !== undefined);
+        if (at.length === 0) continue;
+        const style = at[0]!;
+        out.push({
+            cells: deriveTableCells(at.flatMap((s) => s.cells), mode),
+            format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup,
+        } as TableSeriesValue);
+    }
+    return out;
+}
+
 /** The heat-arm cells of a row (empty for other kinds / arms). */
 function heatCellsOf(row: PlanRowValue): readonly HeatCellValue[] {
     if (row.kind.type !== "heat") return [];
@@ -427,8 +473,10 @@ export interface PlanDerived {
     bands: ReadonlyMap<RowKey, DerivedBand[]>;
     /** Aggregated cells by heat-parent row key. */
     heatCells: ReadonlyMap<RowKey, HeatCellValue[]>;
-    /** Subtotal cells by table-parent row key. */
-    tableCells: ReadonlyMap<RowKey, TableCellValue[]>;
+    /** Subtotal SERIES by table-parent row key — one derived position per
+     *  aggregable position of the children, so a parent renders the same
+     *  shape its members do. */
+    tableSeries: ReadonlyMap<RowKey, TableSeriesValue[]>;
     /** Strip summary cells by group row key. */
     groupSummary: ReadonlyMap<RowKey, HeatCellValue[]>;
     /** Direct-member count by group row key — the `"8 rs"` gutter meta.
@@ -459,7 +507,7 @@ export interface PlanDerived {
 export function derivePlan(index: PlanRowIndex): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatCells = new Map<RowKey, HeatCellValue[]>();
-    const tableCells = new Map<RowKey, TableCellValue[]>();
+    const tableSeries = new Map<RowKey, TableSeriesValue[]>();
     const groupSummary = new Map<RowKey, HeatCellValue[]>();
     const groupMembers = new Map<RowKey, number>();
     // A row's effective cells — its own, or (for declared parents) its
@@ -469,11 +517,11 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
         if (own.length > 0) return own;
         return heatCells.get(row.key) ?? [];
     };
-    const resolvedTableCells = (row: PlanRowValue): readonly TableCellValue[] => {
+    const resolvedTableSeries = (row: PlanRowValue): readonly TableSeriesValue[] => {
         if (row.kind.type !== "table") return [];
-        const own = tableRollupCells(row.kind.value.series);
+        const own = tableRollupSeries(row.kind.value.series);
         if (own.length > 0) return own;
-        return tableCells.get(row.key) ?? [];
+        return tableSeries.get(row.key) ?? [];
     };
     const visit = (row: PlanRowValue): void => {
         const children = index.children.get(row.key) ?? [];
@@ -492,10 +540,11 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
                 children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type));
         }
         if (kind.type === "table" && kind.value.aggregate.type === "some"
-            && tableRollupCells(kind.value.series).length === 0 && children.length > 0) {
-            tableCells.set(row.key, deriveTableCells(
-                children.flatMap(resolvedTableCells),
-                kind.value.aggregate.value.type));
+            && tableRollupSeries(kind.value.series).length === 0 && children.length > 0) {
+            const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
+            if (positions.length > 0) {
+                tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type));
+            }
         }
         if (kind.type === "group") {
             groupMembers.set(row.key, children.length);
@@ -506,7 +555,7 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
         }
     };
     for (const root of index.roots) visit(root);
-    return { bands, heatCells, tableCells, groupSummary, groupMembers };
+    return { bands, heatCells, tableSeries, groupSummary, groupMembers };
 }
 
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────
