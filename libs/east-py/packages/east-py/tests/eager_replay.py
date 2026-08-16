@@ -396,7 +396,7 @@ class EagerEvaluator:
         shadowing the submodule — go through sys.modules.)"""
         import sys as _sys
 
-        mod = _sys.modules.get("east.kernel")
+        mod = _sys.modules.get("east.kernel.lift")
         return mod is not None and mod._const_registry is not None
 
     # ── program entry ──
