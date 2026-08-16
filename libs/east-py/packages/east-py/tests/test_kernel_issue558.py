@@ -5,7 +5,7 @@
 """Traced-kernel defects from issue #558 — four fixes, each pinned by its repro.
 
 A. CSE must not hoist a shared Let across an IfElse boundary: the guarded
-   `where(d.has(k), some(build(d[k])), none)` spelling raised
+   `if_else(d.has(k), some(build(d[k])), none)` spelling raised
    `Dict does not contain key` on the miss path whenever `build` read the hit
    through one shared variable, because the hoisted Let evaluated the lookup
    unconditionally. An occurrence on an unconditional path keeps the hoist.
@@ -26,7 +26,7 @@ C. A traced lambda calling an already-compiled East function (a `.bind`
 D. `.match()` settles its output type from ANY arm that can state one
    without a hint — including a `some(expr)` arm, which arrives as an
    EastVariant wrapping the traced payload — so a sibling bare-`none` arm
-   types from it, exactly as `where(...)` always has.
+   types from it, exactly as `if_else(...)` always has.
 """
 
 import pytest
@@ -40,10 +40,10 @@ from east import (
     StringType,
     StructType,
     coerce_to,
+    if_else,
     kernel,
     none,
     some,
-    where,
 )
 from east.kernel import KernelTraceError
 from east.runtime.errors import NonRetraceableCallError
@@ -76,7 +76,7 @@ class TestConditionalHoist:
         def build(v):
             return {"x": v["a"], "y": v["b"], "z": v["c"]}
 
-        k = kernel([ROW, D], lambda r, d: where(d.has(r["k"]),
+        k = kernel([ROW, D], lambda r, d: if_else(d.has(r["k"]),
                                                 some(build(d[r["k"]])), none))
         out = list(_rows().map(k.bind(t)))
         assert out[0].type == "some" and out[0].value["x"] == 1.0
@@ -87,7 +87,7 @@ class TestConditionalHoist:
         # evaluated on every path, so hoisting it stays legal — and the
         # result must be unchanged.
         k = kernel([ROW, TABLE_T],
-                   lambda r, d: where(d.get_or_default(r["k"], 0.0) > 1.0,
+                   lambda r, d: if_else(d.get_or_default(r["k"], 0.0) > 1.0,
                                       d.get_or_default(r["k"], 0.0), 0.0))
         out = list(_rows().map(k.bind(_table())))
         assert out == [21.0, 0.0]

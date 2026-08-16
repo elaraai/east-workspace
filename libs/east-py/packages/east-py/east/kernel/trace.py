@@ -76,7 +76,7 @@ def trace(fn: Any, param_types: list[EastType],
     (compile with ``compile_from_value``). Raises KernelTraceError when the
     lambda performs untraceable operations. ``out_hint`` types the traced
     result expression — the kernel's declared ``out=`` — which is what lets
-    the root build a general variant or a ``where`` over variant branches
+    the root build a general variant or an ``if_else`` over variant arms
     (#541).
 
     The third element carries the compiled East function values the lambda

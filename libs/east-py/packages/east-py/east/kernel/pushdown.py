@@ -34,7 +34,7 @@ from east.kernel.control import (
 )
 from east.kernel.errors import KernelTraceError
 from east.kernel.expr import KernelExpr
-from east.kernel.lift import _sequence_effect, greatest, least, where
+from east.kernel.lift import _sequence_effect, greatest, if_else, least
 from east.kernel.nodes import _type_key
 from east.kernel.trace import trace
 from east.types.types import EastType
@@ -47,7 +47,7 @@ from east.types.values import EastArray
 # a native kernel. Tracing runs the lambda ONCE, so it is only attempted when
 # a conservative purity gate proves the lambda cannot observe per-element
 # python state: it may reference its parameters, plain scalar constants,
-# East types/values, `where`, precompiled kernels (re-traced from their
+# East types/values, `if_else`, precompiled kernels (re-traced from their
 # retained source, #470), and — two levels deep, enough for the group-sugar
 # wrappers that compose a user callback through an internal lambda — other
 # lambdas that pass the same gate. Anything else — modules, arbitrary
@@ -88,11 +88,11 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
 
     if is_east_null(value):
         return True
-    if value is where or value is bool or value is isinstance or value is abs:
+    if value is if_else or value is bool or value is isinstance or value is abs:
         return True
     if value is greatest or value is least:
         return True
-    # The control-flow constructs (#578) are dual-mode like `where`: they emit
+    # The control-flow constructs (#578) are dual-mode like `if_else`: they emit
     # IR inside a trace and run the plain python loop outside one, so a lambda
     # that references one directly is no less traceable than its body.
     if any(value is fn for fn in _CONTROL_FLOW):

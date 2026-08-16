@@ -17,14 +17,15 @@ Explicit API:
 - ``kernel(param_types, fn)`` — trace ``fn`` now and return the compiled
   kernel (raises ``KernelTraceError`` if the lambda is not traceable). The
   result is an ordinary python callable, and every eager method accepts it.
-- ``where(cond, then, otherwise)`` — traced conditional expression (python
-  ``if``/``and``/``or`` cannot be overloaded; inside kernels use ``&``,
-  ``|``, ``~`` and ``where``). ``where`` compiles to IfElse — exactly one
-  branch evaluates at run time, so a guarded partial op is safe.
+- ``East.if_else(cond, value, …, otherwise)`` — the traced conditional
+  (python ``if``/``and``/``or`` cannot be overloaded; inside kernels the
+  boolean algebra is ``&``, ``|``, ``~``). It takes cond/value pairs then
+  the else, so an if/elif/else chain is ONE IfElse node; exactly one arm
+  evaluates at run time, so a guarded partial op is safe.
 
 What traces (#393 expanded this to the whole builtin surface):
 
-- Struct field access, arithmetic, comparison, boolean algebra, ``where`` /
+- Struct field access, arithmetic, comparison, boolean algebra, ``if_else`` /
   ``greatest`` / ``least``, and the expression methods on ``KernelExpr``
   (string ops, datetime ops, float/integer math — see the class).
 - Every ``East.<Type>.*`` namespace builtin (``East.String.substring``,
@@ -87,14 +88,14 @@ What traces (#393 expanded this to the whole builtin surface):
   opt-in to live semantics, unlike the capture snapshot. Access methods on
   an eager collection accept traced keys and re-route through the tracer
   automatically.
-- Options: construct with ``some(expr)`` / ``none`` (typed from a ``where``
-  branch), consume with ``.is_some()`` / ``.is_none()`` / ``.unwrap_or()`` /
+- Options: construct with ``some(expr)`` / ``none`` (typed from an
+  ``if_else`` arm), consume with ``.is_some()`` / ``.is_none()`` / ``.unwrap_or()`` /
   ``.match()`` / ``.unwrap()``; ``.try_parse(T)`` parses a String strictly
   to ``Option<T>`` (``none`` on any parse failure).
 - General variants: construct with ``variant(case, payload)`` typed from
   context — the kernel's declared ``out=`` types the whole traced result
-  (including a ``where`` over variant branches, which defers until the
-  context arrives), a ``where()`` sibling types its variant arm, and a
+  (including an ``if_else`` over variant arms, which defers until the
+  context arrives), an ``if_else()`` sibling types its variant arm, and a
   declared struct field types a variant built inside a struct literal.
   Consume with ``.get_tag()`` / ``.has_tag(tag)`` / ``.match()`` /
   ``.unwrap(tag)``.
@@ -176,8 +177,8 @@ from east.kernel.lift import (
     _trace_inner_fn,
     _tracing,
     greatest,
+    if_else,
     least,
-    where,
 )
 from east.kernel.nodes import (
     _builtin,
@@ -195,7 +196,7 @@ from east.kernel.trace import kernel, trace, trace_builtin_call
 
 __all__ = [
     "kernel",
-    "where",
+    "if_else",
     "greatest",
     "least",
     "KernelTraceError",

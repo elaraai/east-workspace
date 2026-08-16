@@ -19,10 +19,10 @@ from east import (
     OptionType,
     StringType,
     StructType,
+    if_else,
     kernel,
     none,
     some,
-    where,
 )
 from east.kernel import _eligible, try_push_down
 from east.types.values.structural import EastFunction
@@ -51,7 +51,7 @@ def test_kernel_comparison_and_boolean_algebra():
 
 
 def test_kernel_where_conditional():
-    k = kernel(ROW, lambda r: where(r.qty > 0.0, r.price / r.qty, 0.0))
+    k = kernel(ROW, lambda r: if_else(r.qty > 0.0, r.price / r.qty, 0.0))
     assert k({"sku": "x", "price": 10.0, "qty": 4.0}) == 2.5
     assert k({"sku": "x", "price": 10.0, "qty": 0.0}) == 0.0
 
@@ -187,7 +187,7 @@ def test_to_dict_and_sorted_push_down():
 
 def test_map_with_where_and_closure_scalar():
     minimum = 5.0
-    clamped = _rows().map(lambda r: where(r["price"] < minimum, minimum, r["price"]))
+    clamped = _rows().map(lambda r: if_else(r["price"] < minimum, minimum, r["price"]))
     assert list(clamped) == [5.0, 150.0, 10.0]
 
 
@@ -216,7 +216,7 @@ def test_attribute_lambdas_work_on_both_paths():
 
 _DIFF_CASES = [
     ("map-arith", lambda rows, f: rows.map(f), lambda r: r.price * r.qty + 1.0),
-    ("map-where", lambda rows, f: rows.map(f), lambda r: where(r.qty > 1.0, r.price, 0.0)),
+    ("map-if-else", lambda rows, f: rows.map(f), lambda r: if_else(r.qty > 1.0, r.price, 0.0)),
     ("map-string", lambda rows, f: rows.map(f), lambda r: r.sku.lower() + "?"),
     ("filter-pred", lambda rows, f: rows.filter(f), lambda r: (r.price > 5.0) | (r.qty > 3.0)),
     ("sort-key", lambda rows, f: rows.sorted(key=f), lambda r: -r.price),
@@ -256,14 +256,14 @@ def test_traced_matches_python_path(name, invoke, fn):
 
 def test_kernel_where_some_none_traces_and_runs():
     # `none` as the else arm — its type resolves from the `some` sibling.
-    k = kernel(ROW, lambda r: where(r.sku == "A-1", some(r.price), none))
+    k = kernel(ROW, lambda r: if_else(r.sku == "A-1", some(r.price), none))
     rows = _rows()
     assert [k(rows[i]) for i in range(len(rows))] == [some(2.5), none, some(10.0)]
 
 
 def test_kernel_where_none_some_traces_and_runs():
-    # `none` as the THEN arm (first) — where() must lift the sibling first.
-    k = kernel(ROW, lambda r: where(r.sku == "A-1", none, some(r.price)))
+    # `none` as the THEN arm (first) — if_else() must lift the sibling first.
+    k = kernel(ROW, lambda r: if_else(r.sku == "A-1", none, some(r.price)))
     rows = _rows()
     assert [k(rows[i]) for i in range(len(rows))] == [none, some(150.0), none]
 
@@ -280,7 +280,7 @@ def test_option_lambda_pushes_down_natively():
     # The point of #376: an option-returning lambda must trace into a native
     # kernel rather than fall back to the per-element python path.
     ef = EastFunction(
-        lambda el, idx: where(el.sku == "A-1", some(el.price), none),
+        lambda el, idx: if_else(el.sku == "A-1", some(el.price), none),
         [ROW, IntegerType],
         OptionType(FloatType),
     )
@@ -289,7 +289,7 @@ def test_option_lambda_pushes_down_natively():
 
 def test_map_with_option_result_runs_native():
     out = _rows().map(
-        lambda r: where(r.sku == "A-1", some(r.price), none),
+        lambda r: if_else(r.sku == "A-1", some(r.price), none),
         out=OptionType(FloatType),
     )
     assert list(out) == [some(2.5), none, some(10.0)]
@@ -297,7 +297,7 @@ def test_map_with_option_result_runs_native():
 
 def test_filter_map_some_none_pushes_down():
     # filter_map keeps `some`, drops `none`; it infers the inner type (no out=).
-    kept = _rows().filter_map(lambda r: where(r.sku == "A-1", some(r.price), none))
+    kept = _rows().filter_map(lambda r: if_else(r.sku == "A-1", some(r.price), none))
     assert list(kept) == [2.5, 10.0]
 
 
@@ -745,7 +745,7 @@ def test_first_map_traces_and_matches_eager():
     k = kernel(
         [SROW],
         lambda r: r.data.split("|")
-        .first_map(lambda v: where(v.length() > 1, some(v.upper()), none))
+        .first_map(lambda v: if_else(v.length() > 1, some(v.upper()), none))
         .unwrap_or("<none>"),
     )
     assert k({"id": "", "data": "a|bb|ccc"}) == "BB"
@@ -762,7 +762,7 @@ def test_first_map_emits_firstmap_builtin_not_fold():
     from east.kernel import trace
 
     ir, _t, _binds = trace(
-        lambda r: r.data.split("|").first_map(lambda v: where(v == "x", some(v), none)),
+        lambda r: r.data.split("|").first_map(lambda v: if_else(v == "x", some(v), none)),
         [SROW],
     )
 
@@ -801,10 +801,10 @@ def test_quantifiers_short_circuit_like_eager():
     )
     assert k_every([2, 0]) is False  # v=2 is the counterexample; v=0 never evaluates
     # eager path agrees on the same data — the guard is spelled with the
-    # dual-mode `where` (a python-`if` lambda would raise: a pure callback
+    # dual-mode `if_else` (a python-`if` lambda would raise: a pure callback
     # that cannot trace surfaces loudly rather than silently trampolining)
     eager = EastArray(IntegerType, [2, 0])
-    assert eager.some(lambda v: where(v != 0, (10 // v) > 0, False)) is True
+    assert eager.some(lambda v: if_else(v != 0, (10 // v) > 0, False)) is True
     del IROW
 
 

@@ -6,7 +6,7 @@
 
 ``_lift`` is the funnel every traced value passes through: a literal, a
 captured East collection/struct, a ``some``/``none``/``variant`` construction,
-a dict struct literal, or an expression that is already traced. ``where`` /
+a dict struct literal, or an expression that is already traced. ``if_else`` /
 ``greatest`` / ``least`` sit here too — they emit IfElse when handed traced
 operands and evaluate eagerly otherwise, so one lambda works on both paths.
 
@@ -66,7 +66,7 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
 
     if isinstance(value, KernelExpr):
         return value
-    if isinstance(value, (_DeferredWhere, _Jump)):
+    if isinstance(value, (_DeferredIfElse, _Jump)):
         return value.resolve(hint)
     if value is None or is_east_null(value):
         return KernelExpr(_literal(None, NullType), NullType)
@@ -83,8 +83,8 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
     if isinstance(value, str):
         return KernelExpr(_literal(value, StringType), StringType)
     if isinstance(value, _pydatetime):
-        # `Option<DateTime>.unwrap_or(datetime(...))`, a datetime `where`
-        # branch, a captured datetime constant — all lift as DateTime
+        # `Option<DateTime>.unwrap_or(datetime(...))`, a datetime `if_else`
+        # arm, a captured datetime constant — all lift as DateTime
         # literals (#422); every other scalar already did.
         return KernelExpr(_literal(value, DateTimeType), DateTimeType)
     lifted = _lift_variant(value, hint)
@@ -296,7 +296,7 @@ def _tracing() -> bool:
 
     The dual-mode control-flow constructs (``East.while_`` and friends) decide
     which mode they are in with this, because their operands are LAMBDAS —
-    unlike ``where``, which can look at its condition and see a proxy.
+    unlike ``if_else``, which can look at its conditions and see a proxy.
     """
     return _const_registry is not None
 
@@ -441,7 +441,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
 
     `east.some()` wraps without validating, so a traced lambda can build
     options with the ordinary constructors; `none` needs a type hint (from
-    a `where` branch or the declared callback output).
+    an `if_else` arm or the declared callback output).
     """
     from east.kernel.expr import KernelExpr
     from east.types.values import is_east_null, is_east_variant
@@ -460,13 +460,13 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
         if hint is None or not _is_option(hint):
             raise KernelTraceError(
                 "`none` in a traced kernel needs a type from context — pair it with a "
-                "some(...) branch in where(), or let the method fall back"
+                "some(...) arm in East.if_else(), or let the method fall back"
             )
         node = ir_variant(hint, "none", _literal(None, NullType))
         return KernelExpr(node, hint)
     if hint is not None and hint.type == "Variant":
         # General variant construction: variant("case", payload) with the
-        # type from context (e.g. a where() branch or a declared output);
+        # type from context (e.g. an if_else() arm or a declared output);
         # the payload may be a traced expression or a liftable literal.
         case_t = next((c["type"] for c in hint.value if c["name"] == value.type), None)
         if case_t is None:
@@ -485,19 +485,19 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
     raise KernelTraceError(
         f"variant({value.type!r}, …) in a traced kernel needs a VariantType from "
         "context — declare the kernel output (kernel(..., out=VariantType(...))), "
-        "or build it in a where() with a typed sibling or a typed struct field"
+        "or build it in an East.if_else() with a typed sibling or a typed struct field"
     )
 
 
 def _needs_type_context(value: Any) -> bool:
     """Whether a value can only lift with a type from context: a bare
     ``none``, a general ``variant(case, …)`` (the 2-arg construction carries
-    no VariantType), or a deferred ``where`` over such branches (#541).
+    no VariantType), or a deferred ``if_else`` over such arms (#541).
     ``some(expr)`` self-types and never defers."""
     from east.kernel.expr import KernelExpr
     from east.types.values import is_east_variant
 
-    if isinstance(value, (_DeferredWhere, _Jump)):
+    if isinstance(value, (_DeferredIfElse, _Jump)):
         return True
     if isinstance(value, KernelExpr) or not is_east_variant(value):
         return False
@@ -544,10 +544,10 @@ class _Jump:
     """A traced ``break``/``continue``, waiting for a type from context.
 
     A jump never produces a value, so nothing about it says what East type it
-    stands in for — its ``where`` sibling does, or the loop state it replaces.
+    stands in for — its ``if_else`` sibling does, or the loop state it replaces.
     That is the same deferral a bare ``none`` needs, so it rides the same
-    machinery: ``_needs_type_context`` reports it, ``where`` types it from the
-    other arm, and reaching ``_lift`` with no hint raises the actionable error.
+    machinery: ``_needs_type_context`` reports it, ``if_else`` types it from
+    another arm, and reaching ``_lift`` with no hint raises the actionable error.
 
     A jump given a final state commits it first, so leaving a loop does not
     throw away what the iteration worked out — the only way an inner loop can
@@ -571,7 +571,7 @@ class _Jump:
         if hint is None:
             raise KernelTraceError(
                 f"{self.kind.lower()}_() needs a type from context — put it in a "
-                "where() arm inside a while_/for_ body, where the loop state "
+                "East.if_else() arm inside a while_/for_ body, where the loop state "
                 "types it"
             )
         frame = _loop_frame(self.label, f"{self.kind.lower()}_")
@@ -582,42 +582,32 @@ class _Jump:
         return KernelExpr(_k_block(hint, [frame.commit(self.state), jump]), hint)
 
 
-class _DeferredWhere:
-    """A traced ``where()`` whose branches ALL need a type from context —
-    e.g. ``where(cond, variant("a", …), variant("b", …))`` (#541).
+class _DeferredIfElse:
+    """A traced ``if_else()`` whose arms ALL need a type from context —
+    e.g. ``if_else(cond, variant("a", …), variant("b", …))`` (#541).
 
     The conditional materialises when the surrounding context supplies the
     type: the kernel's declared ``out=`` (threaded to the root lift), a
-    typed struct field, or an enclosing ``where`` sibling. Reaching
+    typed struct field, or an enclosing ``if_else`` sibling. Reaching
     ``_lift`` with no hint raises the actionable error instead of the
     opaque cannot-lift one.
     """
 
-    __slots__ = ("cond", "then", "otherwise")
+    __slots__ = ("conds", "values")
 
-    def __init__(self, cond: KernelExpr, then: Any, otherwise: Any) -> None:
-        self.cond = cond
-        self.then = then
-        self.otherwise = otherwise
+    def __init__(self, conds: list, values: list) -> None:
+        self.conds = conds
+        self.values = values
 
     def resolve(self, hint: EastType | None) -> KernelExpr:
-        from east.kernel.expr import KernelExpr
-
         if hint is None:
             raise KernelTraceError(
-                "where() with variant branches in both arms needs a type from "
+                "if_else() with variant arms throughout needs a type from "
                 "context — declare the kernel output (kernel(..., out=VariantType(...))) "
                 "or build it in a typed struct field"
             )
-        then_e = _lift(self.then, hint=hint)
-        else_e = _lift(self.otherwise, hint=hint)
-        if then_e.east_type != else_e.east_type:
-            raise KernelTraceError(
-                f"where() branches must have the same East type "
-                f"({then_e.east_type.type} vs {else_e.east_type.type})"
-            )
-        node = _k_ifelse(then_e.east_type, [(self.cond.ir, then_e.ir)], else_e.ir)
-        return KernelExpr(node, then_e.east_type)
+        return _ifelse_expr(self.conds, [_lift(v, hint=hint) for v in self.values])
+
 
 def _with_index(fn: Any) -> Any:
     """Normalise an element callback to the two-argument ``(el, idx)`` shape.
@@ -670,7 +660,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     the tail. ``out_hint`` types the traced body — a declared callback output
     slot (a filter's Boolean, a fold step's accumulator) or a caller's
     ``out=`` pin — which is what lets a callback build a general variant or a
-    ``where`` over variant branches (#541, #536). Returns
+    ``if_else`` over variant arms (#541, #536). Returns
     ``(Function node, traced output type)``.
     """
     from east.kernel.expr import KernelExpr
@@ -710,68 +700,116 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     return node, body.east_type
 
 
-def where(cond: Any, then: Any, otherwise: Any) -> Any:
-    """Conditional expression: East IfElse when traced, eager otherwise.
+def _ifelse_expr(conds: list, arms: list) -> KernelExpr:
+    """Build the IfElse from lifted conditions and lifted arms (else last)."""
+    from east.kernel.expr import KernelExpr
 
-    Inside kernels python's ``if``/``and``/``or`` cannot be overloaded, so
-    conditionals are written ``where(r.qty > 0.0, r.price / r.qty, 0.0)``.
-    On plain python values (e.g. when a lambda runs on the per-element
-    python path) it evaluates eagerly like ``then if cond else otherwise``,
-    so the same lambda works on both paths.
+    out_t = arms[0].east_type
+    for arm in arms:
+        if arm.east_type != out_t:
+            raise KernelTraceError(
+                f"if_else() arms must have the same East type "
+                f"({out_t.type} vs {arm.east_type.type})"
+            )
+    node = _k_ifelse(
+        out_t,
+        [(c.ir, a.ir) for c, a in zip(conds, arms[:-1], strict=True)],
+        arms[-1].ir,
+    )
+    return KernelExpr(node, out_t)
+
+
+def if_else(*branches: Any) -> Any:
+    """Conditional expression — East ``IfElse`` when traced, eager otherwise.
+
+    Python's ``if``/``and``/``or`` cannot be overloaded, so this IS the
+    conditional inside a kernel (``&``, ``|``, ``~`` are the boolean algebra).
+    Exactly one arm evaluates at run time, so a guarded partial operation is
+    safe.
+
+    Arguments are ``cond, value`` pairs followed by the else value, which
+    makes an if/elif/else chain ONE node — the IR's ``ifs`` is an array of
+    cases — rather than a nest of conditionals::
+
+        East.if_else(r.qty > 10, "bulk",
+                     r.qty > 0,  "retail",
+                     "none")
+
+    The two-way case is the same call with one pair::
+
+        East.if_else(r.qty > 0.0, r.price / r.qty, 0.0)
+
+    Args:
+        branches: ``cond, value`` pairs then the else value — an odd number of
+            arguments, at least three. Conditions are tested in order.
+
+    Returns:
+        The chosen value: a traced expression when any condition is traced, a
+        plain python value otherwise (so the same lambda works on the traced
+        and the per-element python paths).
+
+    Raises:
+        KernelTraceError: If the argument count is even, a condition is not
+            Boolean, or the arms disagree on their East type.
     """
     from east.kernel.expr import KernelExpr
 
-    if not isinstance(cond, KernelExpr):
-        if isinstance(then, (KernelExpr, _DeferredWhere)) or \
-                isinstance(otherwise, (KernelExpr, _DeferredWhere)):
-            raise KernelTraceError(
-                "where() received a python condition with traced branches — "
-                "the condition must come from the kernel's parameters"
-            )
-        return then if cond else otherwise
-    if cond.east_type.type != "Boolean":
-        raise KernelTraceError(f"where() condition must be Boolean, got {cond.east_type.type}")
-
-    # A branch that cannot lift unaided — a bare `none`, a general
-    # `variant(case, …)`, or a nested deferred where — types itself from its
-    # sibling. When BOTH branches need context the conditional defers whole,
-    # typed later by the surrounding context (the kernel's declared out=, a
-    # typed struct field, or an enclosing where) — see _DeferredWhere (#541).
-    # With both branches liftable, lift `then`, type `otherwise` from it,
-    # then re-lift `then` so e.g. an int/float pair reconciles either way.
-    then_needs = _needs_type_context(then)
-    else_needs = _needs_type_context(otherwise)
-    if then_needs and else_needs:
-        return _DeferredWhere(cond, then, otherwise)
-    if then_needs:
-        else_e = _lift(otherwise)
-        then_e = _lift(then, hint=else_e.east_type)
-    elif else_needs:
-        then_e = _lift(then)
-        else_e = _lift(otherwise, hint=then_e.east_type)
-    else:
-        then_e = _lift(then)
-        else_e = _lift(otherwise, hint=then_e.east_type)
-        then_e = _lift(then, hint=else_e.east_type)
-    if then_e.east_type != else_e.east_type:
+    if len(branches) < 3 or len(branches) % 2 == 0:
         raise KernelTraceError(
-            f"where() branches must have the same East type "
-            f"({then_e.east_type.type} vs {else_e.east_type.type})"
+            "if_else() takes cond/value pairs then the else value — an odd "
+            f"number of arguments, at least three; got {len(branches)}"
         )
-    node = _k_ifelse(then_e.east_type, [(cond.ir, then_e.ir)], else_e.ir)
-    return KernelExpr(node, then_e.east_type)
+    conds = list(branches[0:-1:2])
+    values = list(branches[1:-1:2]) + [branches[-1]]
+
+    if not any(isinstance(c, KernelExpr) for c in conds):
+        if any(isinstance(v, (KernelExpr, _DeferredIfElse)) for v in values):
+            raise KernelTraceError(
+                "if_else() received python conditions with traced arms — the "
+                "condition must come from the kernel's parameters"
+            )
+        for cond, value in zip(conds, values, strict=False):
+            if cond:
+                return value
+        return values[-1]
+
+    cond_exprs = []
+    for cond in conds:
+        e = _lift(cond)
+        if e.east_type.type != "Boolean":
+            raise KernelTraceError(
+                f"if_else() condition must be Boolean, got {e.east_type.type}")
+        cond_exprs.append(e)
+
+    # An arm that cannot lift unaided — a bare `none`, a general
+    # `variant(case, …)`, a break/continue, a nested deferred chain — types
+    # itself from a sibling. When EVERY arm needs context the conditional
+    # defers whole, typed later by the surrounding context (the kernel's
+    # declared out=, a typed struct field, an enclosing if_else) — see
+    # _DeferredIfElse (#541).
+    settled = next((_lift(v).east_type for v in values
+                    if not _needs_type_context(v)), None)
+    if settled is None:
+        return _DeferredIfElse(cond_exprs, values)
+    arms = [_lift(v, hint=settled) for v in values]
+    # One reconciliation pass, so an Integer/Float mix agrees whichever arm
+    # states its type first.
+    widened = next((a.east_type for a in arms if a.east_type != settled), None)
+    if widened is not None:
+        arms = [_lift(v, hint=widened) for v in values]
+    return _ifelse_expr(cond_exprs, arms)
 
 
 def greatest(a: Any, b: Any) -> Any:
     """max(a, b) by East total order: traced IfElse on expressions, eager on
-    plain values (dual-mode like ``where`` — the same lambda works on both
+    plain values (dual-mode like ``if_else`` — the same lambda works on both
     the traced and python paths)."""
     from east.kernel.expr import KernelExpr
 
     if isinstance(a, KernelExpr) or isinstance(b, KernelExpr):
         ae = _lift(a, hint=b.east_type if isinstance(b, KernelExpr) else None)
         be = _lift(b, hint=ae.east_type)
-        return where(ae >= be, ae, be)
+        return if_else(ae >= be, ae, be)
     from east.types.values import type_of
     from east.utils.ordering import greater_equal_for
 
@@ -785,7 +823,7 @@ def least(a: Any, b: Any) -> Any:
     if isinstance(a, KernelExpr) or isinstance(b, KernelExpr):
         ae = _lift(a, hint=b.east_type if isinstance(b, KernelExpr) else None)
         be = _lift(b, hint=ae.east_type)
-        return where(ae <= be, ae, be)
+        return if_else(ae <= be, ae, be)
     from east.types.values import type_of
     from east.utils.ordering import less_equal_for
 

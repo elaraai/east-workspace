@@ -38,6 +38,7 @@ from east.kernel.control import (
     try_catch,
     while_,
 )
+from east.kernel.lift import if_else
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -1009,6 +1010,7 @@ class _East:
     # Attached rather than defined here: they are dual-mode expression
     # builders, and this is the spelling — the python name is the IR node
     # name, so an error, an IR dump and the docs all say the same word.
+    if_else = staticmethod(if_else)
     while_ = staticmethod(while_)
     for_ = staticmethod(for_)
     block = staticmethod(block)

@@ -151,7 +151,7 @@ class _OptionOps(_ExprBase):
         # is a value builder, not an expression). Recognising only the bare
         # KernelExpr left `out_t` unset whenever the only typed arm was
         # `some(expr)`, so the sibling `none` arm raised "needs a type from
-        # context" — the exact pairing `where(...)` types fine (#558 D).
+        # context" — the exact pairing `if_else(...)` types fine (#558 D).
         out_t = None
         for _, _, raw in results:
             if isinstance(raw, KernelExpr):
@@ -202,7 +202,7 @@ class _OptionOps(_ExprBase):
     def try_parse(self, t: EastType) -> KernelExpr:
         """Parse this String as ``t``; ``some(value)`` on success, ``none`` on
         any parse failure (the strict whole-string parse of #392 wrapped in
-        TryCatch IR). ``where(x.is_some(), …)`` / ``.unwrap_or(…)`` consume it.
+        TryCatch IR). ``if_else(x.is_some(), …)`` / ``.unwrap_or(…)`` consume it.
         """
         if self.east_type.type != "String":
             raise KernelTraceError(".try_parse() needs a String")

@@ -44,11 +44,11 @@ class _TransformOps(_ExprBase):
         at the first ``some``, #403).
 
         ``fn`` takes an element (or ``(key, value)`` for dicts) and returns
-        ``some(expr)`` / ``none`` — typically ``where(pred, some(x), none)``.
+        ``some(expr)`` / ``none`` — typically ``if_else(pred, some(x), none)``.
         The result is ``Option<T>``; consume it with ``.is_some()`` /
         ``.unwrap_or()`` / ``.match()``. ``out`` pins the ``some`` payload
         type when the lambda alone cannot (e.g. a bare ``none`` arm outside
-        ``where``).
+        ``if_else``).
         """
         tag = self.east_type.type
 

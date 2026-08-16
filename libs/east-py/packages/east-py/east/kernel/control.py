@@ -12,8 +12,9 @@ depends on the last — had no traced form and ran per element in python.
 
 Python cannot spell these the way TypeScript does, because ``=`` is not
 overloadable and ``while``/``if`` collapse to a ``bool`` before any tracer
-sees them. That is the same constraint that produced ``where``, and the answer
-has the same shape: **``while_`` is to ``while`` what ``where`` is to ``if``**.
+sees them. That is the same constraint that produced ``if_else``, and the answer
+has the same shape: **``while_`` is to ``while`` what ``if_else`` is to
+``if``**.
 The body is a pure function of the state that RETURNS the next state::
 
     East.while_({"i": 0, "acc": 0},
@@ -22,15 +23,15 @@ The body is a pure function of the state that RETURNS the next state::
 
 which lowers to a ``Ref`` holding the state struct, a ``While`` whose predicate
 reads it and whose body does one ``RefUpdate``, and a final read. The state IS
-the loop's local variables; ``where`` is the ``if``; a field left unchanged is
+the loop's local variables; ``if_else`` is the ``if``; a field left unchanged is
 the empty else. Branching therefore composes for free::
 
     body=lambda s: {"i":     s.i + 1,
-                    "total": where(items[s.i].qty > 0,
-                                   s.total + items[s.i].qty,
-                                   s.total)}
+                    "total": if_else(items[s.i].qty > 0,
+                                     s.total + items[s.i].qty,
+                                     s.total)}
 
-Everything here is dual-mode, exactly like ``where``: handed a trace it emits
+Everything here is dual-mode, exactly like ``if_else``: handed a trace it emits
 IR, and outside one it runs the ordinary python loop — so a callback that
 falls back to the per-element path still works.
 
@@ -161,16 +162,16 @@ def _jump(kind: str, state: Any, lbl: Any) -> _Jump:
 def break_(state: Any = _NO_STATE, *, label: Any = None) -> _Jump:
     """Leave the loop now, optionally committing one last state.
 
-    Use it as a ``where`` arm inside a loop body — that is what types it::
+    Use it as an ``if_else`` arm inside a loop body — that is what types it::
 
-        body=lambda s: where(s.queue.size() == 0, East.break_(), step(s))
+        body=lambda s: if_else(s.queue.size() == 0, East.break_(), step(s))
 
     Without ``state`` the loop keeps what the iteration started with, so
     record the answer by passing the state you want::
 
-        body=lambda s: where(rows[s.i].sku == target,
-                             East.break_({**s, "found": s.i}),
-                             {**s, "i": s.i + 1})
+        body=lambda s: if_else(rows[s.i].sku == target,
+                               East.break_({**s, "found": s.i}),
+                               {**s, "i": s.i + 1})
 
     Args:
         state: The state to commit before leaving, in the loop's own shape.
@@ -180,7 +181,7 @@ def break_(state: Any = _NO_STATE, *, label: Any = None) -> _Jump:
             are for, and the state then belongs to that outer loop.
 
     Returns:
-        A jump that takes its East type from the surrounding ``where`` arm or
+        A jump that takes its East type from the surrounding ``if_else`` arm or
         the loop state it stands in for.
     """
     return _jump("Break", state, label)
@@ -381,7 +382,7 @@ def while_(state: Any, cond: Any, body: Any, *, label: Any = None) -> Any:
         cond: ``cond(state) -> Boolean expression``. Evaluated before every
             iteration, so a zero-iteration loop returns ``state`` unchanged.
         body: ``body(state) -> next state``, with the same fields and types.
-            Branch with ``where``; a field left as ``s.field`` is unchanged.
+            Branch with ``if_else``; a field left as ``s.field`` is unchanged.
         label: An optional :class:`Label` so a nested loop can ``break_`` out
             of this one.
 

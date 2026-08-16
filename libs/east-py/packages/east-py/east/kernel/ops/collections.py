@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.kernel.errors import KernelTraceError
 from east.kernel.finalize import _const_fn_node
-from east.kernel.lift import _lift, _trace_inner_fn, _with_index, where
+from east.kernel.lift import _lift, _trace_inner_fn, _with_index, if_else
 from east.kernel.nodes import _builtin
 from east.kernel.ops import _ExprBase
 from east.types.types import BooleanType, EastType, IntegerType
@@ -336,7 +336,7 @@ class _CollectionOps(_ExprBase):
                     f".{op}() predicate must return Boolean, got {pred.east_type.type}"
                 )
             decided = pred if want else ~pred
-            return where(decided, _some(True), _none)
+            return if_else(decided, _some(True), _none)
 
         tag = self.east_type.type
         if tag == "Array":

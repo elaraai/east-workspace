@@ -265,7 +265,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
     # case body / else body, a Match case body, a catch/finally) must NOT
     # hoist to the top of the kernel: the hoisted Let evaluates it
     # unconditionally, so a guarded PARTIAL operation — `d[k]` under
-    # `where(d.has(k), …)` — raises on the very path the guard excludes
+    # `if_else(d.has(k), …)` — raises on the very path the guard excludes
     # (#558 A). Sharing the value through one python variable is what makes
     # the node multiply-referenced, so the natural guarded-build spelling
     # was precisely the one that crashed. An occurrence on any

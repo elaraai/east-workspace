@@ -1188,7 +1188,7 @@ class EastArray(MutableSequence, Generic[T]):
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
         """Shared native short-circuit scan: some(True) on the deciding element."""
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, IntegerType, NullType, VariantType
@@ -1201,7 +1201,7 @@ class EastArray(MutableSequence, Generic[T]):
                 ~r if isinstance(r, KernelExpr) else not bool(r)
             )
             if isinstance(decided, KernelExpr):
-                return where(decided, _some(True), _none)
+                return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
         out_variant = VariantType([("none", NullType), ("some", BooleanType)])
@@ -1237,7 +1237,7 @@ class EastArray(MutableSequence, Generic[T]):
         """Indices whose element (or projection) equals ``value`` (native
         ArrayFilterMap), in order.
         """
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import ArrayType, IntegerType, NullType, VariantType
@@ -1248,7 +1248,7 @@ class EastArray(MutableSequence, Generic[T]):
         def _probe(el, i):  # noqa: ANN001, ANN202
             r = (proj(el, i) if wants_idx else proj(el)) == value
             if isinstance(r, KernelExpr):
-                return where(r, _some(i), _none)
+                return if_else(r, _some(i), _none)
             return _some(i) if r else _none
 
         out_variant = VariantType([("none", NullType), ("some", IntegerType)])
@@ -1416,7 +1416,7 @@ class EastArray(MutableSequence, Generic[T]):
                 python callback per group per segment — O(rows) trampolines
                 on a file whose segments are small (#470).
         """
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.namespace import East
         from east.types.coercion import coerce_to
         from east.types.construct import none as _none
@@ -1447,7 +1447,7 @@ class EastArray(MutableSequence, Generic[T]):
             r = East.equal(p_t, pf(el, i), value)
             gi = i + base if base else i
             if isinstance(r, KernelExpr):
-                return where(r, _some({"i": gi, "k": kf(el, i)}), _none)
+                return if_else(r, _some({"i": gi, "k": kf(el, i)}), _none)
             return _some({"i": gi, "k": kf(el, i)}) if r else _none
 
         out_variant = VariantType([("none", NullType), ("some", pair_t)])
@@ -1529,13 +1529,13 @@ class EastArray(MutableSequence, Generic[T]):
         this traces instead of trampolining. Shared with the beast2 file
         surface, which merges per-segment pairs under the same rule.
         """
-        from east.kernel import where
+        from east.kernel import if_else
         from east.namespace import East
 
         p_t = next(f["type"] for f in pair_t.value if f["name"] == "by")
         return EastFunction(
-            (lambda a, b, _k: where(East.greater_equal(p_t, a["by"], b["by"]), a, b)) if want_max
-            else (lambda a, b, _k: where(East.less_equal(p_t, a["by"], b["by"]), a, b)),
+            (lambda a, b, _k: if_else(East.greater_equal(p_t, a["by"], b["by"]), a, b)) if want_max
+            else (lambda a, b, _k: if_else(East.less_equal(p_t, a["by"], b["by"]), a, b)),
             [pair_t, pair_t, key_type], pair_t)
 
     def _group_find_extreme_pairs(self, key: Any, by: Any, want_max: bool) -> EastDict:
@@ -2495,7 +2495,7 @@ class EastSet(Generic[T]):
         return total / float(n)
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
@@ -2506,7 +2506,7 @@ class EastSet(Generic[T]):
                 ~r if isinstance(r, KernelExpr) else not bool(r)
             )
             if isinstance(decided, KernelExpr):
-                return where(decided, _some(True), _none)
+                return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
         out_variant = VariantType([("none", NullType), ("some", BooleanType)])
@@ -2928,7 +2928,7 @@ class EastDict(Generic[K, V]):
         ``(key, value)`` like every other eager Dict callback, while the
         builtin's own slot is ``(value, key)``.
         """
-        from east.kernel import KernelExpr, where
+        from east.kernel import KernelExpr, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
@@ -2939,7 +2939,7 @@ class EastDict(Generic[K, V]):
                 ~r if isinstance(r, KernelExpr) else not bool(r)
             )
             if isinstance(decided, KernelExpr):
-                return where(decided, _some(True), _none)
+                return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
         out_variant = VariantType([("none", NullType), ("some", BooleanType)])

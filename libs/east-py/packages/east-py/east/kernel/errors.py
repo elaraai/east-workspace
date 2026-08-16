@@ -19,6 +19,7 @@ class KernelTraceError(TypeError):
 def _trace_bail(op: str) -> KernelTraceError:
     return KernelTraceError(
         f"python `{op}` cannot be traced into an East kernel — use `&`, `|`, `~` for "
-        "boolean logic and `where(cond, a, b)` for conditionals, or let the method "
+        "boolean logic and `East.if_else(cond, a, b)` for conditionals, or let the "
+        "method "
         "fall back to the per-element python path"
     )

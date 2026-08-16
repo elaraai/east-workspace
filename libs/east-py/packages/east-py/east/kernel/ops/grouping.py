@@ -23,8 +23,8 @@ from east.kernel.lift import (
     _with_index,
     _with_key_arg,
     greatest,
+    if_else,
     least,
-    where,
 )
 from east.kernel.nodes import (
     _builtin,
@@ -463,7 +463,7 @@ class _GroupOps(_ExprBase):
         tname = _fresh_name()
         bound = self._expr(_var(tname, p_t), p_t)
         node, _o = _trace_inner_fn(
-            lambda el, i: where(_lift(proj(el, i)) == bound,
+            lambda el, i: if_else(_lift(proj(el, i)) == bound,
                                 _some({"i": i, "k": kf(el, i)}), _none),
             [elem_t, IntegerType], declared=2)
         pairs_t = _ArrayType(pair_t)
@@ -523,8 +523,8 @@ class _GroupOps(_ExprBase):
         val_node, pair_t = _trace_inner_fn(
             lambda el, i: {"by": proj(el, i), "index": i},
             [elem_t, IntegerType], declared=2)
-        keep = (lambda a, b: where(a.by >= b.by, a, b)) if want_max \
-            else (lambda a, b: where(a.by <= b.by, a, b))
+        keep = (lambda a, b: if_else(a.by >= b.by, a, b)) if want_max \
+            else (lambda a, b: if_else(a.by <= b.by, a, b))
         comb_node, c_out = _trace_inner_fn(
             lambda a, b, _k: keep(a, b), [pair_t, pair_t, k2], declared=3)
         if c_out != pair_t:

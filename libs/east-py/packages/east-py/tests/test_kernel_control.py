@@ -9,6 +9,11 @@ east-c has always executed ``While``, the ``For*`` family, ``Block``, ``Let``,
 of them, so a kernel could only ever be one pure expression and any algorithm
 whose next step depends on the last ran per element in python.
 
+``IfElse`` is here too: the conditional is ``East.if_else``, named for its
+node like everything else, and it takes cond/value pairs then the else so a
+chain is ONE node. (It was ``where``, which the #578 naming rule made the odd
+one out; there is no alias.)
+
 These tests pin four things:
 
 * the constructs EMIT the IR nodes they name, and compile and run — including
@@ -33,8 +38,8 @@ from east import (
     SetType,
     StringType,
     array,
+    if_else,
     kernel,
-    where,
 )
 from east.kernel import KernelTraceError, trace
 from east.runtime.errors import EastError
@@ -252,9 +257,86 @@ def _capture_append(table, el):
 def test_mutators_yield_what_their_eager_twins_yield():
     k = kernel([STRS], lambda a: East.for_(
         a, {"new": 0, "seen": East.new_set(StringType)},
-        lambda s, el: {"new": s.new + where(s.seen.try_insert(el), 1, 0),
+        lambda s, el: {"new": s.new + if_else(s.seen.try_insert(el), 1, 0),
                        "seen": s.seen}).new)
     assert k(array(StringType, ["a", "b", "a"])) == 2
+
+
+# ── if_else ─────────────────────────────────────────────────────────────────
+
+
+def test_if_else_is_the_two_way_conditional():
+    k = kernel([IntegerType], lambda n: East.if_else(n > 0, 1, -1))
+    assert (k(5), k(-5)) == (1, -1)
+
+
+def test_if_else_chains_into_ONE_node():
+    """The IR's ``ifs`` is an array of cases, so an if/elif/else chain is one
+    IfElse — not a nest of them, which is what a two-way-only spelling costs."""
+    k = kernel([IntegerType],
+               lambda n: East.if_else(n > 10, "bulk", n > 0, "retail", "none"))
+    assert [k(20), k(5), k(-1)] == ["bulk", "retail", "none"]
+
+    ir = trace(lambda n: East.if_else(n > 10, 1, n > 5, 2, 3), [IntegerType])[0]
+    cases = _ifelse_cases(ir)
+    assert cases == [2], f"expected one IfElse with two cases, got {cases}"
+
+
+def _ifelse_cases(node, out=None):
+    """The case count of every IfElse under ``node``."""
+    from east.types.values import is_east_struct, is_east_variant
+
+    out = [] if out is None else out
+    if isinstance(node, (list, EastArray)):
+        for item in node:
+            _ifelse_cases(item, out)
+    elif is_east_variant(node):
+        if node.type == "IfElse":
+            out.append(len(node.value["ifs"]))
+        _ifelse_cases(node.value, out)
+    elif is_east_struct(node):
+        for _name, value in node.items():
+            _ifelse_cases(value, out)
+    return out
+
+
+def test_if_else_needs_an_odd_argument_count():
+    with pytest.raises(KernelTraceError, match="odd\\s+number of arguments"):
+        kernel([IntegerType], lambda n: East.if_else(n > 0, 1, n > 5, 2))
+    with pytest.raises(KernelTraceError, match="odd"):
+        kernel([IntegerType], lambda n: East.if_else(n > 0, 1))
+
+
+def test_if_else_conditions_must_be_boolean():
+    with pytest.raises(KernelTraceError, match="condition must be Boolean"):
+        kernel([IntegerType], lambda n: East.if_else(n, 1, 2))
+
+
+def test_if_else_arms_must_agree():
+    with pytest.raises(KernelTraceError, match="arms must have the same East type"):
+        kernel([IntegerType], lambda n: East.if_else(n > 0, 1, "no"))
+
+
+def test_if_else_reconciles_an_integer_float_mix_either_way():
+    assert kernel([IntegerType], lambda n: East.if_else(n > 0, 1, 2.0))(1) == 1.0
+    assert kernel([IntegerType], lambda n: East.if_else(n > 0, 1.0, 2))(-1) == 2.0
+
+
+def test_if_else_is_dual_mode():
+    assert East.if_else(True, "a", "b") == "a"
+    assert East.if_else(False, "a", True, "b", "c") == "b"
+    assert East.if_else(False, "a", False, "b", "c") == "c"
+
+
+def test_where_is_gone():
+    """#578 renamed it: the python name is the IR node name, so a second
+    spelling for IfElse would be exactly the inconsistency the rename fixes."""
+    import east
+    import east.kernel
+
+    assert not hasattr(east, "where")
+    assert not hasattr(east.kernel, "where")
+    assert not hasattr(East, "where")
 
 
 # ── break / continue ────────────────────────────────────────────────────────
@@ -262,26 +344,26 @@ def test_mutators_yield_what_their_eager_twins_yield():
 
 def test_break_stops_the_loop():
     k = kernel([INTS], lambda a: East.for_(
-        a, {"t": 0}, lambda s, el: where(el < 0, East.break_(), {"t": s.t + el})).t)
+        a, {"t": 0}, lambda s, el: if_else(el < 0, East.break_(), {"t": s.t + el})).t)
     assert k(_ints(1, 2, -1, 100)) == 3
 
 
 def test_break_can_commit_a_final_state():
     k = kernel([INTS], lambda a: East.for_(
         a, {"found": -1, "i": 0},
-        lambda s, el: where(el == 7,
-                            East.break_({"found": s.i, "i": s.i}),
-                            {"found": s.found, "i": s.i + 1})).found)
+        lambda s, el: if_else(el == 7,
+                              East.break_({"found": s.i, "i": s.i}),
+                              {"found": s.found, "i": s.i + 1})).found)
     assert k(_ints(4, 5, 7, 9)) == 2
     assert k(_ints(4, 5, 9)) == -1
 
 
 def test_continue_skips_the_rest_of_the_body():
     k = kernel([INTS], lambda a: East.for_(
-        a, {"t": 0}, lambda s, el: where(el < 0, East.continue_(), {"t": s.t + el})).t)
+        a, {"t": 0}, lambda s, el: if_else(el < 0, East.continue_(), {"t": s.t + el})).t)
     assert k(_ints(1, -5, 2)) == 3
     assert "Continue" in _traced_kinds([INTS], lambda a: East.for_(
-        a, {"t": 0}, lambda s, el: where(el < 0, East.continue_(), {"t": s.t + el})))
+        a, {"t": 0}, lambda s, el: if_else(el < 0, East.continue_(), {"t": s.t + el})))
 
 
 def test_a_labelled_break_leaves_the_outer_loop_with_its_state():
@@ -293,7 +375,7 @@ def test_a_labelled_break_leaves_the_outer_loop_with_its_state():
         g, {"row": -1, "col": -1, "r": 0},
         lambda s, cells: East.let(
             East.for_(cells, {"c": 0},
-                      lambda t, cell: where(
+                      lambda t, cell: if_else(
                           cell == target,
                           East.break_({"row": s.r, "col": t.c, "r": s.r}, label=outer),
                           {"c": t.c + 1})),
@@ -309,7 +391,7 @@ def test_a_labelled_break_leaves_the_outer_loop_with_its_state():
 
 def test_break_outside_a_loop_says_so():
     with pytest.raises(KernelTraceError, match="outside any loop"):
-        kernel([IntegerType], lambda n: where(n > 0, East.break_(), n))
+        kernel([IntegerType], lambda n: if_else(n > 0, East.break_(), n))
 
 
 def test_break_with_a_label_positionally_is_corrected():
@@ -399,15 +481,15 @@ def test_eager_while_and_for_match_the_traced_answers():
 
 def test_eager_break_and_continue_match():
     assert East.for_(_ints(1, 2, -1, 9), {"t": 0},
-                     lambda s, el: where(el < 0, East.break_(),
-                                         {"t": s.t + el}))["t"] == 3
+                     lambda s, el: if_else(el < 0, East.break_(),
+                                           {"t": s.t + el}))["t"] == 3
     assert East.for_(_ints(4, 5, 7, 9), {"found": -1, "i": 0},
-                     lambda s, el: where(el == 7,
-                                         East.break_({"found": s.i, "i": s.i}),
-                                         {"found": s.found, "i": s.i + 1}))["found"] == 2
+                     lambda s, el: if_else(el == 7,
+                                           East.break_({"found": s.i, "i": s.i}),
+                                           {"found": s.found, "i": s.i + 1}))["found"] == 2
     assert East.for_(_ints(1, -5, 2), {"t": 0},
-                     lambda s, el: where(el < 0, East.continue_(),
-                                         {"t": s.t + el}))["t"] == 3
+                     lambda s, el: if_else(el < 0, East.continue_(),
+                                           {"t": s.t + el}))["t"] == 3
 
 
 def test_eager_mutators_block_and_try_catch_match():
@@ -468,9 +550,9 @@ def test_kahns_algorithm_is_one_kernel():
                         {**s, "i": s.i + 1},
                         lambda t, v: East.block(
                             t.indeg.insert_or_update(v, -1, lambda old, d: old + d),
-                            where(t.indeg.get(v) == 0,
-                                  East.block(t.ready.append(v), t),
-                                  t)))))).order,
+                            if_else(t.indeg.get(v) == 0,
+                                    East.block(t.ready.append(v), t),
+                                    t)))))).order,
         out=ArrayType(node_t))
 
     #   1 → 2 → 4 ;  1 → 3 → 4

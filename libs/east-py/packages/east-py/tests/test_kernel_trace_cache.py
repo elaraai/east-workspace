@@ -34,10 +34,10 @@ from east import (
     StringType,
     StructType,
     array,
+    if_else,
     kernel,
     none,
     some,
-    where,
 )
 from east.types.values.structural import EastFunction
 
@@ -228,7 +228,7 @@ def test_option_datetime_unwrap_or_lifts_its_default():
 def test_datetime_literals_lift_in_where_branches_and_captures():
     D = StructType([("at", DateTimeType)])
     cutoff = datetime(2023, 1, 1, tzinfo=UTC)
-    k = kernel(D, lambda r: where(r["at"] > cutoff, r["at"], cutoff))
+    k = kernel(D, lambda r: if_else(r["at"] > cutoff, r["at"], cutoff))
     late = datetime(2024, 1, 1, tzinfo=UTC)
     assert k({"at": late}) == late
     assert k({"at": _EPOCH}) == cutoff

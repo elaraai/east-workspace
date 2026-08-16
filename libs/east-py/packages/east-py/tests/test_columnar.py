@@ -20,10 +20,10 @@ from east import (
     StringType,
     StructType,
     array,
+    if_else,
     kernel,
     none,
     some,
-    where,
 )
 
 ROW = StructType(
@@ -341,9 +341,9 @@ def test_update_many_deeply_nested_option_values_at_scale():
                                    "station": r["station"].unwrap_or("")})
     k_val = kernel(src, lambda r: {
         "allocations": r["allocs"],
-        "unallocated": {"before": where(r["station"].is_some(), some(1.0), none),
-                        "after": where(r["station"].is_some(), some(2.0), none)},
-        "quality": where(r["station"].is_some(), some("D2"), none),
+        "unallocated": {"before": if_else(r["station"].is_some(), some(1.0), none),
+                        "after": if_else(r["station"].is_some(), some(2.0), none)},
+        "quality": if_else(r["station"].is_some(), some("D2"), none),
     })
     keys = rows.map(k_key, out=key_t)
     values = rows.map(k_val, out=val_t)

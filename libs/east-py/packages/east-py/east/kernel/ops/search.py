@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.ir.builders import ir_let
 from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift, _trace_inner_fn, _with_index, where
+from east.kernel.lift import _lift, _trace_inner_fn, _with_index, if_else
 from east.kernel.nodes import (
     _builtin,
     _fresh_name,
@@ -122,7 +122,7 @@ class _SearchOps(_ExprBase):
         tname = _fresh_name()
         bound = self._expr(_var(tname, p_t), p_t)
         node, _out_t = _trace_inner_fn(
-            lambda el, i: where(_lift(proj(el, i)) == bound, _some(i), _none),
+            lambda el, i: if_else(_lift(proj(el, i)) == bound, _some(i), _none),
             [elem_t, IntegerType], declared=2,
         )
         out = _ArrayType(IntegerType)
@@ -137,13 +137,13 @@ class _SearchOps(_ExprBase):
         The eager methods return ``none`` for an empty array rather than
         raising (unlike ``maximum``/``minimum`` themselves), and a kernel
         cannot test the length at trace time — so the emptiness check is a
-        ``where``, which compiles to IfElse and evaluates exactly one branch
+        ``if_else``, which compiles to IfElse and evaluates exactly one arm
         at run time. The receiver is bound once: it is read three times here.
         """
         from east.types.construct import none as _none
 
         self._array_elem(op)
-        return self._with_bound_receiver(lambda recv: where(
+        return self._with_bound_receiver(lambda recv: if_else(
             recv.size() == 0,
             _none,
             recv.find_first(pick(recv, by), key=by),
