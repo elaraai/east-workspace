@@ -13,7 +13,7 @@ import { describe, test, expect, vi } from "vitest";
 import { variant, some, none } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-paged-rows.js";
-import { readWindows, mergeWindows, pruneCache, type WindowCache } from "./window-reader.js";
+import { readWindows, mergeWindows, originOf, pruneCache, type WindowCache } from "./window-reader.js";
 
 const PAGE = 200;
 
@@ -145,6 +145,21 @@ describe("window reader — merge", () => {
         for (const r of merged) {
             if (r.parent.type === "some") expect(keys.has(r.parent.value)).toBe(true);
         }
+    });
+});
+
+describe("window reader — origin", () => {
+    test("each row is attributed to the window it came from, later window winning", () => {
+        // The driver turns a mounted ROW range back into a window through this,
+        // so it must agree with the merge exactly.
+        const w0 = { w: 0, rows: new Map([["g", row("g")], ["a", child("a", "g")]]) };
+        const w1 = { w: 1, rows: new Map([["g", row("g")], ["b", child("b", "g")]]) };
+        const origin = originOf([w1, w0]);
+        expect(origin.get("a")).toBe(0);
+        expect(origin.get("b")).toBe(1);
+        // `g` is emitted by both; the merge keeps window 1's copy, so the origin
+        // must say 1 too — otherwise the map and the rows disagree.
+        expect(origin.get("g")).toBe(1);
     });
 });
 

@@ -131,6 +131,24 @@ export function mergeWindows(windows: readonly { w: number; rows: WindowRows }[]
     return [...merged.values()];
 }
 
+/**
+ * Which window each merged row came from — the row→window map the driver needs
+ * to turn a mounted ROW range back into a window, and #582's missing piece.
+ *
+ * Last window wins, matching {@link mergeWindows}: a row two windows both emit
+ * is attributed to the later one, so the map and the rows always agree.
+ *
+ * @param windows - The resident windows, any order
+ * @returns Window index by row key
+ */
+export function originOf(windows: readonly { w: number; rows: WindowRows }[]): Map<string, number> {
+    const origin = new Map<string, number>();
+    for (const { w, rows } of [...windows].sort((a, b) => a.w - b.w)) {
+        for (const key of rows.keys()) origin.set(key, w);
+    }
+    return origin;
+}
+
 /** Drop cached windows outside the resident set — the memory half of eviction.
  *  Returns how many were dropped. */
 export function pruneCache(cache: WindowCache, keep: ReadonlySet<number>): number {
