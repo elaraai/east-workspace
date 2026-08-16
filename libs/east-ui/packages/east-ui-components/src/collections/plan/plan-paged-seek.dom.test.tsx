@@ -33,12 +33,11 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, StringType, StructType,
-    none, some, variant, type ValueTypeOf,
+    variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Plan, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
-import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
@@ -113,33 +112,6 @@ function withRecordedWindows(root: PlanRootValue): { root: PlanRootValue; asked:
     return { root: { ...root, rows: variant("paged", spied) as PlanRootValue["rows"] }, asked };
 }
 
-/**
- * Give the canvas slice chrome.
- *
- * Not because random access needs a slice — it does not. The key search is a
- * capability of the SOURCE (`seek`), and `usePlanSeek` builds it unconditionally
- * — but the control mounts inside `PlanToolbar`, and the toolbar itself is gated
- * on `value.slice` (`index.tsx:693`, `chrome !== undefined`). So a paged canvas
- * with a keyed source, a working `seek` and no slice has no way to reach its own
- * search. That is a defect, reported separately; it is worked around here so the
- * random-access path can be exercised at all. When the gate is fixed this helper
- * should be deleted, not kept.
- */
-function withChrome(root: PlanRootValue): PlanRootValue {
-    const handle = buildSliceHandle(
-        "plan.paged.seek",
-        { fields: new Map(), rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [] } as never,
-        {
-            range: none, compare: none, filters: [], cohorts: [],
-            activeCohorts: new Set<string>(), breakdown: none, search: none,
-            visible: none, selectedIndex: none, resolution: none,
-        } as never,
-        [] as never,
-        none,
-    );
-    return { ...root, slice: some({ slice: handle, affordances: [] }) as PlanRootValue["slice"] };
-}
-
 function renderPlan(value: PlanRootValue, key: string) {
     initializeStore(new UIStore());
     return render(
@@ -173,7 +145,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
 
     test("seeking element 3,000 REBASES — the windows in between are never fetched", async () => {
         const { root, asked } = withRecordedWindows(buildPagedPlan());
-        const { container } = renderPlan(withChrome(root), "plan-jump");
+        const { container } = renderPlan(root, "plan-jump");
         await waitFor(() => {
             expect(container.querySelector('[data-plan-row="u0000"]')).toBeTruthy();
         });
@@ -181,6 +153,8 @@ describe("Plan paged random access (#567/#574/#577)", () => {
 
         // Drive the SHIPPED affordance: type the key, wait out the 250 ms
         // debounce for the seek to land, then commit with Enter.
+        // The search mounts because the SOURCE declares `seek` — this canvas
+        // binds no slice at all (#587).
         const input = container.querySelector('[data-part="dataset-key-search"] input')! as HTMLElement;
         await userEvent.type(input, TARGET_KEY);
         await waitFor(() => {
@@ -207,5 +181,22 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         for (const w of newly) expect(w).toBeGreaterThanOrEqual(target - 2);
         expect(asked).not.toContain(8);
         expect(asked).not.toContain(10);
+    }, 30_000);
+
+    test("the bar appears for the SOURCE's sake — and only when there is a reason", async () => {
+        // #587's other half. Mounting the toolbar for a seek-capable source
+        // must not mount it for everything: an inline canvas binds no slice and
+        // declares no seek, so it still gets no bar rather than an empty band.
+        const { root } = withRecordedWindows(buildPagedPlan());
+        const { container: paged } = renderPlan(root, "plan-bar-paged");
+        await waitFor(() => {
+            expect(paged.querySelector('[data-slot="toolbar"]')).toBeTruthy();
+        });
+        expect(paged.querySelector('[data-part="dataset-key-search"]')).toBeTruthy();
+        cleanup();
+
+        const inline: PlanRootValue = { ...root, rows: variant("inline", new Map()) as PlanRootValue["rows"] };
+        const { container: plain } = renderPlan(inline, "plan-bar-inline");
+        expect(plain.querySelector('[data-slot="toolbar"]')).toBeNull();
     }, 30_000);
 });

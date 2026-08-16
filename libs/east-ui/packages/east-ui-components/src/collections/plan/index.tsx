@@ -689,8 +689,16 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const header = (
         <Box background="bg.surface">
             {/* The toolbar is SLICE chrome (§2) — the grain / resolution
-                segments ride the slice rail; an unbound canvas has no rail. */}
-            {chrome !== undefined && (
+                segments ride the slice rail; an unbound canvas has no rail.
+                It ALSO carries the key search, and that is a capability of the
+                SOURCE, not of the slice: a keyed paged source declares `seek`
+                whether or not a slice was ever bound. Gating the whole bar on
+                the slice left such a canvas with a working seek and no way to
+                reach it — no search box, so no jump, so no random access at
+                all. So the bar mounts for either reason; `PlanToolbar` is
+                already slice-safe (every cluster is guarded, `railKinds` is
+                empty without one), and no slice is fabricated to get it. */}
+            {(chrome !== undefined || search !== undefined) && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
                     resolution={scale.resolution} resolutions={resolutions}
                     transport={transport} search={search} />
