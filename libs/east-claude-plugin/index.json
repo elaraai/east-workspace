@@ -15996,6 +15996,71 @@
       "source": "// Pivot grid — rows and columns derive from filtered records; the threshold slider reshapes both axes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const BookingArrayType = ArrayType(StructType({ resource: StringType, day: StringType, load: FloatType }));\n            const bookings = $.const([\n                { resource: \"Alice\", day: \"Mon\", load: 0.90 },\n                { resource: \"Alice\", day: \"Tue\", load: 0.30 },\n                { resource: \"Alice\", day: \"Wed\", load: 0.60 },\n                { resource: \"Bob\", day: \"Mon\", load: 0.20 },\n                { resource: \"Bob\", day: \"Wed\", load: 0.80 },\n                { resource: \"Carol\", day: \"Tue\", load: 0.50 },\n                { resource: \"Carol\", day: \"Thu\", load: 0.95 },\n                { resource: \"Dave\", day: \"Fri\", load: 0.15 },\n            ], BookingArrayType);\n            const thresholdBind = $.let(State.bind([FloatType], \"matrix_pivot_threshold\", 0.0));\n            const threshold = $.let(thresholdBind.read());\n            const onThreshold = $.const(East.function([FloatType], NullType, ($, next) => {\n                $(thresholdBind.write(next));\n            }));\n            const kept = $.let(bookings.filter(($, b) => b.load.greaterEqual(threshold)));\n            const dayKeys = $.let(kept.toSet(($, b) => b.day).toArray());\n            const resourceKeys = $.let(kept.toSet(($, b) => b.resource).toArray());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Slider value={threshold} min={0} max={1} step={0.05} onChange={onThreshold} />\n                    {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}\n                    <Matrix\n                        data={resourceKeys.map(($, name) => ({\n                            name,\n                            loads: dayKeys.toDict(\n                                ($, day) => day,\n                                ($, day) => kept.filter(($, b) => b.resource.equal(name).and(() => b.day.equal(day))).sum(($, b) => b.load),\n                            ),\n                        }))}\n                        columns={dayKeys.map(($, day) => Matrix.column({ key: day, label: day }))}\n                        rowKey={r => r.name}\n                        rowHeader=\"Resource\"\n                        cell={(r, col) => Matrix.cell({ segments: [\n                            Matrix.segment({ fill: \"brand\", weight: r.loads.get(col.key), label: East.str`${r.loads.get(col.key).multiply(100.0)}%` }),\n                            Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.loads.get(col.key)) }),\n                        ] })}\n                        legend={[{ fill: \"brand\", label: \"Booked\" }, { fill: \"free\", label: \"Free\" }]}\n                    />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "east-ui:paged-source.examples.tsx:pagedSourceCanvas",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
+      "suite": "",
+      "test": "Window a collection already in hand — ",
+      "keywords": [
+        "Paged",
+        "of",
+        "paged",
+        "source",
+        "window",
+        "page",
+        "total",
+        "seek",
+        "key",
+        "prefix",
+        "row-source",
+        "contract",
+        "in-memory",
+        "Plan",
+        "canvas",
+        "keyed",
+        "Dict",
+        "key order",
+        "offline"
+      ],
+      "imports": [
+        "import {",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Window a collection already in hand — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        // KEYED, and the keys are the canvas keys: `page` windows this order,\n        // `seek` searches it, and a leaf row's key IS its data key (#568). The\n        // authored order is irrelevant — a Dict is canonical.\n        const units = $.const(new Map([\n            [\"L1-M07\", { start: week(27n), end: week(30n), tonnes: 64.0 }],\n            [\"L1-M09\", { start: week(28n), end: week(32n), tonnes: 112.0 }],\n            [\"L2-M11\", { start: week(30n), end: week(34n), tonnes: 92.0 }],\n            [\"L2-M12\", { start: week(33n), end: week(38n), tonnes: 88.0 }],\n        ]), DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                label: (_r, k) => k, id: true,\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`,\n                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,\n                    qty: r.tonnes, state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        // A paged canvas DECLARES its window: fitting the axis to whatever\n        // prefix has landed would re-fit it on every landed window (#567 D8).\n        const axis = $.const(Plan.axis({\n            window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n),\n        }));\n        return <Plan axis={axis} data={source} series={series} />;\n    })"
+    },
+    {
+      "id": "east-ui:paged-source.examples.tsx:pagedTableSource",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
+      "suite": "",
+      "test": "The SAME row-source contract over a positional component — a ",
+      "keywords": [
+        "Paged",
+        "of",
+        "paged",
+        "source",
+        "Table",
+        "window",
+        "page",
+        "total",
+        "row-source",
+        "contract",
+        "positional",
+        "sort",
+        "partial",
+        "in-memory"
+      ],
+      "imports": [
+        "import {",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The SAME row-source contract over a positional component — a \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const([\n            { unit: \"L1-M07\", line: \"Line 1\", tonnes: 64.0 },\n            { unit: \"L1-M09\", line: \"Line 1\", tonnes: 112.0 },\n            { unit: \"L2-M11\", line: \"Line 2\", tonnes: 92.0 },\n            { unit: \"L2-M12\", line: \"Line 2\", tonnes: 88.0 },\n        ], ArrayType(UnitRow));\n        // POSITIONAL: an array source, so no key accessor and no `seek` — an\n        // Array's stream order has nothing to binary-search.\n        const source = $.const(Paged.of(\"units\", units));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
+    },
+    {
       "id": "east-ui:pagination.examples.tsx:paginationBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -17875,71 +17940,6 @@
         "import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Select, Switch, Text, VStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Header forms — none, eyebrow, full and compound-meta cards side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <VStack gap=\"4\" align=\"stretch\">\n            <Card>\n                <Text>No header — body only.</Text>\n            </Card>\n            <Card header={{ eyebrow: \"Run summary\" }}>\n                <Text>Eyebrow-only header.</Text>\n            </Card>\n            <Card header={{ eyebrow: \"Featured\", title: \"Featured Article\", description: \"A brief summary of what this card contains\" }}>\n                <Text>Full header.</Text>\n            </Card>\n            <Card\n                header={{ eyebrow: \"Forecast · SE region\", title: \"Per plan week\", meta: \"14s ago\" }}\n                footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant=\"subtle\">Export</Button>] }}\n            >\n                <Text>Compound meta header with a content + actions footer.</Text>\n            </Card>\n        </VStack>\n    ))"
-    },
-    {
-      "id": "east-ui:contracts.examples.tsx:pagedSourceCanvas",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/contracts.examples.tsx",
-      "suite": "",
-      "test": "Window a collection already in hand — ",
-      "keywords": [
-        "Paged",
-        "of",
-        "paged",
-        "source",
-        "window",
-        "page",
-        "total",
-        "seek",
-        "key",
-        "prefix",
-        "row-source",
-        "contract",
-        "in-memory",
-        "Plan",
-        "canvas",
-        "keyed",
-        "Dict",
-        "key order",
-        "offline"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Window a collection already in hand — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        // KEYED, and the keys are the canvas keys: `page` windows this order,\n        // `seek` searches it, and a leaf row's key IS its data key (#568). The\n        // authored order is irrelevant — a Dict is canonical.\n        const units = $.const(new Map([\n            [\"L1-M07\", { start: week(27n), end: week(30n), tonnes: 64.0 }],\n            [\"L1-M09\", { start: week(28n), end: week(32n), tonnes: 112.0 }],\n            [\"L2-M11\", { start: week(30n), end: week(34n), tonnes: 92.0 }],\n            [\"L2-M12\", { start: week(33n), end: week(38n), tonnes: 88.0 }],\n        ]), DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                label: (_r, k) => k, id: true,\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`,\n                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,\n                    qty: r.tonnes, state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        // A paged canvas DECLARES its window: fitting the axis to whatever\n        // prefix has landed would re-fit it on every landed window (#567 D8).\n        const axis = $.const(Plan.axis({\n            window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n),\n        }));\n        return <Plan axis={axis} data={source} series={series} />;\n    })"
-    },
-    {
-      "id": "east-ui:contracts.examples.tsx:pagedTableSource",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/contracts.examples.tsx",
-      "suite": "",
-      "test": "The SAME row-source contract over a positional component — a ",
-      "keywords": [
-        "Paged",
-        "of",
-        "paged",
-        "source",
-        "Table",
-        "window",
-        "page",
-        "total",
-        "row-source",
-        "contract",
-        "positional",
-        "sort",
-        "partial",
-        "in-memory"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// The SAME row-source contract over a positional component — a \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const([\n            { unit: \"L1-M07\", line: \"Line 1\", tonnes: 64.0 },\n            { unit: \"L1-M09\", line: \"Line 1\", tonnes: 112.0 },\n            { unit: \"L2-M11\", line: \"Line 2\", tonnes: 92.0 },\n            { unit: \"L2-M12\", line: \"Line 2\", tonnes: 88.0 },\n        ], ArrayType(UnitRow));\n        // POSITIONAL: an array source, so no key accessor and no `seek` — an\n        // Array's stream order has nothing to binary-search.\n        const source = $.const(Paged.of(\"units\", units));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
     },
     {
       "id": "east-ui:accordion.examples.tsx:accordionBasic",
