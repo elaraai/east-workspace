@@ -25,10 +25,9 @@
  * element→window origin map #577 introduces; until then a jump loads to the
  * target element and the canvas holds the first match.
  *
- * The element index is still needed for one thing: knowing how FAR to load. The
- * loader keeps a contiguous prefix, so jumping to element 5,000 means asking
- * for the prefix that contains it. (Sparse, viewport-shaped demand is #577;
- * until then a far jump loads the rows in between.)
+ * The element index is still needed for one thing: telling the driver where to
+ * go. A jump hands it the matched element and the residency REBASES there
+ * (#577) — the windows in between are never fetched.
  *
  * # Bridging a tracked read to a promise
  *
@@ -51,7 +50,7 @@ import type {
     DatasetKeyMatchRange, DatasetKeyQuery,
 } from "../key-search/index.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import type { PlanPagedSourceValue } from "./use-paged-rows.js";
+import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 import type { PlanRowValue } from "./model.js";
 
 /** Canvas keys are Strings (#568) — a Plan's search input is typed against
@@ -80,8 +79,6 @@ export interface PlanSeekState {
     /** Mount data for the search control — `undefined` when the source
      *  declares no `seek` (an Array-backed source cannot be searched). */
     search: PlanSearch | undefined;
-    /** The source element the prefix must reach for the current jump. */
-    wantedEnd: number | undefined;
     /** The canvas row key to scroll to, once it has loaded. */
     targetKey: string | undefined;
 }
@@ -113,11 +110,13 @@ function toSeekQuery(query: DatasetKeyQuery): unknown {
  *
  * @param source - The decoded `paged` arm (undefined ⇒ inline canvas)
  * @param rows - The loaded canvas rows, in canonical key order
- * @returns The search mount, the prefix demand, and the scroll target
+ * @param jumpToElement - Ask the driver to rebase residency on an element
+ * @returns The search mount and the scroll target
  */
 export function usePlanSeek(
     source: PlanPagedSourceValue | undefined,
     rows: ReadonlyArray<PlanRowValue>,
+    jumpToElement: (element: number) => void,
 ): PlanSeekState {
     /** The query being searched — `null` between searches. */
     const [query, setQuery] = useState<unknown>(null);
@@ -130,7 +129,6 @@ export function usePlanSeek(
     // window-origin tracking of #577 lands, a jump LOADS to the target element
     // and the canvas anchors on the first row at-or-after the sought key, which
     // is right rather than plausibly wrong.
-    const [wantedEnd, setWantedEnd] = useState<number | undefined>(undefined);
     const pending = useRef<{
         resolve: (r: DatasetKeyMatchRange) => void;
         reject: (e: unknown) => void;
@@ -193,17 +191,16 @@ export function usePlanSeek(
     }, [run, sought]);
 
     const jump = useCallback((row: number) => {
-        // The loader keeps a contiguous prefix, so reaching element `row` means
-        // asking for everything up to it (#577 makes this viewport-shaped).
-        setWantedEnd((prev) => Math.max(prev ?? 0, row + 1));
-    }, []);
+        // Hand the driver the matched ELEMENT: residency rebases there and the
+        // windows in between are never fetched (#577).
+        jumpToElement(row);
+    }, [jumpToElement]);
 
     const clear = useCallback(() => {
         pending.current?.reject(new Error("search cleared"));
         pending.current = null;
         setQuery(null);
         setSought(null);
-        setWantedEnd(undefined);
     }, []);
 
     const search = useMemo<PlanSearch | undefined>(
@@ -213,7 +210,6 @@ export function usePlanSeek(
 
     return {
         search,
-        wantedEnd,
         // The first canvas row at-or-after the sought key. See the note above:
         // positioning on the k-th match needs the element→window origin map
         // that #577 introduces.

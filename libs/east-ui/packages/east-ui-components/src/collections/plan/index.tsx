@@ -35,8 +35,9 @@ import { DensityProvider } from "../../contracts/density.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers } from "./context.js";
-import { usePlanPagedRows } from "./use-paged-rows.js";
+import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
+import { WindowBand } from "./rows/WindowBand.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
     initialPlanState, planReducer,
@@ -147,35 +148,41 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The rows channel: inline rows, or the derived paged source (§3.8)
     //    streamed in as a contiguous prefix by the loader hook. ──────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
-    // A key search jumps by asking the loader for a prefix that REACHES the
-    // matched element; the canvas then positions by key (#574 / see use-seek).
-    const [seekWanted, setSeekWanted] = useState<number | undefined>(undefined);
-    const paged = usePlanPagedRows(
-        pagedSource,
-        seekWanted !== undefined ? { start: 0, end: seekWanted } : undefined,
-    );
+    // The ledger needs a window's pixel height, which is `rowHeight()` over its
+    // rows — and that needs density / chart state defined further down. A ref
+    // breaks the ordering: the driver only calls this when a window LANDS (in an
+    // effect), by which point the current render has assigned it.
+    const heightOfRef = useRef<(rows: readonly PlanRowValue[]) => number>(() => 0);
+    const heightOf = useCallback((rows: readonly PlanRowValue[]) => heightOfRef.current(rows), []);
+    const paging = usePlanPaging(pagedSource, { heightOf });
     // The inline arm is the canvas's KEYED collection (#568) — decoded as a
     // SortedMap, so its values are already in canonical key order.
     const rows = useMemo(
-        () => (value.rows.type === "inline" ? [...value.rows.value.values()] : paged.rows),
-        [value.rows, paged.rows],
+        () => (value.rows.type === "inline" ? [...value.rows.value.values()] : paging.rows),
+        [value.rows, paging.rows],
     );
     // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
     // the number `total()` reports — never canvas rows, since a series can emit
     // any number of rows per element. `partial` is what every derived number
     // (rollup bands, group counts, strip summaries) is qualified by: they are
     // computed over the loaded prefix until the source is exhausted.
-    const transport = useMemo<PlanTransport | undefined>(() => (pagedSource === undefined ? undefined : {
-        loaded: paged.loadedElements,
-        total: paged.total,
-        loading: paged.loading,
-        partial: paged.total === undefined || paged.loadedElements < paged.total,
-    }), [pagedSource, paged.loadedElements, paged.total, paged.loading]);
+    const transport = useMemo<PlanTransport | undefined>(() => {
+        if (pagedSource === undefined) return undefined;
+        const from = paging.resident?.from ?? 0;
+        const to = paging.resident?.to ?? 0;
+        return {
+            loaded: paging.resident?.elements ?? 0,
+            from,
+            to,
+            total: paging.total,
+            loading: paging.loading,
+            partial: paging.total === undefined || (paging.resident?.elements ?? 0) < paging.total,
+        };
+    }, [pagedSource, paging.resident, paging.total, paging.loading]);
     // Key search over the source (`search` becomes seek — #567 D9's affordance
-    // table). Reads the loaded rows, so it can position a match in canvas key
-    // space without an element→row map, which does not exist.
-    const { search, wantedEnd, targetKey } = usePlanSeek(pagedSource, rows);
-    useEffect(() => { setSeekWanted(wantedEnd); }, [wantedEnd]);
+    // table). A jump asks the driver to rebase on the matched ELEMENT; the
+    // canvas then positions by key, since a leaf row's key IS its data key.
+    const { search, targetKey } = usePlanSeek(pagedSource, rows, paging.jumpToElement);
 
     // ── Slice chrome (the Table adopter pattern; chrome-only) ─────────────
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
@@ -422,6 +429,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const frameFills = height !== undefined || maxHeight !== undefined;
     const barHeight = dense ? 16 : 20;
 
+    // The ledger's window height, now that density and chart state exist. Exact
+    // rather than measured: the canvas is fixed-height by kind and mounts with
+    // `measureRows={false}`, so `rowHeight()` IS the layout.
+    heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
+        windowRows.reduce((sum, row) =>
+            sum + rowHeight({ row, depth: 0, drilled: false, collapsed: false }, dense, ui.chartsExpanded, focusCtx), 0);
+
     // ── Rows ──────────────────────────────────────────────────────────────
     const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
     const pinned = useMemo(() => pinnedRows(index), [index]);
@@ -436,11 +450,32 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         : EXPAND_MIN_H;
     // R1 at scale — the links-focus body elides runs of unrelated rows into
     // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
-    const bodyItems = useMemo<PlanBodyItem[]>(
-        () => (focusCtx?.kind === "links"
+    const bodyItems = useMemo<PlanBodyItem[]>(() => {
+        const core: PlanBodyItem[] = focusCtx?.kind === "links"
             ? elideForFocus(visible, index, focusCtx)
-            : visible.map((row) => ({ kind: "row", row }))),
-        [focusCtx, visible, index]);
+            : visible.map((row) => ({ kind: "row", row }));
+        // The unloaded remainder of a paged source, above and below (#577). Each
+        // band is sized by the ledger, so the rows that replace it occupy the
+        // same space and nothing below moves.
+        if (paging.head === undefined && paging.tail === undefined) return core;
+        const out: PlanBodyItem[] = [];
+        if (paging.head !== undefined) out.push({ kind: "band", band: paging.head });
+        out.push(...core);
+        if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
+        return out;
+    }, [focusCtx, visible, index, paging.head, paging.tail]);
+
+    // The viewport, in the driver's terms — which ROW (or which band) the middle
+    // of the mounted range sits on. The driver maps that back to a window; no
+    // body-layout knowledge crosses that boundary.
+    const reportRange = useCallback((range: { startIndex: number; endIndex: number }, isScrolling: boolean) => {
+        const mid = Math.floor((range.startIndex + range.endIndex) / 2);
+        const item = bodyItems[mid] ?? bodyItems[range.startIndex];
+        if (item === undefined) return;
+        if (item.kind === "band") paging.reportViewport({ kind: "band", at: item.band.at }, isScrolling);
+        else if (item.kind === "row") paging.reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
+        // A links-focus gap band names no window — leave the demand where it is.
+    }, [bodyItems, paging]);
     // Where a key search has positioned the canvas. Resolved against the
     // VISIBLE body (a match inside a collapsed group has no row to scroll to),
     // and only once that row has actually loaded.
@@ -627,10 +662,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // there is no offline stand-in for `Data.bindPaged` (paging is a server
     // capability), so this is what a bound canvas shows outside a workspace —
     // the reason, not a blank axis that reads as an empty dataset (#567 D10).
-    if (paged.error !== undefined) {
+    if (paging.error !== undefined) {
         return (
             <Box css={styles.diagnostic} data-plan-empty data-plan-error>
-                {`NO ROWS — the paged source could not be read. ${paged.error}`}
+                {`NO ROWS — the paged source could not be read. ${paging.error}`}
             </Box>
         );
     }
@@ -754,18 +789,29 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             // and paints hairline seams (#533).
                             measureRows={false}
                             scrollToIndex={scrollToIndex}
+                            onRangeChange={pagedSource !== undefined ? reportRange : undefined}
+                            // A band becoming rows changes heights without
+                            // changing the count, which TanStack's measurement
+                            // memo does not watch (see `sizeVersion`).
+                            sizeVersion={paging.sizeVersion}
                             header={header}
                             footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
                             count={bodyItems.length}
                             estimateSize={(i) => {
                                 const item = bodyItems[i];
                                 if (item === undefined) return 32;
-                                return item.kind === "gap" ? GAP_H : rowHeight(item.row, dense, ui.chartsExpanded, focusCtx);
+                                if (item.kind === "gap") return GAP_H;
+                                if (item.kind === "band") return Math.max(1, item.band.px);
+                                return rowHeight(item.row, dense, ui.chartsExpanded, focusCtx);
                             }}
                             renderRow={(i) => {
                                 const item = bodyItems[i];
                                 if (item === undefined) return null;
-                                return item.kind === "gap" ? renderGap(item.gap) : renderVisible(item.row);
+                                if (item.kind === "gap") return renderGap(item.gap);
+                                if (item.kind === "band") {
+                                    return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
+                                }
+                                return renderVisible(item.row);
                             }}
                             headerZIndex={5}
                             rootCss={styles.root}

@@ -41,8 +41,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import type { PlanRowValue } from "./model.js";
-import type { PlanPagedSourceValue } from "./use-paged-rows.js";
+import type { PlanBand, PlanRootValue, PlanRowValue } from "./model.js";
+
+/** The decoded `paged` arm — the derived source at the canvas-row type. */
+export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
 import {
     createLedger, observeWindow, documentHeight, offsetOfWindow, elementsIn,
     type WindowLedger,
@@ -59,18 +61,7 @@ import {
 /** Source elements per window. */
 export const PLAN_PAGE_SIZE = 200;
 
-/** A run of source elements that is NOT resident, rendered as one skeleton
- *  band. `px` is its height from the ledger, so replacing it with real rows —
- *  or putting it back — moves nothing below it. */
-export interface PlanBand {
-    at: "head" | "tail";
-    /** First source element the band covers. */
-    from: number;
-    /** Last source element the band covers (inclusive). */
-    to: number;
-    /** The band's pixel height. */
-    px: number;
-}
+export type { PlanBand } from "./model.js";
 
 /** Where the viewport is, in the caller's own terms. */
 export type PlanViewport =
@@ -101,8 +92,12 @@ export interface PlanPaging {
     tail: PlanBand | undefined;
     /** The source's element count, once known. */
     total: number | undefined;
-    /** The resident element interval — what the chrome reports. */
-    resident: { from: number; to: number } | undefined;
+    /** What has actually LANDED: the element span it covers, and how many
+     *  elements that is. The span and the count differ while a window inside
+     *  the run is still in flight, and the chrome must not conflate them —
+     *  reporting the demanded interval would claim elements are loaded that are
+     *  still on the wire. */
+    resident: { from: number; to: number; elements: number } | undefined;
     /** Whether a requested window is still in flight. */
     loading: boolean;
     /** Why the source could not be read, when it could not be. */
@@ -208,7 +203,18 @@ export function usePlanPaging(
 
     // ── Demand follows the viewport, at idle only ─────────────────────────
     useEffect(() => {
-        if (source === undefined || ledger.windows === 0 || isScrolling) return;
+        if (source === undefined) return;
+        // Bootstrap. `total()` answers `none` until some window has landed
+        // (it is taught BY a landing), and the geometry needs the total — so
+        // waiting for one before demanding anything deadlocks on first paint.
+        // Window 0 is therefore demanded regardless, and the total arrives with
+        // it. A source that never reports a total still works: it simply has no
+        // bands and no extent beyond what is resident.
+        if (ledger.windows === 0) {
+            if (isEmpty(residency)) setResidency((r) => ({ ...r, lo: 0, hi: 0 }));
+            return;
+        }
+        if (isScrolling) return;
         const next = advance(residency, ledger, viewportWindow, policy);
         if (next === residency) return;
         setResidency(next);
@@ -254,11 +260,19 @@ export function usePlanPaging(
     }, [residency, ledger, total]);
 
     const resident = useMemo(() => {
-        if (isEmpty(residency) || total === undefined) return undefined;
-        const from = residency.lo * PLAN_PAGE_SIZE;
-        const to = Math.min(total, (residency.hi + 1) * PLAN_PAGE_SIZE);
-        return { from, to };
-    }, [residency, total]);
+        const landedWindows = value?.resident.map((r) => r.w) ?? [];
+        if (landedWindows.length === 0 || total === undefined) return undefined;
+        // The SPAN of what landed — not of what was demanded.
+        const lo = Math.min(...landedWindows);
+        const hi = Math.max(...landedWindows);
+        let elements = 0;
+        for (const w of landedWindows) elements += elementsIn({ pageSize: PLAN_PAGE_SIZE, total }, w);
+        return {
+            from: lo * PLAN_PAGE_SIZE,
+            to: Math.min(total, (hi + 1) * PLAN_PAGE_SIZE),
+            elements,
+        };
+    }, [value?.resident, total]);
 
     // ── Callbacks the renderer feeds ──────────────────────────────────────
     const reportViewport = useCallback((at: PlanViewport, scrolling: boolean) => {

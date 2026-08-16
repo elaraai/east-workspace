@@ -22,6 +22,10 @@
 export interface PlanTransport {
     /** Source elements whose window has landed. */
     loaded: number;
+    /** First resident source element. */
+    from: number;
+    /** Last resident source element (exclusive). */
+    to: number;
     /** The source's total element count, once any window has taught it. */
     total: number | undefined;
     /** Whether a requested window is still in flight. */
@@ -31,9 +35,20 @@ export interface PlanTransport {
     partial: boolean;
 }
 
-/** The count line: `1,200 loaded of 8,431` (or just `1,200 loaded` until any
- *  window has taught the total). */
+/**
+ * The count line.
+ *
+ * `1,200 loaded of 8,431` while the resident run starts at the top, and
+ * `elements 39,800–41,000 of 50,000` once it does not — because with
+ * viewport-shaped demand (#577) a bare count says how MUCH is resident without
+ * saying WHERE, and the canvas is showing somewhere in the middle.
+ */
 export function transportLabel(t: PlanTransport): string {
+    const total = t.total !== undefined ? t.total.toLocaleString() : undefined;
+    if (t.from > 0) {
+        const interval = `elements ${t.from.toLocaleString()}–${t.to.toLocaleString()}`;
+        return total !== undefined ? `${interval} of ${total}` : interval;
+    }
     const loaded = t.loaded.toLocaleString();
-    return t.total !== undefined ? `${loaded} loaded of ${t.total.toLocaleString()}` : `${loaded} loaded`;
+    return total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`;
 }

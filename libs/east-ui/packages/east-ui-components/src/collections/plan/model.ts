@@ -530,10 +530,30 @@ export interface FocusGap {
     tone: string | undefined;
 }
 
-/** One line of the links-focus body: a kept row, or an elided run. */
+/**
+ * A run of source elements that is NOT resident (#577), rendered as one band.
+ *
+ * Its height comes from the window ledger, so the band and the rows that
+ * replace it occupy exactly the same space — scrolling in loads content without
+ * moving anything below it, and eviction puts the band back with nothing
+ * shifting either.
+ */
+export interface PlanBand {
+    at: "head" | "tail";
+    /** First source element the band covers. */
+    from: number;
+    /** Last source element the band covers (inclusive). */
+    to: number;
+    /** The band's pixel height. */
+    px: number;
+}
+
+/** One line of the canvas body: a row, an elided run (R1), or an unloaded
+ *  run of the source (#577). */
 export type PlanBodyItem =
     | { kind: "row"; row: VisibleRow }
-    | { kind: "gap"; gap: FocusGap };
+    | { kind: "gap"; gap: FocusGap }
+    | { kind: "band"; band: PlanBand };
 
 /** Status severity rank — higher is worse; gaps wear the worst hidden tone. */
 const TONE_RANK: Record<string, number> = { info: 1, neutral: 1, success: 0, warning: 2, danger: 3 };

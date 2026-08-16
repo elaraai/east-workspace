@@ -17,7 +17,7 @@ import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import { some, none } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
-import type { PlanPagedSourceValue } from "./use-paged-rows.js";
+import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 import { usePlanPaging, PLAN_PAGE_SIZE, type PlanViewport } from "./use-plan-paging.js";
 
 afterEach(cleanup);

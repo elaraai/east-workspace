@@ -12,7 +12,7 @@
 import { describe, test, expect, vi } from "vitest";
 import { variant, some, none } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
-import type { PlanPagedSourceValue } from "./use-paged-rows.js";
+import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 import { readWindows, mergeWindows, originOf, pruneCache, type WindowCache } from "./window-reader.js";
 
 const PAGE = 200;

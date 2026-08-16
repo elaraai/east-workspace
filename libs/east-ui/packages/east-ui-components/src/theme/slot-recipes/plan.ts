@@ -55,6 +55,8 @@ export const planSlotRecipe = defineSlotRecipe({
         "nowLine", "cursorLine", "cursorChip",
         // diagnostics (no window / unreadable source)
         "diagnostic",
+        // paged canvas: the unloaded run above / below the resident one
+        "windowBand", "windowBandCaption",
     ],
     base: {
         root: {
@@ -390,6 +392,40 @@ export const planSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             color: "fg.subtle",
             "&[data-plan-error]": { color: "{colors.status.neg}" },
+        },
+        // A run of source elements that is not resident (#577). Sized by the
+        // ledger, so replacing it with rows — or putting it back — moves
+        // nothing below it. The repeating rule reads as ROWS without asserting
+        // how many there are: the canvas cannot know that, and drawing one
+        // skeleton per element would be a claim it cannot support.
+        windowBand: {
+            position: "relative",
+            background: "bg.panel",
+            overflow: "hidden",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            backgroundImage:
+                "repeating-linear-gradient(to bottom, transparent 0 31px, {colors.border.subtle} 31px 32px)",
+        },
+        // Sticky, so it stays legible wherever you are inside a band that may
+        // be thousands of pixels tall.
+        windowBandCaption: {
+            position: "sticky",
+            top: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            height: "22px",
+            background: "bg.panel",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "semibold",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
         },
         focusGapInner: {
             display: "flex",

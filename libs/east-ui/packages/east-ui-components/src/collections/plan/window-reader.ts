@@ -31,7 +31,7 @@
 
 import { SortedMap, StringType, compareFor } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
-import type { PlanPagedSourceValue } from "./use-paged-rows.js";
+import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 
 /** East's own total order on row keys — the order both the source windows and
  *  the merged collection are in. */

@@ -965,6 +965,32 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
     });
 
+    test("the unloaded remainder renders as ONE band, sized by the ledger (#577)", async () => {
+        // Not one skeleton per row: the canvas cannot know how many rows an
+        // unvisited window makes, so a per-row skeleton would assert a count it
+        // has no way to support. One band, captioned with what IS known — the
+        // source ELEMENTS it covers.
+        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : some(rowCollection([]))),
+            total: () => some(10_000n),          // 50 windows
+            id: "dom-test-band",
+            seek: none,
+        };
+        // Unbounded, like the other Plan DOM tests: jsdom has no layout, so a
+        // bounded frame would virtualize down to nothing.
+        const { container } = renderPlan(planRoot([], { source }), "plan-band");
+        await screen.findByText("R1");
+
+        const band = container.querySelector('[data-plan-window-band="tail"]');
+        expect(band).toBeTruthy();
+        // It reports ELEMENTS, never a row count.
+        expect(Number(band!.getAttribute("data-plan-elements"))).toBeGreaterThan(9_000);
+        expect(band!.textContent).toMatch(/more elements — scroll to load/);
+        // Nothing above the first window, so no head band.
+        expect(container.querySelector('[data-plan-window-band="head"]')).toBeNull();
+    });
+
     test("a source that cannot be READ renders the reason, not a blank axis (#567 D10)", async () => {
         // There is no offline stand-in for `Data.bindPaged` — paging is a server
         // capability — so a bound canvas rendered outside a workspace has
