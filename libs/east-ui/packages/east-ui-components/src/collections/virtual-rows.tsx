@@ -86,6 +86,29 @@ export interface VirtualRowsProps {
      */
     scrollToIndex?: number | undefined;
     /**
+     * Reports the mounted row range whenever it moves — the signal a paged
+     * collection needs to shape its demand around the viewport (#577).
+     *
+     * The range INCLUDES the overscan rows, which is what a prefetching reader
+     * wants: they are the rows about to be revealed. `isScrolling` is the
+     * virtualizer's own flag; a reader should gate fetching and eviction on it
+     * being false, so neither happens mid-gesture.
+     *
+     * Fires only in bounded mode — an unbounded frame mounts everything.
+     */
+    onRangeChange?: ((range: { startIndex: number; endIndex: number }, isScrolling: boolean) => void) | undefined;
+    /**
+     * Bump to force a re-measure. TanStack memoizes its measurements on
+     * `[count, paddingStart, scrollMargin, getItemKey, enabled, lanes]` plus the
+     * item-size cache — **`estimateSize` is not among them** (verified against
+     * `virtual-core@3.13.23`, `dist/esm/index.js:408-440`). So a collection whose
+     * row HEIGHTS change while the row COUNT does not — a skeleton band becoming
+     * rows, a chart row expanding — leaves stale offsets behind. Changing this
+     * value calls `virtualizer.measure()`, which assigns a fresh cache and busts
+     * the memo.
+     */
+    sizeVersion?: number | undefined;
+    /**
      * Receives the bounded-mode scroll element (null when unmounted or
      * unbounded) — for scroll-position restore, which `onScroll` alone
      * cannot do.
@@ -104,7 +127,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, footer, count, estimateSize, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
-        scrollToIndex,
+        scrollToIndex, onRangeChange, sizeVersion,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -139,6 +162,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         virtualizer.scrollToIndex(scrollToIndex, { align: "center" });
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index is the trigger
     }, [scrollToIndex]);
+
+    // Heights changed without the count changing — bust TanStack's measurement
+    // memo, which does not watch `estimateSize` (see `sizeVersion`).
+    useEffect(() => {
+        if (sizeVersion === undefined || !bounded) return;
+        virtualizer.measure();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the trigger
+    }, [sizeVersion]);
 
     // Unbounded: preserve the exact grow-to-content flow (no scroll, no
     // virtualization) so content-sized output is unchanged.
@@ -226,6 +257,28 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 )}
             </Box>
             {footer}
+            {onRangeChange !== undefined && (
+                <RangeReporter
+                    startIndex={items[0]?.index ?? 0}
+                    endIndex={items[items.length - 1]?.index ?? 0}
+                    isScrolling={virtualizer.isScrolling}
+                    onRangeChange={onRangeChange}
+                />
+            )}
         </Box>
     );
+}
+
+/** Reports the mounted range in an effect, so the callback fires AFTER commit
+ *  and a reader that responds by setting state cannot re-enter the render. */
+function RangeReporter({ startIndex, endIndex, isScrolling, onRangeChange }: {
+    startIndex: number;
+    endIndex: number;
+    isScrolling: boolean;
+    onRangeChange: (range: { startIndex: number; endIndex: number }, isScrolling: boolean) => void;
+}): null {
+    useEffect(() => {
+        onRangeChange({ startIndex, endIndex }, isScrolling);
+    }, [startIndex, endIndex, isScrolling, onRangeChange]);
+    return null;
 }
