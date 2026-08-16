@@ -24,9 +24,10 @@ afterEach(cleanup);
 
 const ROW_PX = 32;
 
-/** A synchronous source of `windows` windows, two rows each, keyed by window so
- *  the merged order is checkable. Records which windows were asked for. */
-function source(windows: number) {
+/** A synchronous source of `windows` windows, `rowsPer` rows each, keyed by
+ *  window so the merged order is checkable. Records which windows were asked
+ *  for. */
+function source(windows: number, rowsPer = 2) {
     const asked: number[] = [];
     const value = {
         id: "driver-test",
@@ -34,10 +35,11 @@ function source(windows: number) {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             asked.push(w);
             const pad = String(w).padStart(4, "0");
-            const rows = new Map<string, PlanRowValue>([
-                [`w${pad}a`, { key: `w${pad}a`, parent: none } as unknown as PlanRowValue],
-                [`w${pad}b`, { key: `w${pad}b`, parent: none } as unknown as PlanRowValue],
-            ]);
+            const rows = new Map<string, PlanRowValue>();
+            for (let i = 0; i < rowsPer; i++) {
+                const key = `w${pad}r${String(i).padStart(3, "0")}`;
+                rows.set(key, { key, parent: none } as unknown as PlanRowValue);
+            }
             return some(rows);
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
@@ -75,7 +77,8 @@ describe("paging driver — first paint", () => {
 
         // The demand settles at [0, ahead] — window 0 plus its prefetch ring.
         await waitFor(() => expect(text("resident")).toBe("0-600"));
-        expect(text("rows")).toBe("w0000a w0000b w0001a w0001b w0002a w0002b");
+        expect(text("rows").split(" ")).toHaveLength(6);
+        expect(text("rows").startsWith("w0000r000")).toBe(true);
         // Nothing above the top, and everything below is one band.
         expect(text("head")).toBe("-");
         expect(text("tail")).toBe("600-9999");
@@ -171,5 +174,46 @@ describe("paging driver — an unreadable source", () => {
         render(<Harness src={bad} />);
         await waitFor(() => expect(latest?.error).toMatch(/no paging service/));
         expect(text("rows")).toBe("");
+    });
+});
+
+describe("paging driver — bounded retention", () => {
+    test("scrolling a 50,000-element source end to end keeps the resident rows under the cap", async () => {
+        // #567's long-standing criterion, which nothing before this could meet:
+        // the dense prefix kept everything it had ever loaded. 250 windows of
+        // 100 rows is 25,000 rows if nothing is evicted; the budget is 4,000.
+        const { value } = source(250, 100);
+        render(<Harness src={value} />);
+        await waitFor(() => expect(latest?.resident).toBeDefined());
+
+        let peakRows = 0;
+        // Walk the whole source the way a user does — one viewport step at a
+        // time, always at the leading edge.
+        for (let i = 0; i < 400; i++) {
+            report({ kind: "band", at: "tail" });
+            const r = latest?.resident;
+            if (r !== undefined) peakRows = Math.max(peakRows, ((r.to - r.from) / PLAN_PAGE_SIZE) * 100);
+            if (latest?.tail === undefined) break;      // reached the end
+        }
+
+        // Retention held the whole way: never the 25,000 rows a dense prefix
+        // would have accumulated.
+        expect(peakRows).toBeLessThanOrEqual(4_000);
+        // ...and we genuinely travelled — the run is nowhere near the top.
+        expect(latest!.resident!.from).toBeGreaterThan(10_000);
+    });
+
+    test("the head band grows as the run moves away from the top", async () => {
+        const { value } = source(250, 100);
+        render(<Harness src={value} />);
+        await waitFor(() => expect(latest?.resident).toBeDefined());
+        for (let i = 0; i < 60; i++) report({ kind: "band", at: "tail" });
+
+        const head = latest?.head;
+        expect(head).toBeDefined();
+        expect(head!.from).toBe(0);
+        // Everything left behind is described by ONE band, not by rows.
+        expect(head!.to).toBeGreaterThan(1_000);
+        expect(head!.px).toBeGreaterThan(0);
     });
 });

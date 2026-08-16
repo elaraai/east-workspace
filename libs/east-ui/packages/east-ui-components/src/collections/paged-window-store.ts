@@ -97,15 +97,10 @@ export function retainWindows(
         .sort((a, b) => a - b);
 }
 
-/**
- * How many windows to retain for a row budget — the cap is expressed in ROWS
- * because that is what costs memory, while eviction works in windows.
- *
- * @param maxRows - Row budget
- * @param pageSize - Rows per window
- * @returns Window count (at least 1)
- */
-export function windowsForRowBudget(maxRows: number, pageSize: number): number {
-    if (pageSize <= 0) return 1;
-    return Math.max(1, Math.floor(maxRows / pageSize));
-}
+// `windowsForRowBudget(maxRows, pageSize)` was removed in #577. It divided a
+// ROW budget by an ELEMENT page size, which is only meaningful at exactly one
+// canvas row per source element — and a Plan series emits any number of rows
+// per element, or none. Retention now spends the budget against the rows a
+// window was MEASURED to produce (`window-residency.trim` over the ledger),
+// which needs no such assumption. Leaving the old helper in place would have
+// been a trap for the next caller.

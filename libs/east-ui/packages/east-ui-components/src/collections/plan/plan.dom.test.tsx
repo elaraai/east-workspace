@@ -991,6 +991,35 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-plan-window-band="head"]')).toBeNull();
     });
 
+    test("a parent whose members are NOT resident still renders, and claims nothing (#577)", async () => {
+        // Literal chrome (`Plan.series.rows`) is emitted by every window whether
+        // or not that window holds any of its members, so a group parent can be
+        // resident with none of its children. It must render — it is wayfinding
+        // — and it must not print `0 rs`, which would be a measured-looking
+        // claim about rows that simply have not loaded.
+        const w0 = [
+            planRow("chrome", variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
+                { gutter: gutter("Line 9") }),
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+        ];
+        const source = {
+            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            total: () => some(10_000n),
+            id: "dom-test-lonely-parent",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-lonely");
+        await screen.findByText("R1");
+
+        const band = container.querySelector('[data-plan-group="chrome"]');
+        expect(band).toBeTruthy();
+        expect(screen.getByText("Line 9")).toBeTruthy();
+        // No member count at all — not `0 rs`, and not `~0 rs`.
+        expect(band!.textContent).not.toMatch(/\d+\s*rs/);
+        // And the canvas says its numbers are over a prefix.
+        expect(band!.getAttribute("data-plan-partial")).toBe("");
+    });
+
     test("a source that cannot be READ renders the reason, not a blank axis (#567 D10)", async () => {
         // There is no offline stand-in for `Data.bindPaged` — paging is a server
         // capability — so a bound canvas rendered outside a workspace has
