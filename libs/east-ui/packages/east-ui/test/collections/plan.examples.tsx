@@ -849,8 +849,8 @@ export const planHeatRows = example({
 });
 
 export const planTableRows = example({
-    keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "groupBy", "nested", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "strong", "muted", "rollup", "raw"],
-    description: "Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once (a strong rolled-up actual beside a muted always-signed Δ horizontally; a vertical stack that grows the row)",
+    keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "groupBy", "nested", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "stacked", "two-line", "strong", "muted", "rollup", "raw"],
+    description: "Table-row families over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net family with a negative tone and the muted em-dash, and multi-series families whose accessors declare the per-POSITION style once — all four combinations of the two INDEPENDENT choices, since a cell split implies nothing about a gutter: horizontal beside a two-line gutter (a strong rolled-up actual and its muted always-signed \u0394) and beside a one-line one, vertical under a one-line gutter and under a two-line one (the row then grows in both directions at once)",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -892,9 +892,19 @@ export const planTableRows = example({
                   { at: week(27n), value: some(22.0) }, { at: week(28n), value: some(-26.0) },
                   { at: week(29n), value: none },
               ] }],
-            // Multi-value families — raw act + plan arrays per row.
+            // Multi-value families — raw act + plan arrays per row. The SPLIT
+            // (how the positions sit against each other) and the GUTTER (one
+            // line or two) are independent choices, so all four combinations
+            // are here: the pair that reads well depends on the numbers, not
+            // on the split.
             ["actplan", { family: "actplan", name: "Act · Δ plan", top: "", program: "", sub: some("t/wk"), act, plan: deltas }],
             ["inout", { family: "inout", name: "In / out", top: "", program: "", sub: none, act, plan: outflow }],
+            // Horizontal, on a ONE-line gutter — the pair reads as a single
+            // fact ("booked beside free"), so a sub label would only repeat it.
+            ["sidebyside", { family: "sidebyside", name: "Booked · free", top: "", program: "", sub: none, act, plan: outflow }],
+            // Vertical, on a TWO-line gutter — the stack needs the unit spelled
+            // out, because the positions are the same measure at two times.
+            ["overunder", { family: "overunder", name: "Act / plan", top: "", program: "", sub: some("t/wk"), act, plan: deltas }],
         ]), DictType(StringType, OrderRow));
         const series = $.const([
             Plan.series.table(OrderRow, {
@@ -932,6 +942,33 @@ export const planTableRows = example({
                 series: r => [
                     Plan.tableSeries({ cells: Plan.tableCells(r.act) }),
                     Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(r.plan) }),
+                ],
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            // HORIZONTAL on a ONE-line gutter — the other half of the pair
+            // above: the split is a cell-layout choice and the gutter a label
+            // choice, so neither implies the other.
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("sidebyside"),
+                label: r => r.name, split: "horizontal",
+                series: r => [
+                    Plan.tableSeries({ strong: true, cells: Plan.tableCells(r.act) }),
+                    Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(r.plan) }),
+                ],
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            // VERTICAL on a TWO-line gutter — the remaining combination, and
+            // the one that grows the row in BOTH directions at once.
+            Plan.series.table(OrderRow, {
+                match: r => r.family.equal("overunder"),
+                label: r => r.name, split: "vertical", stacked: true, sub: r => r.sub,
+                series: r => [
+                    Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(r.act) }),
+                    Plan.tableSeries({
+                        tone: "muted",
+                        format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                        cells: Plan.tableCells(r.plan),
+                    }),
                 ],
                 format: Format.Number({ maximumFractionDigits: 0n }),
             }),
@@ -1366,13 +1403,21 @@ export const planLibraryDnd = example({
 // ============================================================================
 
 /** Fill (#320) — `height="fill"` resolves against the bounded Box and
- *  virtualizes 200 span rows. The bound must land on the canvas WRAPPER: a
- *  percentage passed inward resolves against an auto-height parent, computes
- *  to `auto`, and silently unbinds — the frame reports bounded, renders its
- *  spacer, and never scrolls (#567 D1). */
+ *  virtualizes 200 span rows under 8 rollup parents. The bound must land on the
+ *  canvas WRAPPER: a percentage passed inward resolves against an auto-height
+ *  parent, computes to `auto`, and silently unbinds — the frame reports bounded,
+ *  renders its spacer, and never scrolls (#567 D1).
+ *
+ *  The grouping is here for what it does to VIRTUALIZATION, not for the
+ *  chrome. Collapsing a strip removes its 25 children from the virtualizer's
+ *  item list, so `count` and the total size change while the scroll offset does
+ *  not — the case where an estimate that disagrees with the rendered height
+ *  shows up as drift or a jumping scrollbar. The parents also give the list two
+ *  different row heights (a rollup band is taller than a leaf), so the
+ *  `estimateSize` path is exercised rather than a single constant. */
 export const planFill = example({
-    keywords: ["Plan", "fill", "height", "maxHeight", "#320", "virtual", "bounded", "Box", "scroll", "sizing", "data", "series", "span"],
-    description: "Fill sizing — height=\"fill\" resolves against the bounded Box and virtualizes 200 span rows from a data + series canvas",
+    keywords: ["Plan", "fill", "height", "maxHeight", "#320", "virtual", "virtualization", "bounded", "Box", "scroll", "sizing", "data", "series", "span", "group", "groupBy", "rollup", "union", "collapse", "parent"],
+    description: "Fill sizing under grouping — height=\"fill\" resolves against the bounded Box and virtualizes 200 span rows nested under 8 groupBy rollup parents, so collapsing a strip changes the virtualizer's item count and total size mid-scroll while the parents give the list two different row heights to estimate",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open).
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -1380,15 +1425,19 @@ export const planFill = example({
             return w1.addWeeks(n.subtract(1n));
         }));
         const UnitRow = StructType({
+            line: StringType,
             start: DateTimeType, end: DateTimeType, tonnes: FloatType,
         });
         // 200 raw rows, generated in East — the row count is the point. The
         // KEYS are the point too: they order the canvas, so they are numbered
         // to sort as written (`UNIT-1000` … `UNIT-1199`) rather than
         // lexicographically (`UNIT-1`, `UNIT-10`, `UNIT-100`, …).
+        // `line` is the grouping level: 8 strips of 25, so a single collapse
+        // takes an eighth of the list out of the virtualizer at once.
         const units = $.const(East.Array.range(0n, 200n).toDict(
             (_$, i) => East.str`UNIT-${East.print(i.add(1000n))}`,
             (_$, i) => ({
+                line: East.str`LINE ${East.print(i.modulo(8n).add(1n))}`,
                 start: week(i.modulo(9n).add(27n)),
                 end: week(i.modulo(9n).add(30n)),
                 tonnes: i.toFloat().multiply(1.5).add(40.0),
@@ -1402,6 +1451,9 @@ export const planFill = example({
                     quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
                     qty: r.tonnes, state: variant("confirmed", null),
                 })],
+                // One union-rollup parent per line — 8 more rows, each
+                // collapsible over 25 children.
+                groupBy: [r => r.line], rollup: "union", unit: "t",
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
