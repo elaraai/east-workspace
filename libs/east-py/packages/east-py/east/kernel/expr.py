@@ -10,7 +10,7 @@ expression, and the python protocol points that must fail loudly rather than
 constant-fold trace-time state into the result.
 
 Everything else is an op mixin under ``east.kernel.ops`` — one module per
-domain. A mixin builds its results with ``type(self)(…)`` rather than naming
+domain. A mixin builds its results with ``self._expr(…)`` rather than naming
 the class, which is what keeps the mixins importable BEFORE the class exists.
 """
 
@@ -24,6 +24,7 @@ from east.kernel.lift import _lift
 from east.kernel.nodes import _k_call
 from east.kernel.ops.collections import _CollectionOps
 from east.kernel.ops.grouping import _GroupOps
+from east.kernel.ops.mutation import _MutationOps
 from east.kernel.ops.optionals import _OptionOps
 from east.kernel.ops.reductions import _ReductionOps
 from east.kernel.ops.scalar import _ScalarOps
@@ -37,8 +38,10 @@ from east.types.types import EastType
 # The traced collection surface per container kind — every name is a real
 # ``KernelExpr`` method. This is the enumeration the docs, the unsupported-
 # method error, and the surface-coverage test all pin, so it cannot drift
-# silently (#452). Mutators and side-effecting methods are deliberately
-# absent: the kernel language is pure.
+# silently (#452). Every transform is pure; the in-place mutators at the end
+# of each list are the loop-accumulator surface (#578) — the receiver they
+# take is a collection the kernel itself built or was handed, never a
+# build-time constant.
 _TRACED_SURFACE = {
     "Array": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "fold", "scan", "map_reduce",
@@ -47,6 +50,8 @@ _TRACED_SURFACE = {
         "group_by", "sorted", "is_sorted", "some", "every", "string_join",
         "concat", "slice", "reversed", "copy", "get_keys",
         "size", "has", "get", "get_or_default", "try_get",
+        # in-place mutation (#578)
+        "append", "extend", "clear",
         # reductions (#525 phase 1)
         "sum", "mean", "maximum", "minimum",
         # find_* (#525 phase 2)
@@ -74,6 +79,8 @@ _TRACED_SURFACE = {
         "group_every", "group_some",
         # group_to_* (#525 phase 3b)
         "group_to_arrays", "group_to_sets", "group_to_dicts",
+        # in-place mutation (#578)
+        "insert", "try_insert", "delete", "try_delete", "clear",
     })),
     "Dict": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -89,6 +96,8 @@ _TRACED_SURFACE = {
         "group_every", "group_some",
         # group_to_* (#525 phase 3b)
         "group_to_arrays", "group_to_sets", "group_to_dicts",
+        # in-place mutation (#578)
+        "insert", "insert_or_update", "delete", "try_delete", "clear",
     })),
 }
 
@@ -122,6 +131,7 @@ class KernelExpr(
     _ReductionOps,
     _SearchOps,
     _GroupOps,
+    _MutationOps,
 ):
     """A typed East expression under construction (returned to traced lambdas)."""
 
@@ -152,6 +162,19 @@ class KernelExpr(
                 )
         available = ", ".join(f["name"] for f in self.east_type.value)
         raise KernelTraceError(f"struct has no field '{name}' (available: {available})")
+
+    def keys(self) -> list[str]:
+        """This struct's field names, so ``{**s, "i": s.i + 1}`` works.
+
+        Python's dict unpacking asks a mapping for ``keys()`` and then indexes
+        it, both of which a Struct-typed expression can answer. That makes the
+        "change one field, keep the rest" spelling — the loop body's ``else``
+        branch — the same on the traced and the eager paths.
+        """
+        if self.east_type.type != "Struct":
+            raise KernelTraceError(
+                f".keys() on a non-struct expression ({self.east_type.type})")
+        return [f["name"] for f in self.east_type.value]
 
     def __getattribute__(self, name: str) -> Any:
         """Struct FIELDS win over same-named collection methods.

@@ -66,7 +66,7 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
 
     if isinstance(value, KernelExpr):
         return value
-    if isinstance(value, _DeferredWhere):
+    if isinstance(value, (_DeferredWhere, _Jump)):
         return value.resolve(hint)
     if value is None or is_east_null(value):
         return KernelExpr(_literal(None, NullType), NullType)
@@ -150,8 +150,32 @@ class _ConstRegistry:
 _const_registry: _ConstRegistry | None = None
 
 
+# Hoisting is suspended while a loop's INITIAL STATE is lifted. That state is
+# the loop's mutable working set, and a hoisted constant is built ONCE when
+# the kernel compiles and shared by every call — so seeding an accumulator
+# with a captured `EastArray(T)` (the spelling #578 itself uses) would have
+# every call append to the same array. Inlined, it is rebuilt per call, which
+# is what a working set means. Constants read from the loop's body or
+# condition still hoist: those uses are read-only.
+_hoisting = True
+
+
+def _suspend_hoisting() -> bool:
+    """Build captured constants inline until hoisting is resumed."""
+    global _hoisting
+    was = _hoisting
+    _hoisting = False
+    return was
+
+
+def _resume_hoisting(previous: bool) -> None:
+    """Restore what :func:`_suspend_hoisting` replaced."""
+    global _hoisting
+    _hoisting = previous
+
+
 def _register_const(value: Any, expr: KernelExpr) -> KernelExpr:
-    if _const_registry is None:
+    if _const_registry is None or not _hoisting:
         return expr
     return _const_registry.register(value, expr.ir, expr.east_type)
 
@@ -214,9 +238,80 @@ def _registry_entries() -> tuple[list, list]:
 
 def _clear_registries() -> None:
     """Close the outer trace's registries."""
-    global _const_registry, _fn_registry
+    global _const_registry, _fn_registry, _hoisting
     _const_registry = None
     _fn_registry = None
+    _hoisting = True
+    _loop_frames.clear()
+    _effect_frames.clear()
+
+
+# One frame per traced callback, holding the mutations it emitted. Python
+# evaluates a statement and throws its value away, so
+# ``def step(acc, x): acc.append(x); return acc`` traces to a body of just
+# ``acc`` — the append is GONE and the compiled loop silently does nothing.
+# That is #565's failure reachable from the #578 mutators, and silence is the
+# worst version of it, so every mutation is checked back against the body it
+# was supposed to land in.
+_effect_frames: list[list] = []
+
+
+def _push_effects() -> None:
+    """Begin collecting the mutations a callback emits."""
+    _effect_frames.append([])
+
+
+def _note_effect(node: Any, op: str) -> None:
+    """Record a mutation, so the trace can prove it was not discarded."""
+    if _effect_frames:
+        _effect_frames[-1].append((node, op))
+
+
+def _pop_effects(body_ir: Any) -> None:
+    """Fail if a mutation traced in this scope never reached ``body_ir``."""
+    noted = _effect_frames.pop()
+    if not noted:
+        return
+    from east.kernel.finalize import _node_children
+
+    seen: set[int] = set()
+    stack = [body_ir]
+    while stack:
+        node = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        stack.extend(_node_children(node))
+    for node, op in noted:
+        if id(node) not in seen:
+            raise KernelTraceError(
+                f".{op}() was evaluated and thrown away — a traced callback is "
+                "ONE expression, so a mutation written as a statement does not "
+                "reach the compiled body and the loop would silently do "
+                f"nothing. Sequence it: East.block(x.{op}(...), result)")
+
+
+def _tracing() -> bool:
+    """Whether a trace is open.
+
+    The dual-mode control-flow constructs (``East.while_`` and friends) decide
+    which mode they are in with this, because their operands are LAMBDAS —
+    unlike ``where``, which can look at its condition and see a proxy.
+    """
+    return _const_registry is not None
+
+
+def _hoisted_const_names() -> frozenset[str]:
+    """The names the open trace bound to build-time constants.
+
+    A captured East collection hoists to a ``Let`` evaluated ONCE when the
+    kernel compiles (see :class:`_ConstRegistry`), so the compiled function
+    closes over one shared value. Mutating it would leak between calls, which
+    is what the traced mutators check for.
+    """
+    if _const_registry is None:
+        return frozenset()
+    return frozenset(name for name, _t in _const_registry.by_id.values())
 
 
 def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
@@ -402,11 +497,89 @@ def _needs_type_context(value: Any) -> bool:
     from east.kernel.expr import KernelExpr
     from east.types.values import is_east_variant
 
-    if isinstance(value, _DeferredWhere):
+    if isinstance(value, (_DeferredWhere, _Jump)):
         return True
     if isinstance(value, KernelExpr) or not is_east_variant(value):
         return False
     return value.type != "some"
+
+
+# The loops enclosing the expression being traced, innermost last.
+# ``East.while_``/``for_`` push a frame while they trace their callbacks. A
+# frame carries the loop's label NAME — east-c matches a jump to a loop by
+# name, so an unlabelled jump inside a named loop would otherwise match
+# nothing and travel out of the kernel — and a ``commit`` that builds the
+# loop's state update, so a jump can hand back a final state.
+_loop_frames: list = []
+
+
+def _push_loop_frame(frame: Any) -> None:
+    """Enter a loop's body for tracing."""
+    _loop_frames.append(frame)
+
+
+def _pop_loop_frame() -> None:
+    """Leave it again."""
+    _loop_frames.pop()
+
+
+def _loop_frame(name: str | None, jump: str) -> Any:
+    """The frame a jump targets — the innermost loop when unlabelled."""
+    if not _loop_frames:
+        raise KernelTraceError(
+            f"{jump}() outside any loop — it belongs in a while_/for_ body")
+    if name is None:
+        return _loop_frames[-1]
+    for frame in reversed(_loop_frames):
+        if frame.name == name:
+            return frame
+    raise KernelTraceError(f"{jump}() names a label no enclosing loop carries")
+
+
+#: "no final state given" — distinct from a state that IS ``None``.
+_NO_STATE = object()
+
+
+class _Jump:
+    """A traced ``break``/``continue``, waiting for a type from context.
+
+    A jump never produces a value, so nothing about it says what East type it
+    stands in for — its ``where`` sibling does, or the loop state it replaces.
+    That is the same deferral a bare ``none`` needs, so it rides the same
+    machinery: ``_needs_type_context`` reports it, ``where`` types it from the
+    other arm, and reaching ``_lift`` with no hint raises the actionable error.
+
+    A jump given a final state commits it first, so leaving a loop does not
+    throw away what the iteration worked out — the only way an inner loop can
+    report anything to the outer one it breaks.
+    """
+
+    __slots__ = ("kind", "label", "state")
+
+    def __init__(self, kind: str, label: str | None, state: Any = _NO_STATE) -> None:
+        self.kind = kind
+        self.label = label
+        self.state = state
+
+    def __repr__(self) -> str:
+        return f"<{self.kind.lower()} {self.label!r}>"
+
+    def resolve(self, hint: EastType | None) -> KernelExpr:
+        from east.ir.builders import ir_break, ir_continue, ir_label
+        from east.kernel.expr import KernelExpr
+
+        if hint is None:
+            raise KernelTraceError(
+                f"{self.kind.lower()}_() needs a type from context — put it in a "
+                "where() arm inside a while_/for_ body, where the loop state "
+                "types it"
+            )
+        frame = _loop_frame(self.label, f"{self.kind.lower()}_")
+        build = ir_break if self.kind == "Break" else ir_continue
+        jump = build(hint, ir_label(frame.name))
+        if self.state is _NO_STATE:
+            return KernelExpr(jump, hint)
+        return KernelExpr(_k_block(hint, [frame.commit(self.state), jump]), hint)
 
 
 class _DeferredWhere:
@@ -516,13 +689,21 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
         )
     names = [_fresh_name() for _ in param_types]
     proxies = [KernelExpr(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
+    _push_effects()
+    popped = False
     try:
-        result = fn(*proxies[:arity])
-    except KernelTraceError:
-        raise
-    except Exception as e:  # pragma: no cover - message carries the cause
-        raise KernelTraceError(f"inner lambda is not traceable: {e}") from e
-    body = _lift(result, hint=out_hint)
+        try:
+            result = fn(*proxies[:arity])
+        except KernelTraceError:
+            raise
+        except Exception as e:  # pragma: no cover - message carries the cause
+            raise KernelTraceError(f"inner lambda is not traceable: {e}") from e
+        body = _lift(result, hint=out_hint)
+        popped = True
+        _pop_effects(body.ir)
+    finally:
+        if not popped:  # a failed trace must not leak this callback's frame
+            _effect_frames.pop()
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     fn_t = FunctionType(list(param_types), body.east_type)
     node = _capturing_fn(fn_t, params, body.ir)

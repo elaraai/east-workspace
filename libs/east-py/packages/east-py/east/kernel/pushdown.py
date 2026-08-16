@@ -18,6 +18,20 @@ from collections import OrderedDict
 from datetime import datetime as _pydatetime
 from typing import Any
 
+from east.kernel.control import (
+    block,
+    break_,
+    continue_,
+    for_,
+    label,
+    let,
+    new_array,
+    new_dict,
+    new_set,
+    ref,
+    try_catch,
+    while_,
+)
 from east.kernel.errors import KernelTraceError
 from east.kernel.expr import KernelExpr
 from east.kernel.lift import _sequence_effect, greatest, least, where
@@ -39,6 +53,16 @@ from east.types.values import EastArray
 # lambdas that pass the same gate. Anything else — modules, arbitrary
 # callables, mutable closures — disables tracing and keeps today's exact
 # python semantics.
+
+
+#: The #578 control-flow surface. A tuple compared by IDENTITY, not a set:
+#: ``value`` here is any captured binding, and hashing an unhashable one (an
+#: East collection, a dict) would raise inside the gate and silently report
+#: the whole lambda ineligible.
+_CONTROL_FLOW = (
+    block, break_, continue_, for_, label, let, new_array, new_dict, new_set,
+    ref, try_catch, while_,
+)
 
 
 def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
@@ -67,6 +91,11 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     if value is where or value is bool or value is isinstance or value is abs:
         return True
     if value is greatest or value is least:
+        return True
+    # The control-flow constructs (#578) are dual-mode like `where`: they emit
+    # IR inside a trace and run the plain python loop outside one, so a lambda
+    # that references one directly is no less traceable than its body.
+    if any(value is fn for fn in _CONTROL_FLOW):
         return True
     # kernel.py's own for_each sequencing shim (#565) — pure by construction,
     # and the wrappers that reference it must keep pushing down.

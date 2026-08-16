@@ -76,8 +76,14 @@ class _CollectionOps(_ExprBase):
             )
         raise KernelTraceError(f".has() on {tag}")
 
-    def get(self, key: Any) -> KernelExpr:
+    def get(self, key: Any = None) -> KernelExpr:
         tag = self.east_type.type
+        if tag == "Ref":
+            # `East.ref(x).get()` — the cell read, spelled as the eager
+            # ``EastRef.get`` is, and taking no key.
+            inner_t = self.east_type.value
+            return self._expr(
+                _builtin("RefGet", inner_t, [inner_t], [self.ir]), inner_t)
         if tag == "Array":
             i = _lift(key)
             if i.east_type.type != "Integer":

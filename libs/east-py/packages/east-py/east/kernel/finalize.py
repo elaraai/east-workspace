@@ -16,7 +16,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from east.ir.builders import ir_let
-from east.kernel.nodes import _fresh_name, _k_block, _k_function, _var
+from east.kernel.nodes import (
+    _MUTATING_BUILTINS,
+    _fresh_name,
+    _k_block,
+    _k_function,
+    _root_var_name,
+    _var,
+)
 from east.types.types import EastType, FunctionType
 from east.types.values import EastArray, EastStruct, EastVariant
 
@@ -73,6 +80,18 @@ def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
         _free_vars(p["variant"], bound, out)
         for case in p["cases"]:
             _free_vars(case["body"], bound | {case["variable"].value["name"]}, out)
+        return
+    if kind in ("ForArray", "ForSet", "ForDict"):
+        # The loop variables BIND in the body. Left to the generic walk below
+        # they would be collected as free and land in an enclosing function's
+        # captures, where east-c resolves captures from the creating scope and
+        # finds nothing — "Undefined variable" at compile time.
+        source = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[kind]
+        _free_vars(p[source], bound, out)
+        loop_vars = {p["key"].value["name"]}
+        if kind != "ForSet":
+            loop_vars.add(p["value"].value["name"])
+        _free_vars(p["body"], bound | loop_vars, out)
         return
     if kind == "Value":
         return  # literals only
@@ -143,6 +162,13 @@ def _node_specs():
         "Let": (("variable", "value"), ()),
         "Block": ((("statements", "list", ir),), ()),
         "Error": (("message",), ()),
+        "NewRef": (("value",), ()),
+        "While": (("predicate", "body"), ()),
+        "ForArray": (("array", "key", "value", "body"), ()),
+        "ForSet": (("set", "key", "body"), ()),
+        "ForDict": (("dict", "key", "value", "body"), ()),
+        "Break": ((), ()),
+        "Continue": ((), ()),
     }
 
 
@@ -211,6 +237,11 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
             return {c["variable"].value["name"] for c in node.value["cases"]}
         if node.type == "TryCatch":
             return {node.value["message"].value["name"], node.value["stack"].value["name"]}
+        if node.type in ("ForArray", "ForSet", "ForDict"):
+            names = {node.value["key"].value["name"]}
+            if node.type != "ForSet":
+                names.add(node.value["value"].value["name"])
+            return names
         return None
 
     def scope_walk(node, inner):
@@ -272,6 +303,20 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
             for f in ("catch_body", "message", "stack", "finally_body"):
                 cond_walk(payload[f], True)
             return
+        if node.type == "While":
+            payload = node.value
+            # the predicate always runs at least once; the body may run zero
+            # times, so a partial operation inside it is guarded exactly the
+            # way an IfElse arm is
+            cond_walk(payload["predicate"], conditional)
+            cond_walk(payload["body"], True)
+            return
+        if node.type in ("ForArray", "ForSet", "ForDict"):
+            payload = node.value
+            source = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[node.type]
+            cond_walk(payload[source], conditional)
+            cond_walk(payload["body"], True)  # empty collection: never
+            return
         for child in _node_children(node):
             cond_walk(child, conditional)
 
@@ -306,6 +351,38 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
             out |= free_vars(child, inner)
         return out
 
+    def mutated_free(node, bound):
+        """Names a subtree MUTATES without itself binding them.
+
+        Hoisting evaluates a node ONCE at the top of the kernel, so a node
+        that mutates something it did not create must never hoist: the effect
+        would leave its loop or its conditional and happen a different number
+        of times. A self-contained mutation — the ``Let``-bound copy inside a
+        traced ``union``, the fresh accumulator inside a grouped fold — binds
+        its own target and stays hoistable.
+        """
+        if node.type == "Block":
+            scope_ = set(bound)
+            block_out: set = set()
+            for stmt in node.value["statements"]:
+                if getattr(stmt, "type", None) == "Let":
+                    block_out |= mutated_free(stmt.value["value"], scope_)
+                    scope_.add(stmt.value["variable"].value["name"])
+                else:
+                    block_out |= mutated_free(stmt, scope_)
+            return block_out
+        inner = bound
+        if node.type == "Function":
+            inner = bound | {p.value["name"] for p in node.value["parameters"]}
+        out: set = set()
+        if node.type == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS:
+            target = _root_var_name(node.value["arguments"][0])
+            if target is not None and target not in inner:
+                out.add(target)
+        for child in _node_children(node):
+            out |= mutated_free(child, inner)
+        return out
+
     hoistable: dict[int, str] = {}
     for i, n in counts.items():
         if n < 2:
@@ -313,8 +390,11 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         if i not in uncond_seen:
             continue          # every occurrence is branch-guarded — see above
         fv = free_vars(keep[i], set())
-        if fv <= param_names and not (fv & scope[i]):
-            hoistable[i] = _fresh_name()
+        if not (fv <= param_names) or (fv & scope[i]):
+            continue
+        if mutated_free(keep[i], set()):
+            continue          # the effect must stay where the trace put it
+        hoistable[i] = _fresh_name()
 
     lets: list = []
     emitted: set[int] = set()

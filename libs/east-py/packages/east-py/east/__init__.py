@@ -47,6 +47,12 @@ with contextlib.suppress(ImportError):
 import east.types as _types  # noqa: E402
 from east.kernel import KernelTraceError, greatest, kernel, least, where  # noqa: E402
 from east.namespace import East  # noqa: E402
+from east.runtime.compiler import (  # noqa: E402
+    compile_from_beast2,
+    compile_from_east,
+    compile_from_json,
+    compile_from_value,
+)
 from east.runtime.errors import EastError  # noqa: E402
 from east.runtime.memo import configure_memo, memoize  # noqa: E402
 from east.runtime.platform import (  # noqa: E402
@@ -88,6 +94,11 @@ __all__ = [
     "East",
     # runtime
     "EastError",
+    # compiling IR from elsewhere (or hand-built with east.ir.builders)
+    "compile_from_value",
+    "compile_from_beast2",
+    "compile_from_json",
+    "compile_from_east",
     "PlatformFunction",
     "GenericPlatformFunction",
     "platform_function",

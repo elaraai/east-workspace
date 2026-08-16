@@ -71,10 +71,50 @@ def _literal(value: Any, t: EastType):
         raise KernelTraceError(f"cannot embed a literal of East type {tag} in a kernel")
     return ir_value(t, coerced)
 
+#: The builtins that MUTATE their first argument. Two callers need to know:
+#: the finalize pass, which must not hoist a mutation of anything the hoisted
+#: node does not itself create, and the traced mutators, which refuse a
+#: build-time constant as a receiver.
+_MUTATING_BUILTINS = frozenset({
+    "RefUpdate", "RefMerge",
+    "ArrayPushLast", "ArrayPopLast", "ArrayPushFirst", "ArrayPopFirst",
+    "ArrayUpdate", "ArrayMerge", "ArrayMergeAll", "ArrayAppend", "ArrayPrepend",
+    "ArrayClear", "ArraySortInPlace", "ArrayReverseInPlace",
+    "SetInsert", "SetTryInsert", "SetDelete", "SetTryDelete", "SetUnionInPlace",
+    "SetClear",
+    "DictInsert", "DictInsertOrUpdate", "DictGetOrInsert", "DictUpdate",
+    "DictSwap", "DictMerge", "DictMergeAll", "DictDelete", "DictTryDelete",
+    "DictPop", "DictClear", "DictUnionInPlace",
+    "VectorSet", "MatrixSet",
+})
+
+
+def _root_var_name(node: Any) -> str | None:
+    """The variable a node ultimately reads through, or None.
+
+    Follows the accessors that do not change WHICH value is addressed — a
+    struct field read, a ref read — so ``s.order`` and ``RefGet(r)`` both
+    report the binding they hang off. Anything else (a fresh ``NewArray``, a
+    builtin result) has no root variable and is by definition local.
+    """
+    while True:
+        kind = getattr(node, "type", None)
+        if kind == "Variable":
+            return node.value["name"]
+        if kind == "GetField":
+            node = node.value["struct"]
+            continue
+        if kind == "Builtin" and node.value["builtin"] == "RefGet":
+            node = node.value["arguments"][0]
+            continue
+        return None
+
+
 def _option_type(inner: EastType) -> EastType:
     from east.types.types import OptionType
 
     return OptionType(inner)
+
 
 def _is_option(t: EastType) -> bool:
     if t.type != "Variant" or len(t.value) != 2:
@@ -84,6 +124,7 @@ def _is_option(t: EastType) -> bool:
 
 def _option_inner(t: EastType) -> EastType:
     return t.value[1]["type"]
+
 
 # ─── Nested lambdas + the eager-builtin funnel (#393) ───────────────────────
 

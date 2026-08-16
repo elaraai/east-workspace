@@ -370,6 +370,87 @@ def ir_while(typ: EastTypeValue, predicate, label, body, loc_id: int = 0):
     }))
 
 
+def ir_for_array(typ: EastTypeValue, array, label, key, value, body, loc_id: int = 0):
+    """Create a ForArray IR node iterating ``array``.
+
+    ``key`` and ``value`` are Variable nodes the body sees bound to each
+    element's index and value. This is the node TypeScript's ``$.for`` emits
+    over an array — a While over an index cannot iterate a Set or Dict, which
+    have no positional access.
+    """
+    if isinstance(label, dict):
+        label = EastStruct(label)
+    return EastVariant("ForArray", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "array": array,
+        "label": label,
+        "key": key,
+        "value": value,
+        "body": body,
+    }))
+
+
+def ir_for_set(typ: EastTypeValue, set_, label, key, body, loc_id: int = 0):
+    """Create a ForSet IR node iterating ``set_`` in East order.
+
+    A set has one binding per element — ``key`` — because its elements are its
+    keys.
+    """
+    if isinstance(label, dict):
+        label = EastStruct(label)
+    return EastVariant("ForSet", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "set": set_,
+        "label": label,
+        "key": key,
+        "body": body,
+    }))
+
+
+def ir_for_dict(typ: EastTypeValue, dict_, label, key, value, body, loc_id: int = 0):
+    """Create a ForDict IR node iterating ``dict_`` in ascending key order."""
+    if isinstance(label, dict):
+        label = EastStruct(label)
+    return EastVariant("ForDict", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "dict": dict_,
+        "label": label,
+        "key": key,
+        "value": value,
+        "body": body,
+    }))
+
+
+def ir_break(typ: EastTypeValue, label, loc_id: int = 0):
+    """Create a Break IR node leaving the loop ``label`` names.
+
+    An empty label name is the innermost loop: east-c matches a jump to a loop
+    by comparing the two names, and an unlabelled loop is built with the same
+    empty name.
+    """
+    if isinstance(label, dict):
+        label = EastStruct(label)
+    return EastVariant("Break", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "label": label,
+    }))
+
+
+def ir_continue(typ: EastTypeValue, label, loc_id: int = 0):
+    """Create a Continue IR node starting the next iteration of ``label``."""
+    if isinstance(label, dict):
+        label = EastStruct(label)
+    return EastVariant("Continue", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "label": label,
+    }))
+
+
 def ir_trycatch(
     typ: EastTypeValue,
     try_body,
@@ -423,5 +504,10 @@ __all__ = [
     "ir_block",
     "ir_ifelse",
     "ir_while",
+    "ir_for_array",
+    "ir_for_set",
+    "ir_for_dict",
+    "ir_break",
+    "ir_continue",
     "ir_trycatch",
 ]

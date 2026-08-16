@@ -118,9 +118,8 @@ class _TransformOps(_ExprBase):
 
     # ── the rest of the collection surface (#452) ───────────────────────
     # Callback-taking builtins the eager path already emits, exposed on the
-    # traced surface with the same shapes. With no loop IR, these ARE the
-    # kernel language's iteration constructs — a missing one bounds what a
-    # single kernel can express (the two-stage flatten split).
+    # traced surface with the same shapes. A missing one bounds what a single
+    # kernel can express (the two-stage flatten split).
 
     def _option_callback(self, fn: Any, param_types: list, declared: int,
                          out: EastType | None = None) -> tuple:

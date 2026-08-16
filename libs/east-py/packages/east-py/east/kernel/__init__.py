@@ -110,6 +110,25 @@ What traces (#393 expanded this to the whole builtin surface):
   ``kernel([T, FunctionType([T], U)], lambda x, f: f(x))`` is first-class.
   An ``AsyncFunctionType`` value called in a sync trace raises a named
   ``KernelTraceError``.
+- Block-level control flow (#578, ``east.kernel.control``) — the loops,
+  scopes, jumps and error handling east-c has always executed:
+  ``East.while_(state, cond, body)`` and its sugar
+  ``East.for_(collection, state, body)`` thread a state through a ``Ref``
+  and a ``While``/``For*`` node, so a worklist, a BFS or a topological
+  replay is ONE compiled kernel; ``East.block`` / ``East.let`` / ``East.ref``
+  / ``East.label`` / ``East.break_`` / ``East.continue_`` /
+  ``East.try_catch`` spell the remaining nodes; ``East.new_array`` /
+  ``new_set`` / ``new_dict`` build a loop-local collection, which the
+  in-place mutators (``append`` / ``insert`` / ``insert_or_update`` /
+  ``delete`` / ``clear`` / …) extend in O(1) instead of copying.
+
+Hand-built IR (``east.ir.builders`` values) compiles through
+``compile_from_value``, re-exported from ``east`` alongside
+``compile_from_beast2``/``_json``/``_east``. The builtin NAMES and their
+signatures are the registry in ``east/runtime/builtin_signatures.py`` — the
+ref setter is ``RefUpdate`` (not ``RefSet``) and comparison is a
+type-parameterised ``Less`` (not ``IntegerLess``), which is not guessable
+from the python surface.
 
 Traced kernels must be pure: the lambda runs ONCE at trace time (exactly
 like a TypeScript ``East.function`` builder), so side effects do not repeat
@@ -120,6 +139,21 @@ pure kernels; bind repeated work inside the traced expression itself where
 size matters).
 """
 
+from east.kernel.control import (
+    Label,
+    block,
+    break_,
+    continue_,
+    for_,
+    label,
+    let,
+    new_array,
+    new_dict,
+    new_set,
+    ref,
+    try_catch,
+    while_,
+)
 from east.kernel.errors import KernelTraceError, _trace_bail
 from east.kernel.expr import _SHADOWABLE, _TRACED_SURFACE, KernelExpr, _shadowable_names
 from east.kernel.finalize import _capturing_fn, _finalize_ir, _free_vars, _function_ir
@@ -140,6 +174,7 @@ from east.kernel.lift import (
     _lower_compiled_call,
     _sequence_effect,
     _trace_inner_fn,
+    _tracing,
     greatest,
     least,
     where,
@@ -158,4 +193,25 @@ from east.kernel.nodes import (
 from east.kernel.pushdown import _eligible, _trace_out_type, _type_traceable, try_push_down
 from east.kernel.trace import kernel, trace, trace_builtin_call
 
-__all__ = ["kernel", "where", "greatest", "least", "KernelTraceError", "KernelExpr"]
+__all__ = [
+    "kernel",
+    "where",
+    "greatest",
+    "least",
+    "KernelTraceError",
+    "KernelExpr",
+    # block-level control flow (#578) — reached as East.while_ / East.for_ / …
+    "Label",
+    "while_",
+    "for_",
+    "block",
+    "let",
+    "ref",
+    "label",
+    "break_",
+    "continue_",
+    "try_catch",
+    "new_array",
+    "new_set",
+    "new_dict",
+]

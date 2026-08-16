@@ -4,8 +4,7 @@
 #
 """The traced kernel surface covers the collection builtins (issue #452).
 
-With no loop IR, the collection builtins ARE the kernel language's iteration
-constructs — a missing one is not an ergonomic gap, it bounds what a single
+A missing collection builtin is not an ergonomic gap, it bounds what a single
 kernel can express. The measured gap: 92 of 112 Array/Dict/Set builtins were
 unreachable from a trace (no proxy method, no namespace escape hatch), so a
 "row → legs → values" transform had to split into a traced pass plus an eager
@@ -179,13 +178,15 @@ def test_every_listed_method_resolves():
 
 
 def test_unsupported_method_names_the_surface():
+    # `append`/`insert` are ON the surface since #578 — these are names that
+    # still are not, so the enumeration keeps being the thing that answers.
     with pytest.raises(KernelTraceError, match="traced kernel surface.*supported.*concat"):
-        kernel(Row, lambda r: r["legs"].append({"code": "Z", "qty": 0.0}))
+        kernel(Row, lambda r: r["legs"].pop())
     with pytest.raises(KernelTraceError, match="Set-typed.*union"):
         kernel(Row, lambda r: r["csv"].split(",").unique().add("x"))
     with pytest.raises(KernelTraceError, match="Dict-typed.*keys_set"):
         kernel(Row, lambda r: r["csv"].split(",")
-               .to_dict(lambda p: p, value=lambda p: p).insert("x", "y"))
+               .to_dict(lambda p: p, value=lambda p: p).swap("x", "y"))
 
 
 def test_mismatched_operand_type_is_named():

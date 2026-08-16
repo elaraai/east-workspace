@@ -20,7 +20,10 @@ from east.kernel.expr import KernelExpr
 from east.kernel.finalize import _function_ir
 from east.kernel.lift import (
     _clear_registries,
+    _effect_frames,
     _lift,
+    _pop_effects,
+    _push_effects,
     _push_registries,
     _registry_entries,
     _trace_inner_fn,
@@ -84,6 +87,8 @@ def trace(fn: Any, param_types: list[EastType],
     """
     proxies = [KernelExpr(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
     outer = _push_registries()
+    _push_effects()
+    popped = False
     try:
         try:
             result = fn(*proxies)
@@ -92,8 +97,12 @@ def trace(fn: Any, param_types: list[EastType],
         except Exception as e:
             raise KernelTraceError(f"kernel lambda is not traceable: {e}") from e
         result = _lift(result, hint=out_hint)
+        popped = True
+        _pop_effects(result.ir)
         consts, fn_consts = _registry_entries() if outer else ([], [])
     finally:
+        if not popped:
+            _effect_frames.pop()
         if outer:
             _clear_registries()
     params = [_var(f"__k{i}", t) for i, t in enumerate(param_types)]

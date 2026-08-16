@@ -1044,15 +1044,16 @@ class EastArray(MutableSequence, Generic[T]):
                 DictType(k2, bucket_type),
             )
 
-        def _append(acc: EastArray, el: Any, _idx: int) -> EastArray:
-            acc.append(el)
-            return acc
+        from east.kernel import block
 
-        # Only reached when the KEY already fell back to python — this
-        # companion is the deliberate python accumulation for that path
-        # (`append` is a mutator with no traced spelling), declared so the
-        # push-down's loud contract skips it (#543).
-        _append._east_trace_fallback = True
+        # Reached when the KEY fell back to python. The accumulation itself
+        # still traces: `block` sequences the append and yields the
+        # accumulator on BOTH paths, where the statement form
+        # (`acc.append(el); return acc`) traces to a body of just `acc` (#578).
+        # `acc` is an EastArray on the python path and a traced expression on
+        # the native one, so it is typed for both.
+        def _append(acc: Any, el: Any, _idx: int) -> Any:
+            return block(acc.append(el), acc)
 
         init_cb = EastFunction(lambda _gk: EastArray(self.element_type, []), [k2], bucket_type)
         fold_cb = EastFunction(_append, [bucket_type, self.element_type, IntegerType], bucket_type)
@@ -1681,8 +1682,7 @@ class EastArray(MutableSequence, Generic[T]):
         """Dicts of ``key2 -> value`` per group key.
 
         Without ``combine`` a duplicate inner key errors (TS parity); with it,
-        collisions resolve as ``combine(existing, incoming)`` (the collision
-        handling runs per inner insert on the python path).
+        collisions resolve as ``combine(existing, incoming)``.
         """
         from east.kernel import _dict_insert_fields_kernel, _empty_dict_kernel
         from east.types.types import DictType, IntegerType
@@ -1712,15 +1712,16 @@ class EastArray(MutableSequence, Generic[T]):
         inner = combine if _callback_arity(combine, 2) >= 3 \
             else (lambda ex, inc, _key: combine(ex, inc))
 
-        def _fold(acc: EastDict, p: Any, _i: Any) -> EastDict:
-            acc.insert_or_update(p["k2"], p["v"], inner)
-            return acc
+        from east.kernel import block
 
-        # A DELIBERATE per-element python path: the collision handling runs
-        # per inner insert (docstring above), and `insert_or_update` is a
-        # mutator with no traced spelling. Declared so the push-down's loud
-        # contract skips it — nativising this path is tracked on #543.
-        _fold._east_trace_fallback = True
+        # `insert_or_update` gained a traced spelling in #578, so this fold no
+        # longer has to run per element in python. `block` sequences the
+        # insert and yields the accumulator on both paths; the statement form
+        # would trace to a body of just `acc`, silently dropping every insert.
+        # `acc` is an EastDict on the python path and a traced expression on
+        # the native one, so it is typed for both.
+        def _fold(acc: Any, p: Any, _i: Any) -> Any:
+            return block(acc.insert_or_update(p["k2"], p["v"], inner), acc)
 
         init_cb = _empty_dict_kernel(k1, k2t, v_t)
         fold_cb = EastFunction(_fold, [DictType(k2t, v_t), pair_t, IntegerType], DictType(k2t, v_t))

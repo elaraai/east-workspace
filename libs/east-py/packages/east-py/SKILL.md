@@ -120,8 +120,7 @@ syntax, fastest first:
    callback on a 300k-row map, and it composes with chaining).
 
    Collection methods on traced expressions are a **closed, enumerated
-   surface** (an unsupported method raises `KernelTraceError` naming it;
-   with no loop IR these ARE the kernel language's iteration constructs).
+   surface** (an unsupported method raises `KernelTraceError` naming it).
    Nested lambdas trace recursively and may reference outer parameters;
    `some`/`every`/`first_map` compile to the native short-circuiting
    FirstMap scans, so traced and eager forms have identical early-exit
@@ -137,26 +136,31 @@ syntax, fastest first:
      `group_sum` `group_mean` `group_every` `group_some` `group_maximum`
      `group_minimum` `group_to_arrays` `group_to_sets` `group_to_dicts`
      `group_find_all` `group_find_first` `group_find_maximum`
-     `group_find_minimum` `[index_expr]`
+     `group_find_minimum` `[index_expr]` — plus the in-place `append`
+     `extend` `clear`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_dict` `to_set` `union` `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
      `copy` `size` `has` `reduce` `sum` `mean` `every` `some` `group_reduce`
      (`group_fold` = deprecated alias, #535)
      `group_size` `group_sum` `group_mean` `group_every` `group_some`
-     `group_to_arrays` `group_to_sets` `group_to_dicts`
+     `group_to_arrays` `group_to_sets` `group_to_dicts` — plus the in-place
+     `insert` `try_insert` `delete` `try_delete` `clear`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_set` `to_dict` `union` `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
      `try_get` `reduce` `sum` `mean` `every` `some` `group_reduce`
      (`group_fold` = deprecated alias, #535) `group_size`
      `group_sum` `group_mean` `group_every` `group_some` `group_to_arrays`
-     `group_to_sets` `group_to_dicts` `[key_expr]`
+     `group_to_sets` `group_to_dicts` `[key_expr]` — plus the in-place
+     `insert` `insert_or_update` `delete` `try_delete` `clear`
 
-   Mutators and side-effecting methods are deliberately absent (the kernel
-   language is pure), so a whole `record → legs → values` descent — or a
-   `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
-   with no materialised intermediate between stages. Methods that
+   Every transform is pure, so a whole `record → legs → values` descent — or
+   a `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
+   with no materialised intermediate between stages. The in-place mutators
+   are the loop-accumulator surface (see **Loops and control flow**): each
+   returns what its EAGER twin returns (Null, or Boolean for the `try_`
+   forms), so sequence them with `East.block(...)`. Methods that
    exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
    inference otherwise samples the lambda on a decoded python value):
 
@@ -262,6 +266,71 @@ syntax, fastest first:
   kernel — hoist a `kernel(...)` and pass the varying value as a bound
   parameter instead. When in doubt, `eager_stats()` (lever 6 below) shows
   whether a hot loop is tracing or trampolining per call.
+
+### Loops and control flow (`East.while_`, `East.for_`)
+
+Prefer the collection methods above: `map`/`filter`/`fold`/`group_reduce`
+express most work and are the fastest thing in the runtime. Reach here when
+the next step **depends on the last** — a worklist, a BFS, a fixpoint, a
+topological replay — which no data-parallel method can express.
+
+Python cannot overload `=`, and `while`/`if` collapse to a `bool` before any
+tracer sees them. That is the constraint that produced `where`, and the answer
+is the same shape: **`while_` is to `while` what `where` is to `if`**. The
+body is a pure function of the state that RETURNS the next state, and the
+state struct IS the loop's local variables:
+
+```python
+from east import East, where
+
+total = East.while_({"i": 0, "acc": 0},
+                    cond=lambda s: s.i < n,
+                    body=lambda s: {"acc": s.acc + s.i, "i": s.i + 1}).acc
+
+# `where` is the `if`; a field left as `s.field` is the empty else;
+# `{**s, …}` changes one field and keeps the rest
+East.for_(rows, {"n": 0, "hi": 0.0},
+          lambda s, r: {"n": s.n + 1,
+                        "hi": where(r.price > s.hi, r.price, s.hi)})
+```
+
+This lowers to a `Ref` holding the state, a `While`/`For*` node whose body is
+one `RefUpdate`, and a final read — the whole loop runs inside east-c. Every
+construct is dual-mode like `where`: outside a trace it runs the plain python
+loop, so a callback that falls back still works.
+
+| Call | Emits | Notes |
+|---|---|---|
+| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` |
+| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` |
+| `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators |
+| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop) |
+| `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn)` |
+| `East.label(name=None)` | — | names a loop, for `break_`/`continue_` from a NESTED one |
+| `East.break_(state=…, label=…)` | `Break` | leave, optionally committing a last state |
+| `East.continue_(state=…, label=…)` | `Continue` | next iteration, optionally committing |
+| `East.try_catch(body, handler, finally_=None)` | `TryCatch` | `handler(message[, stack])`, same East type as `body` |
+| `East.new_array/new_set/new_dict(…)` | `NewArray`/`NewSet`/`NewDict` | a FRESH collection per evaluation — the loop accumulator |
+
+**Accumulate in place.** Threading a collection through the state rebuilds it
+every iteration (`order.concat(…)` copies — O(n²) over the loop). The
+mutators extend it in O(1). Each returns what its EAGER twin returns, so
+sequence with `East.block`; a mutation written as a bare statement is
+evaluated and thrown away, and the tracer says so rather than compiling a
+loop that silently does nothing:
+
+```python
+counts = East.for_(rows, {"counts": East.new_dict(StringType, IntegerType)},
+                   lambda s, r: East.block(
+                       s.counts.insert_or_update(r.sku, 1, lambda a, b: a + b),
+                       s)).counts
+```
+
+⚠️ Seed accumulators with `East.new_array/new_set/new_dict`. A captured
+`EastArray(T)` works too — a loop's seed is built fresh per call — but
+anywhere ELSE in a kernel a captured collection is a build-time snapshot
+shared by every call, and mutating one raises rather than leaking state
+between calls.
 
 ### Maximum performance — the levers, ranked
 
@@ -571,7 +640,9 @@ Task → What do you need?
     │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
     │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced — exactly ONE branch evaluates)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
-    │   ├─ Compile IR you built programmatically (east.ir.builders values) → compile_from_value — no serialization round-trip
+    │   ├─ Sequential logic (worklist / BFS / fixpoint / replay) → East.while_ / East.for_ (state in, next state out)
+    │   ├─ Compile IR you built programmatically (east.ir.builders values) → from east import compile_from_value
+    │   │   → builtin NAMES and signatures: east/runtime/builtin_signatures.py (RefUpdate not RefSet; Less, type-parameterised, not IntegerLess)
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
     │

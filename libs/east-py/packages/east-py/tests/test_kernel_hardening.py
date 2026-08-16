@@ -4,8 +4,8 @@
 #
 """Kernel-tracer hardening (#543): the proxy bail for f-strings (#530), the
 one-mode loud-fallback contract (a pure-looking callback that fails to
-trace RAISES; genuinely-python lambdas keep their fallback; deliberate
-implementation python paths declare ``_east_trace_fallback``), and the
+trace RAISES; genuinely-python lambdas keep their fallback; a deliberate
+python path declares ``_east_trace_fallback``), and the
 #536 keyword sweep — ``out=``-family pins accepted by the traced twins AND
 threaded into the callback's trace as its expected type (so a pinned
 callback can build a general variant, #541).
