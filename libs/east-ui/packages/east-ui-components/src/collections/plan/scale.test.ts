@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { chipAnchor } from "./shell/Ruler.js";
 import { defaultTickLabel, effectiveResolution, isoWeekUTC, planScale } from './scale';
 
 const d = (s: string) => new Date(s);
@@ -131,5 +132,21 @@ describe('planScale', () => {
         it('an explicit resolution wins', () => {
             expect(effectiveResolution("month", w(10))).toBe("month");
         });
+    });
+});
+
+describe("ruler chip anchoring", () => {
+    test("a chip near either end anchors INSIDE the track, not centred on the instant", () => {
+        // A chip centred on the last column hangs half its width past the
+        // track, and an absolutely-positioned child still counts toward an
+        // ancestor's scrollable width — which flashed a horizontal scrollbar
+        // across the canvas as the pointer crossed that column. Measured at
+        // the time: 11px of overflow on the scroll container.
+        expect(chipAnchor(0.5)).toBe("-50%");        // centred through the middle
+        expect(chipAnchor(0.99)).toBe("-100%");      // right edge on the instant
+        expect(chipAnchor(0.0)).toBe("0%");          // left edge on the instant
+        // The thresholds are one-ish column wide on a 12-column ruler.
+        expect(chipAnchor(0.9)).toBe("-50%");
+        expect(chipAnchor(0.1)).toBe("-50%");
     });
 });

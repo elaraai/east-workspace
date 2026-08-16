@@ -117,6 +117,17 @@ export const planSlotRecipe = defineSlotRecipe({
             background: "bg.panel",
             borderBottomWidth: "1px",
             borderBottomColor: "border.strong",
+            // The cursor readout and the NOW chip are absolutely positioned on
+            // the track and centred on their instant, so against the last
+            // column half a chip hangs past the track's right edge — and an
+            // absolutely-positioned child still counts toward an ancestor's
+            // scrollable width. That half-chip flashed a horizontal scrollbar
+            // across the whole canvas as the pointer crossed the final column.
+            // The band is fixed-height chrome and nothing in it is ever meant
+            // to escape, so clip it. `clip` rather than `hidden`: this must not
+            // become a scroll container of its own. (The row plot already
+            // clips for the same reason — see `plot`.)
+            overflow: "clip",
         },
         rulerTick: {
             fontFamily: "mono",

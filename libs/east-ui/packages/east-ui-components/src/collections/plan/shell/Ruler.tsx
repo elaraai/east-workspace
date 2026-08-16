@@ -15,6 +15,21 @@ import { usePlanScale } from "../context.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
+/**
+ * Where a chip sits relative to the instant it marks.
+ *
+ * Centred through the middle of the track, and anchored INSIDE at either end.
+ * The ruler clips (so a chip can never inflate the canvas's scroll width), and
+ * this is what keeps the clip from ever having to cut the label: at the last
+ * column the readout you are hovering to read is exactly the one that would
+ * lose half its text.
+ */
+export function chipAnchor(frac: number): string {
+    if (frac > 0.92) return "-100%";
+    if (frac < 0.08) return "0%";
+    return "-50%";
+}
+
 export interface PlanRulerProps {
     styles: Styles;
     gridTemplate: string;
@@ -38,11 +53,13 @@ export function PlanRuler({ styles, gridTemplate, caption, cursor }: PlanRulerPr
                 {scale.nowFrac !== undefined && (
                     <>
                         <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />
-                        <Box css={styles.nowChip} left={`${scale.nowFrac * 100}%`}>NOW</Box>
+                        <Box css={styles.nowChip} left={`${scale.nowFrac * 100}%`}
+                            transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>NOW</Box>
                     </>
                 )}
                 {cursor !== undefined && (
-                    <Box css={styles.cursorChip} left={`${cursor.frac * 100}%`} top="50%" transform="translate(-50%, -50%)">
+                    <Box css={styles.cursorChip} left={`${cursor.frac * 100}%`} top="50%"
+                        transform={`translate(${chipAnchor(cursor.frac)}, -50%)`}>
                         {cursor.label}
                     </Box>
                 )}
