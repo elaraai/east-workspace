@@ -79,7 +79,6 @@ export const Plan: {
     marker: typeof PlanFactory.marker;
     chip: typeof PlanFactory.chip;
     mark: typeof PlanFactory.mark;
-    drill: typeof PlanFactory.drill;
     link: typeof PlanFactory.link;
     markKind: typeof PlanFactory.markKind;
     heatCells: typeof PlanFactory.heatCells;
@@ -115,7 +114,6 @@ export const Plan: {
         marker: PlanFactory.marker,
         chip: PlanFactory.chip,
         mark: PlanFactory.mark,
-        drill: PlanFactory.drill,
         link: PlanFactory.link,
         markKind: PlanFactory.markKind,
         heatCells: PlanFactory.heatCells,

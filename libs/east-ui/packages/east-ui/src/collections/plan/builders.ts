@@ -174,7 +174,7 @@ export function createAxis(options: PlanAxisOptions): ExprType<PlanAxisType> {
 /**
  * Flat input for {@link Plan.run} — one continuous state-run bar.
  *
- * @property key - Stable run identity (drag refs, journey ribbons)
+ * @property key - Stable run identity (drag refs, link edges)
  * @property start - Run start (inclusive)
  * @property end - Run end (exclusive)
  * @property label - The bar text (`"RUN · B-214"`)
@@ -186,7 +186,7 @@ export function createAxis(options: PlanAxisOptions): ExprType<PlanAxisType> {
  * @property icon - Optional leading FA glyph (10px, inherits bar text colour)
  */
 export interface PlanRunInput {
-    /** Stable run identity (drag refs, journey ribbons). */
+    /** Stable run identity (drag refs, link edges). */
     key: SubtypeExprOrValue<StringType>;
     /** Run start (inclusive). */
     start: SubtypeExprOrValue<DateTimeType>;
@@ -418,8 +418,7 @@ export interface PlanLinkInput {
 /**
  * Builds one link edge from a flat input. Links are root DATA
  * (`links={transfers.map(($, t) => Plan.link({ … }))}`): the links-focus
- * control gathers a row's transitive upstream/downstream family over them,
- * and the K8 journey overlay shares the same edge shape.
+ * control gathers a row's transitive upstream/downstream family over them.
  *
  * @param input - The link configuration ({@link PlanLinkInput})
  * @returns An East expression of {@link PlanLinkType}

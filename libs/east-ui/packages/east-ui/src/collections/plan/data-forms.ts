@@ -41,7 +41,6 @@ import { TableAggregateType, type TableAggregateLiteral } from "../table/types.j
 import { TickFormatType } from "../../format/types.js";
 import {
     PlanRowsCollectionType,
-    PlanDrillType,
     PlanRollupType,
     type PlanRollupLiteral,
     PlanAggregateType,
@@ -194,7 +193,6 @@ export function groupRows(
  * @property sub - Gutter sub-line accessor
  * @property value - Gutter value-slot accessor
  * @property status - Per-row status-dot accessor (an `Option<StatusValueType>`)
- * @property drill - Per-row drill-payload accessor (an `Option<PlanDrillType>`)
  * @property expand - Per-row expand-declaration accessor (an `Option<PlanExpandType>`)
  * @property runs - Per-row runs accessor
  * @property decisions - Per-row decision-diamonds accessor
@@ -221,8 +219,6 @@ export interface PlanSpanOfConfig<R extends StructType> {
      *  the review chrome's buttons only; how a decided row LOOKS is derived
      *  through the other accessors, like every other pixel (#569). */
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
-    /** Per-row drill-payload accessor — returns the field's `Option` (build values with `Plan.drill`). */
-    drill?: PlanAccessor<R, OptionType<PlanDrillType>>;
     /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
     /** Per-row runs accessor. */
@@ -285,7 +281,6 @@ export function spanLeafOf(cfg: PlanSpanOfConfig<StructType>): PlanLeafFn {
             ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
             ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
             ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
-            ...(cfg.drill !== undefined ? { drill: cfg.drill(r, k) } : {}),
             ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
         },
     );

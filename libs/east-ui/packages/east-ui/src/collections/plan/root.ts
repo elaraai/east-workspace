@@ -55,7 +55,6 @@ import {
     PlanRowsCollectionType,
     PlanRowsType,
     PlanTemplateType,
-    PlanJourneyType,
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
 import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
@@ -137,9 +136,8 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
  * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
  * @property series - The row families over `data` — `Plan.series.*` values, in canvas order
- * @property grain - Initial grain (`"group"` / `"resource"` / `"item"`; default resource)
+ * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
  * @property library - Row-library templates (`Plan.template` values)
- * @property journeys - ITEM-grain / drilled-row journey resolver (behavior prop)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row ref)
@@ -151,7 +149,6 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property onDrag - The shared drag funnel (every drag kind)
  * @property canDrop - IR-level drop veto (the ⊘ stage)
  * @property onSelect - Row click (selection)
- * @property onDrill - Second row click (in-place drill)
  * @property onRunClick - Span bar click
  * @property onEventClick - Bucket tile click
  * @property onMarkClick - Event mark / decision diamond click
@@ -190,8 +187,6 @@ export interface PlanConfig {
     grain?: PlanGrainLiteral | SubtypeExprOrValue<PlanGrainType>;
     /** Row-library templates (`Plan.template` values); non-empty enables the composition affordance. */
     library?: SubtypeExprOrValue<PlanTemplateType>[];
-    /** ITEM-grain / drilled-row journey resolver — called with an item key at interaction time. */
-    journeys?: SubtypeExprOrValue<FunctionType<[StringType], PlanJourneyType>>;
     /** Generalized click-popover resolver — called with the clicked element's
      *  ref (`run` / `event` / `chip` / `mark` / `cell` arm, each carrying the
      *  row key); returning `none` opens no surface. */
@@ -230,8 +225,6 @@ export interface PlanConfig {
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Row click (selection). */
     onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], NullType>>;
-    /** Second row click (in-place drill; `esc` collapses). */
-    onDrill?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], NullType>>;
     /** Span bar click (`{ row, run }`). */
     onRunClick?: SubtypeExprOrValue<FunctionType<[PlanRunClickEventType], NullType>>;
     /** Bucket tile click (`{ row, event }`). */
@@ -330,9 +323,6 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
         library:  East.value(config.library ?? [], ArrayType(PlanTemplateType)),
         // East.value pins the exact function type (the Schematic `itemHover`
         // pattern) so the arm's recursion-marker slots unify.
-        journeys: config.journeys !== undefined
-            ? some(East.value(config.journeys, FunctionType([StringType], PlanJourneyType)))
-            : none,
         popover: config.popover !== undefined
             ? some(East.value(config.popover, FunctionType([PlanElementRefType], OptionType(UIComponentType))))
             : none,
@@ -354,7 +344,6 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
         onDrag:   config.onDrag !== undefined ? some(config.onDrag) : none,
         canDrop:  config.canDrop !== undefined ? some(config.canDrop) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
-        onDrill:  config.onDrill !== undefined ? some(config.onDrill) : none,
         onRunClick:    config.onRunClick !== undefined ? some(config.onRunClick) : none,
         onEventClick:  config.onEventClick !== undefined ? some(config.onEventClick) : none,
         onMarkClick:   config.onMarkClick !== undefined ? some(config.onMarkClick) : none,

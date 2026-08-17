@@ -242,7 +242,6 @@ import {
     PlanLinkType,
     PlanRowsType,
     PlanTemplateType,
-    PlanJourneyType,
     PlanElementRefType,
     PlanRowRefType,
     PlanRunClickEventType,
@@ -1121,8 +1120,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         // Templates are plain data too — `make` builds the dropped row's
         // flattened DATA subtree.
         library: ArrayType(PlanTemplateType),
-        // The K8 journey overlay resolver — journeys are data-only now.
-        journeys: OptionType(FunctionType([StringType], PlanJourneyType)),
         // The generalized element resolvers (Plan Data Interface.md §3.3),
         // over one element-ref variant — every ref carries the row key.
         // Resolved lazily at interaction time; a `none` result opens no
@@ -1153,9 +1150,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         sources: ArrayType(StringType),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        // Selection / drill (click selects, second click drills) + per-element clicks.
+        // Selection + per-element clicks.
         onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
-        onDrill: OptionType(FunctionType([PlanRowRefType], NullType)),
         onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
         onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
         onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),

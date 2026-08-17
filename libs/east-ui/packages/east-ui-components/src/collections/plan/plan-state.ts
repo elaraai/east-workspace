@@ -22,16 +22,12 @@
  * `plan-state.test.ts`):
  *
  * - **Esc ladder**, strict precedence, exactly one rung per press:
- *   drag-cancel → brush-cancel → focus-return (links / expand) →
- *   journey-close → drilled-collapse → deselect.
+ *   drag-cancel → brush-cancel → focus-return (links / expand) → deselect.
  * - **One row focus per canvas** (R1 links / R2 expand): invoking a second
  *   focus control returns the first; invoking the active row's own control
  *   returns it.
- * - **Drill is idempotent + in-place**: drilling the drilled row collapses
- *   it; drilling another moves the single `drilled` slot. A second click on
- *   the selected row *is* drill (`row.select` promotes).
- * - **Grain changes rows, never the axis**: `grain.set` clears `drilled` +
- *   `selected`, keeps `cursor` / `expanded` / the window.
+ * - **Grain changes rows, never the axis**: `grain.set` clears `selected`,
+ *   keeps `cursor` / `expanded` / the window.
  *
  * @packageDocumentation
  */
@@ -40,7 +36,7 @@
 export type RowKey = string;
 
 /** The §5 grains. */
-export type PlanGrain = "group" | "resource" | "item";
+export type PlanGrain = "group" | "resource";
 
 /** All ephemeral UI state — one object, one reducer. */
 export interface PlanUiState {
@@ -48,8 +44,6 @@ export interface PlanUiState {
     grain: PlanGrain;
     /** Collapsed group strips (keys present = COLLAPSED — rows carry the initial set). */
     collapsed: ReadonlySet<RowKey>;
-    /** The in-place 96px drilled row, if any. */
-    drilled: RowKey | null;
     /** The selected row, if any (`--brand-tint`, the one selection colour). */
     selected: RowKey | null;
     /** Chart rows toggled from spark to expanded. */
@@ -62,8 +56,6 @@ export interface PlanUiState {
     focus: { kind: "links" | "expand"; key: RowKey } | null;
     /** In-flight drag staging (P3 wires the DOM side). */
     drag: { over: string | null; valid: boolean } | null;
-    /** The open K8 journey overlay's item key, if any. */
-    journey: string | null;
 }
 
 /** Every interaction the surface can report. */
@@ -71,7 +63,6 @@ export type PlanEvent =
     | { t: "grain.set"; grain: PlanGrain }
     | { t: "group.toggle"; key: RowKey }
     | { t: "row.select"; key: RowKey }
-    | { t: "row.drill"; key: RowKey }
     | { t: "chart.toggle"; key: RowKey }
     | { t: "cursor.move"; frac: number }
     | { t: "cursor.leave" }
@@ -87,9 +78,7 @@ export type PlanEvent =
     | { t: "drag.over"; cell: string | null; valid: boolean }
     | { t: "drag.drop" }
     | { t: "drag.cancel" }
-    | { t: "journey.open"; item: string }
-    | { t: "journey.close" }
-    | { t: "key"; key: "esc" | "enter" | "n" | "[" | "]" | "g" };
+    | { t: "key"; key: "esc" | "n" | "[" | "]" | "g" };
 
 /** Side effects, returned as data — never performed in the reducer. */
 export type PlanEffect =
@@ -97,7 +86,6 @@ export type PlanEffect =
     | { t: "slice.clearRange" }
     | { t: "slice.setResolution"; resolution: string }
     | { t: "emit.select"; key: RowKey }
-    | { t: "emit.drill"; key: RowKey }
     | { t: "emit.groupToggle"; key: RowKey; expanded: boolean }
     | { t: "emit.grainChange"; grain: PlanGrain }
     | { t: "scroll.toNow" }
@@ -109,7 +97,7 @@ export interface PlanCtx {
     bucketAtFrac(frac: number): number;
 }
 
-const GRAIN_CYCLE: PlanGrain[] = ["group", "resource", "item"];
+const GRAIN_CYCLE: PlanGrain[] = ["group", "resource"];
 
 /** The initial UI state for a decoded root. */
 export function initialPlanState(
@@ -119,14 +107,12 @@ export function initialPlanState(
     return {
         grain,
         collapsed: new Set(collapsedKeys),
-        drilled: null,
         selected: null,
         chartsExpanded: new Set(),
         cursor: null,
         brush: null,
         focus: null,
         drag: null,
-        journey: null,
     };
 }
 
@@ -153,10 +139,10 @@ export function planReducer(
     switch (e.t) {
         case "grain.set": {
             if (e.grain === s.grain) return { state: s, effects: [] };
-            // Grain changes rows, never the axis: drill + selection reset,
+            // Grain changes rows, never the axis: selection resets,
             // cursor / collapsed / window survive.
             return {
-                state: { ...s, grain: e.grain, drilled: null, selected: null, focus: null },
+                state: { ...s, grain: e.grain, selected: null, focus: null },
                 effects: [{ t: "emit.grainChange", grain: e.grain }],
             };
         }
@@ -168,27 +154,11 @@ export function planReducer(
             };
         }
         case "row.select": {
-            // Second click on the selected row IS drill (click selects, click
-            // again drills); clicking the drilled row holds steady in place.
-            if (s.selected === e.key) {
-                if (s.drilled === e.key) return { state: s, effects: [] };
-                return {
-                    state: { ...s, drilled: e.key },
-                    effects: [{ t: "emit.drill", key: e.key }],
-                };
-            }
+            // Selection is idempotent — re-clicking the selected row holds.
+            if (s.selected === e.key) return { state: s, effects: [] };
             return {
                 state: { ...s, selected: e.key },
                 effects: [{ t: "emit.select", key: e.key }],
-            };
-        }
-        case "row.drill": {
-            // Idempotent + in-place: drilling the drilled row collapses it;
-            // drilling another moves the single slot (the axis never moves).
-            if (s.drilled === e.key) return { state: { ...s, drilled: null }, effects: [] };
-            return {
-                state: { ...s, drilled: e.key, selected: e.key },
-                effects: [{ t: "emit.drill", key: e.key }],
             };
         }
         case "chart.toggle":
@@ -218,12 +188,12 @@ export function planReducer(
             if (s.focus !== null && s.focus.kind === "links" && s.focus.key === e.key) {
                 return { state: { ...s, focus: null }, effects: [] };
             }
-            return { state: { ...s, focus: { kind: "links", key: e.key }, drilled: null }, effects: [] };
+            return { state: { ...s, focus: { kind: "links", key: e.key } }, effects: [] };
         case "focus.expand":
             if (s.focus !== null && s.focus.kind === "expand" && s.focus.key === e.key) {
                 return { state: { ...s, focus: null }, effects: [] };
             }
-            return { state: { ...s, focus: { kind: "expand", key: e.key }, drilled: null }, effects: [] };
+            return { state: { ...s, focus: { kind: "expand", key: e.key } }, effects: [] };
         case "focus.clear":
             if (s.focus === null) return { state: s, effects: [] };
             return { state: { ...s, focus: null }, effects: [] };
@@ -239,35 +209,21 @@ export function planReducer(
             return { state: { ...s, drag: null }, effects: [] };
         case "drag.cancel":
             return { state: { ...s, drag: null }, effects: [] };
-        case "journey.open":
-            return { state: { ...s, journey: e.item }, effects: [] };
-        case "journey.close":
-            return { state: { ...s, journey: null }, effects: [] };
         case "key":
             return keyEvent(s, e.key);
     }
 }
 
 /** The keyboard map (§11) — esc runs the strict one-rung ladder. */
-function keyEvent(s: PlanUiState, key: "esc" | "enter" | "n" | "[" | "]" | "g"): { state: PlanUiState; effects: PlanEffect[] } {
+function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: PlanUiState; effects: PlanEffect[] } {
     switch (key) {
         case "esc": {
             // Exactly one rung per press, strict precedence.
             if (s.drag !== null) return { state: { ...s, drag: null }, effects: [] };
             if (s.brush !== null) return { state: { ...s, brush: null }, effects: [] };
             if (s.focus !== null) return { state: { ...s, focus: null }, effects: [] };
-            if (s.journey !== null) return { state: { ...s, journey: null }, effects: [] };
-            if (s.drilled !== null) return { state: { ...s, drilled: null }, effects: [] };
             if (s.selected !== null) return { state: { ...s, selected: null }, effects: [] };
             return { state: s, effects: [] };
-        }
-        case "enter": {
-            if (s.selected === null) return { state: s, effects: [] };
-            if (s.drilled === s.selected) return { state: { ...s, drilled: null }, effects: [] };
-            return {
-                state: { ...s, drilled: s.selected },
-                effects: [{ t: "emit.drill", key: s.selected }],
-            };
         }
         case "n":
             return { state: s, effects: [{ t: "scroll.toNow" }] };
@@ -278,7 +234,7 @@ function keyEvent(s: PlanUiState, key: "esc" | "enter" | "n" | "[" | "]" | "g"):
         case "g": {
             const next = GRAIN_CYCLE[(GRAIN_CYCLE.indexOf(s.grain) + 1) % GRAIN_CYCLE.length]!;
             return {
-                state: { ...s, grain: next, drilled: null, selected: null, focus: null },
+                state: { ...s, grain: next, selected: null, focus: null },
                 effects: [{ t: "emit.grainChange", grain: next }],
             };
         }

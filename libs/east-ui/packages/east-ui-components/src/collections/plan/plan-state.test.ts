@@ -23,12 +23,10 @@ const init = () => initialPlanState("resource", []);
 
 describe('planReducer', () => {
     describe('esc ladder (strict, one rung per press)', () => {
-        it('runs drag → brush → focus → journey → drilled → deselect, one rung at a time', () => {
+        it('runs drag → brush → focus → deselect, one rung at a time', () => {
             let s: PlanUiState = {
                 ...init(),
                 selected: "r1",
-                drilled: "r1",
-                journey: "item-1",
                 brush: { active: true },
                 focus: { kind: "links", key: "r1" },
                 drag: { over: null, valid: false },
@@ -43,14 +41,6 @@ describe('planReducer', () => {
 
             s = run(s, { t: "key", key: "esc" }).state;
             expect(s.focus).toBeNull();
-            expect(s.journey).not.toBeNull();
-
-            s = run(s, { t: "key", key: "esc" }).state;
-            expect(s.journey).toBeNull();
-            expect(s.drilled).toBe("r1");
-
-            s = run(s, { t: "key", key: "esc" }).state;
-            expect(s.drilled).toBeNull();
             expect(s.selected).toBe("r1");
 
             s = run(s, { t: "key", key: "esc" }).state;
@@ -62,63 +52,35 @@ describe('planReducer', () => {
         });
     });
 
-    describe('select / drill', () => {
+    describe('selection', () => {
         it('first click selects and emits', () => {
             const { state, effects } = run(init(), { t: "row.select", key: "r1" });
             expect(state.selected).toBe("r1");
-            expect(state.drilled).toBeNull();
             expect(effects).toEqual([{ t: "emit.select", key: "r1" }]);
         });
 
-        it('second click on the selected row promotes to drill', () => {
-            const { state, effects } = run(init(),
-                { t: "row.select", key: "r1" }, { t: "row.select", key: "r1" });
-            expect(state.drilled).toBe("r1");
-            expect(effects).toEqual([{ t: "emit.drill", key: "r1" }]);
-        });
-
-        it('clicking the drilled row holds steady (no navigation)', () => {
-            const before = run(init(), { t: "row.select", key: "r1" }, { t: "row.select", key: "r1" }).state;
+        it('re-clicking the selected row is idempotent (no navigation)', () => {
+            const before = run(init(), { t: "row.select", key: "r1" }).state;
             const { state, effects } = run(before, { t: "row.select", key: "r1" });
             expect(state).toBe(before);
             expect(effects).toEqual([]);
         });
 
-        it('drill is idempotent: drilling the drilled row collapses it', () => {
-            const drilledState = run(init(), { t: "row.drill", key: "r1" }).state;
-            expect(drilledState.drilled).toBe("r1");
-            const { state, effects } = run(drilledState, { t: "row.drill", key: "r1" });
-            expect(state.drilled).toBeNull();
-            expect(effects).toEqual([]);
-        });
-
-        it('drilling another row moves the single drilled slot in place', () => {
-            const s1 = run(init(), { t: "row.drill", key: "r1" }).state;
-            const { state, effects } = run(s1, { t: "row.drill", key: "r2" });
-            expect(state.drilled).toBe("r2");
+        it('selecting another row moves the single selection', () => {
+            const s1 = run(init(), { t: "row.select", key: "r1" }).state;
+            const { state, effects } = run(s1, { t: "row.select", key: "r2" });
             expect(state.selected).toBe("r2");
-            expect(effects).toEqual([{ t: "emit.drill", key: "r2" }]);
-        });
-
-        it('enter drills the selection and toggles closed on repeat', () => {
-            const selected = run(init(), { t: "row.select", key: "r1" }).state;
-            const drilled = run(selected, { t: "key", key: "enter" });
-            expect(drilled.state.drilled).toBe("r1");
-            expect(drilled.effects).toEqual([{ t: "emit.drill", key: "r1" }]);
-            const closed = run(drilled.state, { t: "key", key: "enter" });
-            expect(closed.state.drilled).toBeNull();
-            expect(closed.effects).toEqual([]);
+            expect(effects).toEqual([{ t: "emit.select", key: "r2" }]);
         });
     });
 
     describe('grain', () => {
-        it('grain.set clears drill + selection, keeps cursor and collapsed', () => {
+        it('grain.set clears selection, keeps cursor and collapsed', () => {
             let s = initialPlanState("resource", ["g1"]);
             s = run(s, { t: "cursor.move", frac: 0.5 }).state;
-            s = run(s, { t: "row.select", key: "r1" }, { t: "row.drill", key: "r1" }).state;
+            s = run(s, { t: "row.select", key: "r1" }).state;
             const { state, effects } = run(s, { t: "grain.set", grain: "group" });
             expect(state.grain).toBe("group");
-            expect(state.drilled).toBeNull();
             expect(state.selected).toBeNull();
             expect(state.cursor).not.toBeNull();
             expect(state.collapsed.has("g1")).toBe(true);
@@ -132,15 +94,12 @@ describe('planReducer', () => {
             expect(out.effects).toEqual([]);
         });
 
-        it('g cycles group → resource → item → group', () => {
-            let s = init();
-            const g1 = run(s, { t: "key", key: "g" });
-            expect(g1.state.grain).toBe("item");
+        it('g cycles group → resource → group', () => {
+            const g1 = run(init(), { t: "key", key: "g" });
+            expect(g1.state.grain).toBe("group");
             const g2 = run(g1.state, { t: "key", key: "g" });
-            expect(g2.state.grain).toBe("group");
-            const g3 = run(g2.state, { t: "key", key: "g" });
-            expect(g3.state.grain).toBe("resource");
-            expect(g3.effects).toEqual([{ t: "emit.grainChange", grain: "resource" }]);
+            expect(g2.state.grain).toBe("resource");
+            expect(g2.effects).toEqual([{ t: "emit.grainChange", grain: "resource" }]);
         });
     });
 
@@ -206,10 +165,8 @@ describe('planReducer', () => {
             expect(expand.state.focus).toEqual({ kind: "expand", key: "l4m13" });
         });
 
-        it('focus.expand clears the drilled row; focus.clear returns', () => {
-            const drilled = run(init(), { t: "row.drill", key: "r1" }).state;
-            const focused = run(drilled, { t: "focus.expand", key: "r1" });
-            expect(focused.state.drilled).toBeNull();
+        it('focus.expand focuses the row; focus.clear returns', () => {
+            const focused = run(init(), { t: "focus.expand", key: "r1" });
             expect(focused.state.focus).toEqual({ kind: "expand", key: "r1" });
             expect(run(focused.state, { t: "focus.clear" }).state.focus).toBeNull();
         });

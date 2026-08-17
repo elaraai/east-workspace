@@ -10,7 +10,7 @@
  *
  * Fixed chrome geometry (the compliance sheet): toolbar 44 / brush 32 /
  * ruler 28 / footer 28 px; gutter 168px (desktop); group band 26px, heat
- * strip 28px; span rows 32 default / 24 dense / 96 drilled; bars 20 / 16 /
+ * strip 28px; span rows 32 default / 24 dense; bars 20 / 16 /
  * 12 (rollup) px at r 2. All numerals mono with `"tnum" 1`.
  *
  * Run-state styling is the §4.3 truth table, driven by the `bar` slot's
@@ -192,8 +192,8 @@ export const planSlotRecipe = defineSlotRecipe({
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
             background: "bg.surface",
-            // Selection / drilled tint — the one selection colour.
-            "&[data-selected], &[data-drilled]": { background: "{colors.brandTint}" },
+            // Selection tint — the one selection colour.
+            "&[data-selected]": { background: "{colors.brandTint}" },
             // Table-row emphasis (K5): footer = 2px top rule; header = panel wash.
             "&[data-emphasis='footer']": { borderTopWidth: "2px", borderTopColor: "border.strong" },
             "&[data-emphasis='header']": { background: "bg.panel" },

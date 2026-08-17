@@ -44,7 +44,6 @@ import { TableAggregateType } from "../table/types.js";
 import {
     PlanAggregateType,
     type PlanAggregateLiteral,
-    PlanDrillType,
     PlanExpandType,
     PlanRowKindType,
     PlanLaneType,
@@ -193,8 +192,6 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> {
      * diamond). `deriveApproval(r.flagged)` is the canonical spelling.
      */
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
-    /** Per-row drill-payload accessor — returns the field's `Option`. */
-    drill?: PlanAccessor<R, OptionType<PlanDrillType>>;
     /** Per-row expand-in-place accessor — returns the field's `Option`. */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
 }
@@ -330,7 +327,6 @@ function envelopeOverrides(cfg: PlanSeriesEnvelopeConfig<StructType>, r: ExprTyp
         ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
         ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
         ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
-        ...(cfg.drill !== undefined ? { drill: cfg.drill(r, k) } : {}),
         ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
     };
 }

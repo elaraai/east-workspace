@@ -34,7 +34,6 @@ import {
     PlanAxisType,
     PlanGrainType,
     PlanGutterType,
-    PlanDrillType,
     PlanPortType,
     PlanRollupType,
     PlanCellMarkerType,
@@ -69,7 +68,6 @@ import {
     PlanFooterItemType,
     PlanStyleType,
     PlanTemplateKindType,
-    PlanJourneyRibbonType,
     PlanLinkType,
     PlanExpandAxisType,
     PlanElementRefType,
@@ -84,7 +82,6 @@ import {
     PlanRowType,
     PlanRowsCollectionType,
     PlanTemplateType,
-    PlanJourneyType,
 } from "./types.js";
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
@@ -106,7 +103,6 @@ import {
     createTableSeries,
     createLink,
 } from "./builders.js";
-import { createDrill } from "./assemble.js";
 import {
     createLayer,
     createFixedHeight,
@@ -142,8 +138,6 @@ export {
     type PlanGrainLiteral,
     PlanGutterType,
     PlanGutterSwatchType,
-    PlanDrillType,
-    PlanDrillPointType,
     PlanPortType,
     PlanRollupType,
     type PlanRollupLiteral,
@@ -191,7 +185,6 @@ export {
     PlanStyleType,
     PlanTemplateKindType,
     type PlanTemplateKindLiteral,
-    PlanJourneyRibbonType,
     PlanLinkType,
     PlanExpandAxisType,
     type PlanExpandAxisLiteral,
@@ -207,7 +200,6 @@ export {
     PlanRowType,
     PlanRowsCollectionType,
     PlanTemplateType,
-    PlanJourneyType,
     type PlanRowsValue,
 } from "./types.js";
 
@@ -230,7 +222,7 @@ export {
     type PlanTableSeriesInput,
     type PlanLinkInput,
 } from "./builders.js";
-export { type PlanDrillInput, type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput } from "./assemble.js";
+export { type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput } from "./assemble.js";
 export {
     type PlanLayerChannels,
     type PlanWrappedLayer,
@@ -337,8 +329,6 @@ export interface PlanNamespace {
     chip: typeof createChip;
     /** Builds one event-row mark. */
     mark: typeof createEventMark;
-    /** Builds one drill payload value (put it IN data rows — `drill: some(Plan.drill({…}))`). */
-    drill: typeof createDrill;
     /** Builds one link edge of the canvas's link graph (`Plan.Root`'s `links`). */
     link: typeof createLink;
     /** Non-null mark-kind builders (`Plan.markKind.decision(applied)`). */
@@ -367,7 +357,7 @@ export interface PlanNamespace {
         Root: typeof PlanRootType;
         /** The shared time-axis declaration. */
         Axis: typeof PlanAxisType;
-        /** The three grains (group / resource / item). */
+        /** The two grains (group / resource). */
         Grain: typeof PlanGrainType;
         /** One flat canvas row. */
         Row: typeof PlanRowType;
@@ -377,8 +367,6 @@ export interface PlanNamespace {
         RowKind: typeof PlanRowKindType;
         /** The gutter identity. */
         Gutter: typeof PlanGutterType;
-        /** The drilled-row payload. */
-        Drill: typeof PlanDrillType;
         /** One span run. */
         Run: typeof PlanRunType;
         /** One decision diamond. */
@@ -443,10 +431,6 @@ export interface PlanNamespace {
         Template: typeof PlanTemplateType;
         /** The template kind. */
         TemplateKind: typeof PlanTemplateKindType;
-        /** The K8 journey overlay. */
-        Journey: typeof PlanJourneyType;
-        /** One journey ribbon. */
-        JourneyRibbon: typeof PlanJourneyRibbonType;
         /** One link edge of the canvas's link graph (the ribbon shape). */
         Link: typeof PlanLinkType;
         /** A row's expand-in-place declaration (R2). */
@@ -520,7 +504,6 @@ export const Plan: PlanNamespace = {
     marker: createCellMarker,
     chip: createChip,
     mark: createEventMark,
-    drill: createDrill,
     link: createLink,
     markKind,
     heatCells: createHeatCells,
@@ -540,7 +523,6 @@ export const Plan: PlanNamespace = {
         Rows: PlanRowsCollectionType,
         RowKind: PlanRowKindType,
         Gutter: PlanGutterType,
-        Drill: PlanDrillType,
         Run: PlanRunType,
         DecisionMark: PlanDecisionMarkType,
         Port: PlanPortType,
@@ -573,8 +555,6 @@ export const Plan: PlanNamespace = {
         EventMarkKind: PlanEventMarkKindType,
         Template: PlanTemplateType,
         TemplateKind: PlanTemplateKindType,
-        Journey: PlanJourneyType,
-        JourneyRibbon: PlanJourneyRibbonType,
         Link: PlanLinkType,
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,

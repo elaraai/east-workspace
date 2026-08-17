@@ -32,7 +32,6 @@ export {
     type PlanSegmentInput,
     type PlanTableSeriesInput,
     type PlanTemplateInput,
-    type PlanDrillInput,
     type PlanExpandInput,
     type PlanLinkInput,
     type PlanIconInput,

@@ -130,7 +130,7 @@ describeEast("Plan", (test) => {
     });
 
     test("the root carries the generalized popover/hover resolvers over element refs and the expandRender", $ => {
-        // ONE stored function per surface (the journeys pattern) — refs carry
+        // ONE stored function per surface — refs carry
         // the row key on every arm, so one resolver covers every element
         // kind; returning none opens no surface.
         const Row = StructType({ id: StringType });
@@ -258,7 +258,7 @@ describeEast("Plan", (test) => {
             key: "cov", label: "COVERAGE", id: true, sub: "demand", value: "94.2%",
             meta: "8 rs", stacked: true, pinned: true, status: "warning", approval: "pending",
             swatches: [{ color: "teal.solid", label: "col" }],
-            drill: { lines: ["a"], meter: 0.5, events: ["e"], journey: "B-208" },
+            expand: { height: "152px", axis: "dim" },
             layers: Chart.Line(series, { x: r => r.week, y: r => r.pct }),
         }));
         const row = $.let(rows.get("cov"));
@@ -272,9 +272,9 @@ describeEast("Plan", (test) => {
         $(Assert.equal(row.pinned.unwrap("some"), true));
         $(Assert.equal(row.status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(row.approval.unwrap("some").hasTag("pending"), true));
-        const drill = $.let(row.drill.unwrap("some"));
-        $(Assert.equal(drill.meter.unwrap("some"), 0.5));
-        $(Assert.equal(drill.journey.unwrap("some"), "B-208"));
+        const expand = $.let(row.expand.unwrap("some"));
+        $(Assert.equal(expand.height.unwrap("some"), "152px"));
+        $(Assert.equal(expand.axis.hasTag("dim"), true));
     });
 
     // =========================================================================
@@ -683,22 +683,22 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get("alt/m2").gutter.label, "m2"));
     });
 
-    test("series accessor channel: value/status/drill Options flow per row from raw fields", $ => {
+    test("series accessor channel: value/status/expand Options flow per row from raw fields", $ => {
         const JobRow = StructType({
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
         });
         const MachineRow = StructType({
             cap: FloatType, warn: BooleanType,
-            drill: OptionType(Plan.Types.Drill),
+            expand: OptionType(Plan.Types.Expand),
             jobs: ArrayType(JobRow),
         });
         const data = $.const(new Map([
-            // The drill payload is a stored plain-data record (§3.2) —
+            // The expand declaration is a stored plain-data record (§3.2) —
             // presence is a per-row fact; no builders in the data.
             ["m1", { cap: 120.0, warn: true,
-              drill: some({ lines: ["120 t · FILL"], meter: some(0.5), series: none, events: [], journey: some("B-208") }),
+              expand: some({ height: some("152px"), axis: variant("keep", null) }),
               jobs: [{ batch: "B-1", start: W27, end: W28, state: variant("actual", null) }] }],
-            ["m2", { cap: 80.0, warn: false, drill: none,
+            ["m2", { cap: 80.0, warn: false, expand: none,
               jobs: [{ batch: "B-2", start: W28, end: W29, state: variant("confirmed", null) }] }],
         ]), DictType(StringType, MachineRow));
         const p = $.let(Plan.Root({
@@ -710,7 +710,7 @@ describeEast("Plan", (test) => {
                 status: r => r.warn.ifElse(
                     () => East.value(some(variant("warning", null)), OptionType(StatusValueType)),
                     () => East.value(none, OptionType(StatusValueType))),
-                drill: r => r.drill,
+                expand: r => r.expand,
                 runs: r => r.jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
                     label: East.str`RUN · ${j.batch}`, state: j.state,
@@ -723,10 +723,10 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get("m1").gutter.value.unwrap("some"), "120 t"));
         $(Assert.equal(rows.get("m1").status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(rows.get("m2").status.hasTag("none"), true));
-        $(Assert.equal(rows.get("m1").drill.hasTag("some"), true));
-        $(Assert.equal(rows.get("m1").drill.unwrap("some").journey.unwrap("some"), "B-208"));
-        $(Assert.equal(rows.get("m1").drill.unwrap("some").meter.unwrap("some"), 0.5));
-        $(Assert.equal(rows.get("m2").drill.hasTag("none"), true));
+        $(Assert.equal(rows.get("m1").expand.hasTag("some"), true));
+        $(Assert.equal(rows.get("m1").expand.unwrap("some").height.unwrap("some"), "152px"));
+        $(Assert.equal(rows.get("m1").expand.unwrap("some").axis.hasTag("keep"), true));
+        $(Assert.equal(rows.get("m2").expand.hasTag("none"), true));
         $(Assert.equal(rows.get("m1").kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
     });
 

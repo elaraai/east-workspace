@@ -6,7 +6,7 @@
 /**
  * The Plan's resolved UIComponent-coupled IR — since the data-interface
  * redesign only the ROOT and the review config touch `UIComponentType`; the
- * whole row vocabulary (elements, kinds, rows, templates, journeys) is pure
+ * whole row vocabulary (elements, kinds, rows, templates) is pure
  * data in `./types.ts`. These are the named twins of the `Plan` arm in
  * `component.ts` (which spells the SAME shapes inline with the recursion
  * `node`). Keep the two in lockstep: every factory builds values of these
@@ -35,7 +35,6 @@ import {
     PlanLinkType,
     PlanRowsType,
     PlanTemplateType,
-    PlanJourneyType,
     PlanElementRefType,
     PlanRowRefType,
     PlanRunClickEventType,
@@ -66,13 +65,11 @@ export type PlanReviewType = typeof PlanReviewType;
  * @remarks
  * Window and resolution deliberately have **no callbacks**: they are slice
  * writes (`setRange` / `setResolution`) — hosts observe the slice. Row
- * order is data (no sort callback), and there are no double-click
- * callbacks — a second row click *is* drill, and element detail lives in
- * the root RESOLVERS: `popover` / `hover` over {@link PlanElementRefType}
- * (a `none` result opens nothing) and `expandRender` over the row ref (the
- * R2 developer render for rows declaring `expand`) — the `journeys`
- * pattern, one stored function per surface instead of UI embedded per
- * element.
+ * order is data (no sort callback), and element detail lives in the root
+ * RESOLVERS: `popover` / `hover` over {@link PlanElementRefType} (a `none`
+ * result opens nothing) and `expandRender` over the row ref (the R2
+ * developer render for rows declaring `expand`) — one stored function per
+ * surface instead of UI embedded per element.
  */
 export const PlanRootType = StructType({
     rows: PlanRowsType,
@@ -82,7 +79,6 @@ export const PlanRootType = StructType({
     axis: PlanAxisType,
     grain: OptionType(PlanGrainType),
     library: ArrayType(PlanTemplateType),
-    journeys: OptionType(FunctionType([StringType], PlanJourneyType)),
     // The generalized element resolvers (Plan Data Interface.md §3.3) —
     // invoked lazily at interaction time; naming per the Schematic /
     // Flowchart `*Hover` resolver convention (never `on*` — that prefix is
@@ -98,9 +94,8 @@ export const PlanRootType = StructType({
     sources: ArrayType(StringType),
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
     canDrop: OptionType(CanDropFnType),
-    // Selection / drill (click selects, second click drills) + per-element clicks.
+    // Selection + per-element clicks.
     onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
-    onDrill: OptionType(FunctionType([PlanRowRefType], NullType)),
     onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
     onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
     onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),

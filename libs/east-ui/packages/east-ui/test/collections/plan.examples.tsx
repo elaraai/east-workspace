@@ -50,12 +50,12 @@ export const planTargetState = example({
     keywords: [
         "Plan", "canvas", "data", "series", "match", "axis", "window", "resolution", "now",
         "span", "run", "group", "heat", "buckets", "cards", "chip", "events", "mark", "chart",
-        "layers", "drill", "rollup", "bands", "review", "footer", "milestone",
+        "layers", "rollup", "bands", "review", "footer", "milestone",
         "decision", "exception", "pinned", "port", "hovercard", "popover",
-        "slice", "brush", "horizon", "toolbar", "affordances", "journeys",
-        "journey", "resolver", "data-driven", "accessor", "raw", "target state",
+        "slice", "brush", "horizon", "toolbar", "affordances", "expand",
+        "expandRender", "resolver", "data-driven", "accessor", "raw", "target state",
     ],
-    description: "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, review, journeys and a status footer",
+    description: "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, the R2 expand declaration carried per row with the root's expandRender resolver, review and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
         const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType });
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
@@ -74,7 +74,7 @@ export const planTargetState = example({
         const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
         // ONE source — row families discriminated by the kind variant (the
         // natural ops-dataset shape; the same rows page from a dataset). The
-        // arms carry RAW fields; presence (status / drill payload) is
+        // arms carry RAW fields; presence (status / expand declaration) is
         // per-row Option DATA the accessors pass through.
         const OpsRow = StructType({
             kind: VariantType({
@@ -82,7 +82,7 @@ export const planTargetState = example({
                                   points: ArrayType(MeasureRow) }),
                 machine: StructType({ cap: FloatType,
                                       status: OptionType(StatusValueType),
-                                      detail: OptionType(Plan.Types.Drill),
+                                      detail: OptionType(Plan.Types.Expand),
                                       jobs: ArrayType(JobRow),
                                       decisions: ArrayType(Plan.Types.DecisionMark),
                                       ports: ArrayType(Plan.Types.Port) }),
@@ -177,18 +177,10 @@ export const planTargetState = example({
                   decisions: [{ key: "d1", at: week(32n), applied: false }],
                   ports:     [{ at: week(31n), label: some("−24 t") }] }) }],
                 ["L1-M04", { kind: variant("machine", { cap: 120.0, status: none,
-                  // The drill payload — a stored presentation record (plain
-                  // data, §3.2); presence is a per-row fact.
-                  detail: some({
-                      lines: ["120 t · FILL", "B-208 · 88 t · 73%"],
-                      meter: some(0.73),
-                      series: some([
-                          { at: week(27n), value: 10.0 }, { at: week(29n), value: 96.0 },
-                          { at: week(31n), value: 88.0 }, { at: week(34n), value: 64.0 }, { at: week(38n), value: 92.0 },
-                      ]),
-                      events: ["LEVEL t · DAILY", "START 04 JUL", "TRANSFER W31 · −24 t", "QC W33"],
-                      journey: some("B-208"),
-                  }),
+                  // The expand declaration — a stored plain-data record
+                  // (§3.2); presence is a per-row fact and the ROOT's
+                  // expandRender mounts the body.
+                  detail: some({ height: some("152px"), axis: variant("keep", null) }),
                   jobs: [
                       { key: "b208", phase: "RUN", batch: some("B-208"), start: week(27n), end: week(30n), tonnes: some(112.0), state: variant("actual", null), alert: none },
                       { key: "hld",  phase: "HLD", batch: none, start: week(30n), end: week(31n), tonnes: none, state: variant("confirmed", null), alert: none },
@@ -251,7 +243,7 @@ export const planTargetState = example({
                         label: (_r, k) => k, id: true,
                         value:  r => some(East.str`${East.Float.printFixed(r.kind.unwrap("machine").cap, 0n)} t`),
                         status: r => r.kind.unwrap("machine").status,
-                        drill:  r => r.kind.unwrap("machine").detail,
+                        expand: r => r.kind.unwrap("machine").detail,
                         runs: r => jobRuns(r.kind.unwrap("machine").jobs),
                         decisions: r => r.kind.unwrap("machine").decisions,
                         ports: r => r.kind.unwrap("machine").ports,
@@ -293,23 +285,14 @@ export const planTargetState = example({
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
             const slice = $.let(Slice.bind([HorizonRow], "ex.plan.target", cfg, Slice.state(), horizon, none));
-            // The K8 journey resolver — called with an item key at interaction time.
-            const journeys = $.const(East.function([StringType], Plan.Types.Journey, (_$, item) => ({
-                title: East.str`JOURNEY · ITEM ${item} · BORN 04 JUL · 118 T`,
-                rows: [
-                    { key: "anc", label: "B-208 · M05", sublabel: some("ancestor"),
-                      runs: [Plan.run({ key: "a1", start: week(27n), end: week(29n), label: "RUN · 34 t", qty: 34, state: "actual" })] },
-                    { key: "focus", label: "B-214 · M03", sublabel: some("focus item"),
-                      runs: [Plan.run({ key: "f1", start: week(29n), end: week(33n), label: "RUN · 118 t", qty: 118, state: "in-progress" })] },
-                    { key: "d60", label: "→ M04", sublabel: some("split 60%"),
-                      runs: [Plan.run({ key: "s1", start: week(33n), end: week(35n), label: "DSP · 71 t", qty: 71, state: "recommended" })] },
-                ],
-                ribbons: [
-                    { fromRow: "anc", fromRun: "a1", toRow: "focus", toRun: "f1", quantity: 34.0, label: "34 t" },
-                    { fromRow: "focus", fromRun: "f1", toRow: "d60", toRun: "s1", quantity: 71.0, label: "71 t" },
-                ],
-                decisions: [Plan.decision({ key: "split", at: week(33n), applied: false })],
-            })));
+            // The R2 developer render — the ROOT's resolver, called with the
+            // focused row's ref; ONE function serves every row whose `expand`
+            // accessor returned some(...). The machine family declares it.
+            const util = $.let(East.Array.generate(12n, MeasureRow, (_$, i) =>
+                ({ week: week(i.add(27n)), pct: i.multiply(17n).remainder(45n).toFloat().add(52.0) })));
+            const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) => (
+                <Chart layers={[Chart.Line(util, { x: r => r.week, y: r => r.pct })]} height={120} grid={false} />
+            )));
             // The generalized element resolvers — ONE stored popover / hover
             // function each over Plan.Types.ElementRef (refs carry the row
             // key on every arm); rich bodies build lazily at interaction
@@ -357,11 +340,10 @@ export const planTargetState = example({
                         onRejectAll: onBatch,
                         onRerun: onBatch,
                     }}
-                    journeys={journeys}
+                    expandRender={expandRender}
                     popover={popover}
                     hover={hover}
                     onSelect={onRowRef}
-                    onDrill={onRowRef}
                     onRunClick={onRunClick}
                     onGroupToggle={onGroupToggle}
                     footer={[

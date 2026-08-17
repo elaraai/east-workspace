@@ -4,7 +4,7 @@
  */
 
 /**
- * Row assembly — the shared row envelope (gutter / drill / `makeRow`),
+ * Row assembly — the shared row envelope (gutter / `makeRow`),
  * subtree normalization and re-parenting, the `.of` accessor override
  * channel, and the group-parent constructor every grouped form shares.
  *
@@ -20,9 +20,7 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
-    ArrayType,
     BooleanType,
-    FloatType,
     FunctionType,
     OptionType,
     StringType,
@@ -35,8 +33,6 @@ import { ApprovalStateType, type ApprovalStateLiteral } from "../../contracts/ap
 import {
     PlanGutterType,
     PlanGutterSwatchType,
-    PlanDrillType,
-    PlanDrillPointType,
     PlanExpandAxisType,
     type PlanExpandAxisLiteral,
     PlanExpandType,
@@ -50,28 +46,6 @@ import { resolveTag, emptyRows } from "./builders.js";
 // ============================================================================
 // Row envelope — the shared base-input handling
 // ============================================================================
-
-/**
- * The drilled-row payload input — see `PlanDrillType`.
- *
- * @property lines - Identity lines
- * @property meter - Optional 0..1 meter fill
- * @property series - Optional level trace points
- * @property events - The named-event line entries
- * @property journey - Optional item key for the journey link
- */
-export interface PlanDrillInput {
-    /** Identity lines (`"120 t · FILL"`). */
-    lines?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Optional 0..1 meter fill. */
-    meter?: SubtypeExprOrValue<FloatType> | number;
-    /** Optional level-trace points. */
-    series?: SubtypeExprOrValue<ArrayType<PlanDrillPointType>>;
-    /** The named-event line entries (`"TRANSFER W31 · −24 t"`). */
-    events?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Optional item key — renders the `open item journey →` link. */
-    journey?: SubtypeExprOrValue<StringType>;
-}
 
 /**
  * The gutter + row fields shared by every kind factory (flattened into each
@@ -89,7 +63,6 @@ export interface PlanDrillInput {
  * @property height - Fixed row-height override (px)
  * @property status - The quiet gutter status dot
  * @property approval - The review verdict (review chrome only)
- * @property drill - The in-place drill expansion payload
  */
 export interface PlanRowBaseInput {
     /** The row key (stable identity; parent keys reference it). */
@@ -116,8 +89,6 @@ export interface PlanRowBaseInput {
     status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
     /** The review verdict (rendered only with the root's review chrome). */
     approval?: SubtypeExprOrValue<ApprovalStateType> | ApprovalStateLiteral;
-    /** The in-place drill expansion payload. */
-    drill?: PlanDrillInput;
     /** The expand-in-place declaration (R2) — see {@link PlanExpandInput}; the render is the root's `expandRender`. */
     expand?: PlanExpandInput;
 }
@@ -133,30 +104,6 @@ function buildGutter(base: PlanRowBaseInput): ExprType<PlanGutterType> {
         stacked:  base.stacked !== undefined ? some(base.stacked) : none,
         swatches: (base.swatches ?? []).map(s => East.value({ color: s.color, label: s.label }, PlanGutterSwatchType)),
     }, PlanGutterType);
-}
-
-/** Build the drill payload from its input. */
-function buildDrill(drill: PlanDrillInput): ExprType<PlanDrillType> {
-    return East.value({
-        lines:   East.value(drill.lines ?? [], ArrayType(StringType)),
-        meter:   drill.meter !== undefined ? some(drill.meter) : none,
-        series:  drill.series !== undefined ? some(East.value(drill.series, ArrayType(PlanDrillPointType))) : none,
-        events:  East.value(drill.events ?? [], ArrayType(StringType)),
-        journey: drill.journey !== undefined ? some(drill.journey) : none,
-    }, PlanDrillType);
-}
-
-/**
- * Builds one drill payload value — the in-place 96px expansion content. A
- * value builder like {@link Plan.run}: use it to put `PlanDrillType` values
- * IN data rows (`drill: some(Plan.drill({ … }))`), so drill presence is a
- * per-row data fact that flows through `Plan.span.of`'s `drill` accessor.
- *
- * @param input - The drill configuration ({@link PlanDrillInput})
- * @returns An East expression of {@link PlanDrillType}
- */
-export function createDrill(input: PlanDrillInput): ExprType<PlanDrillType> {
-    return buildDrill(input);
 }
 
 /**
@@ -205,7 +152,6 @@ export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>)
         height:   base.height !== undefined ? some(base.height) : none,
         status:   base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
         approval: base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,
-        drill:    base.drill !== undefined ? some(buildDrill(base.drill)) : none,
         expand:   base.expand !== undefined ? some(buildExpand(base.expand)) : none,
     }, PlanRowType);
     return East.value(new Map([[base.key, row]]), PlanRowsCollectionType);
@@ -248,7 +194,6 @@ export function reparentRoots(rows: PlanRowsValue, parentKey: SubtypeExprOrValue
         height:   r.height,
         status:   r.status,
         approval: r.approval,
-        drill:    r.drill,
         expand:   r.expand,
     }, PlanRowType)) as PlanRowsValue;
 }
@@ -298,7 +243,7 @@ export function groupParentFn(
                     stacked: none, swatches: [],
                 },
                 kind,
-                pinned: none, height: none, status: none, approval: none, drill: none, expand: none,
+                pinned: none, height: none, status: none, approval: none, expand: none,
             }, PlanRowType);
             const out = $.let(new Map([[pathKey, parent]]), PlanRowsCollectionType);
             $(out.unionInPlace(reparented, LAST_WINS));
@@ -318,7 +263,6 @@ interface PlanRowOverrides {
     value?: SubtypeExprOrValue<OptionType<StringType>>;
     status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
     approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
-    drill?: SubtypeExprOrValue<OptionType<PlanDrillType>>;
     expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
     pinned?: SubtypeExprOrValue<OptionType<BooleanType>>;
 }
@@ -327,12 +271,11 @@ interface PlanRowOverrides {
 export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): PlanRowsValue {
     if (o.sub === undefined && o.value === undefined && o.status === undefined
         && o.approval === undefined
-        && o.drill === undefined && o.expand === undefined && o.pinned === undefined) return rows;
+        && o.expand === undefined && o.pinned === undefined) return rows;
     const sub    = o.sub    !== undefined ? East.value(o.sub, OptionType(StringType)) : undefined;
     const value  = o.value  !== undefined ? East.value(o.value, OptionType(StringType)) : undefined;
     const status = o.status !== undefined ? East.value(o.status, OptionType(StatusValueType)) : undefined;
     const approval = o.approval !== undefined ? East.value(o.approval, OptionType(ApprovalStateType)) : undefined;
-    const drill  = o.drill  !== undefined ? East.value(o.drill, OptionType(PlanDrillType)) : undefined;
     const expand = o.expand !== undefined ? East.value(o.expand, OptionType(PlanExpandType)) : undefined;
     const pinned = o.pinned !== undefined ? East.value(o.pinned, OptionType(BooleanType)) : undefined;
     return rows.map((_$, r) => East.value({
@@ -352,7 +295,6 @@ export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): Pla
         height:   r.height,
         status:   status ?? r.status,
         approval: approval ?? r.approval,
-        drill:    drill ?? r.drill,
         expand:   expand ?? r.expand,
     }, PlanRowType)) as PlanRowsValue;
 }
@@ -377,7 +319,6 @@ export function assembleNested(
         height:   base.height !== undefined ? some(base.height) : none,
         status:   base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
         approval: base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,
-        drill:    base.drill !== undefined ? some(buildDrill(base.drill)) : none,
         expand:   base.expand !== undefined ? some(buildExpand(base.expand)) : none,
     }, PlanRowType);
     return East.value(new Map([[base.key, parent]]), PlanRowsCollectionType)

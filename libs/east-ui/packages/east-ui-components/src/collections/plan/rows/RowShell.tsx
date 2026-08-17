@@ -34,7 +34,6 @@ export interface RowShellProps {
     /** Nesting depth (gutter indent). */
     depth: number;
     selected: boolean;
-    drilled: boolean;
     /** Cursor fraction to draw the shared hairline at (undefined ⇒ none). */
     cursorFrac: number | undefined;
     /** The caret state for nesting parents (undefined ⇒ no caret). */
@@ -47,7 +46,7 @@ export interface RowShellProps {
     emphasis?: "header" | "footer" | undefined;
     /** Extra content overlaid on the gutter cell (chart left-axis ticks). */
     gutterOverlay?: ReactNode;
-    /** Suppress the bucket grid lines (drilled rows draw their own canvas). */
+    /** Suppress the bucket grid lines (rows drawing their own canvas). */
     noGrid?: boolean;
     /** Row-scoped focus controls (R1 links / R2 expand) — 20px, hover-revealed
      *  at the gutter's right edge, pinned while active. */
@@ -64,7 +63,7 @@ export interface RowShellProps {
 
 /** One canvas body row — gutter + plot on the shared template. */
 export function RowShell({
-    row, styles, gridTemplate, height, depth, selected, drilled,
+    row, styles, gridTemplate, height, depth, selected,
     cursorFrac, caret, onCaretClick, emphasis, gutterOverlay, noGrid,
     controls, focusTag, axisMode, decision, children,
 }: RowShellProps) {
@@ -90,7 +89,6 @@ export function RowShell({
             height={`${height}px`}
             data-plan-row={row.key}
             data-selected={selected ? "" : undefined}
-            data-drilled={drilled ? "" : undefined}
             data-emphasis={emphasis}
             onClick={() => dispatch({ t: "row.select", key: row.key })}
             cursor="pointer"

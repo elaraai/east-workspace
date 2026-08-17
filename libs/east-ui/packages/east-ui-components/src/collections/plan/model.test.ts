@@ -4,21 +4,20 @@
  */
 
 /**
- * Row-height rules (`Plan Spec.md` §8) — heat rows fit their gutter, two-line
- * gutters floor at 42px, and the 96px drilled expansion applies only to rows
- * carrying a drill payload.
+ * Row-height rules (`Plan Spec.md` §8) — heat rows fit their gutter and
+ * two-line gutters floor at 42px.
  */
 
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, deriveLinkFamily, derivePlan, elideForFocus, indexRows, linkedRowKeys,
-    HEAT_ROW_H, ROW_H, ROW_H_STACKED, ROW_H_DRILLED, GROUP_STRIP_H, GROUP_H,
+    HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H,
     RAIL_H,
     type PlanLinkValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 
-function row(kind: unknown, opts?: { sub?: string; stacked?: boolean; drill?: boolean; expand?: unknown }): PlanRowValue {
+function row(kind: unknown, opts?: { sub?: string; stacked?: boolean; expand?: unknown }): PlanRowValue {
     return {
         key: "r",
         parent: none,
@@ -31,15 +30,12 @@ function row(kind: unknown, opts?: { sub?: string; stacked?: boolean; drill?: bo
         },
         kind,
         pinned: none, height: none, status: none, approval: none,
-        drill: opts?.drill === true
-            ? some({ lines: [], meter: none, series: [], events: [], journey: none })
-            : none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanRowValue;
 }
 
-function visible(r: PlanRowValue, opts?: { drilled?: boolean; collapsed?: boolean }): VisibleRow {
-    return { row: r, depth: 0, drilled: opts?.drilled === true, collapsed: opts?.collapsed === true };
+function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
+    return { row: r, depth: 0, collapsed: opts?.collapsed === true };
 }
 
 const heatKind = variant("heat", { cells: variant("heat", { cells: [], min: none, max: none, warnAt: none }), aggregate: none });
@@ -55,12 +51,6 @@ describe("Plan rowHeight (§8)", () => {
     test("span rows: 32 default, 42 with a sub line", () => {
         expect(rowHeight(visible(row(spanKind)), false, new Set())).toBe(ROW_H);
         expect(rowHeight(visible(row(spanKind, { sub: "120 t" })), false, new Set())).toBe(ROW_H_STACKED);
-    });
-
-    test("drilled 96px applies only to rows carrying a drill payload", () => {
-        expect(rowHeight(visible(row(spanKind, { drill: true }), { drilled: true }), false, new Set())).toBe(ROW_H_DRILLED);
-        expect(rowHeight(visible(row(spanKind), { drilled: true }), false, new Set())).toBe(ROW_H);
-        expect(rowHeight(visible(row(heatKind), { drilled: true }), false, new Set())).toBe(HEAT_ROW_H);
     });
 
     test("chart rows: spark 32; expanded uses expandedHeight over the 88 default; fixed wins outright", () => {
@@ -276,7 +266,7 @@ function trow(key: string, parent: string | undefined, kind: unknown): PlanRowVa
         parent: parent !== undefined ? some(parent) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none, drill: none, expand: none,
+        pinned: none, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanRowValue;
 }
 

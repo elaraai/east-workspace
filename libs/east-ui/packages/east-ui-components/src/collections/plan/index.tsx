@@ -349,7 +349,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // Host callbacks (behavior props — queueMicrotask per the mandatory pattern).
     const onSelect = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
-    const onDrill = useMemo(() => getSomeorUndefined(value.onDrill), [value.onDrill]);
     const onGroupToggle = useMemo(() => getSomeorUndefined(value.onGroupToggle), [value.onGroupToggle]);
     const onGrainChange = useMemo(() => getSomeorUndefined(value.onGrainChange), [value.onGrainChange]);
 
@@ -381,9 +380,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 case "emit.select":
                     if (onSelect) queueMicrotask(() => onSelect({ key: eff.key }));
                     break;
-                case "emit.drill":
-                    if (onDrill) queueMicrotask(() => onDrill({ key: eff.key }));
-                    break;
                 case "emit.groupToggle":
                     if (onGroupToggle) queueMicrotask(() => onGroupToggle({ row: eff.key, expanded: eff.expanded }));
                     break;
@@ -396,7 +392,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     break;
             }
         }
-    }, [slice, onSelect, onDrill, onGroupToggle, onGrainChange]);
+    }, [slice, onSelect, onGroupToggle, onGrainChange]);
 
     const dispatch = useCallback((e: PlanEvent) => {
         const { state, effects } = planReducer(uiRef.current, e, ctxRef.current);
@@ -443,7 +439,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // `measureRows={false}`, so `rowHeight()` IS the layout.
     heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
         windowRows.reduce((sum, row) =>
-            sum + rowHeight({ row, depth: 0, drilled: false, collapsed: false }, dense, ui.chartsExpanded, focusCtx, derived), 0);
+            sum + rowHeight({ row, depth: 0, collapsed: false }, dense, ui.chartsExpanded, focusCtx, derived), 0);
 
     // ── Rows ──────────────────────────────────────────────────────────────
     const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
@@ -553,7 +549,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
         const shellBase = {
             row: v.row, styles, gridTemplate, depth: v.depth,
-            selected: ui.selected === v.row.key, drilled: v.drilled, cursorFrac,
+            selected: ui.selected === v.row.key, cursorFrac,
             controls: rowControls, focusTag, axisMode: axisTag,
             decision: review !== undefined && review.hasRowVerbs
                 ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
@@ -728,7 +724,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     : undefined} />
             {focusCtx?.kind !== "expand" && pinned.map((row) => (
                 <Box key={row.key} background="bg.surface">
-                    {renderVisible({ row, depth: 0, drilled: false, collapsed: false })}
+                    {renderVisible({ row, depth: 0, collapsed: false })}
                 </Box>
             ))}
             {/* The R1/R2 focus band — a SECTION row between the header and
@@ -771,7 +767,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
                         const map: Record<string, PlanEvent> = {
                             Escape: { t: "key", key: "esc" },
-                            Enter: { t: "key", key: "enter" },
                             n: { t: "key", key: "n" },
                             "[": { t: "key", key: "[" },
                             "]": { t: "key", key: "]" },

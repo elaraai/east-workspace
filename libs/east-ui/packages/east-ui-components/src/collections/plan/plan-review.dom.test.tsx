@@ -49,7 +49,7 @@ function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected
         }),
         pinned: none, height: none, status: none,
         approval: opts?.approval !== undefined ? some(variant(opts.approval, null)) : none,
-        drill: none, expand: none,
+        expand: none,
     } as unknown as PlanRowValue;
 }
 
@@ -61,12 +61,12 @@ function planRoot(rows: PlanRowValue[], review: unknown): PlanRootValue {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [], now: some(W31), format: none,
         },
-        grain: none, library: [], journeys: none, popover: none, hover: none,
+        grain: none, library: [], popover: none, hover: none,
         expandRender: none,
         review: review === undefined ? none : some(review),
         slice: none, footer: [],
         id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onDrill: none,
+        onSelect: none,
         onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none,
         onCellClick: none, onGroupToggle: none, onGrainChange: none,
         style: none,

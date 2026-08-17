@@ -67,7 +67,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         parent: opts?.parent !== undefined ? some(opts.parent) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        pinned: none, height: none, status: none, approval: none, drill: none,
+        pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanRowValue;
 }
@@ -101,7 +101,6 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         },
         grain: none,
         library: [],
-        journeys: none,
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
@@ -109,7 +108,7 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
         id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onDrill: none,
+        onSelect: none,
         onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none,
         onCellClick: none, onGroupToggle: none, onGrainChange: none,
         style: opts?.style !== undefined
@@ -294,18 +293,14 @@ describe("Plan chart rows (§4·K3)", () => {
 });
 
 describe("Plan selection + esc ladder", () => {
-    test("click selects (data-selected), second click drills (data-drilled), esc walks back one rung at a time", () => {
+    test("click selects (data-selected); re-clicking holds; esc deselects", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]));
         const row = () => container.querySelector('[data-plan-row="m1"]')!;
         fireEvent.click(row());
         expect(row().hasAttribute("data-selected")).toBe(true);
-        expect(row().hasAttribute("data-drilled")).toBe(false);
         fireEvent.click(row());
-        expect(row().hasAttribute("data-drilled")).toBe(true);
-        const surface = container.querySelector('[tabindex="0"]')!;
-        fireEvent.keyDown(surface, { key: "Escape" });
-        expect(row().hasAttribute("data-drilled")).toBe(false);
         expect(row().hasAttribute("data-selected")).toBe(true);
+        const surface = container.querySelector('[tabindex="0"]')!;
         fireEvent.keyDown(surface, { key: "Escape" });
         expect(row().hasAttribute("data-selected")).toBe(false);
     });

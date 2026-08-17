@@ -6,7 +6,7 @@
 /**
  * The Plan's decoded-value view model (`Plan Spec.md` §6.2) — pure selectors
  * over the flat `parent`-keyed rows: the row-tree index, the visible-row
- * derivation (grain × collapsed subtrees × drill), and per-row height
+ * derivation (grain × collapsed subtrees), and per-row height
  * estimation for the virtualizer. No React, no DOM.
  *
  * Rows arrive in the collection's canonical KEY order (the IR's row collection
@@ -85,8 +85,6 @@ export interface VisibleRow {
     row: PlanRowValue;
     /** Nesting depth (drives the 30px/level gutter indent). */
     depth: number;
-    /** Whether this row is the drilled row (96px in-place expansion). */
-    drilled: boolean;
     /** For group strips / nesting parents: whether the subtree is collapsed. */
     collapsed: boolean;
 }
@@ -98,7 +96,6 @@ export interface VisibleRow {
  *   collapsed nesting parent) keeps its own line and hides its subtree.
  * - `group` grain: every root group collapses to its summary strip; non-group
  *   roots stay.
- * - `item` grain: identical walk in P2 (journeys arrive in P4).
  *
  * Pinned rows are excluded here — they render above the virtualised body,
  * under the ruler (`pinnedRows`).
@@ -124,7 +121,7 @@ export function visibleRows(
         const isGroup = row.kind.type === "group";
         const collapsed = (ui.collapsed.has(row.key) || (grain === "group" && isGroup && depth === 0))
             && !mustReveal(row.key);
-        out.push({ row, depth, drilled: ui.drilled === row.key, collapsed });
+        out.push({ row, depth, collapsed });
         if (!collapsed) for (const child of kids) walk(child, depth + 1);
     };
     for (const root of index.roots) walk(root, 0);
@@ -142,8 +139,6 @@ export function pinnedRows(index: PlanRowIndex): PlanRowValue[] {
 export const ROW_H = 32;
 /** Dense row height (`density: compact`). */
 export const ROW_H_DENSE = 24;
-/** Drilled in-place expansion height. */
-export const ROW_H_DRILLED = 96;
 /** Group band height. */
 export const GROUP_H = 26;
 /** Group summary heat-strip height (collapsed group with cells). */
@@ -204,10 +199,6 @@ export function rowHeight(
         const inFamily = v.row.key === focus.key || (focus.family?.has(v.row.key) ?? false);
         if (!inFamily) return RAIL_H;
     }
-    // The 96px in-place expansion only applies to rows CARRYING a drill
-    // payload — a payload-less row keeps its kind height while drilled
-    // (the tint + host `onDrill` still fire).
-    if (v.drilled && v.row.drill.type === "some") return ROW_H_DRILLED;
     const explicit = v.row.height.type === "some" ? pxOf(v.row.height.value) : undefined;
     if (explicit !== undefined) return explicit;
     const kind = v.row.kind;

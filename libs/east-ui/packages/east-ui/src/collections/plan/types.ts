@@ -25,10 +25,10 @@
  * can import it without a circular dependency. Since the data-interface
  * redesign (`Plan Data Interface.md` §3.2/§3.3) that includes the WHOLE row
  * vocabulary: elements (runs, bucket events, chips, event marks, decisions),
- * the row kind, the row itself, templates and journeys carry **no
+ * the row kind, the row itself and templates carry **no
  * `UIComponentType` and no per-element UI embeds** — rich surfaces resolve
  * through the ROOT's `popover` / `hover` / `expandRender` functions over
- * {@link PlanElementRefType} / row refs (the `journeys` pattern), so a row is
+ * {@link PlanElementRefType} / row refs, so a row is
  * a storable, pageable dataset element. Only the root, review and the
  * resolver signatures stay UIComponent-coupled (`./ir.ts`, mirrored inline
  * with the recursion `node` in the `Plan` arm of `component.ts` — every
@@ -101,8 +101,8 @@ export const PlanAxisType = StructType({
 export type PlanAxisType = typeof PlanAxisType;
 
 /**
- * The three grains of one canvas — GROUP (heat strips), RESOURCE (rows, the
- * default) and ITEM (trajectories, only ever on a filtered set ≤ 60 rows).
+ * The two grains of one canvas — GROUP (heat strips) and RESOURCE (rows, the
+ * default).
  *
  * @remarks
  * The grain changes rows — never the axis, the charts or the vocabulary. Set
@@ -111,13 +111,12 @@ export type PlanAxisType = typeof PlanAxisType;
  *
  * @property group - Every group collapsed to its summary heat strip
  * @property resource - Resource rows (the default)
- * @property item - Item trajectories on a filtered set
  */
-export const PlanGrainType = VariantType({ group: NullType, resource: NullType, item: NullType });
+export const PlanGrainType = VariantType({ group: NullType, resource: NullType });
 export type PlanGrainType = typeof PlanGrainType;
 
 /** String-literal shorthand for {@link PlanGrainType}. */
-export type PlanGrainLiteral = "group" | "resource" | "item";
+export type PlanGrainLiteral = "group" | "resource";
 
 // ============================================================================
 // Gutter — the left cell's identity vocabulary
@@ -160,41 +159,6 @@ export const PlanGutterType = StructType({
     swatches: ArrayType(PlanGutterSwatchType),
 });
 export type PlanGutterType = typeof PlanGutterType;
-
-// ============================================================================
-// Drill — the in-place 96px expansion payload
-// ============================================================================
-
-/**
- * One point of a drilled row's level trace (area + line).
- *
- * @property at - The instant
- * @property value - The level at that instant
- */
-export const PlanDrillPointType = StructType({
-    at:    DateTimeType,
-    value: FloatType,
-});
-export type PlanDrillPointType = typeof PlanDrillPointType;
-
-/**
- * The drilled-row payload — identity lines, meter, level trace, named events
- * and the journey link shown when a row expands in place to 96px.
- *
- * @property lines - Identity lines (`"120 t · FILL"`, `"B-208 · 88 t · 73%"`)
- * @property meter - Optional 0..1 fill for the 108×5px meter bar
- * @property series - Optional level trace (drawn as area + line on the shared scale)
- * @property events - The named-event line (`"TRANSFER W31 · −24 t"`)
- * @property journey - Optional item key — renders the `open item journey →` link (K8 overlay)
- */
-export const PlanDrillType = StructType({
-    lines:   ArrayType(StringType),
-    meter:   OptionType(FloatType),
-    series:  OptionType(ArrayType(PlanDrillPointType)),
-    events:  ArrayType(StringType),
-    journey: OptionType(StringType),
-});
-export type PlanDrillType = typeof PlanDrillType;
 
 // ============================================================================
 // Span-row leaf data — ports, rollup, bands
@@ -748,7 +712,7 @@ export const PlanStyleType = StructType({
 export type PlanStyleType = typeof PlanStyleType;
 
 // ============================================================================
-// Templates + journey — the plain vocabulary
+// Templates + links — the plain vocabulary
 // ============================================================================
 
 /**
@@ -774,12 +738,11 @@ export type PlanTemplateKindType = typeof PlanTemplateKindType;
 export type PlanTemplateKindLiteral = "span" | "buckets" | "chart" | "heat" | "table" | "cards" | "events";
 
 /**
- * One quantity link between two runs — the Plan's edge vocabulary, shared by
- * the root's `links` graph (the links-focus control gathers a row's
- * transitive upstream/downstream family over these edges) and the K8 journey
- * overlay's ribbons. Each edge renders as a quantity-weighted ribbon between
- * the run edges it names; geometry is fixed by the spec and lives in the
- * renderer.
+ * One quantity link between two runs — the Plan's edge vocabulary. The root's
+ * `links` graph carries them and the links-focus control gathers a row's
+ * transitive upstream/downstream family over these edges. Each edge renders as
+ * a quantity-weighted ribbon between the run edges it names; geometry is fixed
+ * by the spec and lives in the renderer.
  *
  * @property fromRow - The source row key
  * @property fromRun - The source run key
@@ -797,10 +760,6 @@ export const PlanLinkType = StructType({
     label:    StringType,
 });
 export type PlanLinkType = typeof PlanLinkType;
-
-/** The K8 journey overlay's ribbon — the same edge shape as {@link PlanLinkType} (one East type). */
-export const PlanJourneyRibbonType = PlanLinkType;
-export type PlanJourneyRibbonType = typeof PlanJourneyRibbonType;
 
 /**
  * How a row's expand-in-place developer render treats the shared axis lines
@@ -1025,9 +984,9 @@ export type PlanRowKindType = typeof PlanRowKindType;
  * the collection. `pinned`
  * rows render above the virtualised body under the ruler; `height` is a
  * fixed CSS-px override; `status` the quiet gutter dot; `approval` the
- * review verdict (rendered only with the root's review chrome); `drill`
- * the in-place 96px expansion payload; `expand` the R2 declaration (the
- * render itself is the root's `expandRender` resolver).
+ * review verdict (rendered only with the root's review chrome); `expand`
+ * the R2 declaration (the render itself is the root's `expandRender`
+ * resolver).
  */
 export const PlanRowType = StructType({
     key: StringType,
@@ -1038,7 +997,6 @@ export const PlanRowType = StructType({
     height: OptionType(StringType),
     status: OptionType(StatusValueType),
     approval: OptionType(ApprovalStateType),
-    drill: OptionType(PlanDrillType),
     expand: OptionType(PlanExpandType),
 });
 /** Type alias for {@link PlanRowType}. */
@@ -1101,27 +1059,6 @@ export const PlanTemplateType = StructType({
 });
 /** Type alias for {@link PlanTemplateType}. */
 export type PlanTemplateType = typeof PlanTemplateType;
-
-/**
- * The K8 journey overlay — one item's story: ancestors above, descendants
- * below, quantity ribbons between run edges, decision diamonds on the
- * transitions. Item families are domain data the canvas cannot derive, so
- * the ITEM grain and the drilled row's `open item journey →` resolve
- * through the root's `journeys` behavior prop at interaction time.
- */
-export const PlanJourneyType = StructType({
-    title: StringType,
-    rows: ArrayType(StructType({
-        key: StringType,
-        label: StringType,
-        sublabel: OptionType(StringType),
-        runs: ArrayType(PlanRunType),
-    })),
-    ribbons: ArrayType(PlanJourneyRibbonType),
-    decisions: ArrayType(PlanDecisionMarkType),
-});
-/** Type alias for {@link PlanJourneyType}. */
-export type PlanJourneyType = typeof PlanJourneyType;
 
 // ============================================================================
 // TypeScript input interfaces (UIComp-free)
