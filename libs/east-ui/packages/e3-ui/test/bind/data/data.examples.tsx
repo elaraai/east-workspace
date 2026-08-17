@@ -278,6 +278,7 @@ export const dataBindPagedPlan = example({
                 // bands are the renderer's, over rows it was handed a window
                 // at a time.
                 Plan.series.span(OpsRow, {
+                        key: "span", title: "Span",
                     match: r => r.line.equal("Docks").not(),
                     label: (_r, k) => k, id: true,
                     value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
@@ -303,6 +304,7 @@ export const dataBindPagedPlan = example({
                 // as a real profile rather than a flat band.
                 Plan.series.group(OpsRow, { key: "docks", label: "Docks", meta: "10 berths", collapsed: true, summaryAggregate: "mean" }, [
                     Plan.series.heat(OpsRow, {
+                        key: "heat-2", title: "Heat",
                         match: r => r.line.equal("Docks"),
                         label: (_r, k) => k, id: true,
                         cells: r => Plan.heatCells(

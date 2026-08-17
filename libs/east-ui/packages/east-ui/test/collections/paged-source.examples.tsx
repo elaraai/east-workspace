@@ -51,6 +51,7 @@ export const pagedSourceCanvas = example({
         const source = $.const(Paged.of("units", units));
         const series = $.const([
             Plan.series.span(UnitRow, {
+                    key: "units", title: "Units",
                 label: (_r, k) => k, id: true,
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
@@ -130,6 +131,7 @@ export const pagedSourceWindows = example({
         const source = $.const(Paged.of("units", units));
         const series = $.const([
             Plan.series.span(UnitRow, {
+                    key: "units-2", title: "Units",
                 label: (_r, k) => k, id: true,
                 value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
                 runs: (r, k) => [Plan.run({

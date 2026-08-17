@@ -78,6 +78,7 @@ function buildPagedPlan(): PlanRootValue {
         const source = $.const(Paged.of("units", units));
         const series = $.const([
             Plan.series.span(UnitRow, {
+                key: "units", title: "Units",
                 label: (_r, k) => k, id: true,
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,

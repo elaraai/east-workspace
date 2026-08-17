@@ -606,6 +606,7 @@ describeEast("Plan", (test) => {
             series: [
                 Plan.series.group(LineRow, { by: r => r.line, prefix: "line-", collapsed: true, summaryAggregate: "mean" }, [
                     Plan.series.heat(LineRow, {
+                        key: "heat", title: "Heat",
                         label: (_r, k) => k,
                         cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
                     }),
@@ -641,6 +642,7 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [Plan.series.span(SpanRow, {
+                        key: "span", title: "Span",
                 label: (_r, k) => k, id: true,
                 runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, qty: r.tonnes, state: variant("confirmed", null) })],
                 groupBy: [r => r.program], rollup: "union", unit: "t",
@@ -670,8 +672,10 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [
-                Plan.series.events(Row, { label: (_r, k) => k, marks: _r => [] }),
-                Plan.series.events(Row, { prefix: "alt/", label: (_r, k) => k, marks: _r => [] }),
+                Plan.series.events(Row, {
+                        key: "events", title: "Events", label: (_r, k) => k, marks: _r => [] }),
+                Plan.series.events(Row, {
+                        key: "events-2", title: "Events", prefix: "alt/", label: (_r, k) => k, marks: _r => [] }),
             ],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
@@ -705,6 +709,7 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [Plan.series.span(MachineRow, {
+                        key: "span-2", title: "Span",
                 label: (_r, k) => k, id: true,
                 value: r => some(East.str`${East.Float.printFixed(r.cap, 0n)} t`),
                 status: r => r.warn.ifElse(
@@ -771,6 +776,7 @@ describeEast("Plan", (test) => {
             data: ops,
             series: [
                 Plan.series.span(OpsRow, {
+                        key: "span-3", title: "Span",
                     match: r => r.kind.hasTag("machine"),
                     label: (_r, k) => k, id: true,
                     runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
@@ -780,6 +786,7 @@ describeEast("Plan", (test) => {
                     groupBy: [r => r.line], rollup: "union", unit: "t",
                 }),
                 Plan.series.cards(OpsRow, {
+                        key: "cards", title: "Cards",
                     match: r => r.kind.hasTag("crew"),
                     label: (_r, k) => k,
                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
@@ -820,6 +827,7 @@ describeEast("Plan", (test) => {
         // The series list is itself an East VALUE — typed by the constructor.
         const series = $.const([
             Plan.series.span(OpsRow, {
+                        key: "span-4", title: "Span",
                 label: (_r, k) => k,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
@@ -853,6 +861,7 @@ describeEast("Plan", (test) => {
                 Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
                 Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
                     Plan.series.cards(OpsRow, {
+                        key: "cards-2", title: "Cards",
                         label: (_r, k) => k,
                         chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
                             const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
@@ -903,6 +912,7 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data: handle,
             series: [Plan.series.span(OpsRow, {
+                        key: "span-5", title: "Span",
                 label: (_r, k) => k,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,

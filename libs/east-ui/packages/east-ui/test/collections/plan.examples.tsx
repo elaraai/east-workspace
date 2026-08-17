@@ -226,6 +226,7 @@ export const planTargetState = example({
             // order; the whole list is an East value typed by the constructor.
             const series = $.const([
                 Plan.series.chart(OpsRow, {
+                        key: "chart", title: "Chart",
                     match: r => r.kind.hasTag("kpi"),
                     label: r => r.kind.unwrap("kpi").name, id: true,
                     pinned: r => r.kind.unwrap("kpi").pinned,
@@ -239,6 +240,7 @@ export const planTargetState = example({
                 }),
                 Plan.series.group(OpsRow, { key: "10-line1", label: "Line 1", meta: "8 rs · 82%" }, [
                     Plan.series.span(OpsRow, {
+                        key: "span", title: "Span",
                         match: r => r.kind.hasTag("machine"),
                         label: (_r, k) => k, id: true,
                         value:  r => some(East.str`${East.Float.printFixed(r.kind.unwrap("machine").cap, 0n)} t`),
@@ -251,6 +253,7 @@ export const planTargetState = example({
                 ]),
                 Plan.series.group(OpsRow, { key: "20-line2", label: "Line 2", value: "98%", status: "warning", collapsed: true, summaryAggregate: "mean" }, [
                     Plan.series.heat(OpsRow, {
+                        key: "heat", title: "Heat",
                         match: r => r.kind.hasTag("load"),
                         label: r => r.kind.unwrap("load").name,
                         sub: r => some(r.kind.unwrap("load").sub),
@@ -259,6 +262,7 @@ export const planTargetState = example({
                 ]),
                 Plan.series.group(OpsRow, { key: "30-docks", label: "Docks · In", meta: "3 rs" }, [
                     Plan.series.buckets(OpsRow, {
+                        key: "buckets", title: "Buckets",
                         match: r => r.kind.hasTag("dock"),
                         label: r => r.kind.unwrap("dock").name,
                         value: _r => some("load/wk"),
@@ -268,12 +272,14 @@ export const planTargetState = example({
                     }),
                 ]),
                 Plan.series.cards(OpsRow, {
+                        key: "cards", title: "Cards",
                     match: r => r.kind.hasTag("crew"),
                     label: r => r.kind.unwrap("crew").name, stacked: true,
                     sub: r => some(r.kind.unwrap("crew").hours),
                     chips: r => shiftChips(r.kind.unwrap("crew").shifts),
                 }),
                 Plan.series.events(OpsRow, {
+                        key: "events", title: "Events",
                     match: r => r.kind.hasTag("stream"),
                     label: r => r.kind.unwrap("stream").name, id: true,
                     value: r => some(East.print(r.kind.unwrap("stream").marks.length())),
@@ -450,30 +456,35 @@ export const planSpanRows = example({
             })));
         const series = $.const([
             Plan.series.span(MachineRow, {
+                        key: "flavours", title: "Flavours",
                 match: r => r.family.equal("flavours"),
                 label: (_r, k) => k, id: true,
                 value: r => r.value,
                 runs: r => jobRuns(r.jobs),
             }),
             Plan.series.span(MachineRow, {
+                        key: "detail", title: "Detail",
                 match: r => r.family.equal("detail"),
                 label: (_r, k) => k, id: true, stacked: true,
                 sub: r => r.sub, expand: r => r.expand,
                 runs: r => jobRuns(r.jobs), decisions: r => r.decisions, ports: r => r.ports,
             }),
             Plan.series.span(MachineRow, {
+                        key: "rollup", title: "Rollup",
                 match: r => r.family.equal("rollup"),
                 label: (_r, k) => k, id: true,
                 runs: r => jobRuns(r.jobs),
                 groupBy: [r => r.program], rollup: "union", unit: "t",
             }),
             Plan.series.span(MachineRow, {
+                        key: "despatch", title: "Despatch",
                 match: r => r.family.equal("despatch"),
                 label: (_r, k) => k, id: true,
                 runs: r => jobRuns(r.jobs),
             }),
             Plan.series.group(MachineRow, { key: "line2", label: "Line 2", meta: "1 rs" }, [
                 Plan.series.span(MachineRow, {
+                        key: "line2", title: "Line2",
                     match: r => r.family.equal("line2"),
                     label: (_r, k) => k, id: true,
                     runs: r => jobRuns(r.jobs),
@@ -586,6 +597,7 @@ export const planBucketRows = example({
         const series = $.const([
             // Raw allocations → resting tiles, in the accessor.
             Plan.series.buckets(DockRow, {
+                        key: "inbound", title: "Inbound",
                 match: r => r.family.equal("inbound"),
                 label: r => r.label,
                 value: r => r.value,
@@ -595,6 +607,7 @@ export const planBucketRows = example({
             Plan.series.group(DockRow, { key: "outbound", label: "Docks · Out", meta: "1 rs" }, [
                 // Stored vocabulary records pass straight through.
                 Plan.series.buckets(DockRow, {
+                        key: "outbound", title: "Outbound",
                     match: r => r.family.equal("outbound"),
                     label: r => r.label,
                     sub: r => r.sub,
@@ -672,6 +685,7 @@ export const planChartRows = example({
             // Line — the KPI spark with a breach threshold; the caret opens
             // it to a custom 120px (expandedHeight, default 88).
             Plan.series.chart(ChartRow, {
+                        key: "spark", title: "Spark",
                 match: r => r.family.equal("spark"),
                 label: r => r.label, id: true,
                 value: r => r.value, status: _r => some(variant("warning", null)),
@@ -680,6 +694,7 @@ export const planChartRows = example({
             }),
             // Area — the cumulative fill.
             Plan.series.chart(ChartRow, {
+                        key: "cum", title: "Cumulative",
                 match: r => r.family.equal("cum"),
                 label: r => r.label, id: true, value: r => r.value,
                 layers: r => [Chart.Area(r.points, { x: p => p.week, y: p => p.pct })],
@@ -687,6 +702,7 @@ export const planChartRows = example({
             // Columns — the row's two point sets stacked by one series id,
             // on a two-line gutter (label over sub).
             Plan.series.chart(ChartRow, {
+                        key: "stacked", title: "Stacked",
                 match: r => r.family.equal("stacked"),
                 label: r => r.label, id: true, stacked: true, sub: r => r.sub,
                 layers: r => [
@@ -696,12 +712,14 @@ export const planChartRows = example({
             }),
             // Scatter — the defect cloud.
             Plan.series.chart(ChartRow, {
+                        key: "ppm", title: "Ppm",
                 match: r => r.family.equal("ppm"),
                 label: r => r.label, id: true, value: r => r.value,
                 layers: r => [Chart.Scatter(r.points, { x: p => p.week, y: p => p.pct })],
             }),
             // Line + every annotation kind, at expanded density.
             Plan.series.chart(ChartRow, {
+                        key: "refs", title: "Refs",
                 match: r => r.family.equal("refs"),
                 label: r => r.label, id: true,
                 height: "expanded",
@@ -717,6 +735,7 @@ export const planChartRows = example({
             // columns scale left; the coverage line + its band scale right.
             Plan.series.group(ChartRow, { key: "quality", label: "Quality", meta: "1 rs" }, [
                 Plan.series.chart(ChartRow, {
+                        key: "dual", title: "Dual",
                     match: r => r.family.equal("dual"),
                     label: r => r.label, id: true,
                     height: Plan.fixed("120px"),
@@ -798,12 +817,14 @@ export const planHeatRows = example({
         const series = $.const([
             // The aggregate-mean parent derives per discovered line value.
             Plan.series.heat(HeatRow, {
+                        key: "depth", title: "Depth",
                 match: r => r.family.equal("depth"),
                 label: r => r.label, id: true,
                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),
                 groupBy: [r => r.line], aggregate: "mean", scale: { min: 0, max: 100, warnAt: 95 },
             }),
             Plan.series.heat(HeatRow, {
+                        key: "booked", title: "Booked",
                 match: r => r.family.equal("booked"),
                 label: r => r.label,
                 sub: r => r.sub,
@@ -811,6 +832,7 @@ export const planHeatRows = example({
             }),
             Plan.series.group(HeatRow, { key: "packing", label: "Packing", meta: "1 rs" }, [
                 Plan.series.heat(HeatRow, {
+                        key: "segments", title: "Segments",
                     match: r => r.family.equal("segments"),
                     label: r => r.label,
                     sub: r => r.sub,
@@ -898,6 +920,7 @@ export const planTableRows = example({
         ]), DictType(StringType, OrderRow));
         const series = $.const([
             Plan.series.table(OrderRow, {
+                        key: "orders", title: "Orders",
                 match: r => r.family.equal("orders"),
                 label: r => r.name,
                 cells: r => Plan.tableCells(r.act),
@@ -905,6 +928,7 @@ export const planTableRows = example({
                 format: Format.Number({ maximumFractionDigits: 0n }),
             }),
             Plan.series.table(OrderRow, {
+                        key: "net", title: "Net",
                 match: r => r.family.equal("net"),
                 label: r => r.name, emphasis: "footer",
                 cells: r => Plan.tableCells(r.act),
@@ -913,6 +937,7 @@ export const planTableRows = example({
             // Per-POSITION style declared ONCE, in the CONFIG — a strong
             // rolled-up actual beside its muted, always-signed plan Δ.
             Plan.series.table(OrderRow, {
+                        key: "actplan", title: "Actual vs plan",
                 match: r => r.family.equal("actplan"),
                 label: r => r.name, stacked: true, sub: r => r.sub,
                 series: r => [
@@ -927,6 +952,7 @@ export const planTableRows = example({
             }),
             // The VERTICAL split stacks the positions; the row grows.
             Plan.series.table(OrderRow, {
+                        key: "inout", title: "Inout",
                 match: r => r.family.equal("inout"),
                 label: r => r.name, split: "vertical",
                 series: r => [
@@ -939,6 +965,7 @@ export const planTableRows = example({
             // above: the split is a cell-layout choice and the gutter a label
             // choice, so neither implies the other.
             Plan.series.table(OrderRow, {
+                        key: "sidebyside", title: "Side by side",
                 match: r => r.family.equal("sidebyside"),
                 label: r => r.name, split: "horizontal",
                 series: r => [
@@ -952,6 +979,7 @@ export const planTableRows = example({
             // instead of collapsing to one number and looking complete. Flag a
             // position `rollup: true` to narrow it back to that one.
             Plan.series.table(OrderRow, {
+                        key: "flow", title: "Flow",
                 match: r => r.family.equal("flow"),
                 label: r => r.name,
                 series: r => [
@@ -971,6 +999,7 @@ export const planTableRows = example({
             // from its own empty list would call this a one-line row and render
             // it as two.
             Plan.series.table(OrderRow, {
+                        key: "stack", title: "Stack",
                 match: r => r.family.equal("stack"),
                 label: r => r.name, split: "vertical",
                 series: r => [
@@ -983,6 +1012,7 @@ export const planTableRows = example({
             // VERTICAL on a TWO-line gutter — the remaining combination, and
             // the one that grows the row in BOTH directions at once.
             Plan.series.table(OrderRow, {
+                        key: "overunder", title: "Over / under",
                 match: r => r.family.equal("overunder"),
                 label: r => r.name, split: "vertical", stacked: true, sub: r => r.sub,
                 series: r => [
@@ -1045,6 +1075,7 @@ export const planCardRows = example({
         ]), DictType(StringType, CrewRow));
         const series = $.const([
             Plan.series.cards(CrewRow, {
+                        key: "main", title: "Main",
                 match: r => r.family.equal("main"),
                 label: r => r.name, stacked: true,
                 sub: r => r.sub,
@@ -1064,6 +1095,7 @@ export const planCardRows = example({
             }),
             Plan.series.group(CrewRow, { key: "pool", label: "Relief pool", meta: "1 rs" }, [
                 Plan.series.cards(CrewRow, {
+                        key: "pool", title: "Pool",
                     match: r => r.family.equal("pool"),
                     label: r => r.name,
                     value: r => r.value,
@@ -1123,6 +1155,7 @@ export const planEventRows = example({
         ]), DictType(StringType, StreamRow));
         const series = $.const([
             Plan.series.events(StreamRow, {
+                        key: "main-2", title: "Main",
                 match: r => r.family.equal("main"),
                 label: r => r.name, id: true,
                 value: r => r.value,
@@ -1130,6 +1163,7 @@ export const planEventRows = example({
             }),
             Plan.series.group(StreamRow, { key: "programs", label: "Programs", meta: "1 rs" }, [
                 Plan.series.events(StreamRow, {
+                        key: "programs", title: "Programs",
                     match: r => r.family.equal("programs"),
                     label: r => r.name, id: true, stacked: true,
                     sub: r => r.sub,
@@ -1203,6 +1237,7 @@ export const planGroupedRows = example({
         const series = $.const([
             Plan.series.group(LineRow, { key: "line1", label: "Line 1", meta: "2 rs · 82%" }, [
                 Plan.series.span(LineRow, {
+                        key: "l1span", title: "L1span",
                     match: r => r.family.equal("l1span"),
                     label: r => r.label, id: true,
                     runs: r => r.jobs.map((_$, j) => Plan.run({
@@ -1211,6 +1246,7 @@ export const planGroupedRows = example({
                     })),
                 }),
                 Plan.series.heat(LineRow, {
+                        key: "l1heat", title: "L1heat",
                     match: r => r.family.equal("l1heat"),
                     label: r => r.label,
                     cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
@@ -1218,6 +1254,7 @@ export const planGroupedRows = example({
             ]),
             Plan.series.group(LineRow, { key: "line2", label: "Line 2", value: "98%", status: "warning", collapsed: true, summaryAggregate: "mean" }, [
                 Plan.series.heat(LineRow, {
+                        key: "l2", title: "L2",
                     match: r => r.family.equal("l2"),
                     label: r => r.label,
                     cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),
@@ -1227,6 +1264,7 @@ export const planGroupedRows = example({
             // value, wearing the member-count meta.
             Plan.series.group(LineRow, { by: r => r.line, match: r => r.family.equal("byline"), collapsed: true, summaryAggregate: "mean" }, [
                 Plan.series.heat(LineRow, {
+                        key: "byline", title: "By line",
                     match: r => r.family.equal("byline"),
                     label: r => r.label, id: true,
                     cells: r => Plan.heatCells(r.cells),
@@ -1301,6 +1339,7 @@ export const planSeriesData = example({
                 Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
             ] })]),
             Plan.series.span(OpsRow, {
+                        key: "span-2", title: "Span",
                 match: r => r.kind.hasTag("machine"),
                 label: (_r, k) => k, id: true,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
@@ -1313,6 +1352,7 @@ export const planSeriesData = example({
             }),
             Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
                 Plan.series.cards(OpsRow, {
+                        key: "cards-2", title: "Cards",
                     match: r => r.kind.hasTag("crew"),
                     label: (_r, k) => k,
                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
@@ -1373,6 +1413,7 @@ export const planLibraryDnd = example({
         ]), DictType(StringType, MachineRow));
         const series = $.const([
             Plan.series.span(MachineRow, {
+                        key: "span-3", title: "Span",
                 label: (_r, k) => k, id: true,
                 runs: r => r.jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
@@ -1511,6 +1552,7 @@ export const planFill = example({
         const series = $.const([
             Plan.series.group(UnitRow, { by: r => r.line }, [
                 Plan.series.span(UnitRow, {
+                        key: "span-4", title: "Span",
                     match: r => r.family.equal("span"),
                     label: (_r, k) => k, id: true, sub: r => r.sub,
                     runs: (r, k) => [Plan.run({
@@ -1522,6 +1564,7 @@ export const planFill = example({
                 }),
                 // Heat rows are 28px — shorter than everything around them.
                 Plan.series.heat(UnitRow, {
+                        key: "heat-2", title: "Heat",
                     match: r => r.family.equal("heat"),
                     label: (_r, k) => k, id: true, sub: r => r.sub,
                     cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
@@ -1531,24 +1574,28 @@ export const planFill = example({
                 // which is the point here: a spark, then three EXPANDED rows
                 // several times taller, scattered through the same key order.
                 Plan.series.chart(UnitRow, {
+                        key: "spark-2", title: "Spark",
                     match: r => r.family.equal("spark"),
                     label: (_r, k) => k, id: true, sub: r => r.sub,
                     height: "spark", expandable: true,
                     layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
                 }),
                 Plan.series.chart(UnitRow, {
+                        key: "chartM", title: "Chart · medium",
                     match: r => r.family.equal("chartM"),
                     label: (_r, k) => k, id: true, sub: r => r.sub,
                     height: Plan.fixed("72px"),
                     layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
                 }),
                 Plan.series.chart(UnitRow, {
+                        key: "chartL", title: "Chart · large",
                     match: r => r.family.equal("chartL"),
                     label: (_r, k) => k, id: true, sub: r => r.sub,
                     height: "expanded",
                     layers: r => [Chart.Area(r.points, { x: p => p.week, y: p => p.pct })],
                 }),
                 Plan.series.chart(UnitRow, {
+                        key: "chartXL", title: "Chart · x-large",
                     match: r => r.family.equal("chartXL"),
                     label: (_r, k) => k, id: true, sub: r => r.sub,
                     height: "expanded", expandedHeight: "140px",
@@ -1630,6 +1677,7 @@ export const planReview = example({
 
             const series = $.const([
                 Plan.series.span(JobRow, {
+                        key: "span-5", title: "Span",
                     label: (_r, k) => k, id: true,
                     value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
                     // Seeds the BUTTONS from the live verdict. `deriveApproval`
@@ -1834,6 +1882,7 @@ export const planExpand = example({
                 data={ops}
                 series={[
                     Plan.series.span(OpsRow, {
+                        key: "span-6", title: "Span",
                         match: r => r.family.equal("span"),
                         label: r => r.label, id: true, expand: r => r.expand,
                         runs: r => r.jobs.map((_$, j) => Plan.run({
@@ -1841,16 +1890,19 @@ export const planExpand = example({
                         })),
                     }),
                     Plan.series.heat(OpsRow, {
+                        key: "heat-3", title: "Heat",
                         match: r => r.family.equal("heat"),
                         label: r => r.label, expand: r => r.expand,
                         cells: r => Plan.heatCells(r.cells, { min: 40.0, max: 100.0 }),
                     }),
                     Plan.series.table(OpsRow, {
+                        key: "table", title: "Table",
                         match: r => r.family.equal("table"),
                         label: r => r.label, expand: r => r.expand,
                         cells: r => r.nums,
                     }),
                     Plan.series.events(OpsRow, {
+                        key: "events-2", title: "Events",
                         match: r => r.family.equal("events"),
                         label: r => r.label, id: true, expand: r => r.expand,
                         marks: r => r.marks,

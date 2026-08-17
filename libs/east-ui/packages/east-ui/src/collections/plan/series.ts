@@ -38,6 +38,7 @@ import {
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
+import { IconType } from "../../display/icon/types.js";
 import { ApprovalStateType } from "../../contracts/approval.js";
 import { foldEntriesToDict } from "../../shared/reify.js";
 import { TableAggregateType } from "../table/types.js";
@@ -54,7 +55,7 @@ import {
     PlanRowsCollectionType,
     type PlanRowsValue,
 } from "./types.js";
-import { resolveTag, emptyRows } from "./builders.js";
+import { resolveTag, resolveIcon, emptyRows, type PlanIconInput } from "./builders.js";
 import { groupParentFn, applyRowOverrides, normalizeRows, LAST_WINS, type PlanRowsInput, type PlanRowBaseInput } from "./assemble.js";
 import {
     createBuckets,
@@ -108,17 +109,32 @@ import {
  * @param r - The row type value
  * @returns The concrete `VariantType` of a series over `r`
  */
-const seriesShape = (r: EastType) => VariantType({
-    span:    StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    buckets: StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    chart:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    heat:    StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    table:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    cards:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    events:  StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    group:   StructType({ make: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-    rows:    StructType({ rows: PlanRowsCollectionType }),
-});
+const seriesShape = (r: EastType) => {
+    // Every data-driven arm carries the same identity + the same reified
+    // pipeline. `key` and `title` are what let a family be listed, ordered and
+    // persisted (#590 phase 1); `derive` is the pipeline itself.
+    const family = (rt: EastType) => ({
+        key:      StringType,
+        title:    StringType,
+        subtitle: OptionType(StringType),
+        icon:     OptionType(IconType),
+        derive:   FunctionType([DictType(StringType, rt)], PlanRowsCollectionType),
+    });
+    return VariantType({
+        span:    StructType(family(r)),
+        buckets: StructType(family(r)),
+        chart:   StructType(family(r)),
+        heat:    StructType(family(r)),
+        table:   StructType(family(r)),
+        cards:   StructType(family(r)),
+        events:  StructType(family(r)),
+        // `group` and `rows` keep the old shape until their own identity
+        // collision is resolved — both configs already spend `key` / `label`
+        // on the group ROW (#590 §6.1, second instance).
+        group:   StructType({ derive: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
+        rows:    StructType({ rows: PlanRowsCollectionType }),
+    });
+};
 
 /** The one TS-face series shape (`R` erased to `StructType`). */
 type PlanSeriesShape = ReturnType<typeof seriesShape>;
@@ -164,7 +180,28 @@ export type PlanMatchFn = (row: ExprType<StructType>, key: ExprType<StringType>)
  *
  * @typeParam R - The data row type
  */
-export interface PlanSeriesEnvelopeConfig<R extends StructType> {
+/**
+ * What identifies a row FAMILY — carried by every `Plan.series.*` config so a
+ * family can be ordered, persisted and listed in the series library (#590).
+ *
+ * @remarks
+ * `title`, not `label`: a series config already spends `label` on its per-ROW
+ * gutter accessor, and one object literal cannot mean two things by one word.
+ * `key` is likewise the FAMILY's, never a row's — a leaf row's key is always
+ * the source entry's own (#568).
+ */
+export interface PlanSeriesIdentity {
+    /** Stable family identity — what ordering, persistence and the library address. */
+    key: string;
+    /** The family's name, as a user reads it ("Machine jobs"). */
+    title: string;
+    /** The family's muted role line ("one row per machine"). */
+    subtitle?: string;
+    /** Card-icon override; omit ⇒ the icon this row KIND declares. */
+    icon?: PlanIconInput;
+}
+
+export interface PlanSeriesEnvelopeConfig<R extends StructType> extends PlanSeriesIdentity {
     /** Row-family membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
     /** Key prefix for this family's rows; omit ⇒ the source's keys, unchanged. */
@@ -197,19 +234,19 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> {
 }
 
 /** Config for {@link Plan.series.span} — the span `.of` surface plus `match`. */
-export interface PlanSpanSeriesConfig<R extends StructType> extends PlanSpanOfConfig<R> {
+export interface PlanSpanSeriesConfig<R extends StructType> extends PlanSpanOfConfig<R>, PlanSeriesIdentity {
     /** Row-family membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.heat} — the heat `.of` surface plus `match`. */
-export interface PlanHeatSeriesConfig<R extends StructType> extends PlanHeatOfConfig<R> {
+export interface PlanHeatSeriesConfig<R extends StructType> extends PlanHeatOfConfig<R>, PlanSeriesIdentity {
     /** Row-family membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.table} — the table `.of` surface plus `match`. */
-export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTableOfConfig<R> {
+export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTableOfConfig<R>, PlanSeriesIdentity {
     /** Row-family membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
@@ -302,9 +339,18 @@ function seriesValue<R extends StructType>(
     rowType: R,
     tag: string,
     payload: object,
+    /** The family identity (#590). Omitted by `group` / `rows`, whose arms do
+     *  not carry it yet. */
+    identity?: PlanSeriesIdentity,
 ): PlanSeriesValue {
+    const id = identity === undefined ? {} : {
+        key:      identity.key,
+        title:    identity.title,
+        subtitle: identity.subtitle !== undefined ? some(identity.subtitle) : none,
+        icon:     identity.icon !== undefined ? some(resolveIcon(identity.icon)) : none,
+    };
     return East.value(
-        variant(tag, payload) as unknown as SubtypeExprOrValue<PlanSeriesShape>,
+        variant(tag, { ...id, ...payload }) as unknown as SubtypeExprOrValue<PlanSeriesShape>,
         PlanSeriesType(rowType),
     ) as PlanSeriesValue;
 }
@@ -372,14 +418,14 @@ export function applySeriesValue(
     rows: ExprType<DictType<StringType, StructType>>,
 ): PlanRowsValue {
     return s.match({
-        span:    (_$, v) => v.make(rows),
-        buckets: (_$, v) => v.make(rows),
-        chart:   (_$, v) => v.make(rows),
-        heat:    (_$, v) => v.make(rows),
-        table:   (_$, v) => v.make(rows),
-        cards:   (_$, v) => v.make(rows),
-        events:  (_$, v) => v.make(rows),
-        group:   (_$, v) => v.make(rows),
+        span:    (_$, v) => v.derive(rows),
+        buckets: (_$, v) => v.derive(rows),
+        chart:   (_$, v) => v.derive(rows),
+        heat:    (_$, v) => v.derive(rows),
+        table:   (_$, v) => v.derive(rows),
+        cards:   (_$, v) => v.derive(rows),
+        events:  (_$, v) => v.derive(rows),
+        group:   (_$, v) => v.derive(rows),
         rows:    (_$, v) => v.rows,
     }) as PlanRowsValue;
 }
@@ -430,9 +476,9 @@ export function applySeries(
  */
 export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanSpanSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanSpanSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, cfg.groupBy,
+    const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(spanParentKind(cfg)), spanLeafOf(cfg), cfg.prefix);
-    return seriesValue(rowType, "span", { make });
+    return seriesValue(rowType, "span", { derive }, cfg);
 }
 
 /**
@@ -447,10 +493,10 @@ export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanS
 export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanHeatSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanHeatSeriesConfig<StructType>;
     const mode = cfg.aggregate ?? "mean";
-    const make = seriesScaffold(rowType, cfg.match, cfg.groupBy,
+    const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(heatParentKind(cfg), some(resolveTag(mode, PlanAggregateType).getTag())),
         heatLeafOf(cfg), cfg.prefix);
-    return seriesValue(rowType, "heat", { make });
+    return seriesValue(rowType, "heat", { derive }, cfg);
 }
 
 /**
@@ -465,10 +511,10 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
 export function createSeriesTable<R extends StructType>(rowType: R, config: PlanTableSeriesOfConfig<R>): PlanSeriesValue {
     const cfg = config as PlanTableSeriesOfConfig<StructType>;
     const mode = cfg.aggregate ?? "sum";
-    const make = seriesScaffold(rowType, cfg.match, cfg.groupBy,
+    const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(tableParentKind(cfg), some(resolveTag(mode, TableAggregateType).getTag())),
         tableLeafOf(cfg), cfg.prefix);
-    return seriesValue(rowType, "table", { make });
+    return seriesValue(rowType, "table", { derive }, cfg);
 }
 
 /**
@@ -482,7 +528,7 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
  */
 export function createSeriesBuckets<R extends StructType>(rowType: R, config: PlanBucketsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanBucketsSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
+    const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createBuckets({
             key:   prefixedKey(cfg.prefix, k),
             label: cfg.label(r, k),
@@ -494,7 +540,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
         }),
         envelopeOverrides(cfg, r, k),
     ), cfg.prefix);
-    return seriesValue(rowType, "buckets", { make });
+    return seriesValue(rowType, "buckets", { derive }, cfg);
 }
 
 /**
@@ -508,7 +554,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
  */
 export function createSeriesCards<R extends StructType>(rowType: R, config: PlanCardsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanCardsSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
+    const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createCards({
             key:   prefixedKey(cfg.prefix, k),
             label: cfg.label(r, k),
@@ -518,7 +564,7 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
         }),
         envelopeOverrides(cfg, r, k),
     ), cfg.prefix);
-    return seriesValue(rowType, "cards", { make });
+    return seriesValue(rowType, "cards", { derive }, cfg);
 }
 
 /**
@@ -531,7 +577,7 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
  */
 export function createSeriesEvents<R extends StructType>(rowType: R, config: PlanEventsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanEventsSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
+    const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createEvents({
             key:   prefixedKey(cfg.prefix, k),
             label: cfg.label(r, k),
@@ -541,7 +587,7 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
         }),
         envelopeOverrides(cfg, r, k),
     ), cfg.prefix);
-    return seriesValue(rowType, "events", { make });
+    return seriesValue(rowType, "events", { derive }, cfg);
 }
 
 /**
@@ -555,7 +601,7 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
  */
 export function createSeriesChart<R extends StructType>(rowType: R, config: PlanChartSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanChartSeriesConfig<StructType>;
-    const make = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
+    const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createChart({
             key:   prefixedKey(cfg.prefix, k),
             label: cfg.label(r, k),
@@ -574,7 +620,7 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
             ...(cfg.pinned !== undefined ? { pinned: some(cfg.pinned(r, k)) } : {}),
         },
     ), cfg.prefix);
-    return seriesValue(rowType, "chart", { make });
+    return seriesValue(rowType, "chart", { derive }, cfg);
 }
 
 /**
@@ -621,14 +667,14 @@ export function createSeriesGroup<R extends StructType>(
             const levels: PlanResolvedLevel[] = [{ by: reifyLevelKey(rt, cfg.by), parentFn }];
             return groupRows(matched, levels, (subset, _prefix) => applyChildren(subset), prefix);
         });
-        return seriesValue(rowType, "group", { make });
+        return seriesValue(rowType, "group", { derive: make });
     }
     // STATIC chrome — one literal strip around the children.
     const chrome = chromeOrBy as PlanGroupSeriesChrome;
     const make = East.function([DictType(StringType, rowType)], PlanRowsCollectionType, (_$, rows) => {
         return createGroup({ ...(chrome as PlanGroupInput), rows: applyChildren(rows as unknown as ExprType<DictType<StringType, StructType>>) });
     });
-    return seriesValue(rowType, "group", { make });
+    return seriesValue(rowType, "group", { derive: make });
 }
 
 /**
