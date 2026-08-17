@@ -10,7 +10,7 @@
 All beast2 serialization goes through east-c. No Python fallback.
 """
 
-from libc.stdint cimport int32_t, uint8_t, uintptr_t
+from libc.stdint cimport int32_t, uint8_t
 from libc.stddef cimport size_t
 from libc.stdlib cimport free, malloc
 from cpython.ref cimport Py_DECREF, Py_INCREF
@@ -567,7 +567,6 @@ cdef class _EmitAccumCore:
     cdef object _flush_cb
     cdef object _demote_cb
     cdef object _spill_cb
-    cdef object _fn_hold
 
     def __cinit__(self, int kind, object emit_types, object limit, object run_cap,
                   object flush_cb, object demote_cb, object spill_cb):
@@ -723,11 +722,25 @@ cdef class _EmitAccumCore:
         return (elems,)
 
     def function_value(self, object emit_types):
-        """The East function value backing ``emit``: its invoke is this
-        accumulator's C entry, and its declared type is
-        ``FunctionType(emit_types, NullType)`` so signature introspection
-        answers. The returned hold carries ``_east_c_handle`` (the
-        conversion fast-path attribute) and keeps this core alive."""
+        """The East function value backing ``emit``, as the bridge's standard
+        CALL WRAPPER: its invoke is this accumulator's C entry, and its
+        declared type is ``FunctionType(emit_types, NullType)`` so signature
+        introspection answers. The wrapper carries ``_east_c_handle`` (the
+        conversion fast-path attribute), so riding a compiled body's
+        FunctionType parameter still hands east-c the value itself — no
+        python in the per-row loop — and it owns the retain that keeps this
+        core alive.
+
+        It is also CALLABLE (issue #592), which a bespoke value holder was
+        not: this is the very object a python body receives when east-c
+        decodes the same value for a FunctionType parameter, so a harness
+        that invokes a ``@platform_function`` DIRECTLY from python gets the
+        identical shape. Called on plain values it marshals one row through
+        the same C acceptance path :meth:`emit` takes; called from inside a
+        trace it lowers to an IR ``Call`` on this sink (#561), so a pure
+        ``for_each(lambda k, v: emit(k, v))`` still pushes down and runs with
+        zero python per row.
+        """
         from east.types.types import FunctionType, NullType
 
         cdef _eastc.EastType* fn_t = py_type_to_c(FunctionType(list(emit_types), NullType))
@@ -735,30 +748,21 @@ cdef class _EmitAccumCore:
         cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
             <_eastc.EastInvokeFn>_emit_accum_invoke, <void*>self,
             _emit_accum_release, fn_t)
-        _eastc.east_type_release(fn_t)
         if fv == NULL:
+            # east_foreign_function released the userdata (our Py_INCREF).
+            _eastc.east_type_release(fn_t)
             raise MemoryError()
-        cdef uintptr_t fv_ptr = <uintptr_t>fv
-        core = self
-
-        class _EmitFnHold:
-            __slots__ = ("_east_c_handle", "_core", "_released")
-
-            def __init__(self):
-                self._east_c_handle = fv_ptr
-                self._core = core
-                self._released = False
-
-            def __del__(self):
-                if self._released:
-                    return
-                self._released = True
-                from east.runtime._compiler_eastc import _proxy_value_release
-                _proxy_value_release(self._east_c_handle)
-
-        hold = _EmitFnHold()
-        self._fn_hold = None  # the hold owns the value; the core need not
-        return hold
+        try:
+            # The bridge's own function wrapper — it takes its own retain on
+            # the value and on each parameter type, tags itself with
+            # _east_c_handle, and routes a proxy-argument call through
+            # _lower_compiled_call. Reusing it (instead of a hand-rolled
+            # hold) is what makes the sink behave like every other compiled
+            # East function value.
+            return c_value_to_py(fv, fn_t)
+        finally:
+            _eastc.east_value_release(fv)  # the wrapper owns it from here
+            _eastc.east_type_release(fn_t)
 
 
 def _beast2_read_type(object data):
