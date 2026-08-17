@@ -100,7 +100,7 @@ export function reifyLevelKey(rowType: StructType, by: PlanAccessor<StructType, 
  * Empty prefix (the default) means the canvas key IS the source key, which is
  * what keeps a paged canvas addressable: `seek` returns a row in the source's
  * key order and the canvas has a row under that very key. A non-empty prefix
- * is the author knowingly leaving that key space to keep two families over one
+ * is the author knowingly leaving that key space to keep two series over one
  * source apart.
  */
 export function prefixedKey(
@@ -198,7 +198,7 @@ export function groupRows(
  * @property decisions - Per-row decision-diamonds accessor
  * @property ports - Per-row ports accessor
  * @property groupBy - Group-key accessors (span rollup parents per level)
- * @property prefix - Key prefix for this family's rows (omit ⇒ the source's keys, unchanged)
+ * @property prefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
  * @property rollup - Parent rollup mode (default `"union"`)
  * @property unit - Quantity unit for band sums
  */
@@ -229,11 +229,11 @@ export interface PlanSpanOfConfig<R extends StructType> {
     ports?: PlanAccessor<R, ArrayType<typeof PlanPortType>>;
     /** Group-key accessors — one span rollup parent per discovered value per level. */
     groupBy?: PlanAccessor<R, StringType>[];
-    /** Key prefix for this family's rows — leaf keys and synthesized group
+    /** Key prefix for this series' rows — leaf keys and synthesized group
      *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
      *  the canvas stays addressable by the same keys `seek` searches. Supply
-     *  one only to keep two families over the SAME source apart; it takes the
-     *  family off the source key space, which is the author's call to make. */
+     *  one only to keep two series over the SAME source apart; it takes the
+     *  series off the source key space, which is the author's call to make. */
     prefix?: string;
     /** Parent rollup mode (default `"union"`; a literal or a `PlanRollupType` expression). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
@@ -297,7 +297,7 @@ export function spanLeafOf(cfg: PlanSpanOfConfig<StructType>): PlanLeafFn {
  * @property status - Per-row status-dot accessor
  * @property cells - Per-row cells accessor (a `PlanHeatCellsType`)
  * @property groupBy - Group-key accessors (aggregated heat parents per level)
- * @property prefix - Key prefix for this family's rows (omit ⇒ the source's keys, unchanged)
+ * @property prefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
  * @property aggregate - Parent aggregation mode (default `"mean"`)
  * @property scale - Heat scale applied to derived parent cells
  */
@@ -324,11 +324,11 @@ export interface PlanHeatOfConfig<R extends StructType> {
     cells: PlanAccessor<R, PlanHeatCellsType>;
     /** Group-key accessors — one aggregated heat parent per discovered value per level. */
     groupBy?: PlanAccessor<R, StringType>[];
-    /** Key prefix for this family's rows — leaf keys and synthesized group
+    /** Key prefix for this series' rows — leaf keys and synthesized group
      *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
      *  the canvas stays addressable by the same keys `seek` searches. Supply
-     *  one only to keep two families over the SAME source apart; it takes the
-     *  family off the source key space, which is the author's call to make. */
+     *  one only to keep two series over the SAME source apart; it takes the
+     *  series off the source key space, which is the author's call to make. */
     prefix?: string;
     /** Parent aggregation mode (default `"mean"`; a literal or a `PlanAggregateType` expression). */
     aggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
@@ -376,7 +376,7 @@ export function heatLeafOf(cfg: PlanHeatOfConfig<StructType>): PlanLeafFn {
  * @property split - Part layout when several value series render
  * @property emphasis - Row emphasis (`"body"` / `"header"` / `"footer"`)
  * @property groupBy - Group-key accessors (subtotal parents per level)
- * @property prefix - Key prefix for this family's rows (omit ⇒ the source's keys, unchanged)
+ * @property prefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
  * @property aggregate - Subtotal mode (default `"sum"`)
  * @property format - Numeral format for derived subtotals
  */
@@ -405,11 +405,11 @@ export interface PlanTableOfConfig<R extends StructType> {
     emphasis?: SubtypeExprOrValue<PlanTableEmphasisType> | PlanTableEmphasisLiteral;
     /** Group-key accessors — one subtotal parent per discovered value per level. */
     groupBy?: PlanAccessor<R, StringType>[];
-    /** Key prefix for this family's rows — leaf keys and synthesized group
+    /** Key prefix for this series' rows — leaf keys and synthesized group
      *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
      *  the canvas stays addressable by the same keys `seek` searches. Supply
-     *  one only to keep two families over the SAME source apart; it takes the
-     *  family off the source key space, which is the author's call to make. */
+     *  one only to keep two series over the SAME source apart; it takes the
+     *  series off the source key space, which is the author's call to make. */
     prefix?: string;
     /** Subtotal mode (default `"sum"`; a literal or a `TableAggregateType` expression). */
     aggregate?: SubtypeExprOrValue<TableAggregateType> | TableAggregateLiteral;
@@ -421,8 +421,8 @@ export interface PlanTableOfConfig<R extends StructType> {
  * The table PARENT kind — a subtotal declaration (header emphasis).
  *
  * @remarks
- * `split` is the family's, not a fixed `horizontal`: a subtotal lays its
- * positions out the way its members do, or a vertical family renders stacked
+ * `split` is the series', not a fixed `horizontal`: a subtotal lays its
+ * positions out the way its members do, or a vertical series renders stacked
  * rows under a parent that puts the same two numbers side by side — and, since
  * the row height follows the split, a parent that is one line tall while its
  * members are two.

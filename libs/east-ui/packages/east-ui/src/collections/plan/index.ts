@@ -294,19 +294,19 @@ export interface PlanNamespace {
      *  each builder takes the row type first and returns a real East series
      *  value (`Plan Data Interface.md` §3.5a). */
     series: {
-        /** A span family (runs; groupBy rollup parents). */
+        /** A span series (runs; groupBy rollup parents). */
         span: typeof createSeriesSpan;
-        /** A bucket family (Planner tiles). */
+        /** A bucket series (Planner tiles). */
         buckets: typeof createSeriesBuckets;
-        /** A chart family (layers from each row's data). */
+        /** A chart series (layers from each row's data). */
         chart: typeof createSeriesChart;
-        /** A heat family (groupBy aggregate parents). */
+        /** A heat series (groupBy aggregate parents). */
         heat: typeof createSeriesHeat;
-        /** A table family (groupBy subtotal parents). */
+        /** A table series (groupBy subtotal parents). */
         table: typeof createSeriesTable;
-        /** A cards family (Roster chips). */
+        /** A cards series (Roster chips). */
         cards: typeof createSeriesCards;
-        /** An events family (instant marks). */
+        /** An events series (instant marks). */
         events: typeof createSeriesEvents;
         /** A group strip around child series. */
         group: typeof createSeriesGroup;

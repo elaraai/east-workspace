@@ -44,7 +44,7 @@ h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
 .eyebrow{font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--ink)}
 .eyebrow-meta{font-family:var(--font-mono);font-size:10.5px;font-weight:500;color:var(--ink-4)}
 
-/* ── one family entry ────────────────────────────────────────────────── */
+/* ── one series entry ────────────────────────────────────────────────── */
 .fam{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--rule);cursor:pointer}
 .fam:last-child{border-bottom:none}
 .fam.open{background:var(--paper-2)}
@@ -64,7 +64,7 @@ h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
 .fam-sub{font-family:var(--font-mono);font-size:9.5px;font-weight:500;color:var(--ink-4);white-space:nowrap}
 .fam-n{font-family:var(--font-mono);font-size:10.5px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--ink-4);flex:none}
 .fam-n.zero{color:var(--neg);font-weight:600}
-/* A narrowed family shows its NARROWED count — that is what the number has
+/* A narrowed series shows its NARROWED count — that is what the number has
    always meant, so nothing needs explaining. The dot marks it as filtered, so a
    COLLAPSED row still says so without a sentence. */
 .fam-n.filtered{color:var(--brand-d);font-weight:600}
@@ -73,7 +73,7 @@ h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
 .fam.open .ibtn{color:var(--brand-d)}
 .grip{color:var(--ink-5);font-size:10px;flex:none;cursor:grab}
 
-/* ── the per-family detail: a real Slice.Rail ────────────────────────── */
+/* ── the per-series detail: a real Slice.Rail ────────────────────────── */
 .detail{padding:0 12px 10px 12px;background:var(--paper-2);border-bottom:1px solid var(--rule)}
 .rail{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0}
 .rchip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10.5px;
@@ -172,7 +172,7 @@ table.q.api td code{font-family:var(--font-mono);font-size:11px}
 
 /* ── the leading slot ─────────────────────────────────────────────────────
    The kind icon leads, because it is always meaningful and it is the one
-   thing that says WHAT this family renders — the IR already names the icon
+   thing that says WHAT this series renders — the IR already names the icon
    per kind. The drag grip lives in the SAME slot and swaps in on hover, so
    ordering costs no width and nothing shifts when you reach for it. */
 .kind{position:relative;width:14px;height:14px;flex:none;display:inline-flex;
@@ -182,9 +182,9 @@ table.q.api td code{font-family:var(--font-mono);font-size:11px}
 .fam:hover .kind > svg:first-child{opacity:0}
 .fam:hover .kgrip{opacity:1}
 </style></head><body><h1>Plan · the series library</h1>
-<p class="lede"><b>Row families become pickable.</b> A panel lists every family the canvas could show;
+<p class="lede"><b>Row series become pickable.</b> A panel lists every series the canvas could show;
 turning one on brings its rows in, turning it off takes them out, and dragging reorders them. The data never
-moves — only which families are on screen.</p>
+moves — only which series are on screen.</p>
 <p class="lede" style="margin-top:10px">Every measurement is lifted from the shipped recipes rather than
 eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, whole row to
 <code>opacity .5</code> when off — and the canvas in figure 2 is a screenshot of the real component.</p>
@@ -192,7 +192,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
 <span class="tag t-prop">proposed</span><span class="tag t-open">needs your call</span></div><div class="fig" id="f1">
   <div class="fig-h"><span class="fig-t">1 · every kind, in one list</span><span class="tag t-prop">proposed</span></div>
   <div class="fig-b"><div class="onecol"><div class="frame">
-      <div class="frame-h"><span class="eyebrow">Families</span><span class="eyebrow-meta">4 of 7 · 24 rs</span></div>
+      <div class="frame-h"><span class="eyebrow">Series</span><span class="eyebrow-meta">4 of 7 · 24 rs</span></div>
       <div class="fam">
       <span class="kind"><svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor"><path d="M0 96C0 78.3 14.3 64 32 64l384 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L32 128C14.3 128 0 113.7 0 96zM64 256c0-17.7 14.3-32 32-32l384 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L96 288c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32L32 448c-17.7 0-32-14.3-32-32s14.3-32 32-32l384 0c17.7 0 32 14.3 32 32z"/></svg><span class="kgrip"><svg viewBox="0 0 320 512" width="9" height="9" fill="currentColor"><path d="M128 40c0-22.1-17.9-40-40-40L40 0C17.9 0 0 17.9 0 40L0 88c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zm0 192c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zM0 424l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40zM320 40c0-22.1-17.9-40-40-40L232 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zM192 232l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40zM320 424c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48z"/></svg></span></span>
       <span class="fam-txt"><span class="fam-label">Machine jobs</span><span class="fam-sub">span · one row per machine</span></span>
@@ -236,7 +236,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
       <button class="ibtn"><svg viewBox="0 0 512 512" width="11" height="11" fill="currentColor"><path d="M32 64C14.3 64 0 78.3 0 96s14.3 32 32 32l86.7 0c12.3 28.3 40.5 48 73.3 48s61-19.7 73.3-48L480 128c17.7 0 32-14.3 32-32s-14.3-32-32-32L265.3 64C253 35.7 224.8 16 192 16s-61 19.7-73.3 48L32 64zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l246.7 0c12.3 28.3 40.5 48 73.3 48s61-19.7 73.3-48l54.7 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-54.7 0c-12.3-28.3-40.5-48-73.3-48s-61 19.7-73.3 48L32 224zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l54.7 0c12.3 28.3 40.5 48 73.3 48s61-19.7 73.3-48L480 448c17.7 0 32-14.3 32-32s-14.3-32-32-32l-246.7 0c-12.3-28.3-40.5-48-73.3-48s-61 19.7-73.3 48L32 384z"/></svg></button>
       <span class="eye off"><svg viewBox="0 0 576 512" width="9" height="9" fill="currentColor"><path d="M41-24.9c-9.4-9.4-24.6-9.4-33.9 0S-2.3-.3 7 9.1l528 528c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-96.4-96.4c2.7-2.4 5.4-4.8 8-7.2 46.8-43.5 78.1-95.4 93-131.1 3.3-7.9 3.3-16.7 0-24.6-14.9-35.7-46.2-87.7-93-131.1-47.1-43.7-111.8-80.6-192.6-80.6-56.8 0-105.6 18.2-146 44.2L41-24.9zM204.5 138.7c23.5-16.8 52.4-26.7 83.5-26.7 79.5 0 144 64.5 144 144 0 31.1-9.9 59.9-26.7 83.5l-34.7-34.7c12.7-21.4 17-47.7 10.1-73.7-13.7-51.2-66.4-81.6-117.6-67.9-8.6 2.3-16.7 5.7-24 10l-34.7-34.7zM325.3 395.1c-11.9 3.2-24.4 4.9-37.3 4.9-79.5 0-144-64.5-144-144 0-12.9 1.7-25.4 4.9-37.3L69.4 139.2c-32.6 36.8-55 75.8-66.9 104.5-3.3 7.9-3.3 16.7 0 24.6 14.9 35.7 46.2 87.7 93 131.1 47.1 43.7 111.8 80.6 192.6 80.6 37.3 0 71.2-7.9 101.5-20.6l-64.2-64.2z"/></svg></span>
     </div></div></div></div>
-  <div class="fig-c">One family per row kind, each wearing <b>the icon its kind already declares in the IR</b> —
+  <div class="fig-c">One series per row kind, each wearing <b>the icon its kind already declares in the IR</b> —
     span, heat, chart, table, buckets, cards, events. Four are on. <code>Machine jobs</code> shows
     <code>18 rs</code> in the brand with a dot because it is narrowed; <code>Defects</code> shows
     <code>0 rs</code> in the negative ink because its rule matches nothing here, which is the whole reason the
@@ -244,7 +244,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
 </div><div class="fig" id="f2">
   <div class="fig-h"><span class="fig-t">2 · beside the canvas</span><span class="tag t-real">canvas is a real render</span></div>
   <div class="fig-b"><div class="split"><div class="frame">
-      <div class="frame-h"><span class="eyebrow">Families</span><span class="eyebrow-meta">4 of 7 · 24 rs</span></div>
+      <div class="frame-h"><span class="eyebrow">Series</span><span class="eyebrow-meta">4 of 7 · 24 rs</span></div>
       <div class="fam">
       <span class="kind"><svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor"><path d="M0 96C0 78.3 14.3 64 32 64l384 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L32 128C14.3 128 0 113.7 0 96zM64 256c0-17.7 14.3-32 32-32l384 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L96 288c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32L32 448c-17.7 0-32-14.3-32-32s14.3-32 32-32l384 0c17.7 0 32 14.3 32 32z"/></svg><span class="kgrip"><svg viewBox="0 0 320 512" width="9" height="9" fill="currentColor"><path d="M128 40c0-22.1-17.9-40-40-40L40 0C17.9 0 0 17.9 0 40L0 88c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zm0 192c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zM0 424l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40zM320 40c0-22.1-17.9-40-40-40L232 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zM192 232l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40zM320 424c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48z"/></svg></span></span>
       <span class="fam-txt"><span class="fam-label">Machine jobs</span><span class="fam-sub">span · one row per machine</span></span>
@@ -293,9 +293,9 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
   <div class="fig-c">The panel writes, the canvas reads, and neither knows where the other is mounted — so this
     arrangement is one option, not the arrangement. It can sit in a drawer, or behind a toolbar chip.</div>
 </div><div class="fig" id="f3">
-  <div class="fig-h"><span class="fig-t">3 · a family opens in place</span><span class="tag t-prop">proposed</span></div>
+  <div class="fig-h"><span class="fig-t">3 · a series opens in place</span><span class="tag t-prop">proposed</span></div>
   <div class="fig-b"><div class="split"><div class="frame">
-      <div class="frame-h"><span class="eyebrow">Families</span><span class="eyebrow-meta">4 of 7 · 24 rs</span></div>
+      <div class="frame-h"><span class="eyebrow">Series</span><span class="eyebrow-meta">4 of 7 · 24 rs</span></div>
       <div class="fam open">
       <span class="kind"><svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor"><path d="M0 96C0 78.3 14.3 64 32 64l384 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L32 128C14.3 128 0 113.7 0 96zM64 256c0-17.7 14.3-32 32-32l384 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L96 288c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32L32 448c-17.7 0-32-14.3-32-32s14.3-32 32-32l384 0c17.7 0 32 14.3 32 32z"/></svg><span class="kgrip"><svg viewBox="0 0 320 512" width="9" height="9" fill="currentColor"><path d="M128 40c0-22.1-17.9-40-40-40L40 0C17.9 0 0 17.9 0 40L0 88c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zm0 192c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zM0 424l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40zM320 40c0-22.1-17.9-40-40-40L232 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48zM192 232l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40zM320 424c0-22.1-17.9-40-40-40l-48 0c-22.1 0-40 17.9-40 40l0 48c0 22.1 17.9 40 40 40l48 0c22.1 0 40-17.9 40-40l0-48z"/></svg></span></span>
       <span class="fam-txt"><span class="fam-label">Machine jobs</span><span class="fam-sub">span · one row per machine</span></span>
@@ -303,7 +303,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
       <button class="ibtn"><svg viewBox="0 0 512 512" width="11" height="11" fill="currentColor"><path d="M32 64C14.3 64 0 78.3 0 96s14.3 32 32 32l86.7 0c12.3 28.3 40.5 48 73.3 48s61-19.7 73.3-48L480 128c17.7 0 32-14.3 32-32s-14.3-32-32-32L265.3 64C253 35.7 224.8 16 192 16s-61 19.7-73.3 48L32 64zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l246.7 0c12.3 28.3 40.5 48 73.3 48s61-19.7 73.3-48l54.7 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-54.7 0c-12.3-28.3-40.5-48-73.3-48s-61 19.7-73.3 48L32 224zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l54.7 0c12.3 28.3 40.5 48 73.3 48s61-19.7 73.3-48L480 448c17.7 0 32-14.3 32-32s-14.3-32-32-32l-246.7 0c-12.3-28.3-40.5-48-73.3-48s-61 19.7-73.3 48L32 384z"/></svg></button>
       <span class="eye"><svg viewBox="0 0 576 512" width="9" height="9" fill="currentColor"><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6-46.8 43.5-78.1 95.4-93 131.1-3.3 7.9-3.3 16.7 0 24.6 14.9 35.7 46.2 87.7 93 131.1 47.1 43.7 111.8 80.6 192.6 80.6s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1 3.3-7.9 3.3-16.7 0-24.6-14.9-35.7-46.2-87.7-93-131.1-47.1-43.7-111.8-80.6-192.6-80.6zM144 256a144 144 0 1 1 288 0 144 144 0 1 1 -288 0zm144-64c0 35.3-28.7 64-64 64-11.5 0-22.3-3-31.7-8.4-1 10.9-.1 22.1 2.9 33.2 13.7 51.2 66.4 81.6 117.6 67.9s81.6-66.4 67.9-117.6c-12.2-45.7-55.5-74.8-101.1-70.8 5.3 9.3 8.4 20.1 8.4 31.7z"/></svg></span>
     </div><div class="xbody">
-      <span class="xlabel">Narrow this family</span>
+      <span class="xlabel">Narrow this series</span>
       <div class="xclause"><span class="xconj"></span><span class="xbox">line</span><span class="xop">is</span><span class="xbox">L1</span></div>
       <div class="xclause"><span class="xconj">and</span><span class="xbox">status</span><span class="xop">is not</span><span class="xbox">retired</span></div>
       <div class="xacts"><button class="xact">+ condition</button><button class="xact danger">Clear</button></div>
@@ -355,7 +355,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
     &ldquo;18 of 24 rows &middot; the canvas slice still applies on top&rdquo; there, which was wrong twice:
     the canvas slice is applied UPSTREAM by the host before the data ever reaches the canvas, so it comes
     first, not on top — and a rule about how two things compose does not belong on screen every time the panel
-    renders. The count in the header already means &ldquo;rows this family brings&rdquo;, so narrowing simply
+    renders. The count in the header already means &ldquo;rows this series brings&rdquo;, so narrowing simply
     <b>changes it</b>: <code>24 rs</code> becomes <code>18 rs</code>, in the brand, with a dot. That also
     survives collapsing, which a sentence inside the editor never could.</div>
 </div><div class="rules"><h2>Sign-off</h2>
@@ -367,7 +367,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
    series and returns Plan series — so it cannot serve Chart or Table without a shared contract that does not
    exist. Namespacing does not couple it: <code>Slice.Rail</code> is namespaced and mounts anywhere. The
    handle is what decouples.</td></tr>
- <tr><td><b>Row counts, including zero</b></td><td>A family whose rule matches nothing would otherwise be
+ <tr><td><b>Row counts, including zero</b></td><td>A series whose rule matches nothing would otherwise be
    switched on to no visible effect.</td></tr>
  <tr><td><b>Click first, drag second</b></td><td>Toggling is most of the value and needs no new grammar.
    Drag earns its place for ordering only.</td></tr>
@@ -380,7 +380,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
   swapping one before this ships; the obvious candidate is buckets, since it quantises into lanes and could
   take something with a column reading rather than a grid one. Flagging rather than substituting, because the
   icon set is the IR's, not the mock's.</div>
-<div class="note" style="margin-top:10px"><b>1 · What leads the row — settled: the kind icon.</b> Not a colour swatch: a family maps
+<div class="note" style="margin-top:10px"><b>1 · What leads the row — settled: the kind icon.</b> Not a colour swatch: a series maps
   to a row KIND and a kind has no colour. The icons are not invented either — <code>PlanTemplateKindType</code>
   already declares one per kind (bars-staggered · border-all · chart-line · table-cells-large · table-list ·
   user-group · flag), so the panel is showing a vocabulary the IR has always had and nothing rendered.
@@ -389,7 +389,7 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
   <code>SliceEditPopover</code> already renders as an in-flow disclosure instead of a popover when it sits in
   <code>editor</code> density, and <code>slice/density.ts</code> documents that case in exactly these terms:
   <em>&ldquo;the terminal surface &hellip; nothing opens a further popover&rdquo;</em>. <code>Slice.Rail</code>
-  already uses it. So the library wraps each family's affordances in
+  already uses it. So the library wraps each series' affordances in
   <code>&lt;SliceDensityContext.Provider value=&quot;editor&quot;&gt;</code> and the popover disappears by
   itself — nothing shared changes, and an earlier draft of this page was wrong to call it a blocker.
   The tint, the 12px margins and the hairline stay the library's own container styling.</div>

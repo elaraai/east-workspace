@@ -5,7 +5,7 @@
 
 /**
  * Plan series (`Plan Data Interface.md` §3.5/§3.5a) — the data-driven row
- * families of a `data` + `series` canvas. Series are REAL EAST VALUES:
+ * row series of a `data` + `series` canvas. Series are REAL EAST VALUES:
  * {@link PlanSeriesType} is a type constructor (the `DataBindHandleType`
  * pattern) instantiated per row type, and every `Plan.series.*` builder
  * reifies its accessors ONCE into the arm's typed `make` function
@@ -111,9 +111,9 @@ import {
  */
 const seriesShape = (r: EastType) => {
     // Every data-driven arm carries the same identity + the same reified
-    // pipeline. `key` and `title` are what let a family be listed, ordered and
+    // pipeline. `key` and `title` are what let a series be listed, ordered and
     // persisted (#590 phase 1); `derive` is the pipeline itself.
-    const family = (rt: EastType) => ({
+    const identified = (rt: EastType) => ({
         key:      StringType,
         title:    StringType,
         subtitle: OptionType(StringType),
@@ -121,13 +121,13 @@ const seriesShape = (r: EastType) => {
         derive:   FunctionType([DictType(StringType, rt)], PlanRowsCollectionType),
     });
     return VariantType({
-        span:    StructType(family(r)),
-        buckets: StructType(family(r)),
-        chart:   StructType(family(r)),
-        heat:    StructType(family(r)),
-        table:   StructType(family(r)),
-        cards:   StructType(family(r)),
-        events:  StructType(family(r)),
+        span:    StructType(identified(r)),
+        buckets: StructType(identified(r)),
+        chart:   StructType(identified(r)),
+        heat:    StructType(identified(r)),
+        table:   StructType(identified(r)),
+        cards:   StructType(identified(r)),
+        events:  StructType(identified(r)),
         // `group` and `rows` keep the old shape until their own identity
         // collision is resolved — both configs already spend `key` / `label`
         // on the group ROW (#590 §6.1, second instance).
@@ -165,7 +165,7 @@ export type PlanSeriesInput =
 // Series configs — the accessor surfaces
 // ============================================================================
 
-/** Row-family membership over one source ENTRY (value + key). */
+/** Series membership over one source ENTRY (value + key). */
 export type PlanMatchFn = (row: ExprType<StructType>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 
 /**
@@ -182,7 +182,7 @@ export type PlanMatchFn = (row: ExprType<StructType>, key: ExprType<StringType>)
  */
 /**
  * What identifies a row FAMILY — carried by every `Plan.series.*` config so a
- * family can be ordered, persisted and listed in the series library (#590).
+ * series can be ordered, persisted and listed in the series library (#590).
  *
  * @remarks
  * `title`, not `label`: a series config already spends `label` on its per-ROW
@@ -191,20 +191,20 @@ export type PlanMatchFn = (row: ExprType<StructType>, key: ExprType<StringType>)
  * the source entry's own (#568).
  */
 export interface PlanSeriesIdentity {
-    /** Stable family identity — what ordering, persistence and the library address. */
+    /** Stable identity — what ordering, persistence and the library address. */
     key: string;
-    /** The family's name, as a user reads it ("Machine jobs"). */
+    /** The series' name, as a user reads it ("Machine jobs"). */
     title: string;
-    /** The family's muted role line ("one row per machine"). */
+    /** The series' muted role line ("one row per machine"). */
     subtitle?: string;
     /** Card-icon override; omit ⇒ the icon this row KIND declares. */
     icon?: PlanIconInput;
 }
 
 export interface PlanSeriesEnvelopeConfig<R extends StructType> extends PlanSeriesIdentity {
-    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
-    /** Key prefix for this family's rows; omit ⇒ the source's keys, unchanged. */
+    /** Key prefix for this series' rows; omit ⇒ the source's keys, unchanged. */
     prefix?: string;
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
@@ -235,19 +235,19 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> extends PlanSeri
 
 /** Config for {@link Plan.series.span} — the span `.of` surface plus `match`. */
 export interface PlanSpanSeriesConfig<R extends StructType> extends PlanSpanOfConfig<R>, PlanSeriesIdentity {
-    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.heat} — the heat `.of` surface plus `match`. */
 export interface PlanHeatSeriesConfig<R extends StructType> extends PlanHeatOfConfig<R>, PlanSeriesIdentity {
-    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.table} — the table `.of` surface plus `match`. */
 export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTableOfConfig<R>, PlanSeriesIdentity {
-    /** Row-family membership — omitted ⇒ every data entry belongs. */
+    /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
@@ -285,7 +285,7 @@ export interface PlanChartSeriesConfig<R extends StructType> extends PlanSeriesE
     pinned?: PlanAccessor<R, BooleanType>;
     /** Per-row Chart layers accessor (`Chart.*` builders, bare or `Plan.layer`-wrapped). */
     layers: (row: ExprType<R>, key: ExprType<StringType>) => PlanChartLayerInput | PlanChartLayerInput[];
-    /** The left y-axis declaration (shared by the family's rows). */
+    /** The left y-axis declaration (shared by this series' rows). */
     left?: PlanChartAxisInput;
     /** The right y-axis declaration. */
     right?: PlanChartAxisInput;
@@ -295,7 +295,7 @@ export interface PlanChartSeriesConfig<R extends StructType> extends PlanSeriesE
     expandedHeight?: SubtypeExprOrValue<StringType>;
     /** Spark ↔ expanded toggle (caret). */
     expandable?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Gutter legend chips (shared by the family's rows). */
+    /** Gutter legend chips (shared by this series' rows). */
     swatches?: PlanRowBaseInput["swatches"];
 }
 
@@ -321,7 +321,7 @@ export interface PlanGroupSeriesByConfig<R extends StructType> {
     by: PlanAccessor<R, StringType>;
     /** Key prefix for the synthesized strip keys — a strip's key is
      *  `${prefix}${groupValue}`. Omit ⇒ the bare group value. Supply one to
-     *  keep two families grouping the same column apart, or where a group
+     *  keep two series grouping the same column apart, or where a group
      *  value could collide with a source key. */
     prefix?: string;
     /** Strips start collapsed. */
@@ -339,7 +339,7 @@ function seriesValue<R extends StructType>(
     rowType: R,
     tag: string,
     payload: object,
-    /** The family identity (#590). Omitted by `group` / `rows`, whose arms do
+    /** The series identity (#590). Omitted by `group` / `rows`, whose arms do
      *  not carry it yet. */
     identity?: PlanSeriesIdentity,
 ): PlanSeriesValue {
@@ -432,13 +432,13 @@ export function applySeriesValue(
 
 /**
  * Apply the `series` input to the data expression — the inline arm's
- * application (Table's `rows_mapped`, per family). A TS array applies each
+ * application (Table's `rows_mapped`, per series). A TS array applies each
  * value in declared order; an East expression folds at evaluation, so
  * `$.const`-bound and computed series lists work identically.
  *
  * @remarks
  * Families are unioned, not concatenated: the canvas is one keyed collection,
- * and two families that emit the same key resolve last-wins instead of both
+ * and two series that emit the same key resolve last-wins instead of both
  * rows surviving to be walked twice.
  */
 export function applySeries(
@@ -466,7 +466,7 @@ export function applySeries(
 // ============================================================================
 
 /**
- * A data-driven span family — one span row per matched data row, grouped
+ * A data-driven span series — one span row per matched data row, grouped
  * to arbitrary depth with rollup parents (the span `.of` surface + `match`).
  *
  * @typeParam R - The data row type
@@ -482,7 +482,7 @@ export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanS
 }
 
 /**
- * A data-driven heat family — one heat row per matched data row, grouped
+ * A data-driven heat series — one heat row per matched data row, grouped
  * with per-bucket-aggregated parents (the heat `.of` surface + `match`).
  *
  * @typeParam R - The data row type
@@ -500,7 +500,7 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
 }
 
 /**
- * A data-driven table family — one table row per matched data row, grouped
+ * A data-driven table series — one table row per matched data row, grouped
  * with subtotal parents (the table `.of` surface + `match`).
  *
  * @typeParam R - The data row type
@@ -518,7 +518,7 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
 }
 
 /**
- * A data-driven bucket family — one bucket row (the Planner surface) per
+ * A data-driven bucket series — one bucket row (the Planner surface) per
  * matched data row.
  *
  * @typeParam R - The data row type
@@ -544,7 +544,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
 }
 
 /**
- * A data-driven cards family — one cards row (Roster chips) per matched
+ * A data-driven cards series — one cards row (Roster chips) per matched
  * data row.
  *
  * @typeParam R - The data row type
@@ -568,7 +568,7 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
 }
 
 /**
- * A data-driven event family — one instant-mark row per matched data row.
+ * A data-driven event series — one instant-mark row per matched data row.
  *
  * @typeParam R - The data row type
  * @param rowType - The data row type
@@ -591,7 +591,7 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
 }
 
 /**
- * A data-driven chart family — one chart row per matched data row, layers
+ * A data-driven chart series — one chart row per matched data row, layers
  * built from the row's own data.
  *
  * @typeParam R - The data row type
@@ -679,7 +679,7 @@ export function createSeriesGroup<R extends StructType>(
 
 /**
  * Literal one-off chrome rows riding in canvas order between data-driven
- * families (a pinned KPI chart, a hand-built section) — the finished rows
+ * series (a pinned KPI chart, a hand-built section) — the finished rows
  * carried directly, no data dependence.
  *
  * @typeParam R - The data row type (pins the series against its siblings)

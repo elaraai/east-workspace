@@ -135,7 +135,7 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property axis - The shared time-axis declaration (`Plan.axis`)
  * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
  * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
- * @property series - The row families over `data` — `Plan.series.*` values, in canvas order
+ * @property series - The row series over `data` — `Plan.series.*` values, in canvas order
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
  * @property library - Row-library templates (`Plan.template` values)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
@@ -177,7 +177,7 @@ export interface PlanConfig {
      *  fitting the axis to whatever prefix has landed would re-fit it on every
      *  window (#567 D8). */
     data: SubtypeExprOrValue<DictType<StringType, StructType>> | PagedSourceLike;
-    /** The row families over `data` — `Plan.series.*` values in canvas order
+    /** The row series over `data` — `Plan.series.*` values in canvas order
      *  (a TS array or an East expression of `ArrayType(Plan.Types.Series(R))`).
      *  Literal one-off chrome rides a `Plan.series.rows` entry. */
     series: PlanSeriesInput;
