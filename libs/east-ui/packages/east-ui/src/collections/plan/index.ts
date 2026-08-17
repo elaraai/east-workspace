@@ -24,7 +24,7 @@
  * `types.ts` (UIComp-free data) · `ir.ts` (resolved IR types) ·
  * `builders.ts` (value/cell builders) · `assemble.ts` (row envelope + eager
  * engines) · `factories.ts` (kind factories + chart consumption) ·
- * `data-forms.ts` (`Plan.rows` + the `.of` accessor forms) · `root.ts`
+ * `data-forms.ts` (the accessor config surfaces + grouping engine) · `root.ts`
  * (templates + `Plan.Root`).
  *
  * @packageDocumentation
@@ -290,7 +290,7 @@ export interface PlanNamespace {
     events: typeof createEvents;
     /** Group strips (the heterogeneous container). */
     group: typeof createGroup;
-    /** Data-driven row FAMILIES over one source (`data` + `series` props) —
+    /** Data-driven row SERIES over one source (`data` + `series` props) —
      *  each builder takes the row type first and returns a real East series
      *  value (`Plan Data Interface.md` §3.5a). */
     series: {
@@ -310,7 +310,7 @@ export interface PlanNamespace {
         events: typeof createSeriesEvents;
         /** A group strip around child series. */
         group: typeof createSeriesGroup;
-        /** Literal one-off chrome rows in canvas order. */
+        /** Literal one-off chrome rows, placed by their own keys. */
         rows: typeof createSeriesRows;
     };
     /** Builds one span run. */
@@ -469,8 +469,8 @@ export interface PlanNamespace {
  * The `Plan` namespace — the temporally-aligned composite canvas. Assemble a
  * Plan with `Plan.Root` (the `<Plan>` tag), declare the axis with
  * `Plan.axis`, build rows with the kind factories (`Plan.span` / `buckets` /
- * `chart` / `heat` / `table` / `cards` / `events` / `group`, plus the
- * data-driven `Plan.rows` and `.of` forms), place content with the value
+ * `chart` / `heat` / `table` / `cards` / `events` / `group`, or drive them
+ * from data with `Plan.series.*`), place content with the value
  * builders (`Plan.run` / `event` / `chip` / `mark` / …), and reach every
  * East type via `Plan.Types.*`.
  */

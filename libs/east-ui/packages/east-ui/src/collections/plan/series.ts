@@ -5,15 +5,15 @@
 
 /**
  * Plan series (`Plan Data Interface.md` §3.5/§3.5a) — the data-driven row
- * row series of a `data` + `series` canvas. Series are REAL EAST VALUES:
+ * series of a `data` + `series` canvas. Series are REAL EAST VALUES:
  * {@link PlanSeriesType} is a type constructor (the `DataBindHandleType`
  * pattern) instantiated per row type, and every `Plan.series.*` builder
- * reifies its accessors ONCE into the arm's typed `make` function
+ * reifies its accessors ONCE into the arm's typed `derive` function
  * (`Fn(Dict<String, R>) → Dict<String, PlanRow>` — Table's per-column `valueFn` move)
- * and returns `variant(kind, { make })`. Application is eager expression
- * composition, typed end to end: the inline arm applies each series' `make`
+ * and returns `variant(kind, { derive })`. Application is eager expression
+ * composition, typed end to end: the inline arm applies each series' `derive`
  * to the data expression (Table's `rows_mapped`); the paged arm (P-c) wraps
- * the same `make`s over a `Data.bindPaged` handle's `page` method.
+ * the same `derive`s over a `Data.bindPaged` handle's `page` method.
  *
  * @packageDocumentation
  */
@@ -93,12 +93,12 @@ import {
 /**
  * The Plan series type CONSTRUCTOR — given the domain row type it returns
  * the concrete variant type of one series value (the `DataBindHandleType`
- * precedent: the row type lives structurally in each arm's `make`
+ * precedent: the row type lives structurally in each arm's `derive`
  * signature, so a series bound to one row type is a compile error against
  * data of another).
  *
  * @remarks
- * Every kind arm carries `make: Fn(Dict<String, R>) → Dict<String, PlanRow>` — the
+ * Every kind arm carries `derive: Fn(Dict<String, R>) → Dict<String, PlanRow>` — the
  * series' whole pipeline (match filter → per-entry construction → groupBy
  * parents) reified once by its builder, taking the source's KEYED collection
  * and producing the canvas's. A leaf row's key is the source entry's key, so
@@ -148,7 +148,7 @@ export const PlanSeriesType: (r: EastType) => PlanSeriesShape = seriesShape;
  * invariantly, so a row-typed face could never assign through `$.const` /
  * props; type safety lives in the builder CONFIGS (accessors checked
  * against `R`) and in the East runtime (the instantiated type from
- * `PlanSeriesType(rowType)` subtype-checks every stored `make`).
+ * `PlanSeriesType(rowType)` subtype-checks every stored `derive`).
  */
 export type PlanSeriesValue = ExprType<PlanSeriesShape>;
 
@@ -181,13 +181,13 @@ export type PlanMatchFn = (row: ExprType<StructType>, key: ExprType<StringType>)
  * @typeParam R - The data row type
  */
 /**
- * What identifies a row FAMILY — carried by every `Plan.series.*` config so a
+ * What identifies a row SERIES — carried by every `Plan.series.*` config so a
  * series can be ordered, persisted and listed in the series library (#590).
  *
  * @remarks
  * `title`, not `label`: a series config already spends `label` on its per-ROW
  * gutter accessor, and one object literal cannot mean two things by one word.
- * `key` is likewise the FAMILY's, never a row's — a leaf row's key is always
+ * `key` is likewise the SERIES', never a row's — a leaf row's key is always
  * the source entry's own (#568).
  */
 export interface PlanSeriesIdentity {
@@ -378,11 +378,11 @@ function envelopeOverrides(cfg: PlanSeriesEnvelopeConfig<StructType>, r: ExprTyp
 }
 
 /**
- * The shared scaffolding for ONE series' `make` — the `series.ts` twin of
+ * The shared scaffolding for ONE series' `derive` — the `series.ts` twin of
  * `data-forms.ts`'s `ofScaffold`: match filter → optional groupBy levels →
  * leaf rows, inside that single series' own reified function. NOT a
  * canvas-level compiler — the canvas never composes series into one
- * function; `applySeries` calls each series' `make` in declared order.
+ * function; `applySeries` calls each series' `derive` in declared order.
  */
 function seriesScaffold(
     rowType: StructType,
@@ -437,7 +437,7 @@ export function applySeriesValue(
  * `$.const`-bound and computed series lists work identically.
  *
  * @remarks
- * Families are unioned, not concatenated: the canvas is one keyed collection,
+ * Series are unioned, not concatenated: the canvas is one keyed collection,
  * and two series that emit the same key resolve last-wins instead of both
  * rows surviving to be walked twice.
  */
@@ -472,7 +472,7 @@ export function applySeries(
  * @typeParam R - The data row type
  * @param rowType - The data row type (every builder takes it first — the `Slice.config` shape)
  * @param config - The accessors + grouping ({@link PlanSpanSeriesConfig})
- * @returns A series value (`variant("span", { make })`)
+ * @returns A series value (`variant("span", { derive })`)
  */
 export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanSpanSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanSpanSeriesConfig<StructType>;
@@ -488,7 +488,7 @@ export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanS
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param config - The accessors + grouping ({@link PlanHeatSeriesConfig})
- * @returns A series value (`variant("heat", { make })`)
+ * @returns A series value (`variant("heat", { derive })`)
  */
 export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanHeatSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanHeatSeriesConfig<StructType>;
@@ -506,7 +506,7 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param config - The accessors + grouping ({@link PlanTableSeriesOfConfig})
- * @returns A series value (`variant("table", { make })`)
+ * @returns A series value (`variant("table", { derive })`)
  */
 export function createSeriesTable<R extends StructType>(rowType: R, config: PlanTableSeriesOfConfig<R>): PlanSeriesValue {
     const cfg = config as PlanTableSeriesOfConfig<StructType>;
@@ -524,7 +524,7 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param config - The accessors ({@link PlanBucketsSeriesConfig})
- * @returns A series value (`variant("buckets", { make })`)
+ * @returns A series value (`variant("buckets", { derive })`)
  */
 export function createSeriesBuckets<R extends StructType>(rowType: R, config: PlanBucketsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanBucketsSeriesConfig<StructType>;
@@ -550,7 +550,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param config - The accessors ({@link PlanCardsSeriesConfig})
- * @returns A series value (`variant("cards", { make })`)
+ * @returns A series value (`variant("cards", { derive })`)
  */
 export function createSeriesCards<R extends StructType>(rowType: R, config: PlanCardsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanCardsSeriesConfig<StructType>;
@@ -573,7 +573,7 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param config - The accessors ({@link PlanEventsSeriesConfig})
- * @returns A series value (`variant("events", { make })`)
+ * @returns A series value (`variant("events", { derive })`)
  */
 export function createSeriesEvents<R extends StructType>(rowType: R, config: PlanEventsSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanEventsSeriesConfig<StructType>;
@@ -597,7 +597,7 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param config - The accessors + shared axes ({@link PlanChartSeriesConfig})
- * @returns A series value (`variant("chart", { make })`)
+ * @returns A series value (`variant("chart", { derive })`)
  */
 export function createSeriesChart<R extends StructType>(rowType: R, config: PlanChartSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanChartSeriesConfig<StructType>;
@@ -630,8 +630,8 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
  * @typeParam R - The data row type
  * @param rowType - The data row type
  * @param chrome - The group's literal chrome ({@link PlanGroupSeriesChrome})
- * @param children - The member series, in canvas order
- * @returns A series value (`variant("group", { make })`)
+ * @param children - The member series (applied in declared order; their rows sit in KEY order)
+ * @returns A series value (`variant("group", { derive })`)
  */
 export function createSeriesGroup<R extends StructType>(
     rowType: R,
@@ -678,9 +678,10 @@ export function createSeriesGroup<R extends StructType>(
 }
 
 /**
- * Literal one-off chrome rows riding in canvas order between data-driven
- * series (a pinned KPI chart, a hand-built section) — the finished rows
- * carried directly, no data dependence.
+ * Literal one-off chrome rows riding beside the data-driven series (a pinned
+ * KPI chart, a hand-built section) — the finished rows carried directly, no
+ * data dependence. They are placed by their own KEYS like every other row,
+ * not by where this series sits in the list.
  *
  * @typeParam R - The data row type (pins the series against its siblings)
  * @param rowType - The data row type

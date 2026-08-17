@@ -7,7 +7,7 @@
  * The shared data-driven pipeline (`Plan Data Interface.md` §3.5a) — the
  * accessor config surfaces, the reified groupBy engine, and the per-kind
  * leaf/parent constructors that the `Plan.series.*` builders compose into
- * their `make` functions. Structure (groupBy levels) is host config; every
+ * their `derive` functions. Structure (groupBy levels) is host config; every
  * per-row value flows through accessors as expressions, optional ones
  * returning the fields' `Option` types.
  *

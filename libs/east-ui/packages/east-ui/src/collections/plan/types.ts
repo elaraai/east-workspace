@@ -1024,7 +1024,7 @@ export type PlanRowsValue = ExprType<PlanRowsCollectionType>;
  * contract ({@link PagedSourceType}) instantiated at the canvas-row
  * COLLECTION (`Plan Data Interface.md` §3.8). The factory builds it from the
  * author's source (a `Data.bindPaged` handle, a `Paged.of` fixture) by
- * wrapping each window with the series' `make` functions, so the renderer only
+ * wrapping each window with the series' `derive` functions, so the renderer only
  * ever sees typed, KEYED canvas-row windows — no bytes, no domain types, and
  * no row a later window can duplicate.
  */
