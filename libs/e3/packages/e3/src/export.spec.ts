@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { East, StringType, decodeBeast2For } from '@elaraai/east';
+import { East, DictType, IntegerType, StringType, beast2HasIndex, decodeBeast2For, openBeast2PagesFor } from '@elaraai/east';
 import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
@@ -327,3 +327,55 @@ function readZipEntries(zipPath: string): Promise<Map<string, Buffer>> {
     });
   });
 }
+
+describe('collection defaults export PAGEABLE', () => {
+  let tempDir: string;
+
+  before(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-export-paged-'));
+  });
+  after(async () => {
+    await fs.promises.rm(tempDir, { recursive: true });
+  });
+
+  /** The object a dataset ref points at, out of the bundle. */
+  function blobOf(entries: Map<string, Buffer>, refPath: string): Buffer {
+    const refData = entries.get(refPath);
+    assert.ok(refData, `missing ${refPath}`);
+    const ref = decodeBeast2For(DatasetRefType)(refData);
+    assert.strictEqual(ref.type, 'value');
+    const hash = ref.type === 'value' ? ref.value.hash : '';
+    const blob = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+    assert.ok(blob, `missing object ${hash}`);
+    return blob;
+  }
+
+  it('a collection default carries a segment index — the store path\'s invariant, at export', async () => {
+    // `datasetWrite` states it: collection roots are ALWAYS stored segmented
+    // with a trailing index, at every size. The export path encoded them flat,
+    // so a freshly DEPLOYED input could not be paged at all until something
+    // wrote it — `dataset_not_indexed`, with no whole-decode fallback.
+    const rows = new Map<string, bigint>();
+    for (let i = 0; i < 40; i++) rows.set(`u${String(i).padStart(3, '0')}`, BigInt(i));
+    const units = input('units', DictType(StringType, IntegerType), rows);
+    const zipPath = path.join(tempDir, 'paged.zip');
+    await export_(package_('paged-pkg', '1.0.0', units), zipPath);
+
+    const blob = blobOf(await readZip(zipPath), 'data/inputs/units.ref');
+    assert.ok(beast2HasIndex(blob), 'collection default must be exported with a segment index');
+
+    // ...and it must actually open for paged reads, reporting the true total.
+    const pages = openBeast2PagesFor(DictType(StringType, IntegerType))(blob);
+    assert.strictEqual(pages.elementCount, 40);
+    assert.ok(pages.segmentCount >= 1);
+  });
+
+  it('a scalar default stays unsegmented — only collection roots are paged', async () => {
+    const greeting = input('greeting', StringType, 'hello');
+    const zipPath = path.join(tempDir, 'scalar.zip');
+    await export_(package_('scalar-pkg', '1.0.0', greeting), zipPath);
+
+    const blob = blobOf(await readZip(zipPath), 'data/inputs/greeting.ref');
+    assert.ok(!beast2HasIndex(blob), 'a scalar root must not be segmented');
+  });
+});

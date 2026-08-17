@@ -183,6 +183,13 @@ export {
   type TransferDoneResponse,
 } from './transfer.js';
 
+// Dataset blob encoding — the ONE branch deciding segmentation, shared by the
+// store path (e3-core `datasetWrite`) and the package export path (e3 `export_`)
+export {
+  isCollectionRoot,
+  encodeDatasetBlob,
+} from './dataset-blob.js';
+
 // Wire format constants
 export { BEAST2_CONTENT_TYPE } from './constants.js';
 
