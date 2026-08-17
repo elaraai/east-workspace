@@ -56,6 +56,9 @@ export interface RowShellProps {
     focusTag?: "UPSTREAM" | "DOWNSTREAM" | "LINKED" | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
     axisMode?: "dim" | "off" | undefined;
+    /** The trailing review cell, when the canvas carries review chrome — the
+     *  third track `gridTemplate` grows by (#569). */
+    decision?: ReactNode;
     children: ReactNode;
 }
 
@@ -63,7 +66,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected, drilled,
     cursorFrac, caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, children,
+    controls, focusTag, axisMode, decision, children,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -172,6 +175,7 @@ export function RowShell({
                 {cursorFrac !== undefined && <Box css={styles.cursorLine} left={`${cursorFrac * 100}%`} />}
                 {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
             </Box>
+            {decision}
         </Box>
     );
 }

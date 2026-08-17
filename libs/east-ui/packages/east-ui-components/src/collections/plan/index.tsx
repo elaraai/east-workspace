@@ -63,6 +63,10 @@ import { FocusBar } from "./shell/FocusBar.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { PlanRuler } from "./shell/Ruler.js";
 import { PlanFooter } from "./shell/Footer.js";
+import {
+    usePlanReview, PlanDecisionCell, PlanDecisionHeader, tagOf, DECISION_WIDTH,
+} from "./shell/Review.js";
+import { ReviewFoot } from "../shared/review.js";
 import { type PlanTransport } from "./shell/transport.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -183,6 +187,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // table). A jump asks the driver to rebase on the matched ELEMENT; the
     // canvas then positions by key, since a leaf row's key IS its data key.
     const { search, targetKey } = usePlanSeek(pagedSource, rows, paging.jumpToElement);
+
+    // ── Review chrome (#569) — ACTIONS only. The verdict is not held here:
+    //    it lives wherever the author's callback wrote it and arrives back as
+    //    each row's `approval`, so the buttons and the canvas cannot disagree.
+    const review = usePlanReview(useMemo(() => getSomeorUndefined(value.review), [value.review]));
 
     // ── Slice chrome (the Table adopter pattern; chrome-only) ─────────────
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
@@ -418,7 +427,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // gutterWidth is a CSS px size string (the shared component-height type).
     const gutterWDeclared = style !== undefined && style.gutterWidth.type === "some" ? parseFloat(style.gutterWidth.value) : NaN;
     const gutterW = Number.isFinite(gutterWDeclared) ? gutterWDeclared : GUTTER_W;
-    const gridTemplate = `${gutterW}px 1fr`;
+    const gridTemplate = `${gutterW}px 1fr${review !== undefined ? ` ${DECISION_WIDTH}` : ""}`;
     const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
     // A declared bound goes on the WRAPPER and the frame fills the remainder
@@ -546,6 +555,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             row: v.row, styles, gridTemplate, depth: v.depth,
             selected: ui.selected === v.row.key, drilled: v.drilled, cursorFrac,
             controls: rowControls, focusTag, axisMode: axisTag,
+            decision: review !== undefined && review.hasRowVerbs
+                ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
+                : undefined,
         } as const;
         switch (kind.type) {
             case "span": {
@@ -632,7 +644,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 );
         }
     }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
-        focusCtx, linkedKeys, linkFamily, expandRenderFn, transport]);
+        focusCtx, linkedKeys, linkFamily, expandRenderFn, transport, review]);
 
     // R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
     // rows (their count rides beside the icon, worst hidden tone at right);
@@ -710,6 +722,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursor={ui.cursor !== null && cursorBucket !== undefined
                     ? { frac: ui.cursor.frac, label: cursorBucket.label }
+                    : undefined}
+                trailing={review !== undefined
+                    ? <PlanDecisionHeader label={review.columnLabel} />
                     : undefined} />
             {focusCtx?.kind !== "expand" && pinned.map((row) => (
                 <Box key={row.key} background="bg.surface">
@@ -824,6 +839,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             headerZIndex={5}
                             rootCss={styles.root}
                         />
+                    )}
+                    {/* The batch foot sits OUTSIDE the scrolling grid so it stays
+                        full-width under the canvas (the shared convention). */}
+                    {review !== undefined && (
+                        <ReviewFoot controller={review} storageKey={storageKey} />
                     )}
                     {/* R1 ribbons — the K8 vocabulary at the current row set. */}
                     {ui.focus?.kind === "links" && focusVisibleKeys !== undefined && (

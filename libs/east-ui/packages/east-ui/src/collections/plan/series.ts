@@ -38,6 +38,7 @@ import {
 } from "@elaraai/east";
 
 import { StatusValueType } from "../../feedback/status/types.js";
+import { ApprovalStateType } from "../../contracts/approval.js";
 import { foldEntriesToDict } from "../../shared/reify.js";
 import { TableAggregateType } from "../table/types.js";
 import {
@@ -181,6 +182,17 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> {
     value?: PlanAccessor<R, OptionType<StringType>>;
     /** Per-row status-dot accessor — returns the field's `Option`. */
     status?: PlanAccessor<R, OptionType<StatusValueType>>;
+    /**
+     * Per-row review-verdict accessor — returns the field's `Option`.
+     *
+     * @remarks
+     * SEEDS the review chrome's buttons; it does not decide how a decided row
+     * LOOKS. Appearance is derived like every other pixel on this canvas — a
+     * verdict your callback wrote is read back through your own accessors
+     * (`runs`' state for bar colour, `status` for a dot, `decisions` for a
+     * diamond). `deriveApproval(r.flagged)` is the canonical spelling.
+     */
+    approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
     /** Per-row drill-payload accessor — returns the field's `Option`. */
     drill?: PlanAccessor<R, OptionType<PlanDrillType>>;
     /** Per-row expand-in-place accessor — returns the field's `Option`. */
@@ -317,6 +329,7 @@ function envelopeOverrides(cfg: PlanSeriesEnvelopeConfig<StructType>, r: ExprTyp
         ...(cfg.sub !== undefined ? { sub: cfg.sub(r, k) } : {}),
         ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
         ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
+        ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
         ...(cfg.drill !== undefined ? { drill: cfg.drill(r, k) } : {}),
         ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
     };

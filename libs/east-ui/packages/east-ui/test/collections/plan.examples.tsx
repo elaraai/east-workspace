@@ -23,7 +23,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, Plan, Reactive, Slice, Text } from "@elaraai/east-ui";
+import { Box, Chart, Format, Plan, Reactive, Slice, Text, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1579,6 +1579,97 @@ export const planFill = example({
             <Box height="240px">
                 <Plan axis={axis} data={units} series={series} style={{ height: "fill" }} />
             </Box>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planReview — the review chrome, and what a verdict is FOR (#569)
+// ============================================================================
+
+export const planReview = example({
+    keywords: [
+        "Plan", "review", "approval", "approve", "reject", "verdict", "decision",
+        "deriveApproval", "flagged", "chrome", "batch", "foot", "onApprove",
+        "onReject", "onApproveAll", "derived", "accessor", "data",
+    ],
+    description: "Review chrome over a raw ops source — `review` carries the ACTIONS (per-row Approve / Reject on row keys, the batch foot) and nothing about appearance, while `approval: r => deriveApproval(r.flagged)` seeds each row's buttons from the data. What a decided row LOOKS like is the author's, derived through the accessors that already exist: here the same `verdict` field that seeds the buttons also picks each run's lifecycle state, so approving repaints the BAR — a decision diamond would be one more presentation of the same fact, not a privileged one",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        // The RAW record. `verdict` is ordinary data the author owns — an
+        // `onApprove` callback writes it (through `Data.bind` / `State`), and
+        // it comes back here like any other field.
+        const JobRow = StructType({
+            start: DateTimeType, end: DateTimeType, tonnes: FloatType,
+            flagged: BooleanType, verdict: StringType,
+        });
+        const jobs = $.const(new Map([
+            ["L1-M03", { start: week(28n), end: week(31n), tonnes: 96.0, flagged: true,  verdict: "pending" }],
+            ["L1-M04", { start: week(29n), end: week(33n), tonnes: 112.0, flagged: true,  verdict: "approved" }],
+            ["L1-M07", { start: week(30n), end: week(34n), tonnes: 64.0, flagged: true,  verdict: "rejected" }],
+            ["L2-M11", { start: week(27n), end: week(30n), tonnes: 88.0, flagged: false, verdict: "approved" }],
+        ]), DictType(StringType, JobRow));
+        const series = $.const([
+            Plan.series.span(JobRow, {
+                label: (_r, k) => k, id: true,
+                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                // Seeds the BUTTONS from the same field the bars read, so the
+                // two can never disagree. `deriveApproval` covers the
+                // undecided case — its canonical rule is "clean rests
+                // pre-approved, flagged awaits an explicit call".
+                approval: r => r.verdict.equal("approved").ifElse(
+                    () => some(variant("approved", null)),
+                    () => r.verdict.equal("rejected").ifElse(
+                        () => some(variant("rejected", null)),
+                        () => deriveApproval(r.flagged))),
+                // ...and the SAME fact drives the bar, because appearance here
+                // is derived like everything else. Approve a row, write the
+                // verdict, and this repaints — the chrome never touched it.
+                status: r => r.verdict.equal("rejected").ifElse(
+                    () => some(variant("danger", null)),
+                    () => r.flagged.and(_$ => r.verdict.equal("pending")).ifElse(
+                        () => some(variant("warning", null)),
+                        () => none)),
+                runs: (r, k) => [Plan.run({
+                    key: k, start: r.start, end: r.end,
+                    label: East.str`RUN · ${k}`,
+                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
+                    qty: r.tonnes,
+                    state: r.verdict.equal("approved").ifElse(
+                        () => variant("confirmed", null),
+                        () => r.verdict.equal("rejected").ifElse(
+                            () => variant("rejected", null),
+                            () => variant("proposed", variant("recommended", null)))),
+                })],
+            }),
+        ], ArrayType(Plan.Types.Series(JobRow)));
+        const axis = $.const(Plan.axis({
+            window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+        }));
+        // The callbacks are the author's: in a live app each writes the verdict
+        // through a binding, and the canvas re-derives from the data that comes
+        // back. Bound once so the memoized renderer keeps identity.
+        const onRowRef = $.const(East.function([Plan.Types.RowRef], NullType, (_$, _r) => null));
+        const onBatch = $.const(East.function([], NullType, (_$) => null));
+        return (
+            <Plan
+                axis={axis}
+                data={jobs}
+                series={series}
+                review={{
+                    summary: <Text>3 FLAGGED · 1 REJECTED</Text>,
+                    onApprove: onRowRef,
+                    onReject: onRowRef,
+                    onApproveAll: onBatch,
+                    onRejectAll: onBatch,
+                    onRerun: onBatch,
+                }}
+            />
         );
     }),
     inputs: [],

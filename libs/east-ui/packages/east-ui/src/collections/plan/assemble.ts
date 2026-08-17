@@ -317,6 +317,7 @@ interface PlanRowOverrides {
     sub?: SubtypeExprOrValue<OptionType<StringType>>;
     value?: SubtypeExprOrValue<OptionType<StringType>>;
     status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
+    approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
     drill?: SubtypeExprOrValue<OptionType<PlanDrillType>>;
     expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
     pinned?: SubtypeExprOrValue<OptionType<BooleanType>>;
@@ -325,10 +326,12 @@ interface PlanRowOverrides {
 /** Rebuild a 1-row subtree with accessor-supplied `Option` envelope fields. */
 export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): PlanRowsValue {
     if (o.sub === undefined && o.value === undefined && o.status === undefined
+        && o.approval === undefined
         && o.drill === undefined && o.expand === undefined && o.pinned === undefined) return rows;
     const sub    = o.sub    !== undefined ? East.value(o.sub, OptionType(StringType)) : undefined;
     const value  = o.value  !== undefined ? East.value(o.value, OptionType(StringType)) : undefined;
     const status = o.status !== undefined ? East.value(o.status, OptionType(StatusValueType)) : undefined;
+    const approval = o.approval !== undefined ? East.value(o.approval, OptionType(ApprovalStateType)) : undefined;
     const drill  = o.drill  !== undefined ? East.value(o.drill, OptionType(PlanDrillType)) : undefined;
     const expand = o.expand !== undefined ? East.value(o.expand, OptionType(PlanExpandType)) : undefined;
     const pinned = o.pinned !== undefined ? East.value(o.pinned, OptionType(BooleanType)) : undefined;
@@ -348,7 +351,7 @@ export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): Pla
         pinned:   pinned ?? r.pinned,
         height:   r.height,
         status:   status ?? r.status,
-        approval: r.approval,
+        approval: approval ?? r.approval,
         drill:    drill ?? r.drill,
         expand:   expand ?? r.expand,
     }, PlanRowType)) as PlanRowsValue;

@@ -37,10 +37,12 @@ export interface PlanRulerProps {
     caption: string;
     /** The cursor fraction + its bucket's label (the readout chip). */
     cursor: { frac: number; label: string } | undefined;
+    /** The trailing cell for the review decision column (#569). */
+    trailing?: React.ReactNode;
 }
 
 /** The 28px ruler band. */
-export function PlanRuler({ styles, gridTemplate, caption, cursor }: PlanRulerProps) {
+export function PlanRuler({ styles, gridTemplate, caption, cursor, trailing }: PlanRulerProps) {
     const scale = usePlanScale();
     const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
     return (
@@ -64,6 +66,7 @@ export function PlanRuler({ styles, gridTemplate, caption, cursor }: PlanRulerPr
                     </Box>
                 )}
             </Box>
+            {trailing}
         </Box>
     );
 }
