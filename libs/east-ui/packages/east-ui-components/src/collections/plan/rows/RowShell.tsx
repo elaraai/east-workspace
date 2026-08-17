@@ -210,8 +210,7 @@ export function RowShell({
                     drift to the middle), and the render takes the rest. */}
                 {expanded ? (
                     <>
-                        <Box position="absolute" left={0} right={0} top={0}
-                            height={`${bandHeight ?? 32}px`}>{children}</Box>
+                        <Box css={styles.expandRowBand} height={`${bandHeight ?? 32}px`}>{children}</Box>
                         <Box css={styles.expandRenderBody} data-plan-expandrender
                             top={`${(bandHeight ?? 32) + 2}px`}>
                             {expandBody}

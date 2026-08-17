@@ -40,7 +40,7 @@
  */
 
 import { useCallback, useMemo } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../../utils.js";
@@ -136,12 +136,13 @@ export function usePlanReview(review: PlanReviewValue | undefined): PlanReview |
  * The pressed look comes from `tag` — i.e. from the row's data — so the
  * buttons and the rest of the canvas cannot disagree about a verdict.
  *
- * Both buttons resolve from the **`commitBar`** recipe, the same one
- * `ReviewFoot` uses for Approve all / Reject all / Rerun. That is the point:
- * the spec gives a row's Approve and the foot's Approve all the SAME class
- * (`.abtn`), and they had drifted to two different greens precisely because
- * one came from the button recipe's `solid` and the other from `btnPrimary`.
- * One vocabulary, one source, and they cannot disagree again.
+ * Both buttons resolve from the shared **`button`** recipe, the same one
+ * `ReviewFoot` now uses for Approve all / Reject all / Rerun. That is the
+ * point: the spec gives a row's Approve and the foot's Approve all the SAME
+ * class (`.abtn`), and they had drifted to two different greens precisely
+ * because one came from the button recipe and the other from a hand-copied
+ * `commitBar` slot. The only difference left is the recipe's own size scale —
+ * `xs` (26px) in a row, `md` (32px) in the foot.
  *
  * Approve is solid at rest, not outline-until-approved: it is the row's
  * committing action whatever the row's current verdict is, exactly as
@@ -153,17 +154,16 @@ export function PlanDecisionCell({ rowKey, tag, review }: {
     review: PlanReview;
 }) {
     const recipe = useSlotRecipe({ key: "reviewChrome" });
-    const commit = useSlotRecipe({ key: "commitBar" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
-    const cs = useMemo(() => commit({}) as unknown as Styles, [commit]);
+    const btn = useRecipe({ key: "button" });
     return (
         <Box css={styles.decisionCol} data-slot="decisionCell" data-verdict={tag}>
-            <Box as="button" css={cs.btnPrimary} data-compact
+            <Box as="button" css={btn({ variant: "solid", size: "xs" })}
                 aria-pressed={tag === "approved"} data-plan-approve={rowKey}
                 onClick={(e) => { e.stopPropagation(); review.approveRow(rowKey); }}>
                 Approve
             </Box>
-            <Box as="button" css={cs.btnGhost} data-compact data-verdict={tag}
+            <Box as="button" css={btn({ variant: tag === "rejected" ? "danger" : "ghost", size: "xs" })}
                 aria-pressed={tag === "rejected"} data-plan-reject={rowKey}
                 onClick={(e) => { e.stopPropagation(); review.rejectRow(rowKey); }}>
                 Reject

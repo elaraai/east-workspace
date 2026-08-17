@@ -22,7 +22,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { DragEventType, EventStateType, StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { DragEventType, EventStateType, State, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import { Box, Chart, Format, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
@@ -55,7 +55,7 @@ export const planTargetState = example({
         "slice", "brush", "horizon", "toolbar", "affordances", "expand",
         "expandRender", "resolver", "data-driven", "accessor", "raw", "target state",
     ],
-    description: "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, the R2 expand declaration carried per row with the root's expandRender resolver, review and a status footer",
+    description: "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row family whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, the R2 expand declaration with the root's expandRender resolver, review and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
         const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType });
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
@@ -1574,86 +1574,111 @@ export const planReview = example({
     keywords: [
         "Plan", "review", "approval", "approve", "reject", "verdict", "decision",
         "deriveApproval", "flagged", "chrome", "batch", "foot", "onApprove",
-        "onReject", "onApproveAll", "derived", "accessor", "data",
+        "onReject", "onApproveAll", "onRejectAll", "Reactive", "State", "bind",
+        "write", "live", "derived", "accessor", "data",
     ],
-    description: "Review chrome over a raw ops source — `review` carries the ACTIONS (per-row Approve / Reject on row keys, the batch foot) and nothing about appearance, while `approval: r => deriveApproval(r.flagged)` seeds each row's buttons from the data. What a decided row LOOKS like is the author's, derived through the accessors that already exist: here the same `verdict` field that seeds the buttons also picks each run's lifecycle state, so approving repaints the BAR — a decision diamond would be one more presentation of the same fact, not a privileged one",
-    fn: East.function([], UIComponentType, ($) => {
-        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-            return w1.addWeeks(n.subtract(1n));
-        }));
-        // The RAW record. `verdict` is ordinary data the author owns — an
-        // `onApprove` callback writes it (through `Data.bind` / `State`), and
-        // it comes back here like any other field.
-        const JobRow = StructType({
-            start: DateTimeType, end: DateTimeType, tonnes: FloatType,
-            flagged: BooleanType, verdict: StringType,
-        });
-        const jobs = $.const(new Map([
-            ["L1-M03", { start: week(28n), end: week(31n), tonnes: 96.0, flagged: true,  verdict: "pending" }],
-            ["L1-M04", { start: week(29n), end: week(33n), tonnes: 112.0, flagged: true,  verdict: "approved" }],
-            ["L1-M07", { start: week(30n), end: week(34n), tonnes: 64.0, flagged: true,  verdict: "rejected" }],
-            ["L2-M11", { start: week(27n), end: week(30n), tonnes: 88.0, flagged: false, verdict: "approved" }],
-        ]), DictType(StringType, JobRow));
-        const series = $.const([
-            Plan.series.span(JobRow, {
-                label: (_r, k) => k, id: true,
-                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
-                // Seeds the BUTTONS from the same field the bars read, so the
-                // two can never disagree. `deriveApproval` covers the
-                // undecided case — its canonical rule is "clean rests
-                // pre-approved, flagged awaits an explicit call".
-                approval: r => r.verdict.equal("approved").ifElse(
-                    () => some(variant("approved", null)),
-                    () => r.verdict.equal("rejected").ifElse(
-                        () => some(variant("rejected", null)),
-                        () => deriveApproval(r.flagged))),
-                // ...and the SAME fact drives the bar, because appearance here
-                // is derived like everything else. Approve a row, write the
-                // verdict, and this repaints — the chrome never touched it.
-                status: r => r.verdict.equal("rejected").ifElse(
-                    () => some(variant("danger", null)),
-                    () => r.flagged.and(_$ => r.verdict.equal("pending")).ifElse(
-                        () => some(variant("warning", null)),
-                        () => none)),
-                runs: (r, k) => [Plan.run({
-                    key: k, start: r.start, end: r.end,
-                    label: East.str`RUN · ${k}`,
-                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                    qty: r.tonnes,
-                    state: r.verdict.equal("approved").ifElse(
-                        () => variant("confirmed", null),
-                        () => r.verdict.equal("rejected").ifElse(
-                            () => variant("rejected", null),
-                            () => variant("proposed", variant("recommended", null)))),
-                })],
-            }),
-        ], ArrayType(Plan.Types.Series(JobRow)));
-        const axis = $.const(Plan.axis({
-            window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
-        }));
-        // The callbacks are the author's: in a live app each writes the verdict
-        // through a binding, and the canvas re-derives from the data that comes
-        // back. Bound once so the memoized renderer keeps identity.
-        const onRowRef = $.const(East.function([Plan.Types.RowRef], NullType, (_$, _r) => null));
-        const onBatch = $.const(East.function([], NullType, (_$) => null));
-        return (
-            <Plan
-                axis={axis}
-                data={jobs}
-                series={series}
-                review={{
-                    summary: <Text>3 FLAGGED · 1 REJECTED</Text>,
-                    onApprove: onRowRef,
-                    onReject: onRowRef,
-                    onApproveAll: onBatch,
-                    onRejectAll: onBatch,
-                    onRerun: onBatch,
-                }}
-            />
-        );
-    }),
+    description: "Live review chrome — verdicts in a bound `State` dict, callbacks write it, and the canvas re-derives buttons, bar state and status dot inside a `Reactive`",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            // The RAW record carries NO verdict — deciding is not a property of
+            // the job, it is something the reviewer does to it. So the verdicts
+            // live in their own bound state and the job rows stay untouched.
+            const JobRow = StructType({
+                start: DateTimeType, end: DateTimeType, tonnes: FloatType, flagged: BooleanType,
+            });
+            const jobs = $.const(new Map([
+                ["L1-M03", { start: week(28n), end: week(31n), tonnes: 96.0,  flagged: true  }],
+                ["L1-M04", { start: week(29n), end: week(33n), tonnes: 112.0, flagged: true  }],
+                ["L1-M07", { start: week(30n), end: week(34n), tonnes: 64.0,  flagged: true  }],
+                ["L2-M11", { start: week(27n), end: week(30n), tonnes: 88.0,  flagged: false }],
+            ]), DictType(StringType, JobRow));
+
+            // Every key is seeded, so a read is always a hit and the accessors
+            // never carry a "missing" branch.
+            const verdicts = $.let(State.bind([DictType(StringType, StringType)], "plan_review_verdicts",
+                new Map([
+                    ["L1-M03", "pending"], ["L1-M04", "approved"],
+                    ["L1-M07", "rejected"], ["L2-M11", "approved"],
+                ])));
+            const live = $.let(verdicts.read());
+
+            // The callbacks WRITE. `onApprove` fires with the row ref, so one
+            // key changes; the batch verbs rewrite every key. Nothing else in
+            // the canvas is told — it re-derives because `Reactive` re-runs.
+            const setOne = $.const(East.function([StringType, StringType], NullType, ($, key, verdict) => {
+                const next = $.let(verdicts.read());
+                $(next.insertOrUpdate(key, verdict));
+                $(verdicts.write(next));
+            }));
+            const setAll = $.const(East.function([StringType], NullType, ($, verdict) => {
+                const next = $.let(new Map<string, string>(), DictType(StringType, StringType));
+                $(jobs.forEach((_$, _r, k) => next.insertOrUpdate(k, verdict)));
+                $(verdicts.write(next));
+            }));
+            const onApprove = $.const(East.function([Plan.Types.RowRef], NullType,
+                ($, ref) => { $(setOne(ref.key, "approved")); }));
+            const onReject = $.const(East.function([Plan.Types.RowRef], NullType,
+                ($, ref) => { $(setOne(ref.key, "rejected")); }));
+            const onApproveAll = $.const(East.function([], NullType, ($) => { $(setAll("approved")); }));
+            const onRejectAll = $.const(East.function([], NullType, ($) => { $(setAll("rejected")); }));
+            const onRerun = $.const(East.function([], NullType, ($) => { $(setAll("pending")); }));
+
+            const series = $.const([
+                Plan.series.span(JobRow, {
+                    label: (_r, k) => k, id: true,
+                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                    // Seeds the BUTTONS from the live verdict. `deriveApproval`
+                    // covers the undecided case — "clean rests pre-approved,
+                    // flagged awaits an explicit call".
+                    approval: (r, k) => live.get(k).equal("approved").ifElse(
+                        () => some(variant("approved", null)),
+                        () => live.get(k).equal("rejected").ifElse(
+                            () => some(variant("rejected", null)),
+                            () => deriveApproval(r.flagged))),
+                    // ...and the SAME fact drives the bar and the dot, because
+                    // appearance is derived like everything else. Click Approve
+                    // and this repaints — the chrome never touched it.
+                    status: (r, k) => live.get(k).equal("rejected").ifElse(
+                        () => some(variant("danger", null)),
+                        () => r.flagged.and(_$ => live.get(k).equal("pending")).ifElse(
+                            () => some(variant("warning", null)),
+                            () => none)),
+                    runs: (r, k) => [Plan.run({
+                        key: k, start: r.start, end: r.end,
+                        label: East.str`RUN · ${k}`,
+                        quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
+                        qty: r.tonnes,
+                        state: live.get(k).equal("approved").ifElse(
+                            () => variant("confirmed", null),
+                            () => live.get(k).equal("rejected").ifElse(
+                                () => variant("rejected", null),
+                                () => variant("proposed", variant("recommended", null)))),
+                    })],
+                }),
+            ], ArrayType(Plan.Types.Series(JobRow)));
+            const axis = $.const(Plan.axis({
+                window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+            }));
+            const counts = $.let(live.filter((_$, v) => v.equal("pending")).size());
+            const rejected = $.let(live.filter((_$, v) => v.equal("rejected")).size());
+            return (
+                <Plan
+                    axis={axis}
+                    data={jobs}
+                    series={series}
+                    review={{
+                        summary: <Text>{East.str`${East.Float.printFixed(counts.toFloat(), 0n)} PENDING · ${East.Float.printFixed(rejected.toFloat(), 0n)} REJECTED`}</Text>,
+                        onApprove, onReject, onApproveAll, onRejectAll, onRerun,
+                    }}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -1672,7 +1697,7 @@ export const planReview = example({
  */
 export const planExpand = example({
     keywords: ["Plan", "expand", "expandRender", "axis", "keep", "dim", "off", "focus", "R2", "collapse", "context strip", "row", "data", "series", "chart", "heat", "table", "events", "span", "raw"],
-    description: "Expand-in-place over a mixed-kind canvas — three rows DECLARE `expand` with the three axis treatments (keep runs the grid and now-line through the render, dim washes them behind dense content, off suppresses them inside the row) and ONE root `expandRender` resolver mounts a time-aligned chart for whichever row is focused; the remaining span / heat / table / events rows are what collapse to 16px context strips when a focus opens, so the example shows both halves of the gesture and every kind's collapsed form",
+    description: "Expand-in-place — rows declare `expand` with an axis mode, one root `expandRender` fills the plot and `expandGutter` the grown gutter; unfocused rows collapse to 16px strips",
     fn: East.function([], UIComponentType, ($) => {
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);

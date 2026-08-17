@@ -223,6 +223,11 @@ export function ReviewFoot({ controller, storageKey }: {
 }) {
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as unknown as Record<string, Record<string, unknown>>, [commitRecipe]);
+    // The BUTTONS come from the shared button recipe, not from `commitBar` —
+    // the bar owns its layout, the button recipe owns what a button looks
+    // like. `md` here, `xs` in a row's decision cell: one vocabulary, two
+    // points on its own size scale.
+    const btn = useRecipe({ key: "button" });
     if (!controller.showFoot) return null;
     return (
         <Box css={cs.root} data-slot="reviewFoot">
@@ -233,13 +238,16 @@ export function ReviewFoot({ controller, storageKey }: {
             </Box>
             <Box css={cs.btnRow}>
                 {controller.hasRejectAll && (
-                    <Box as="button" css={cs.btnDanger} onClick={controller.rejectAll}>Reject all</Box>
+                    <Box as="button" css={btn({ variant: "danger", size: "md" })}
+                        onClick={controller.rejectAll}>Reject all</Box>
                 )}
                 {controller.hasRerun && (
-                    <Box as="button" css={cs.btn} onClick={controller.rerun}>{controller.rerunLabel}</Box>
+                    <Box as="button" css={btn({ variant: "outline", size: "md" })}
+                        onClick={controller.rerun}>{controller.rerunLabel}</Box>
                 )}
                 {controller.hasApproveAll && (
-                    <Box as="button" css={cs.btnPrimary} onClick={controller.approveAll}>Approve all</Box>
+                    <Box as="button" css={btn({ variant: "solid", size: "md" })}
+                        onClick={controller.approveAll}>Approve all</Box>
                 )}
             </Box>
         </Box>

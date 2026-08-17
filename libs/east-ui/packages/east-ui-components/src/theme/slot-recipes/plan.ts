@@ -40,7 +40,8 @@ export const planSlotRecipe = defineSlotRecipe({
         "caret", "statusDot",
         // row focus (R1 links / R2 expand)
         "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner",
-        "focusBar", "focusBack", "focusCaption", "expandRenderBody", "expandGutterBody", "toneCell",
+        "focusBar", "focusBack", "focusCaption", "expandRowBand", "expandRenderBody",
+        "expandGutterBody", "toneCell",
         // group band
         "groupBand", "groupName", "groupMeta",
         // span rows
@@ -557,6 +558,17 @@ export const planSlotRecipe = defineSlotRecipe({
         // The developer render region (R2) — fills the canvas below the
         // focused row (every other row hides for the focus); fades in once
         // the gather settles (the 300ms choreography).
+        // The band an expanded row's OWN marks keep at the top of its plot
+        // cell. Without it a 20px bar in a 200px row centres on the row and
+        // drifts into the render; with it the marks position against their
+        // natural height exactly as they do at rest. Only the height is
+        // dynamic (the row's kind height) — the rest is fixed geometry.
+        expandRowBand: {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+        },
         // ── R2 developer render (#591) ──
         // Absolutely placed inside the FOCUSED ROW's plot cell, beneath the
         // band its own marks hold. Being in the plot cell is what puts it in
