@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-api-tests",
-  "version": "1.0.65",
+  "version": "1.0.66",
   "type": "module",
   "description": "East Execution Engine API Compliance Tests - shared test suites for e3 API implementations",
   "main": "dist/src/index.js",
