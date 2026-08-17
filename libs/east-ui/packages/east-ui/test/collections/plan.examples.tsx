@@ -23,7 +23,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, Plan, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
+import { Box, Chart, Format, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1795,11 +1795,10 @@ export const planExpand = example({
                 <Box>
                     <Text>{f.a}</Text>
                     <Text>{f.b}</Text>
-                    {/* The 108x5 meter, verbatim from the old drilled card. */}
-                    <Box width="108px" height="5px" borderRadius="2px" borderWidth="1px"
-                        borderColor="border.strong" background="bg.surface" overflow="hidden">
-                        <Box height="100%" background="brand.solid"
-                            width={East.str`${East.Float.printFixed(f.fill.multiply(100.0), 0n)}%`} />
+                    {/* The old drilled card's fill meter — the shared Progress
+                        component at its smallest size, not a hand-rolled bar. */}
+                    <Box width="108px">
+                        <Progress value={f.fill.multiply(100.0)} size="xs" tone="brand" />
                     </Box>
                 </Box>
             );

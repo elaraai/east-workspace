@@ -148,8 +148,12 @@ export const CHART_SPARK_H = 32;
 export const CHART_EXPANDED_H = 88;
 /** Heat ROW height — 22px cells (§8) + the 3px top/bottom recipe insets. */
 export const HEAT_ROW_H = 28;
-/** Table row height. */
-export const TABLE_H = 24;
+/** Table row height — the SHARED default (32 / 24 dense), like span,
+ *  buckets and cards. It used to be a fixed 24, which is `ROW_H_DENSE`: a
+ *  table row sat at dense height while every neighbour sat at default, so a
+ *  canvas mixing a table row with anything else had one row visibly shorter
+ *  than the rest for no reason a reader could infer. Numerals need no less
+ *  room than a bar does. */
 
 /**
  * A visible row's pixel height — the virtualizer estimate AND the rendered
@@ -259,10 +263,11 @@ export function rowHeight(
         }
         case "heat": return floor(HEAT_ROW_H);
         case "table": {
+            const base = dense ? ROW_H_DENSE : ROW_H;
             // A vertical multi-series stack grows the row (~11px per line).
             const n = derived?.tableSeries.get(v.row.key)?.length ?? kind.value.series.length;
-            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(TABLE_H, 6 + n * 11));
-            return floor(TABLE_H);
+            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(base, 6 + n * 11));
+            return floor(base);
         }
         case "buckets": {
             // Laned rows grow — the Planner cell grid: 22px min cells,

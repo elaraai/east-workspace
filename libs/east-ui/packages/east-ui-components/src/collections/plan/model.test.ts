@@ -77,13 +77,25 @@ describe("Plan rowHeight (§8)", () => {
             split: variant("vertical", null),
             aggregate: none, format: none, emphasis: variant("body", null),
         });
-        expect(rowHeight(visible(row(two)), false, new Set())).toBe(28);       // 6 + 2×11
+        // Two lines still FIT the shared 32px default, so the row holds it —
+        // the stack grows the row only once it outruns that.
+        expect(rowHeight(visible(row(two)), false, new Set())).toBe(ROW_H);
+        const three = variant("table", {
+            series: [
+                { cells: [], format: none, tone: none, strong: none, rollup: none },
+                { cells: [], format: none, tone: none, strong: none, rollup: none },
+                { cells: [], format: none, tone: none, strong: none, rollup: none },
+            ],
+            split: variant("vertical", null),
+            aggregate: none, format: none, emphasis: variant("body", null),
+        });
+        expect(rowHeight(visible(row(three)), false, new Set())).toBe(39);     // 6 + 3×11
         const flat = variant("table", {
             series: [{ cells: [], format: none, tone: none, strong: none, rollup: none }],
             split: variant("vertical", null),
             aggregate: none, format: none, emphasis: variant("body", null),
         });
-        expect(rowHeight(visible(row(flat)), false, new Set())).toBe(24);      // single series never grows
+        expect(rowHeight(visible(row(flat)), false, new Set())).toBe(ROW_H);   // single series never grows
     });
 
     test("laned bucket rows grow to fit their stacked lane cells", () => {
@@ -414,10 +426,13 @@ describe("Plan derived heat / table aggregates", () => {
         // A subtotal parent carries no series of its own — they are derived —
         // so estimating from `kind.value.series.length` would call a two-line
         // stack one line and render taller than the virtualizer was told.
-        const vmulti = (a: number, b: number) => variant("table", {
+        // THREE positions, so the stack clears the shared 32px default and the
+        // derived width is observable as a height difference.
+        const vmulti = (a: number, b: number, c: number) => variant("table", {
             series: [
                 { cells: [{ at: W27, value: some(a), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
                 { cells: [{ at: W27, value: some(b), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: W27, value: some(c), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
             ],
             split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
         });
@@ -425,14 +440,14 @@ describe("Plan derived heat / table aggregates", () => {
             series: [], split: variant("vertical", null),
             aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
         });
-        const rows = [trow("p", undefined, parent), trow("x", "p", vmulti(1, 2))];
+        const rows = [trow("p", undefined, parent), trow("x", "p", vmulti(1, 2, 3))];
         const index = indexRows(rows);
         const derived = derivePlan(index);
         const pv = visible(index.byKey.get("p")!);
-        // Without the derived width it estimates the bare 24px floor.
-        expect(rowHeight(pv, false, new Set())).toBe(24);
+        // Without the derived width it estimates the shared default.
+        expect(rowHeight(pv, false, new Set())).toBe(ROW_H);
         // With it, the same 6 + n×11 the members use.
-        expect(rowHeight(pv, false, new Set(), undefined, derived)).toBe(28);
+        expect(rowHeight(pv, false, new Set(), undefined, derived)).toBe(39);
     });
 
     test("a group's member count is DERIVED, not carried by the IR (#568)", () => {
