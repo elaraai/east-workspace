@@ -24,6 +24,9 @@ type Styles = Record<string, Record<string, unknown>>;
 type EventsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "events" }>["value"];
 
 export interface EventsRowProps {
+    /** R2 context strip (#591) — marks keep their silhouette, shrink, and a
+     *  K7 icon override falls back to the kind's default geometry. */
+    ctx?: boolean | undefined;
     rowKey: string;
     kind: EventsKindValue;
     styles: Styles;
@@ -31,7 +34,8 @@ export interface EventsRowProps {
 }
 
 /** The event-row plot content — kind-glyph marks + labels. */
-export function EventsRow({ rowKey, kind, styles, storageKey }: EventsRowProps) {
+export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowProps) {
+    const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     return (
@@ -45,7 +49,14 @@ export function EventsRow({ rowKey, kind, styles, storageKey }: EventsRowProps) 
                     e.stopPropagation();
                     dispatch({ t: "row.select", key: rowKey });
                 };
-                const glyph = icon !== undefined
+                // ── R4 (#591) ──
+                // A K7 override swaps the kind's geometry for the host's own
+                // 12px FA icon. At strip size that has nowhere to go — a
+                // detailed glyph at 6px is a blob — so a collapsed mark falls
+                // back to its KIND's default silhouette. The kind is still
+                // known, an outline survives smallness where an icon does not,
+                // and the host's icon returns on expand.
+                const glyph = icon !== undefined && ctx !== true
                     ? (
                         <Box css={styles.markIcon} data-mark={mark.key} data-kind={mark.kind.type}
                             left={`${x * 100}%`} onClick={onClick} cursor="pointer">
@@ -53,13 +64,13 @@ export function EventsRow({ rowKey, kind, styles, storageKey }: EventsRowProps) 
                         </Box>
                     )
                     : mark.kind.type === "decision"
-                        ? <Box css={styles.diamond} data-mark={mark.key}
+                        ? <Box css={styles.diamond} data-mark={mark.key} data-ctx={ctxAttr}
                             data-applied={mark.kind.value.applied ? "" : undefined}
                             left={`${x * 100}%`} onClick={onClick} cursor="pointer" />
                         : mark.kind.type === "exception"
-                            ? <Box css={styles.exceptionTri} data-mark={mark.key}
+                            ? <Box css={styles.exceptionTri} data-mark={mark.key} data-ctx={ctxAttr}
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />
-                            : <Box css={styles.milestoneDot} data-mark={mark.key}
+                            : <Box css={styles.milestoneDot} data-mark={mark.key} data-ctx={ctxAttr}
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />;
                 return (
                     <ElementOverlays key={mark.key}
@@ -68,7 +79,8 @@ export function EventsRow({ rowKey, kind, styles, storageKey }: EventsRowProps) 
                         <Box as="span" display="contents">
                             {glyph}
                             {label !== undefined && (
-                                <Box css={styles.markLabel} left={`calc(${x * 100}% + 9px)`}>{label}</Box>
+                                <Box css={styles.markLabel} data-ctx={ctxAttr}
+                                    left={`calc(${x * 100}% + 9px)`}>{label}</Box>
                             )}
                         </Box>
                     </ElementOverlays>

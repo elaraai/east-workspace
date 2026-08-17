@@ -12,7 +12,7 @@ import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, deriveLinkFamily, derivePlan, elideForFocus, indexRows, linkedRowKeys,
-    HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H,
+    HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
     RAIL_H,
     type PlanLinkValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
@@ -126,11 +126,33 @@ describe("Plan row focus heights (R1 rails)", () => {
         expect(rowHeight(visible(grp), false, new Set(), focus)).toBe(GROUP_H);
     });
 
-    test("expand focus leaves heights alone — the body renders ONLY the focused row, at its normal height", () => {
+    test("expand focus: the focal row keeps its kind height, every other DATA row strips to 16px", () => {
+        // R2 grows the canvas UNDER the row (its own body item), never the row
+        // itself — so the focus is exactly as tall as it was at rest.
         const focus = { kind: "expand" as const, key: "r" };
         expect(rowHeight(visible(row(spanKind, { expand: expand("140px") })), false, new Set(), focus)).toBe(ROW_H);
         const other = { ...row(spanKind), key: "other" } as PlanRowValue;
-        expect(rowHeight(visible(other), false, new Set(), focus)).toBe(ROW_H);
+        expect(rowHeight(visible(other), false, new Set(), focus)).toBe(STRIP_H);
+    });
+
+    test("a strip is 16px whatever the row's kind, its gutter or its explicit height", () => {
+        const focus = { kind: "expand" as const, key: "focal" };
+        const other = (kind: unknown, opts?: { sub?: string }) =>
+            ({ ...row(kind, opts), key: "other" } as PlanRowValue);
+        // Kinds that are 28 / 24 / 88 / 42 at rest all land on the same rhythm.
+        expect(rowHeight(visible(other(heatKind)), false, new Set(), focus)).toBe(STRIP_H);
+        expect(rowHeight(visible(other(spanKind, { sub: "120 t" })), false, new Set(), focus)).toBe(STRIP_H);
+        // An explicit per-row height is a REST height; it does not survive a
+        // focus, or one tall row would break the strip rhythm for all of them.
+        const tall = { ...row(spanKind), key: "other", height: some("140px") } as PlanRowValue;
+        expect(rowHeight(visible(tall), false, new Set(), focus)).toBe(STRIP_H);
+    });
+
+    test("group bands never strip — they are the wayfinding a wall of strips needs", () => {
+        const focus = { kind: "expand" as const, key: "focal" };
+        const g = { ...row(variant("group", { summary: none, summaryAggregate: none, collapsed: none })),
+            key: "g" } as PlanRowValue;
+        expect(rowHeight(visible(g), false, new Set(), focus)).toBe(GROUP_H);
     });
 });
 

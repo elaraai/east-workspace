@@ -31,6 +31,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { tickFormatter } from "../../../charts/spec/index.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
+import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type ChartKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "chart" }>["value"];
@@ -129,13 +130,45 @@ export interface ChartRowPlotProps {
     height: number;
     /** Expanded density (breach rectangles render only here). */
     expanded: boolean;
+    /** R2 context strip (#591) — re-encode as a tone strip; see {@link ToneStrip}. */
+    ctx?: boolean | undefined;
     rowKey: string;
 }
 
 /** The chart-row plot content (SVG marks + HTML tick/ref labels). */
-export function ChartRowPlot({ kind, styles, height, expanded, rowKey }: ChartRowPlotProps) {
+export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: ChartRowPlotProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+
+    // ── R2 (#591): a chart mark is a VALUE, not a geometry ──
+    // A 2px stroke is invisible at 7px, and an area silhouette squashed into
+    // 7px fills solid and carries no shape at all. Luminance is the only
+    // channel left with resolution, so the row re-encodes into the tone strip
+    // a heat row already is. The FIRST point-bearing layer is the subject: it
+    // is the row's primary measure by construction (annotations — refLine /
+    // refBand / refDot — carry no series and are skipped).
+    const stripData = useMemo<ToneDatum[] | undefined>(() => {
+        if (ctx !== true) return undefined;
+        for (const layer of kind.layers) {
+            if (layer.type === "refLine" || layer.type === "refBand" || layer.type === "refDot") continue;
+            if (layer.type === "band") {
+                return layer.value.points.map((p) => ({ at: p.t, value: (p.lo + p.hi) / 2 }));
+            }
+            const breach = layer.type === "line" || layer.type === "column"
+                ? (layer.value.breach.type === "some" ? layer.value.breach.value : undefined)
+                : undefined;
+            return layer.value.points.map((p) => ({
+                at: p.t,
+                value: p.y,
+                // A breached bucket is the one fact worth keeping legible when
+                // the numbers are gone — it survives as a warn block.
+                tone: breach !== undefined
+                    && (breach.type === "above" ? p.y > breach.value : p.y < breach.value)
+                    ? "warn" as const : undefined,
+            }));
+        }
+        return [];
+    }, [ctx, kind.layers]);
 
     const left = kind.left.type === "some" ? kind.left.value : undefined;
     const right = kind.right.type === "some" ? kind.right.value : undefined;
@@ -276,6 +309,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey }: ChartRo
             return;
         }
     });
+
+    // Branch HERE, not above: the hooks below the strip computation must
+    // still run on every render, or React sees a different hook order for a
+    // focused canvas than an unfocused one.
+    if (stripData !== undefined) return <ToneStrip data={stripData} styles={styles} />;
 
     return (
         <Box position="absolute" inset={0} onClick={() => dispatch({ t: "row.select", key: rowKey })}>

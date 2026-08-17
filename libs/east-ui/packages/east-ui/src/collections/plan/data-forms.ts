@@ -318,6 +318,8 @@ export interface PlanHeatOfConfig<R extends StructType> {
      *  the review chrome's buttons only; how a decided row LOOKS is derived
      *  through the other accessors, like every other pixel (#569). */
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
+    /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
     /** Per-row cells accessor (build with `Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`). */
     cells: PlanAccessor<R, PlanHeatCellsType>;
     /** Group-key accessors — one aggregated heat parent per discovered value per level. */
@@ -357,6 +359,7 @@ export function heatLeafOf(cfg: PlanHeatOfConfig<StructType>): PlanLeafFn {
             ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
             ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
             ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
+            ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
         },
     );
 }
@@ -390,6 +393,8 @@ export interface PlanTableOfConfig<R extends StructType> {
      *  the review chrome's buttons only; how a decided row LOOKS is derived
      *  through the other accessors, like every other pixel (#569). */
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
+    /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
     /** Per-row cells accessor (build with `Plan.tableCells`) — sugar for one unstyled value series. */
     cells?: PlanAccessor<R, ArrayType<PlanTableCellType>>;
     /** Per-row MULTI-SERIES accessor (`Array<PlanTableSeriesType>` in the data); exclusive with `cells`. */
@@ -449,6 +454,7 @@ export function tableLeafOf(cfg: PlanTableOfConfig<StructType>): PlanLeafFn {
         {
             ...(cfg.sub !== undefined ? { sub: cfg.sub(r, k) } : {}),
             ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
+            ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
         },
     );
 }

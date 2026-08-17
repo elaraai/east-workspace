@@ -40,6 +40,9 @@ const SEGMENT_FILL: Record<string, string> = {
 const SEGMENT_DARK = new Set(["brand", "success", "warning", "danger", "info", "neutral"]);
 
 export interface HeatCellsProps {
+    /** R2 context strip (#591) — render this row's marks at strip size. */
+    ctx?: boolean | undefined;
+
     rowKey: string;
     cells: HeatCellsValue;
     styles: Styles;
@@ -49,7 +52,8 @@ export interface HeatCellsProps {
  * The heat-arm plot content — one cell / bar / composition per bucket,
  * positioned by `bucketOf` with the §8 3px insets.
  */
-export function HeatCells({ rowKey, cells, styles }: HeatCellsProps) {
+export function HeatCells({ rowKey, cells, styles, ctx }: HeatCellsProps) {
+    const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const cellBox = (at: Date): { left: string; width: string } | undefined => {
@@ -80,7 +84,7 @@ export function HeatCells({ rowKey, cells, styles }: HeatCellsProps) {
                     const depth = v === undefined || span <= 0 ? 0 : Math.max(0, Math.min(1, (v - lo) / span));
                     const label = c.label.type === "some" ? c.label.value : undefined;
                     return (
-                        <Box key={i} css={styles.heatCell}
+                        <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
                             data-nodata={v === undefined ? "" : undefined}
                             data-warn={v !== undefined && warn !== undefined && v >= warn ? "" : undefined}
                             left={box.left} width={box.width}
@@ -88,7 +92,7 @@ export function HeatCells({ rowKey, cells, styles }: HeatCellsProps) {
                                 : `color-mix(in srgb, var(--chakra-colors-brand-700) ${Math.round(depth * 88)}%, var(--chakra-colors-bg-surface))`}
                             onClick={clickCell}
                         >
-                            <Box as="span" css={styles.heatLabel} data-flip={depth > 0.5 ? "" : undefined}>
+                            <Box as="span" css={styles.heatLabel} data-flip={depth > 0.5 ? "" : undefined} data-ctx={ctxAttr}>
                                 {v === undefined ? "–" : label}
                             </Box>
                         </Box>

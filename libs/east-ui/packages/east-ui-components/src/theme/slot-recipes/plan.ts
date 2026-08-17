@@ -39,7 +39,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "caret", "statusDot",
         // row focus (R1 links / R2 expand)
         "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner",
-        "focusBar", "focusBack", "focusCaption", "expandRender",
+        "focusBar", "focusBack", "focusCaption", "expandRender", "expandRenderBody", "toneCell",
         // group band
         "groupBand", "groupName", "groupMeta",
         // span rows
@@ -197,6 +197,16 @@ export const planSlotRecipe = defineSlotRecipe({
             // Table-row emphasis (K5): footer = 2px top rule; header = panel wash.
             "&[data-emphasis='footer']": { borderTopWidth: "2px", borderTopColor: "border.strong" },
             "&[data-emphasis='header']": { background: "bg.panel" },
+            // ── R2 context strip (#591) ──
+            // "Collapse, never remove": an unfocused row keeps its place, its
+            // order and its marks — it just stops competing for attention.
+            // The 16px height comes from `rowHeight`; this is the rest.
+            "&[data-ctx]": {
+                background: "bg.panel",
+                cursor: "pointer",
+                overflow: "hidden",
+                "&:hover": { background: "{colors.brandTint}" },
+            },
         },
         gutterCell: {
             display: "flex",
@@ -246,6 +256,17 @@ export const planSlotRecipe = defineSlotRecipe({
                 fontWeight: "semibold",
                 letterSpacing: "0.02em",
             },
+            // In a strip every name reads as an id — one 10px mono line is
+            // all 16px can carry, and uniformity is what makes the stack
+            // scannable.
+            "&[data-ctx]": {
+                fontFamily: "mono",
+                fontSize: "10px",
+                fontWeight: "semibold",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "fg.muted",
+            },
         },
         gutterSub: {
             fontFamily: "mono",
@@ -256,12 +277,14 @@ export const planSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            "&[data-ctx]": { display: "none" },
         },
         gutterValue: {
             fontFamily: "mono",
             fontSize: "10.5px",
             fontWeight: "semibold",
             color: "fg.default",
+            "&[data-ctx]": { display: "none" },
         },
         // The right-anchored gutter cluster — meta / value / status dot (§3).
         // An inline flex item pushed right by `margin-left: auto` (the mock's
@@ -283,6 +306,7 @@ export const planSlotRecipe = defineSlotRecipe({
             fontWeight: "medium",
             color: "fg.subtle",
             whiteSpace: "nowrap",
+            "&[data-ctx]": { display: "none" },
         },
         gutterSwatch: {
             display: "inline-flex",
@@ -292,6 +316,7 @@ export const planSlotRecipe = defineSlotRecipe({
             fontSize: "8.5px",
             color: "fg.subtle",
             "& > i": { width: "7px", height: "7px", borderRadius: "1.5px", display: "inline-block" },
+            "&[data-ctx]": { display: "none" },
         },
         caret: {
             display: "inline-flex",
@@ -314,6 +339,7 @@ export const planSlotRecipe = defineSlotRecipe({
             "&[data-tone='success']": { background: "{colors.status.pos}" },
             "&[data-tone='info']":    { background: "{colors.status.info}" },
             "&[data-tone='neutral']": { background: "fg.subtle" },
+            "&[data-ctx]": { width: "5px", height: "5px" },
         },
         // ── Row focus (R1 links / R2 expand) — the row-scoped controls at
         //    the gutter's right edge: 20px, borderless, revealed on hover and
@@ -339,6 +365,9 @@ export const planSlotRecipe = defineSlotRecipe({
             "[data-plan-row]:hover &": { opacity: 1 },
             "&:has([data-active])": { opacity: 1 },
             "@media (hover: none)": { opacity: 1 },
+            // A strip is one click target — returning. Row controls inside it
+            // would compete with that, and there is no room for them anyway.
+            "&[data-ctx]": { display: "none" },
         },
         rowControl: {
             width: "20px",
@@ -496,16 +525,56 @@ export const planSlotRecipe = defineSlotRecipe({
         // The developer render region (R2) — fills the canvas below the
         // focused row (every other row hides for the focus); fades in once
         // the gather settles (the 300ms choreography).
+        // ── R2 developer render (#591) ──
+        // A GRID on the row template, not a full-width box. That is the whole
+        // fix: the render occupies the PLOT column, so a time-based chart in
+        // it lines up with the buckets above, and `axis` has something to
+        // apply to. Rendering it full-width (gutter included) is why
+        // `PlanExpandType.axis` was decorative.
         expandRender: {
-            flex: "1 1 auto",
-            minHeight: 0,
+            display: "grid",
             position: "relative",
-            overflow: "auto",
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
             animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
             "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+        },
+        // The plot-column cell the host's component mounts into. Carries the
+        // same bucket grid the rows do, so `axis: keep` runs real column lines
+        // behind the render; `dim` washes them for dense content and `off`
+        // suppresses them INSIDE this row only — the ruler never moves.
+        expandRenderBody: {
+            position: "relative",
+            minWidth: 0,
+            overflow: "hidden",
+            // The lines are real elements (the row's own `gridCol` / `nowLine`
+            // slots), not a background image sized off a CSS variable — the
+            // rows draw them exactly this way, so a render column and the rows
+            // above it cannot drift apart. `dim` washes them for dense
+            // content; `off` suppresses them INSIDE this row only, and the
+            // ruler never moves either way.
+            "&[data-axis='dim'] > [data-plan-axisline]": { opacity: 0.4 },
+            "&[data-axis='off'] > [data-plan-axisline]": { display: "none" },
+        },
+        // ── R2 VALUE → TONE STRIP (#591) ──
+        // What a chart or table row collapses to: one block per bucket, depth
+        // tracking the value. A numeral and a 2px stroke are both illegible at
+        // 7px, so the encoding changes rather than the size — into the
+        // vocabulary a heat row already speaks.
+        toneCell: {
+            position: "absolute",
+            top: "50%",
+            transform: "translateY(-50%)",
+            height: "7px",
+            borderRadius: "1px",
+            zIndex: 2,
+            "&[data-tone='neg']": { background: "{colors.status.neg}", opacity: 0.85 },
+            "&[data-tone='warn']": { background: "{colors.status.warn}", opacity: 0.9 },
+            "&[data-nodata]": {
+                backgroundImage:
+                    "repeating-linear-gradient(45deg, transparent 0 2px, color-mix(in srgb, {colors.fg} 10%, transparent) 2px 4px)",
+            },
         },
 
         // ── Group band (26px) ──
@@ -616,6 +685,20 @@ export const planSlotRecipe = defineSlotRecipe({
             "&[data-runoff]": {
                 maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
             },
+            // ── R1 GEOMETRY SHRINKS (#591) ──
+            // The mark already owns a position and a width on the axis, so it
+            // keeps both and drops to 7px. Ink goes `transparent` rather than
+            // `display: none` — the box, and therefore the geometry, is
+            // unchanged, and it takes any FA icon inside with it for free
+            // (FA paints with `fill: currentColor`).
+            "&[data-ctx]": {
+                height: "7px",
+                color: "transparent",
+                padding: "0 2px",
+                gap: 0,
+                transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1), padding 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+            },
         },
         barQty: {
             opacity: 0.72,
@@ -684,6 +767,11 @@ export const planSlotRecipe = defineSlotRecipe({
             boxShadow: "inset 0 0 0 1.5px {colors.brand.600}, 0 0 0 2px {colors.bg.surface}",
             zIndex: 4,
             "&[data-applied]": { background: "{colors.brand.600}" },
+            // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
+            // Milestone / decision / exception are told apart BY OUTLINE, so
+            // the outline is the payload: shrink it, never make it
+            // transparent — that would erase the row's whole meaning.
+            "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
         },
         // ── Chart rows — axis ticks + ref labels (marks are SVG, data-coloured) ──
         chartTickLeft: {
@@ -735,6 +823,20 @@ export const planSlotRecipe = defineSlotRecipe({
                     "repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, {colors.fg} 7%, transparent) 3px 4px)",
             },
             "&[data-warn]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
+            // ── R2 VALUE → TONE STRIP — the reference case (#591) ──
+            // A heat row IS the tone strip that chart and table collapse INTO,
+            // so there is nothing to convert: drop the 3px inset and centre a
+            // 7px band. The colour ramp — the whole information — survives.
+            "&[data-ctx]": {
+                top: "50%",
+                bottom: "auto",
+                transform: "translateY(-50%)",
+                height: "7px",
+                minHeight: 0,
+                borderRadius: "1px",
+                transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+            },
         },
         heatLabel: {
             fontFamily: "mono",
@@ -742,6 +844,7 @@ export const planSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             color: "fg.muted",
             "&[data-flip]": { color: "bg.surface" },
+            "&[data-ctx]": { display: "none" },
         },
         // The Matrix `.wbar`: a single left-anchored bar (no track) at the
         // span-bar height; planned buckets render pale.
@@ -870,6 +973,20 @@ export const planSlotRecipe = defineSlotRecipe({
                 animation: "elara-pulse 1.6s ease-in-out infinite",
                 "@media (prefers-reduced-motion: reduce)": { animation: "none" },
             },
+            // ── R1 GEOMETRY SHRINKS — the bucket case ──
+            // A tile is already quantised to its cell; collapsing keeps the
+            // cell and flattens the tile inside it. `minWidth` has to go with
+            // it or a 20px floor would fight the 7px block.
+            "&[data-ctx]": {
+                height: "7px",
+                minWidth: 0,
+                color: "transparent",
+                padding: 0,
+                gap: 0,
+                borderRadius: "1px",
+                transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+            },
         },
         // The per-cell lane caption (`.bl`) — printed at each cell's left.
         laneLabel: {
@@ -955,6 +1072,20 @@ export const planSlotRecipe = defineSlotRecipe({
                 borderColor: "{colors.gray.400}",
                 textDecoration: "line-through",
             },
+            // ── R1 GEOMETRY SHRINKS (#591) ──
+            // The mark already owns a position and a width on the axis, so it
+            // keeps both and drops to 7px. Ink goes `transparent` rather than
+            // `display: none` — the box, and therefore the geometry, is
+            // unchanged, and it takes any FA icon inside with it for free
+            // (FA paints with `fill: currentColor`).
+            "&[data-ctx]": {
+                height: "7px",
+                color: "transparent",
+                padding: "0 2px",
+                gap: 0,
+                transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1), padding 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+            },
         },
         // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
         milestoneDot: {
@@ -966,6 +1097,11 @@ export const planSlotRecipe = defineSlotRecipe({
             transform: "translate(-50%, -50%)",
             top: "50%",
             zIndex: 3,
+            // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
+            // Milestone / decision / exception are told apart BY OUTLINE, so
+            // the outline is the payload: shrink it, never make it
+            // transparent — that would erase the row's whole meaning.
+            "&[data-ctx]": { width: "5px", height: "5px"},
         },
         exceptionTri: {
             position: "absolute",
@@ -977,6 +1113,13 @@ export const planSlotRecipe = defineSlotRecipe({
             transform: "translate(-50%, -50%)",
             top: "50%",
             zIndex: 3,
+            // ── R3, the border-triangle case — a CSS triangle has no width or
+            // height to shrink, so the borders that ARE its size are halved.
+            "&[data-ctx]": {
+                borderLeftWidth: "3.5px",
+                borderRightWidth: "3.5px",
+                borderBottomWidth: "6px",
+            },
         },
         // K7 icon swap — hosts choose the glyph, never the geometry
         // (12px, kind-coloured: brand default, warn for exceptions).
@@ -989,6 +1132,13 @@ export const planSlotRecipe = defineSlotRecipe({
             color: "{colors.brand.600}",
             zIndex: 3,
             "&[data-kind='exception']": { color: "{colors.status.warn}" },
+            // ── R4 ICONS (#591) ──
+            // A K7 override swaps a mark's default geometry for the host's own
+            // 12px FA icon. At strip size a detailed glyph is an unreadable
+            // blob, so the RENDERER falls back to the kind's default geometry
+            // (see `EventsRow`) and this element never mounts collapsed. The
+            // rule stays as a backstop for any path that does mount one.
+            "&[data-ctx]": { display: "none" },
         },
         markLabel: {
             position: "absolute",
@@ -1002,6 +1152,7 @@ export const planSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             zIndex: 3,
             pointerEvents: "none",
+            "&[data-ctx]": { display: "none" },
         },
         // ── Table cells (K5) — the Table `.tcell` verbatim: right-aligned
         //    mono numerals per bucket (renderer sets left/width per bucket);

@@ -23,7 +23,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, Plan, Reactive, Slice, Text, deriveApproval } from "@elaraai/east-ui";
+import { Box, Chart, Format, Plan, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1651,6 +1651,155 @@ export const planReview = example({
                     onRejectAll: onBatch,
                     onRerun: onBatch,
                 }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * R2 expand-in-place — the one example that shows the whole gesture.
+ *
+ * Expand is two halves and needs BOTH: a per-row `expand` declaration (data,
+ * so it flows through an accessor like every other envelope field) and the
+ * ROOT's `expandRender` resolver, which builds the mounted body from the row
+ * ref. Neither alone shows the control.
+ *
+ * The rows here are deliberately heterogeneous — span, chart, heat, table,
+ * events — because focusing one is what makes the other five collapse, and
+ * each row KIND collapses differently (#591): geometry shrinks, values
+ * re-encode as a tone strip, shapes keep their silhouette.
+ */
+export const planExpand = example({
+    keywords: ["Plan", "expand", "expandRender", "axis", "keep", "dim", "off", "focus", "R2", "collapse", "context strip", "row", "data", "series", "chart", "heat", "table", "events", "span", "raw"],
+    description: "Expand-in-place over a mixed-kind canvas — three rows DECLARE `expand` with the three axis treatments (keep runs the grid and now-line through the render, dim washes them behind dense content, off suppresses them inside the row) and ONE root `expandRender` resolver mounts a time-aligned chart for whichever row is focused; the remaining span / heat / table / events rows are what collapse to 16px context strips when a focus opens, so the example shows both halves of the gesture and every kind's collapsed form",
+    fn: East.function([], UIComponentType, ($) => {
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        // ONE raw source; `family` picks the series and `expand` is per-row
+        // DATA — presence is what grows the ⤢ control on that row.
+        const OpsRow = StructType({
+            family: StringType,
+            label: StringType,
+            expand: OptionType(Plan.Types.Expand),
+            jobs: ArrayType(StructType({
+                key: StringType, label: StringType,
+                start: DateTimeType, end: DateTimeType, state: EventStateType,
+            })),
+            cells: ArrayType(Plan.Types.HeatCell),
+            nums: ArrayType(Plan.Types.TableCell),
+            marks: ArrayType(Plan.Types.EventMark),
+        });
+        const noJobs = $.const([], ArrayType(StructType({
+            key: StringType, label: StringType,
+            start: DateTimeType, end: DateTimeType, state: EventStateType,
+        })));
+        const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+        const noNums = $.const([], ArrayType(Plan.Types.TableCell));
+        const noMarks = $.const([], ArrayType(Plan.Types.EventMark));
+        const ops = $.const(new Map([
+            // axis: keep — the grid and now-line run THROUGH the render.
+            ["L1-M03", { family: "span", label: "L1-M03",
+              expand: some({ height: some("168px"), axis: variant("keep", null) }),
+              jobs: [
+                  { key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
+                  { key: "qc", label: "QC", start: week(30n), end: week(32n), state: variant("confirmed", null) },
+                  { key: "b231", label: "RUN · B-231", start: week(33n), end: week(38n), state: variant("proposed", variant("recommended", null)) },
+              ], cells: noCells, nums: noNums, marks: noMarks }],
+            // axis: dim — washed to 40% behind a dense render.
+            ["L1-M04", { family: "span", label: "L1-M04",
+              expand: some({ height: some("140px"), axis: variant("dim", null) }),
+              jobs: [
+                  { key: "b214", label: "RUN · B-214", start: week(28n), end: week(33n), state: variant("in-progress", null) },
+              ], cells: noCells, nums: noNums, marks: noMarks }],
+            // No declaration — no control. The contrast is the point.
+            ["L1-M07", { family: "span", label: "L1-M07", expand: none,
+              jobs: [
+                  { key: "hld", label: "HLD · B-197", start: week(27n), end: week(31n), state: variant("actual", null) },
+              ], cells: noCells, nums: noNums, marks: noMarks }],
+            // The kinds that COLLAPSE differently — heat keeps its ramp, the
+            // table re-encodes its numerals, the marks keep their silhouettes.
+            ["LOAD", { family: "heat", label: "Line load", expand: none,
+              jobs: noJobs, nums: noNums, marks: noMarks,
+              cells: [
+                  { at: week(27n), value: some(46.0), label: some("46") },
+                  { at: week(28n), value: some(58.0), label: some("58") },
+                  { at: week(29n), value: some(66.0), label: some("66") },
+                  { at: week(30n), value: some(72.0), label: some("72") },
+                  { at: week(31n), value: some(84.0), label: some("84") },
+                  { at: week(32n), value: some(90.0), label: some("90") },
+                  { at: week(33n), value: some(96.0), label: some("96") },
+                  { at: week(34n), value: none, label: none },
+                  { at: week(35n), value: some(92.0), label: some("92") },
+              ] }],
+            // axis: off — the render draws its own canvas, so the shared lines
+            // are suppressed INSIDE this row only (the ruler never moves).
+            ["DESPATCH", { family: "table", label: "Despatch t",
+              expand: some({ height: some("120px"), axis: variant("off", null) }),
+              jobs: noJobs, cells: noCells, marks: noMarks,
+              nums: [
+                  { at: week(27n), value: some(128.0), text: none, tone: none },
+                  { at: week(28n), value: some(134.0), text: none, tone: none },
+                  { at: week(29n), value: some(119.0), text: none, tone: none },
+                  { at: week(30n), value: some(-96.0), text: none, tone: none },
+                  { at: week(31n), value: some(-88.0), text: none, tone: none },
+                  { at: week(32n), value: none, text: none, tone: none },
+                  { at: week(33n), value: some(151.0), text: none, tone: none },
+                  { at: week(34n), value: some(162.0), text: none, tone: none },
+                  { at: week(35n), value: some(144.0), text: none, tone: none },
+              ] }],
+            ["MILESTONES", { family: "events", label: "MILESTONES", expand: none,
+              jobs: noJobs, cells: noCells, nums: noNums,
+              marks: [
+                  { key: "k", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                  { key: "d", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
+                  { key: "a", at: week(34n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+              ] }],
+        ]), DictType(StringType, OpsRow));
+        // ONE resolver serves every declaring row, called with the row ref at
+        // interaction time. The canvas hands it the PLOT column with the
+        // shared grid + now-line drawn behind it — so a component that fills
+        // that column edge to edge shares the canvas's x-space and lines up
+        // with the buckets above. `Sparkline` is the axis-free chart, which is
+        // what makes the alignment visible; a `Chart` would draw its own axes
+        // and margins inside the column and align to those instead.
+        const util = $.let(East.Array.generate(12n, FloatType, (_$, i) =>
+            i.multiply(19n).remainder(48n).toFloat().add(50.0)));
+        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) => (
+            <Sparkline data={util} type="area" color="link" width="100%" height="100%" />
+        )));
+        return (
+            <Plan
+                axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
+                data={ops}
+                series={[
+                    Plan.series.span(OpsRow, {
+                        match: r => r.family.equal("span"),
+                        label: r => r.label, id: true, expand: r => r.expand,
+                        runs: r => r.jobs.map((_$, j) => Plan.run({
+                            key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                        })),
+                    }),
+                    Plan.series.heat(OpsRow, {
+                        match: r => r.family.equal("heat"),
+                        label: r => r.label, expand: r => r.expand,
+                        cells: r => Plan.heatCells(r.cells, { min: 40.0, max: 100.0 }),
+                    }),
+                    Plan.series.table(OpsRow, {
+                        match: r => r.family.equal("table"),
+                        label: r => r.label, expand: r => r.expand,
+                        cells: r => r.nums,
+                    }),
+                    Plan.series.events(OpsRow, {
+                        match: r => r.family.equal("events"),
+                        label: r => r.label, id: true, expand: r => r.expand,
+                        marks: r => r.marks,
+                    }),
+                ]}
+                expandRender={expandRender}
+                style={{ height: "420px" }}
             />
         );
     }),

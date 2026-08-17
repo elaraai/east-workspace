@@ -55,6 +55,11 @@ export interface RowShellProps {
     focusTag?: "UPSTREAM" | "DOWNSTREAM" | "LINKED" | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
     axisMode?: "dim" | "off" | undefined;
+    /** R2 context strip (#591) — this row is not the focus, so it compresses
+     *  to 16px and its marks to 7px on the same axis. Never removed: order,
+     *  scroll position and the status dot survive, and the strip itself is
+     *  the return click target. */
+    ctx?: boolean | undefined;
     /** The trailing review cell, when the canvas carries review chrome — the
      *  third track `gridTemplate` grows by (#569). */
     decision?: ReactNode;
@@ -65,11 +70,15 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     cursorFrac, caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, decision, children,
+    controls, focusTag, axisMode, ctx, decision, children,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const gutter = row.gutter;
+    // One flag, spread onto every slot that has a collapsed state. The slots
+    // own the styling (`&[data-ctx]` in the recipe) — this only says which
+    // elements are in a strip.
+    const ctxAttr = ctx === true ? "" : undefined;
     const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
@@ -90,17 +99,22 @@ export function RowShell({
             data-plan-row={row.key}
             data-selected={selected ? "" : undefined}
             data-emphasis={emphasis}
-            onClick={() => dispatch({ t: "row.select", key: row.key })}
+            data-ctx={ctxAttr}
+            // A strip's whole job is to be the way back — clicking one returns
+            // to all rows rather than selecting the row underneath.
+            onClick={() => dispatch(ctx === true
+                ? { t: "focus.clear" }
+                : { t: "row.select", key: row.key })}
             cursor="pointer"
         >
             <Box
                 css={styles.gutterCell}
                 paddingLeft={`${12 + depth * INDENT_PX}px`}
-                onClick={onCaretClick !== undefined
+                onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
                     : undefined}
             >
-                <Box css={styles.gutterName} data-id={isId ? "" : undefined}>
+                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr}>
                     {caret !== undefined && (
                         <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
                             <FontAwesomeIcon icon={faCaretDown} />
@@ -117,15 +131,15 @@ export function RowShell({
                         inline after the flex spacer so the label truncates. */}
                     {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
                         <Box css={styles.gutterRight}>
-                            {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
-                            {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
-                            {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr}>{meta}</Box>}
+                            {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr}>{value}</Box>}
+                            {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} />}
                         </Box>
                     )}
                     {/* Row controls (R1/R2) — rightmost; a control click never
                         selects or toggles the row. */}
                     {controls !== undefined && controls.length > 0 && (
-                        <Box css={styles.rowControls}>
+                        <Box css={styles.rowControls} data-ctx={ctxAttr}>
                             {controls.map((c) => (
                                 <Box
                                     key={c.kind}
@@ -142,11 +156,11 @@ export function RowShell({
                         </Box>
                     )}
                 </Box>
-                {sub !== undefined && <Box css={styles.gutterSub}>{sub}</Box>}
+                {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr}>{sub}</Box>}
                 {gutter.swatches.length > 0 && (
                     <Box display="flex" gap="7px" marginTop="1px">
                         {gutter.swatches.map((s, i) => (
-                            <Box key={i} as="span" css={styles.gutterSwatch}>
+                            <Box key={i} as="span" css={styles.gutterSwatch} data-ctx={ctxAttr}>
                                 <Box as="i" background={s.color.includes(".") ? undefined : s.color}
                                     backgroundColor={s.color.includes(".") ? s.color : undefined} />
                                 {s.label}

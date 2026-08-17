@@ -37,6 +37,7 @@ import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers } from "./context.js";
 import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
+import { useElementHeight } from "./use-element-height.js";
 import { WindowBand } from "./rows/WindowBand.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
@@ -78,8 +79,11 @@ const planRootEqual = equalFor(Plan.Types.Root);
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
-/** Default minimum height of the R2 developer-render region (CSS px). */
-const EXPAND_MIN_H = "240px";
+/** Default height of the R2 developer-render region when a row declares none. */
+const EXPAND_DEFAULT_PX = 240;
+/** The render never clamps below this — a region too short to hold anything
+ *  is worse than one that scrolls. */
+const EXPAND_FLOOR_PX = 88;
 
 export interface EastChakraPlanProps {
     /** The Plan root value. */
@@ -328,6 +332,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             return null;
         }
     }, [ui.focus, expandRenderFn]);
+    // Entering / leaving / moving a row focus rewrites EVERY row's height
+    // while the row COUNT holds — precisely the case TanStack's measurement
+    // memo does not watch (see `VirtualRows.sizeVersion`). Bump on each
+    // distinct focus so the offsets are recomputed instead of the strips
+    // painting at their old full heights.
+    const [focusVersion, setFocusVersion] = useState(0);
+    useEffect(() => { setFocusVersion((n) => n + 1); }, [ui.focus]);
     // The generalized element resolvers (popover / hover) — threaded to the
     // row renderers; elements invoke them lazily at interaction time.
     const resolvers = useMemo<PlanResolvers>(() => ({
@@ -405,6 +416,17 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // The focus overlay's positioning parent (the canvas body wrapper).
     const focusBodyRef = useRef<HTMLDivElement | null>(null);
+    // The virtualizer's scroll viewport — the only element that knows how much
+    // canvas there actually is, which the R2 clamp measures.
+    const scrollElRef = useRef<HTMLDivElement | null>(null);
+    // The sticky chrome's measured height (toolbar / brush / ruler / pinned
+    // rows / focus bar). It sits INSIDE the scroll viewport, so the clamp has
+    // to take it off the top. Measured rather than summed from constants: the
+    // chrome is conditional in five places and a hand-kept total would drift.
+    const headerPxRef = useRef(0);
+    const headerElRef = useCallback((el: HTMLDivElement | null) => {
+        headerPxRef.current = el?.offsetHeight ?? 0;
+    }, []);
     // Entering a row focus can swap the body tree (R2 unmounts the clicked
     // control), dropping browser focus to <body> and killing the esc rung —
     // re-anchor keyboard focus on the canvas surface.
@@ -444,21 +466,46 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── Rows ──────────────────────────────────────────────────────────────
     const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
     const pinned = useMemo(() => pinnedRows(index), [index]);
-    // R2 — the expand branch renders ONLY the focused row; the developer
-    // render fills the remaining canvas height (no shrunken context rows).
-    const expandRow = focusCtx?.kind === "expand"
-        ? visible.find((v) => v.row.key === focusCtx.key)
+    // R2 — the focused row's own declaration. The row keeps its NORMAL
+    // anatomy and height; what grows is the render region BELOW it, which is
+    // its own body item (see `bodyItems`) so the whole gesture stays inside
+    // the virtualizer and the strips above and below keep their order.
+    const expandDecl = focusCtx?.kind === "expand"
+        ? getSomeorUndefined(index.byKey.get(focusCtx.key)?.expand)
         : undefined;
-    const expandMinH = expandRow !== undefined && expandRow.row.expand.type === "some"
-        && expandRow.row.expand.value.height.type === "some"
-        ? expandRow.row.expand.value.height.value
-        : EXPAND_MIN_H;
+    const expandAxis = expandDecl?.axis.type;
+    // The v2 clamp — `min(renderHeight, canvas − strips − ruler)`. The canvas
+    // is MEASURED, not parsed: `height: "fill"` is `"100%"`, which has no
+    // pixel value until layout runs. Unbounded frames have no scroll element
+    // and grow to content, so there is nothing to clamp against and the
+    // declared height stands.
+    const viewportPx = useElementHeight(scrollElRef, focusCtx?.kind === "expand");
+    const expandRenderPx = useMemo(() => {
+        if (expandDecl === undefined) return 0;
+        const declared = expandDecl.height.type === "some" ? parseFloat(expandDecl.height.value) : NaN;
+        const want = Number.isFinite(declared) ? declared : EXPAND_DEFAULT_PX;
+        if (viewportPx === undefined) return want;
+        // Everything the render must NOT push out: the strips, the focal row,
+        // and the pinned rows + chrome pinned above them.
+        const rowsPx = visible.reduce(
+            (sum, v) => sum + rowHeight(v, dense, ui.chartsExpanded, focusCtx, derived), 0);
+        const chromePx = headerPxRef.current;
+        return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - chromePx));
+    }, [expandDecl, viewportPx, visible, dense, ui.chartsExpanded, focusCtx, derived]);
     // R1 at scale — the links-focus body elides runs of unrelated rows into
     // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
     const bodyItems = useMemo<PlanBodyItem[]>(() => {
         const core: PlanBodyItem[] = focusCtx?.kind === "links"
             ? elideForFocus(visible, index, focusCtx)
-            : visible.map((row) => ({ kind: "row", row }));
+            : visible.flatMap((row) =>
+                // The developer render rides DIRECTLY under the row that
+                // declared it — "mounts under the row's own spans" — so it
+                // inherits the row's place in the order instead of replacing
+                // the body around it.
+                focusCtx?.kind === "expand" && row.row.key === focusCtx.key && expandBody !== null
+                    ? [{ kind: "row" as const, row },
+                       { kind: "expandrender" as const, key: row.row.key, px: expandRenderPx }]
+                    : [{ kind: "row" as const, row }]);
         // The unloaded remainder of a paged source, above and below (#577). Each
         // band is sized by the ledger, so the rows that replace it occupy the
         // same space and nothing below moves.
@@ -468,7 +515,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         out.push(...core);
         if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
         return out;
-    }, [focusCtx, visible, index, paging.head, paging.tail]);
+    }, [focusCtx, visible, index, paging.head, paging.tail, expandBody, expandRenderPx]);
 
     // The viewport, in the driver's terms — which ROW (or which band) the middle
     // of the mounted range sits on. The driver maps that back to a window; no
@@ -513,6 +560,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 </Box>
             );
         }
+        // ── R2 context strip (#591) ──
+        // Under an expand focus every DATA row but the focused one compresses
+        // to 16px. Group bands are exempt: they are wayfinding, and a wall of
+        // strips with no structure between them is unreadable.
+        const isCtx = focusCtx?.kind === "expand" && v.row.key !== focusCtx.key
+            && kind.type !== "group";
         // The row-scoped focus controls + family tags.
         const rowControls: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> = [
             ...(linkedKeys.has(v.row.key) ? [{
@@ -549,8 +602,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
         const shellBase = {
             row: v.row, styles, gridTemplate, depth: v.depth,
-            selected: ui.selected === v.row.key, cursorFrac,
-            controls: rowControls, focusTag, axisMode: axisTag,
+            selected: ui.selected === v.row.key, cursorFrac: isCtx ? undefined : cursorFrac,
+            controls: isCtx ? undefined : rowControls, focusTag, axisMode: axisTag, ctx: isCtx,
             decision: review !== undefined && review.hasRowVerbs
                 ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
                 : undefined,
@@ -561,7 +614,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     <RowShell {...shellBase} height={h}
                         caret={hasChildren ? { collapsed: v.collapsed } : undefined}
                         onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <SpanRow rowKey={v.row.key} kind={kind.value} styles={styles}
+                        <SpanRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
                             bands={derived.bands.get(v.row.key) ?? []}
                             barHeight={v.collapsed && hasChildren ? 12 : barHeight}
                             storageKey={`${storageKey}.${v.row.key}`}
@@ -579,7 +632,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         onCaretClick={expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined}
                         gutterOverlay={<ChartLeftTicks kind={kind.value} styles={styles} height={h} />}>
                         <ChartRowPlot kind={kind.value} styles={styles} height={h}
-                            expanded={expanded} rowKey={v.row.key} />
+                            expanded={expanded} rowKey={v.row.key} ctx={isCtx} />
                     </RowShell>
                 );
             }
@@ -594,7 +647,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     <RowShell {...shellBase} height={h}
                         caret={hasChildren ? { collapsed: v.collapsed } : undefined}
                         onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <HeatCells rowKey={v.row.key} cells={cells} styles={styles} />
+                        <HeatCells rowKey={v.row.key} cells={cells} styles={styles} ctx={isCtx} />
                     </RowShell>
                 );
             }
@@ -603,7 +656,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     <RowShell {...shellBase} height={h}
                         caret={hasChildren ? { collapsed: v.collapsed } : undefined}
                         onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <BucketsRow rowKey={v.row.key} kind={kind.value} styles={styles}
+                        <BucketsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
                             storageKey={`${storageKey}.${v.row.key}`} />
                     </RowShell>
                 );
@@ -619,7 +672,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
                         <TableRowCells rowKey={v.row.key}
                             series={derivedSeries ?? kind.value.series}
-                            split={kind.value.split.type}
+                            split={kind.value.split.type} ctx={isCtx}
                             format={getSomeorUndefined(kind.value.format)} styles={styles} />
                     </RowShell>
                 );
@@ -627,14 +680,14 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             case "cards":
                 return (
                     <RowShell {...shellBase} height={h}>
-                        <CardsRow rowKey={v.row.key} kind={kind.value} styles={styles}
+                        <CardsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
                             storageKey={`${storageKey}.${v.row.key}`} />
                     </RowShell>
                 );
             case "events":
                 return (
                     <RowShell {...shellBase} height={h}>
-                        <EventsRow rowKey={v.row.key} kind={kind.value} styles={styles}
+                        <EventsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
                             storageKey={`${storageKey}.${v.row.key}`} />
                     </RowShell>
                 );
@@ -695,7 +748,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         : undefined;
 
     const header = (
-        <Box background="bg.surface">
+        <Box background="bg.surface" ref={headerElRef}>
             {/* The toolbar is SLICE chrome (§2) — the grain / resolution
                 segments ride the slice rail; an unbound canvas has no rail.
                 It ALSO carries the key search, and that is a capability of the
@@ -722,7 +775,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 trailing={review !== undefined
                     ? <PlanDecisionHeader label={review.columnLabel} />
                     : undefined} />
-            {focusCtx?.kind !== "expand" && pinned.map((row) => (
+            {/* Pinned rows collapse like every other row under a focus —
+                they are not exempt from "collapse, never remove", and
+                dropping them would lose exactly the context they are pinned
+                for. `renderVisible` reads `focusCtx`, so they strip. */}
+            {pinned.map((row) => (
                 <Box key={row.key} background="bg.surface">
                     {renderVisible({ row, depth: 0, collapsed: false })}
                 </Box>
@@ -778,63 +835,77 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         }
                     }}
                 >
-                    {expandRow !== undefined ? (
-                        <Box css={styles.root} data-plan-expandfocus
-                            {...(frameFills
-                                ? { flex: "1 1 auto", minHeight: 0, overflowY: "auto" }
-                                : { height, maxHeight })}>
-                            {header}
-                            {renderVisible(expandRow)}
-                            <Box css={styles.expandRender} data-plan-expandrender
-                                style={{ minHeight: expandMinH }}>
-                                {expandBody !== null && (
-                                    <EastChakraComponent value={expandBody}
-                                        storageKey={`${storageKey}.${expandRow.row.key}.expand`} />
-                                )}
-                            </Box>
-                            <PlanFooter styles={styles} items={value.footer} transport={transport} />
-                        </Box>
-                    ) : (
-                        <VirtualRows
-                            height={frameFills ? undefined : height}
-                            maxHeight={frameFills ? undefined : maxHeight}
-                            fillParent={frameFills}
-                            // Every body item pins an exact height matching
-                            // `estimateSize` — `RowShell` sets `height: {h}px`
-                            // from the same `rowHeight()`, and the rail / gap
-                            // bands pin 11px / 22px in the recipe. Measuring
-                            // fixed-height rows drifts under fractional zoom
-                            // and paints hairline seams (#533).
-                            measureRows={false}
-                            scrollToIndex={scrollToIndex}
-                            onRangeChange={pagedSource !== undefined ? reportRange : undefined}
-                            // A band becoming rows changes heights without
-                            // changing the count, which TanStack's measurement
-                            // memo does not watch (see `sizeVersion`).
-                            sizeVersion={paging.sizeVersion}
-                            header={header}
-                            footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
-                            count={bodyItems.length}
-                            estimateSize={(i) => {
-                                const item = bodyItems[i];
-                                if (item === undefined) return 32;
-                                if (item.kind === "gap") return GAP_H;
-                                if (item.kind === "band") return Math.max(1, item.band.px);
-                                return rowHeight(item.row, dense, ui.chartsExpanded, focusCtx, derived);
-                            }}
-                            renderRow={(i) => {
-                                const item = bodyItems[i];
-                                if (item === undefined) return null;
-                                if (item.kind === "gap") return renderGap(item.gap);
-                                if (item.kind === "band") {
-                                    return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
-                                }
-                                return renderVisible(item.row);
-                            }}
-                            headerZIndex={5}
-                            rootCss={styles.root}
-                        />
-                    )}
+                    <VirtualRows
+                        height={frameFills ? undefined : height}
+                        maxHeight={frameFills ? undefined : maxHeight}
+                        fillParent={frameFills}
+                        // Every body item pins an exact height matching
+                        // `estimateSize` — `RowShell` sets `height: {h}px`
+                        // from the same `rowHeight()`, the rail / gap bands
+                        // pin 11px / 22px in the recipe, and the R2 render
+                        // pins its clamped `px`. Measuring fixed-height rows
+                        // drifts under fractional zoom and paints hairline
+                        // seams (#533).
+                        measureRows={false}
+                        scrollToIndex={scrollToIndex}
+                        onRangeChange={pagedSource !== undefined ? reportRange : undefined}
+                        // A band becoming rows changes heights without
+                        // changing the count, which TanStack's measurement
+                        // memo does not watch (see `sizeVersion`). A row focus
+                        // does exactly the same thing — every unfocused row
+                        // drops to a strip while the count holds — so the
+                        // focus identity rides the same bust.
+                        sizeVersion={paging.sizeVersion + focusVersion}
+                        scrollElRef={scrollElRef}
+                        header={header}
+                        footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
+                        count={bodyItems.length}
+                        estimateSize={(i) => {
+                            const item = bodyItems[i];
+                            if (item === undefined) return 32;
+                            if (item.kind === "gap") return GAP_H;
+                            if (item.kind === "band") return Math.max(1, item.band.px);
+                            if (item.kind === "expandrender") return item.px;
+                            return rowHeight(item.row, dense, ui.chartsExpanded, focusCtx, derived);
+                        }}
+                        renderRow={(i) => {
+                            const item = bodyItems[i];
+                            if (item === undefined) return null;
+                            if (item.kind === "gap") return renderGap(item.gap);
+                            if (item.kind === "band") {
+                                return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
+                            }
+                            if (item.kind === "expandrender") {
+                                // The render occupies the PLOT column of the
+                                // row grid, so a time-based component in it
+                                // shares the canvas's x-space; `axis` decides
+                                // what the shared lines do behind it.
+                                return (
+                                    <Box css={styles.expandRender} data-plan-expandrender={item.key}
+                                        gridTemplateColumns={gridTemplate} height={`${item.px}px`}>
+                                        <Box />
+                                        <Box css={styles.expandRenderBody} data-axis={expandAxis}>
+                                            {scale.buckets.slice(0, -1).map((b, gi) => (
+                                                <Box key={gi} css={styles.gridCol} data-plan-axisline
+                                                    left={`${b.x1 * 100}%`} />
+                                            ))}
+                                            {scale.nowFrac !== undefined && (
+                                                <Box css={styles.nowLine} data-plan-axisline
+                                                    left={`${scale.nowFrac * 100}%`} />
+                                            )}
+                                            {expandBody !== null && (
+                                                <EastChakraComponent value={expandBody}
+                                                    storageKey={`${storageKey}.${item.key}.expand`} />
+                                            )}
+                                        </Box>
+                                    </Box>
+                                );
+                            }
+                            return renderVisible(item.row);
+                        }}
+                        headerZIndex={5}
+                        rootCss={styles.root}
+                    />
                     {/* The batch foot sits OUTSIDE the scrolling grid so it stays
                         full-width under the canvas (the shared convention). */}
                     {review !== undefined && (

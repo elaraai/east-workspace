@@ -23,6 +23,9 @@ type Styles = Record<string, Record<string, unknown>>;
 type CardsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "cards" }>["value"];
 
 export interface CardsRowProps {
+    /** R2 context strip (#591) — render this row's marks at strip size. */
+    ctx?: boolean | undefined;
+
     rowKey: string;
     kind: CardsKindValue;
     styles: Styles;
@@ -30,7 +33,8 @@ export interface CardsRowProps {
 }
 
 /** The cards-row plot content — whole-bucket shift chips. */
-export function CardsRow({ rowKey, kind, styles, storageKey }: CardsRowProps) {
+export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProps) {
+    const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     return (
@@ -44,6 +48,7 @@ export function CardsRow({ rowKey, kind, styles, storageKey }: CardsRowProps) {
                 const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
                 const node = (
                     <Box css={styles.cardChip}
+                        data-ctx={ctxAttr}
                         data-chip={chip.key}
                         data-state={runStateKey(chip.state)}
                         left={`calc(${left * 100}% + 2px)`}

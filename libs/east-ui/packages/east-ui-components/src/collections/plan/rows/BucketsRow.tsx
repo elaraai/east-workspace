@@ -45,6 +45,9 @@ const STATUS_ICON: Record<string, IconDefinition> = {
 };
 
 export interface BucketsRowProps {
+    /** R2 context strip (#591) — render this row's marks at strip size. */
+    ctx?: boolean | undefined;
+
     rowKey: string;
     kind: BucketsKindValue;
     styles: Styles;
@@ -52,8 +55,8 @@ export interface BucketsRowProps {
 }
 
 /** One event chip — the `.chk` / `.pchip` resting looks + labelled tiles. */
-function EventChip({ ev, styles, rowKey, storageKey }: {
-    ev: BucketEventValue; styles: Styles; rowKey: string; storageKey: string;
+function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
+    ev: BucketEventValue; styles: Styles; rowKey: string; storageKey: string; ctx?: boolean | undefined;
 }) {
     const dispatch = usePlanDispatch();
     const label = ev.label.type === "some" ? ev.label.value : undefined;
@@ -68,6 +71,7 @@ function EventChip({ ev, styles, rowKey, storageKey }: {
     const chip = (
         <Box css={styles.tile}
             data-event={ev.key}
+            data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
@@ -95,7 +99,7 @@ function EventChip({ ev, styles, rowKey, storageKey }: {
 }
 
 /** The bucket-row plot content — the washed bucket × lane cell grid. */
-export function BucketsRow({ rowKey, kind, styles, storageKey }: BucketsRowProps) {
+export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const lanes = kind.lanes;
@@ -157,9 +161,9 @@ export function BucketsRow({ rowKey, kind, styles, storageKey }: BucketsRowProps
                 {...laneY(li ?? 0, li === undefined ? laneCount : span)}
                 onClick={() => dispatch({ t: "row.select", key: rowKey })}
             >
-                {caption !== undefined && <Box css={styles.laneLabel}>{caption}</Box>}
+                {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
                 {events.map((ev) => (
-                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} storageKey={storageKey} />
+                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} storageKey={storageKey} ctx={ctx} />
                 ))}
                 {marker !== undefined && (
                     <Tooltip.Root openDelay={150}>

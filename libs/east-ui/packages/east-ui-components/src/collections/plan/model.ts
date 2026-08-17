@@ -160,6 +160,13 @@ export const TABLE_H = 24;
 export const ROW_H_STACKED = 42;
 /** Links-focus rail height — a LONE unrelated row collapses, never removed (R1). */
 export const RAIL_H = 11;
+/** Expand-focus CONTEXT STRIP height (R2) — an unfocused row compresses to
+ *  this, keeping its marks on the shared axis at {@link STRIP_MARK_H}. Taller
+ *  than the links rail on purpose: a rail only has to carry a status dot,
+ *  a strip has to carry the row's actual marks. */
+export const STRIP_H = 16;
+/** The mark height inside a context strip — v2's "bars reduced to 7px marks". */
+export const STRIP_MARK_H = 7;
 /** Links-focus gap-band height — a RUN of unrelated rows elides to one
  *  double-height band wearing the ⋯ icon (R1 at scale). */
 export const GAP_H = 22;
@@ -191,13 +198,22 @@ export function rowHeight(
      *  render taller than the virtualizer was told. */
     derived?: PlanDerived,
 ): number {
-    // A links focus rails unrelated DATA rows; family rows fall through to
-    // their normal kind heights and group bands stay wayfinding. An expand
-    // focus never reaches here — its body renders only the focused row, at
-    // its normal height, outside the virtualizer.
-    if (focus !== undefined && focus.kind === "links" && v.row.kind.type !== "group") {
-        const inFamily = v.row.key === focus.key || (focus.family?.has(v.row.key) ?? false);
-        if (!inFamily) return RAIL_H;
+    // Row focus compresses the DATA rows it is not about; group bands always
+    // fall through to their wayfinding height, because a wall of strips is
+    // unreadable without the structure that says which rows they are
+    // ("collapse, never remove" — the rows stay mounted, in order, either way).
+    //
+    // A links focus rails unrelated rows to 11px (a status dot); an expand
+    // focus strips every other row to 16px, where its marks survive at 7px on
+    // the same axis. The FOCUSED row falls through to its normal kind height
+    // in both cases — R2 grows the canvas under the row, not the row itself.
+    if (focus !== undefined && v.row.kind.type !== "group") {
+        if (focus.kind === "links") {
+            const inFamily = v.row.key === focus.key || (focus.family?.has(v.row.key) ?? false);
+            if (!inFamily) return RAIL_H;
+        } else if (v.row.key !== focus.key) {
+            return STRIP_H;
+        }
     }
     const explicit = v.row.height.type === "some" ? pxOf(v.row.height.value) : undefined;
     if (explicit !== undefined) return explicit;
@@ -588,10 +604,16 @@ export interface PlanBand {
     px: number;
 }
 
-/** One line of the canvas body: a row, an elided run (R1), or an unloaded
- *  run of the source (#577). */
+/** One line of the canvas body: a row, the R2 developer render, an elided run
+ *  (R1), or an unloaded run of the source (#577).
+ *
+ *  The developer render is a BODY ITEM rather than a wrapper around the body:
+ *  that is what keeps expand focus inside the virtualizer, so the rows above
+ *  and below it keep their order and the scroll position survives the
+ *  gesture. */
 export type PlanBodyItem =
     | { kind: "row"; row: VisibleRow }
+    | { kind: "expandrender"; key: RowKey; px: number }
     | { kind: "gap"; gap: FocusGap }
     | { kind: "band"; band: PlanBand };
 

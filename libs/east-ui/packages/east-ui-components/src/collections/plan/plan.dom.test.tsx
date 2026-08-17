@@ -639,7 +639,7 @@ describe("Plan links focus (R1)", () => {
 });
 
 describe("Plan expand-in-place (R2)", () => {
-    test("the control hides every other row; the focused row keeps its normal anatomy and the render fills below; esc returns", () => {
+    test("the control opens the render; neighbours COMPRESS rather than disappear; esc returns", () => {
         const { container } = renderPlan(planRoot([
             planRow("l4m13", spanKind([run("rb", W27, new Date("2026-07-27Z"), variant("actual", null))]), {
                 expand: { height: some("152px"), axis: variant("dim", null) },
@@ -657,21 +657,68 @@ describe("Plan expand-in-place (R2)", () => {
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeTruthy();
         expect(screen.getByText("EXPANDED · l4m13")).toBeTruthy();
-        // The focused row keeps its NORMAL anatomy (no shrunken typography)
-        // with the axis treatment on its plot; the render fills below it at
-        // the declared minimum height.
-        expect(container.querySelector('[data-plan-row="l4m13"]')).toBeTruthy();
-        const region = container.querySelector("[data-plan-expandrender]") as HTMLElement;
+        // The focused row keeps its NORMAL anatomy, with the axis treatment on
+        // its own plot; the render mounts as its own body item beneath it.
+        const focal = container.querySelector('[data-plan-row="l4m13"]') as HTMLElement;
+        expect(focal).toBeTruthy();
+        expect(focal.hasAttribute("data-ctx")).toBe(false);
+        const region = container.querySelector('[data-plan-expandrender="l4m13"]') as HTMLElement;
         expect(region).toBeTruthy();
-        expect(region.style.minHeight).toBe("152px");
         expect(screen.getByText("UTIL RENDER · l4m13")).toBeTruthy();
         expect(container.querySelector('[data-plan-row="l4m13"] [data-axis="dim"]')).toBeTruthy();
-        // Every other row HIDES entirely — no rails, no context strips.
-        expect(container.querySelector('[data-plan-row="l4m14"]')).toBeNull();
+
+        // ── The #591 contract: COLLAPSE, NEVER REMOVE ──
+        // The neighbour is still mounted, still in order, wearing the strip.
+        const ctxRow = container.querySelector('[data-plan-row="l4m14"]') as HTMLElement;
+        expect(ctxRow).toBeTruthy();
+        expect(ctxRow.hasAttribute("data-ctx")).toBe(true);
+        // ...and it is BELOW the focal row and its render, not reordered.
+        const order = [...container.querySelectorAll("[data-plan-row], [data-plan-expandrender]")]
+            .map((el) => el.getAttribute("data-plan-row") ?? `render:${el.getAttribute("data-plan-expandrender")}`);
+        expect(order).toEqual(["l4m13", "render:l4m13", "l4m14"]);
 
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
         expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
-        expect(container.querySelector('[data-plan-row="l4m14"]')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="l4m14"]')!.hasAttribute("data-ctx")).toBe(false);
+    });
+
+    test("a strip is the return click target — clicking one leaves the focus, never selects it", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("focal", spanKind([]), { expand: { height: none, axis: variant("keep", null) } }),
+            planRow("other", spanKind([])),
+        ], {
+            expandRender: (ref: { key: string }) =>
+                variant("Text", { value: `R · ${ref.key}`, style: none }),
+        }));
+        fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
+        const strip = container.querySelector('[data-plan-row="other"]') as HTMLElement;
+        expect(strip.hasAttribute("data-ctx")).toBe(true);
+        fireEvent.click(strip);
+        expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeNull();
+        // Returning is ALL it does — the strip does not select the row under it.
+        expect(strip.hasAttribute("data-selected")).toBe(false);
+    });
+
+    test("marks survive the strip: geometry shrinks, shape shrinks, values re-encode", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("focal", spanKind([]), { expand: { height: none, axis: variant("keep", null) } }),
+            planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("e", variant("events", { marks: [{
+                key: "m1", at: W27, kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
+            }] })),
+        ], {
+            expandRender: (ref: { key: string }) =>
+                variant("Text", { value: `R · ${ref.key}`, style: none }),
+        }));
+        fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
+        // R1 — the span bar is still there, still positioned, flagged for 7px.
+        const bar = container.querySelector('[data-plan-row="s"] [data-run="r1"]') as HTMLElement;
+        expect(bar).toBeTruthy();
+        expect(bar.hasAttribute("data-ctx")).toBe(true);
+        // R3 — the milestone keeps its silhouette; its label does not.
+        const dot = container.querySelector('[data-plan-row="e"] [data-mark="m1"]') as HTMLElement;
+        expect(dot).toBeTruthy();
+        expect(dot.hasAttribute("data-ctx")).toBe(true);
     });
 });
 

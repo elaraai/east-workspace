@@ -41,6 +41,9 @@ export function runStateKey(state: RunValue["state"]): "obs" | "appr" | "prop" |
 
 
 export interface SpanRowProps {
+    /** R2 context strip (#591) — render this row's marks at strip size. */
+    ctx?: boolean | undefined;
+
     rowKey: string;
     kind: SpanKindValue;
     /** Renderer-derived rollup bands (the IR carries only the declaration). */
@@ -55,7 +58,8 @@ export interface SpanRowProps {
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, storageKey, partial }: SpanRowProps) {
+export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, storageKey, partial, ctx }: SpanRowProps) {
+    const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
 
@@ -78,6 +82,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 const bar = (
                     <Box
                         css={styles.bar}
+                        data-ctx={ctxAttr}
                         data-state={stateKey}
                         data-stuck={stuck ? "" : undefined}
                         data-runoff={runoff ? "" : undefined}
@@ -114,7 +119,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 // number — mark it rather than print it as if it were final.
                 const caption = partial === true && counts !== "" ? `~${counts}` : counts;
                 return (
-                    <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)}
+                    <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
                         data-plan-partial={partial === true ? "" : undefined}
                         left={`${left * 100}%`} width={`${width * 100}%`}>
                         {caption}
@@ -131,7 +136,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 const x = scale.fracOf(dec.at);
                 if (x < 0 || x > 1) return null;
                 const diamond = (
-                    <Box css={styles.diamond} data-applied={dec.applied ? "" : undefined}
+                    <Box css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
                         data-mark={dec.key} left={`${x * 100}%`}
                         onClick={(e) => e.stopPropagation()} cursor="pointer" />
                 );
