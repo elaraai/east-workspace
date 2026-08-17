@@ -385,8 +385,12 @@ eyeballed. The eye is <code>Slice.Legend</code>'s own — 9px, last in the row, 
   already declares one per kind (bars-staggered · border-all · chart-line · table-cells-large · table-list ·
   user-group · flag), so the panel is showing a vocabulary the IR has always had and nothing rendered.
   The drag grip shares that slot and swaps in on hover, so ordering costs no width and nothing shifts.</div>
-<div class="note open" style="margin-top:10px"><b>2 · Splitting the slice editor.</b> It is popover-only today —
-  a rail chip opens it, and its outer slot carries the floating chrome. Showing its body in place means
-  separating the surface from the editor. That looks worth having anyway (a drawer or a settings page could
-  then hold one, which nothing can today), but it changes a shared component. <b>Here, or its own issue?</b></div>
+<div class="note" style="margin-top:10px"><b>2 · The inline editor needs no new component — settled.</b>
+  <code>SliceEditPopover</code> already renders as an in-flow disclosure instead of a popover when it sits in
+  <code>editor</code> density, and <code>slice/density.ts</code> documents that case in exactly these terms:
+  <em>&ldquo;the terminal surface &hellip; nothing opens a further popover&rdquo;</em>. <code>Slice.Rail</code>
+  already uses it. So the library wraps each family's affordances in
+  <code>&lt;SliceDensityContext.Provider value=&quot;editor&quot;&gt;</code> and the popover disappears by
+  itself — nothing shared changes, and an earlier draft of this page was wrong to call it a blocker.
+  The tint, the 12px margins and the hairline stay the library's own container styling.</div>
 </div></body></html>
