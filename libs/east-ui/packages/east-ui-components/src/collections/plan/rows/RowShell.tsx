@@ -55,6 +55,15 @@ export interface RowShellProps {
     focusTag?: "UPSTREAM" | "DOWNSTREAM" | "LINKED" | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
     axisMode?: "dim" | "off" | undefined;
+    /** R2 (#591) — the focused row's developer render, mounted INSIDE this
+     *  row's plot cell beneath the row's own marks. Its presence is what makes
+     *  the row (and so its gutter) tall. */
+    expandBody?: ReactNode;
+    /** R2 — content for the space the grown gutter cell opens up. */
+    expandGutter?: ReactNode;
+    /** R2 — the row's NATURAL kind height: the band its own marks keep at the
+     *  top while the render fills the remainder. */
+    bandHeight?: number | undefined;
     /** R2 context strip (#591) — this row is not the focus, so it compresses
      *  to 16px and its marks to 7px on the same axis. Never removed: order,
      *  scroll position and the status dot survive, and the strip itself is
@@ -71,6 +80,7 @@ export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     cursorFrac, caret, onCaretClick, emphasis, gutterOverlay, noGrid,
     controls, focusTag, axisMode, ctx, decision, children,
+    expandBody, expandGutter, bandHeight,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -79,6 +89,11 @@ export function RowShell({
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
     // elements are in a strip.
     const ctxAttr = ctx === true ? "" : undefined;
+    // The row is EXPANDED when it carries a render. Everything the expanded
+    // state changes — the tint, the top-aligned tall gutter, the banded plot —
+    // keys off this one flag.
+    const expanded = expandBody !== undefined;
+    const expandedAttr = expanded ? "" : undefined;
     const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
@@ -100,6 +115,7 @@ export function RowShell({
             data-selected={selected ? "" : undefined}
             data-emphasis={emphasis}
             data-ctx={ctxAttr}
+            data-expanded={expandedAttr}
             // A strip's whole job is to be the way back — clicking one returns
             // to all rows rather than selecting the row underneath.
             onClick={() => dispatch(ctx === true
@@ -109,6 +125,7 @@ export function RowShell({
         >
             <Box
                 css={styles.gutterCell}
+                data-expanded={expandedAttr}
                 paddingLeft={`${12 + depth * INDENT_PX}px`}
                 onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
@@ -139,7 +156,7 @@ export function RowShell({
                     {/* Row controls (R1/R2) — rightmost; a control click never
                         selects or toggles the row. */}
                     {controls !== undefined && controls.length > 0 && (
-                        <Box css={styles.rowControls} data-ctx={ctxAttr}>
+                        <Box css={styles.rowControls} data-ctx={ctxAttr} data-expanded={expandedAttr}>
                             {controls.map((c) => (
                                 <Box
                                     key={c.kind}
@@ -168,6 +185,11 @@ export function RowShell({
                         ))}
                     </Box>
                 )}
+                {/* R2 — the space the grown gutter opens up is the author's
+                    (`expandGutter`), below the row's own identity lines. */}
+                {expandGutter !== undefined && (
+                    <Box css={styles.expandGutterBody} data-plan-expandgutter>{expandGutter}</Box>
+                )}
                 {gutterOverlay}
             </Box>
             <Box
@@ -181,11 +203,23 @@ export function RowShell({
                 onPointerLeave={() => dispatch({ t: "cursor.leave" })}
             >
                 {noGrid !== true && edges.map((x, i) => (
-                    <Box key={i} css={styles.gridCol} left={`${x * 100}%`} />
+                    <Box key={i} css={styles.gridCol} data-plan-axisline left={`${x * 100}%`} />
                 ))}
-                {children}
+                {/* Expanded: the row's own marks hold a band at the top (they
+                    position against it, so a 20px bar in a 200px row does not
+                    drift to the middle), and the render takes the rest. */}
+                {expanded ? (
+                    <>
+                        <Box position="absolute" left={0} right={0} top={0}
+                            height={`${bandHeight ?? 32}px`}>{children}</Box>
+                        <Box css={styles.expandRenderBody} data-plan-expandrender
+                            top={`${(bandHeight ?? 32) + 2}px`}>
+                            {expandBody}
+                        </Box>
+                    </>
+                ) : children}
                 {cursorFrac !== undefined && <Box css={styles.cursorLine} left={`${cursorFrac * 100}%`} />}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
+                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />}
             </Box>
             {decision}
         </Box>

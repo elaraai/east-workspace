@@ -141,6 +141,7 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row ref)
+ * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row ref)
  * @property review - The shared review chrome (decision column + batch foot)
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
@@ -197,6 +198,12 @@ export interface PlanConfig {
      *  `expand` focuses; builds the mounted body from captured data /
      *  bind-handles. */
     expandRender?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], UIComponentType>>;
+    /** The R2 GUTTER render — an expanded row's gutter cell grows with the row
+     *  (one tall cell, top-aligned under the row's name), and this fills the
+     *  space that opens up: the identity, measures or controls that only earn
+     *  their place once the row has the canvas. Called with the same row ref
+     *  as `expandRender`. */
+    expandGutter?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], UIComponentType>>;
     /** The shared review chrome (decision column + batch foot); callbacks receive `{ key }`. */
     review?: PlanReviewConfig;
     /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
@@ -331,6 +338,9 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
             : none,
         expandRender: config.expandRender !== undefined
             ? some(East.value(config.expandRender, FunctionType([PlanRowRefType], UIComponentType)))
+            : none,
+        expandGutter: config.expandGutter !== undefined
+            ? some(East.value(config.expandGutter, FunctionType([PlanRowRefType], UIComponentType)))
             : none,
         review:   config.review !== undefined ? some(buildReview(config.review, PlanReviewType)) : none,
         slice:    sliceChrome,

@@ -1714,14 +1714,16 @@ export const planExpand = example({
               jobs: [
                   { key: "b214", label: "RUN · B-214", start: week(28n), end: week(33n), state: variant("in-progress", null) },
               ], cells: noCells, nums: noNums, marks: noMarks }],
-            // No declaration — no control. The contrast is the point.
+            // No declaration — no control. The contrast is the point: one row
+            // that cannot be expanded beside five that can.
             ["L1-M07", { family: "span", label: "L1-M07", expand: none,
               jobs: [
                   { key: "hld", label: "HLD · B-197", start: week(27n), end: week(31n), state: variant("actual", null) },
               ], cells: noCells, nums: noNums, marks: noMarks }],
             // The kinds that COLLAPSE differently — heat keeps its ramp, the
             // table re-encodes its numerals, the marks keep their silhouettes.
-            ["LOAD", { family: "heat", label: "Line load", expand: none,
+            ["LOAD", { family: "heat", label: "Line load",
+              expand: some({ height: some("132px"), axis: variant("keep", null) }),
               jobs: noJobs, nums: noNums, marks: noMarks,
               cells: [
                   { at: week(27n), value: some(46.0), label: some("46") },
@@ -1750,7 +1752,8 @@ export const planExpand = example({
                   { at: week(34n), value: some(162.0), text: none, tone: none },
                   { at: week(35n), value: some(144.0), text: none, tone: none },
               ] }],
-            ["MILESTONES", { family: "events", label: "MILESTONES", expand: none,
+            ["MILESTONES", { family: "events", label: "MILESTONES",
+              expand: some({ height: some("112px"), axis: variant("dim", null) }),
               jobs: noJobs, cells: noCells, nums: noNums,
               marks: [
                   { key: "k", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
@@ -1770,6 +1773,37 @@ export const planExpand = example({
         const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) => (
             <Sparkline data={util} type="area" color="link" width="100%" height="100%" />
         )));
+        // The GUTTER half. An expanded row's gutter cell grows with the row,
+        // and what fills the space it opens up is the author's — the identity
+        // and measures that only earn their place once the row has the canvas.
+        // Same row ref as `expandRender`, so it can differ per row.
+        // The old spec's drilled-row card, which is what the grown gutter is
+        // for: identity lines then a fill meter. The lines need no styling —
+        // the gutter body already carries the sub-line vocabulary — so the
+        // author writes content, not typography.
+        const GutterFacts = StructType({ a: StringType, b: StringType, fill: FloatType });
+        const expandGutter = $.const(East.function([Plan.Types.RowRef], UIComponentType, ($, ref) => {
+            const facts = $.const(new Map([
+                ["L1-M03", { a: "120 t · FILL", b: "B-208 · 88 t · 73%", fill: 0.73 }],
+                ["L1-M04", { a: "120 t · FILL", b: "B-214 · 89 t · 74%", fill: 0.74 }],
+                ["LOAD",   { a: "MEAN 74 · PEAK 96", b: "BREACH W33 · 1 wk", fill: 0.96 }],
+                ["DESPATCH", { a: "NET 1 629 t", b: "2 SHORT WEEKS", fill: 0.55 }],
+                ["MILESTONES", { a: "5 MARKS", b: "1 EXCEPTION · W34", fill: 0.2 }],
+            ]), DictType(StringType, GutterFacts));
+            const f = $.let(facts.get(ref.key));
+            return (
+                <Box>
+                    <Text>{f.a}</Text>
+                    <Text>{f.b}</Text>
+                    {/* The 108x5 meter, verbatim from the old drilled card. */}
+                    <Box width="108px" height="5px" borderRadius="2px" borderWidth="1px"
+                        borderColor="border.strong" background="bg.surface" overflow="hidden">
+                        <Box height="100%" background="brand.solid"
+                            width={East.str`${East.Float.printFixed(f.fill.multiply(100.0), 0n)}%`} />
+                    </Box>
+                </Box>
+            );
+        }));
         return (
             <Plan
                 axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
@@ -1799,7 +1833,8 @@ export const planExpand = example({
                     }),
                 ]}
                 expandRender={expandRender}
-                style={{ height: "420px" }}
+                expandGutter={expandGutter}
+                style={{ height: "460px" }}
             />
         );
     }),

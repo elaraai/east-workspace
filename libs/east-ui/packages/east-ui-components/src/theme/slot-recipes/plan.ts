@@ -39,7 +39,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "caret", "statusDot",
         // row focus (R1 links / R2 expand)
         "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner",
-        "focusBar", "focusBack", "focusCaption", "expandRender", "expandRenderBody", "toneCell",
+        "focusBar", "focusBack", "focusCaption", "expandRenderBody", "expandGutterBody", "toneCell",
         // group band
         "groupBand", "groupName", "groupMeta",
         // span rows
@@ -207,6 +207,16 @@ export const planSlotRecipe = defineSlotRecipe({
                 overflow: "hidden",
                 "&:hover": { background: "{colors.brandTint}" },
             },
+            // ── R2 the FOCUSED row (#591) ──
+            // The row grows to hold its render, so the tint runs across the
+            // gutter AND the plot as one band — that continuity is what reads
+            // as "this row has the canvas" rather than "a panel opened below
+            // a row".
+            "&[data-expanded]": {
+                background: "{colors.brandTint}",
+                transition: "background 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+            },
         },
         gutterCell: {
             display: "flex",
@@ -218,11 +228,28 @@ export const planSlotRecipe = defineSlotRecipe({
             minWidth: 0,
             overflow: "hidden",
             position: "relative",
+            // ── R2 (#591) ── The expanded row's gutter is ONE TALL CELL
+            // spanning the row and its render. Its content stops centring and
+            // stacks from the top, which is what opens the space `expandGutter`
+            // fills; the right border picks up the brand so the grown cell
+            // reads as part of the focused band.
+            "&[data-expanded]": {
+                justifyContent: "flex-start",
+                paddingTop: "11px",
+                borderRightColor: "color-mix(in srgb, {colors.brand.600} 30%, {colors.border.subtle})",
+            },
         },
         plot: {
             position: "relative",
             minWidth: 0,
             overflow: "hidden",
+            // R2 `axis` (#591) — the shared grid + now-line are real elements
+            // in this cell, so the treatment applies HERE, to the row that
+            // declared it. `dim` washes them behind dense render content;
+            // `off` suppresses them inside this row only. The ruler is a
+            // different element entirely and never moves either way.
+            "&[data-axis='dim'] [data-plan-axisline]": { opacity: 0.4 },
+            "&[data-axis='off'] [data-plan-axisline]": { display: "none" },
         },
         // A single bucket's background grid line (column separators). The
         // expand render's `axis` treatment washes / suppresses them INSIDE
@@ -368,6 +395,10 @@ export const planSlotRecipe = defineSlotRecipe({
             // A strip is one click target — returning. Row controls inside it
             // would compete with that, and there is no room for them anyway.
             "&[data-ctx]": { display: "none" },
+            // An expanded row's gutter is TALL, and `top: 50%` in a tall cell
+            // parks the control halfway down a mostly-empty column, detached
+            // from the name it belongs to. Pin it to the row's own band.
+            "&[data-expanded]": { top: "11px", transform: "none" },
         },
         rowControl: {
             width: "20px",
@@ -526,36 +557,41 @@ export const planSlotRecipe = defineSlotRecipe({
         // focused row (every other row hides for the focus); fades in once
         // the gather settles (the 300ms choreography).
         // ── R2 developer render (#591) ──
-        // A GRID on the row template, not a full-width box. That is the whole
-        // fix: the render occupies the PLOT column, so a time-based chart in
-        // it lines up with the buckets above, and `axis` has something to
-        // apply to. Rendering it full-width (gutter included) is why
-        // `PlanExpandType.axis` was decorative.
-        expandRender: {
-            display: "grid",
-            position: "relative",
-            background: "bg.surface",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
+        // Absolutely placed inside the FOCUSED ROW's plot cell, beneath the
+        // band its own marks hold. Being in the plot cell is what puts it in
+        // the canvas's x-space, so a time-based component lines up with the
+        // buckets; being in the ROW is what lets the gutter grow with it.
+        expandRenderBody: {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: "8px",
+            minWidth: 0,
+            overflow: "hidden",
             animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
             "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         },
-        // The plot-column cell the host's component mounts into. Carries the
-        // same bucket grid the rows do, so `axis: keep` runs real column lines
-        // behind the render; `dim` washes them for dense content and `off`
-        // suppresses them INSIDE this row only — the ruler never moves.
-        expandRenderBody: {
-            position: "relative",
+        // The author's content in the grown gutter cell. Carries the gutter's
+        // OWN sub-line vocabulary (mono 9.5 / medium / muted, stacked on 3px)
+        // rather than inheriting body type — the expanded gutter is a
+        // continuation of the row's identity, not a fresh surface, so plain
+        // text dropped in here lands on the sheet without the author
+        // restyling it. Settles in with the render on the same 300ms wait.
+        expandGutterBody: {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: "3px",
+            marginTop: "5px",
             minWidth: 0,
             overflow: "hidden",
-            // The lines are real elements (the row's own `gridCol` / `nowLine`
-            // slots), not a background image sized off a CSS variable — the
-            // rows draw them exactly this way, so a render column and the rows
-            // above it cannot drift apart. `dim` washes them for dense
-            // content; `off` suppresses them INSIDE this row only, and the
-            // ruler never moves either way.
-            "&[data-axis='dim'] > [data-plan-axisline]": { opacity: 0.4 },
-            "&[data-axis='off'] > [data-plan-axisline]": { display: "none" },
+            fontFamily: "mono",
+            fontSize: "9.5px",
+            fontWeight: "medium",
+            lineHeight: 1.35,
+            color: "fg.subtle",
+            animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
+            "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         },
         // ── R2 VALUE → TONE STRIP (#591) ──
         // What a chart or table row collapses to: one block per bucket, depth

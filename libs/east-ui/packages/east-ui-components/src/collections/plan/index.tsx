@@ -323,6 +323,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // resolver called with the row ref (rows only DECLARE `{ height, axis }`),
     // evaluated once per focus.
     const expandRenderFn = useMemo(() => getSomeorUndefined(value.expandRender), [value.expandRender]);
+    const expandGutterFn = useMemo(() => getSomeorUndefined(value.expandGutter), [value.expandGutter]);
     const expandBody = useMemo(() => {
         if (ui.focus?.kind !== "expand" || expandRenderFn === undefined) return null;
         try {
@@ -332,6 +333,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             return null;
         }
     }, [ui.focus, expandRenderFn]);
+    const expandGutterBody = useMemo(() => {
+        if (ui.focus?.kind !== "expand" || expandGutterFn === undefined) return null;
+        try {
+            return expandGutterFn({ key: ui.focus.key });
+        } catch (err) {
+            console.error("[Plan] expandGutter resolver failed:", err);
+            return null;
+        }
+    }, [ui.focus, expandGutterFn]);
     // Entering / leaving / moving a row focus rewrites EVERY row's height
     // while the row COUNT holds — precisely the case TanStack's measurement
     // memo does not watch (see `VirtualRows.sizeVersion`). Bump on each
@@ -461,7 +471,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // `measureRows={false}`, so `rowHeight()` IS the layout.
     heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
         windowRows.reduce((sum, row) =>
-            sum + rowHeight({ row, depth: 0, collapsed: false }, dense, ui.chartsExpanded, focusCtx, derived), 0);
+            sum + rowHeight({ row, depth: 0, collapsed: false }, dense, ui.chartsExpanded, heightCtx, derived), 0);
 
     // ── Rows ──────────────────────────────────────────────────────────────
     const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
@@ -473,39 +483,42 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const expandDecl = focusCtx?.kind === "expand"
         ? getSomeorUndefined(index.byKey.get(focusCtx.key)?.expand)
         : undefined;
-    const expandAxis = expandDecl?.axis.type;
     // The v2 clamp — `min(renderHeight, canvas − strips − ruler)`. The canvas
     // is MEASURED, not parsed: `height: "fill"` is `"100%"`, which has no
     // pixel value until layout runs. Unbounded frames have no scroll element
     // and grow to content, so there is nothing to clamp against and the
     // declared height stands.
-    const viewportPx = useElementHeight(scrollElRef, focusCtx?.kind === "expand");
+    const viewportPx = useElementHeight(scrollElRef, ui.focus?.kind === "expand");
+    // The clamp feeds `focusCtx.renderPx`, which `rowHeight` adds to the focal
+    // row — so it must be computed WITHOUT `focusCtx` (which would be
+    // circular). Strip heights are constant per row, so summing them needs no
+    // focus context: every row but the focus is `STRIP_H`, groups aside.
     const expandRenderPx = useMemo(() => {
         if (expandDecl === undefined) return 0;
         const declared = expandDecl.height.type === "some" ? parseFloat(expandDecl.height.value) : NaN;
         const want = Number.isFinite(declared) ? declared : EXPAND_DEFAULT_PX;
         if (viewportPx === undefined) return want;
-        // Everything the render must NOT push out: the strips, the focal row,
-        // and the pinned rows + chrome pinned above them.
+        // Everything the render must NOT push out: the strips, the focal row's
+        // own band, and the chrome pinned above them.
+        const bare = { kind: "expand" as const, key: ui.focus?.key ?? "" };
         const rowsPx = visible.reduce(
-            (sum, v) => sum + rowHeight(v, dense, ui.chartsExpanded, focusCtx, derived), 0);
-        const chromePx = headerPxRef.current;
-        return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - chromePx));
-    }, [expandDecl, viewportPx, visible, dense, ui.chartsExpanded, focusCtx, derived]);
+            (sum, v) => sum + rowHeight(v, dense, ui.chartsExpanded, bare, derived), 0);
+        return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - headerPxRef.current));
+    }, [expandDecl, viewportPx, visible, dense, ui.chartsExpanded, ui.focus, derived]);
+    // The height context every `rowHeight` call uses. `focusCtx` says WHICH
+    // row is focused (that is all `renderVisible` needs); this adds how tall
+    // its render is, which only the measurements need — keeping them separate
+    // is what lets the clamp be computed after `focusCtx` without the two
+    // depending on each other.
+    const heightCtx = useMemo<PlanFocusCtx | undefined>(
+        () => (focusCtx?.kind === "expand" ? { ...focusCtx, renderPx: expandRenderPx } : focusCtx),
+        [focusCtx, expandRenderPx]);
     // R1 at scale — the links-focus body elides runs of unrelated rows into
     // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
     const bodyItems = useMemo<PlanBodyItem[]>(() => {
         const core: PlanBodyItem[] = focusCtx?.kind === "links"
             ? elideForFocus(visible, index, focusCtx)
-            : visible.flatMap((row) =>
-                // The developer render rides DIRECTLY under the row that
-                // declared it — "mounts under the row's own spans" — so it
-                // inherits the row's place in the order instead of replacing
-                // the body around it.
-                focusCtx?.kind === "expand" && row.row.key === focusCtx.key && expandBody !== null
-                    ? [{ kind: "row" as const, row },
-                       { kind: "expandrender" as const, key: row.row.key, px: expandRenderPx }]
-                    : [{ kind: "row" as const, row }]);
+            : visible.map((row) => ({ kind: "row", row }));
         // The unloaded remainder of a paged source, above and below (#577). Each
         // band is sized by the ledger, so the rows that replace it occupy the
         // same space and nothing below moves.
@@ -515,7 +528,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         out.push(...core);
         if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
         return out;
-    }, [focusCtx, visible, index, paging.head, paging.tail, expandBody, expandRenderPx]);
+    }, [focusCtx, visible, index, paging.head, paging.tail]);
 
     // The viewport, in the driver's terms — which ROW (or which band) the middle
     // of the mounted range sits on. The driver maps that back to a window; no
@@ -541,7 +554,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const renderVisible = useCallback((v: VisibleRow): React.ReactNode => {
         if (scale === undefined) return null;
         const kind = v.row.kind;
-        const h = rowHeight(v, dense, ui.chartsExpanded, focusCtx, derived);
+        const h = rowHeight(v, dense, ui.chartsExpanded, heightCtx, derived);
         const cursorFrac = ui.cursor?.frac;
         // R1 rails — unrelated rows collapse to 11px, never removed: order,
         // scroll and the status dot survive, and the rail itself returns.
@@ -566,6 +579,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         // strips with no structure between them is unreadable.
         const isCtx = focusCtx?.kind === "expand" && v.row.key !== focusCtx.key
             && kind.type !== "group";
+        // The FOCUSED row carries the render inside itself, which is what makes
+        // it (and its gutter) tall — see `PlanFocusCtx.renderPx`.
+        const isFocal = focusCtx?.kind === "expand" && v.row.key === focusCtx.key
+            && kind.type !== "group" && expandBody !== null;
         // The row-scoped focus controls + family tags.
         const rowControls: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> = [
             ...(linkedKeys.has(v.row.key) ? [{
@@ -604,6 +621,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             row: v.row, styles, gridTemplate, depth: v.depth,
             selected: ui.selected === v.row.key, cursorFrac: isCtx ? undefined : cursorFrac,
             controls: isCtx ? undefined : rowControls, focusTag, axisMode: axisTag, ctx: isCtx,
+            ...(isFocal ? {
+                expandBody: <EastChakraComponent value={expandBody}
+                    storageKey={`${storageKey}.${v.row.key}.expand`} />,
+                bandHeight: rowHeight(v, dense, ui.chartsExpanded, undefined, derived),
+                ...(expandGutterBody !== null ? {
+                    expandGutter: <EastChakraComponent value={expandGutterBody}
+                        storageKey={`${storageKey}.${v.row.key}.expandgutter`} />,
+                } : {}),
+            } : {}),
             decision: review !== undefined && review.hasRowVerbs
                 ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
                 : undefined,
@@ -693,7 +719,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 );
         }
     }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
-        focusCtx, linkedKeys, linkFamily, expandRenderFn, transport, review]);
+        focusCtx, heightCtx, linkedKeys, linkFamily, expandRenderFn, expandBody, expandGutterBody,
+        transport, review]);
 
     // R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
     // rows (their count rides beside the icon, worst hidden tone at right);
@@ -865,8 +892,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             if (item === undefined) return 32;
                             if (item.kind === "gap") return GAP_H;
                             if (item.kind === "band") return Math.max(1, item.band.px);
-                            if (item.kind === "expandrender") return item.px;
-                            return rowHeight(item.row, dense, ui.chartsExpanded, focusCtx, derived);
+                            return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
                         }}
                         renderRow={(i) => {
                             const item = bodyItems[i];
@@ -874,32 +900,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             if (item.kind === "gap") return renderGap(item.gap);
                             if (item.kind === "band") {
                                 return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
-                            }
-                            if (item.kind === "expandrender") {
-                                // The render occupies the PLOT column of the
-                                // row grid, so a time-based component in it
-                                // shares the canvas's x-space; `axis` decides
-                                // what the shared lines do behind it.
-                                return (
-                                    <Box css={styles.expandRender} data-plan-expandrender={item.key}
-                                        gridTemplateColumns={gridTemplate} height={`${item.px}px`}>
-                                        <Box />
-                                        <Box css={styles.expandRenderBody} data-axis={expandAxis}>
-                                            {scale.buckets.slice(0, -1).map((b, gi) => (
-                                                <Box key={gi} css={styles.gridCol} data-plan-axisline
-                                                    left={`${b.x1 * 100}%`} />
-                                            ))}
-                                            {scale.nowFrac !== undefined && (
-                                                <Box css={styles.nowLine} data-plan-axisline
-                                                    left={`${scale.nowFrac * 100}%`} />
-                                            )}
-                                            {expandBody !== null && (
-                                                <EastChakraComponent value={expandBody}
-                                                    storageKey={`${storageKey}.${item.key}.expand`} />
-                                            )}
-                                        </Box>
-                                    </Box>
-                                );
                             }
                             return renderVisible(item.row);
                         }}

@@ -1130,6 +1130,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         // The R2 developer render for rows declaring `expand` (the row keeps
         // the `{ height, axis }` declaration; the render is ONE function).
         expandRender: OptionType(FunctionType([PlanRowRefType], node)),
+        // The R2 gutter render — the expanded row's gutter grows with it, and
+        // what fills the new space is the author's.
+        expandGutter: OptionType(FunctionType([PlanRowRefType], node)),
         // Optional review chrome — mirror `reviewType(PlanRowRefType, ·)`
         // (`contracts/approval.ts`), `summary` on the recursion `node` (the
         // Planner precedent); subjects are keyed rows, never indices.

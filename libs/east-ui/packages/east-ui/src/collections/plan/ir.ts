@@ -86,6 +86,11 @@ export const PlanRootType = StructType({
     popover: OptionType(FunctionType([PlanElementRefType], OptionType(UIComponentType))),
     hover: OptionType(FunctionType([PlanElementRefType], OptionType(UIComponentType))),
     expandRender: OptionType(FunctionType([PlanRowRefType], UIComponentType)),
+    // The GUTTER half of R2. An expanded row's gutter cell grows with the row
+    // (one tall cell, top-aligned), and the space that opens up is the
+    // author's — identity that only earns its place when the row has the
+    // canvas. Same shape as `expandRender`, over the same row ref.
+    expandGutter: OptionType(FunctionType([PlanRowRefType], UIComponentType)),
     review: OptionType(PlanReviewType),
     slice: OptionType(SliceChromeType),
     footer: ArrayType(PlanFooterItemType),

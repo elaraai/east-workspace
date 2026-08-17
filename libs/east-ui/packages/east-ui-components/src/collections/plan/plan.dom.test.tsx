@@ -662,7 +662,10 @@ describe("Plan expand-in-place (R2)", () => {
         const focal = container.querySelector('[data-plan-row="l4m13"]') as HTMLElement;
         expect(focal).toBeTruthy();
         expect(focal.hasAttribute("data-ctx")).toBe(false);
-        const region = container.querySelector('[data-plan-expandrender="l4m13"]') as HTMLElement;
+        // The row EXPANDS to hold the render — the render is inside the focal
+        // row's plot cell, not a sibling, so the gutter grows with it.
+        expect(focal.hasAttribute("data-expanded")).toBe(true);
+        const region = focal.querySelector("[data-plan-expandrender]") as HTMLElement;
         expect(region).toBeTruthy();
         expect(screen.getByText("UTIL RENDER · l4m13")).toBeTruthy();
         expect(container.querySelector('[data-plan-row="l4m13"] [data-axis="dim"]')).toBeTruthy();
@@ -673,12 +676,13 @@ describe("Plan expand-in-place (R2)", () => {
         expect(ctxRow).toBeTruthy();
         expect(ctxRow.hasAttribute("data-ctx")).toBe(true);
         // ...and it is BELOW the focal row and its render, not reordered.
-        const order = [...container.querySelectorAll("[data-plan-row], [data-plan-expandrender]")]
-            .map((el) => el.getAttribute("data-plan-row") ?? `render:${el.getAttribute("data-plan-expandrender")}`);
-        expect(order).toEqual(["l4m13", "render:l4m13", "l4m14"]);
+        const order = [...container.querySelectorAll("[data-plan-row]")]
+            .map((el) => el.getAttribute("data-plan-row"));
+        expect(order).toEqual(["l4m13", "l4m14"]);
 
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
         expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
+        expect(container.querySelector('[data-plan-row="l4m13"]')!.hasAttribute("data-expanded")).toBe(false);
         expect(container.querySelector('[data-plan-row="l4m14"]')!.hasAttribute("data-ctx")).toBe(false);
     });
 

@@ -178,6 +178,15 @@ export interface PlanFocusCtx {
     key: RowKey;
     /** Full-height family keys (links focus; the focused row is implied). */
     family?: ReadonlySet<RowKey> | undefined;
+    /** R2 — the clamped developer-render height, in px.
+     *
+     *  The render lives INSIDE the focused row rather than beside it, because
+     *  the gutter has to grow with it: v2 gives the expanded row ONE tall
+     *  gutter cell, top-aligned, whose new space is the author's
+     *  (`expandGutter`). A render mounted as a sibling row would leave that
+     *  cell 32px tall with a blank column beside the render — which is
+     *  precisely the tell that the row did not really expand. */
+    renderPx?: number | undefined;
 }
 
 /** Parse a CSS px size (`"120px"` / `"120"`) to a number; `undefined` for
@@ -213,6 +222,12 @@ export function rowHeight(
             if (!inFamily) return RAIL_H;
         } else if (v.row.key !== focus.key) {
             return STRIP_H;
+        } else if (focus.renderPx !== undefined && focus.renderPx > 0) {
+            // The FOCUSED row grows by its render — the row's own marks keep
+            // their band at the top, the render fills the rest, and the gutter
+            // spans both. Recursing with the focus dropped gets the row's
+            // natural kind height without duplicating the switch below.
+            return rowHeight(v, dense, chartsExpanded, undefined, derived) + focus.renderPx;
         }
     }
     const explicit = v.row.height.type === "some" ? pxOf(v.row.height.value) : undefined;
@@ -607,13 +622,12 @@ export interface PlanBand {
 /** One line of the canvas body: a row, the R2 developer render, an elided run
  *  (R1), or an unloaded run of the source (#577).
  *
- *  The developer render is a BODY ITEM rather than a wrapper around the body:
- *  that is what keeps expand focus inside the virtualizer, so the rows above
- *  and below it keep their order and the scroll position survives the
- *  gesture. */
+ *  The R2 developer render is NOT an item here — it renders inside the
+ *  focused row, which grows to hold it (see {@link PlanFocusCtx.renderPx}).
+ *  Expand focus still stays inside the virtualizer either way; putting the
+ *  render in the row is what lets the GUTTER grow with it. */
 export type PlanBodyItem =
     | { kind: "row"; row: VisibleRow }
-    | { kind: "expandrender"; key: RowKey; px: number }
     | { kind: "gap"; gap: FocusGap }
     | { kind: "band"; band: PlanBand };
 
