@@ -164,7 +164,13 @@ class _EmitSink:
 
     def function_value(self):
         """The emit capability as a native East function value: per-row
-        compare + append run inside east-c, python only per batch."""
+        compare + append run inside east-c, python only per batch.
+
+        Passed to a compiled body it rides the FunctionType parameter as the
+        value itself (the runner's path — no python in the loop). It is also
+        callable, so a harness driving a ``@platform_function`` straight from
+        python can hand it over as the emit capability and a pure callback
+        still pushes down (issue #592)."""
         return self._accum.function_value(self.emit_types)
 
     def emit(self, *args: object) -> None:

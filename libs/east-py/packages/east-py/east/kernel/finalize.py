@@ -343,6 +343,40 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
                 else:
                     block_out |= free_vars(stmt, scope)
             return block_out
+        # The remaining BINDER forms — the same four ``binder_names`` above
+        # already knows about. A node that binds names over part of itself
+        # must say so, or the generic walk reports those names FREE,
+        # ``fv <= param_names`` fails, and the node never hoists: it
+        # re-emits — and re-RUNS — at every use site. For a loop that is k
+        # full executions for k reads, and O(n x loop) once a read sits
+        # inside a map/filter, with no counter moving because every run is
+        # native (#593). Each sub-expression is walked in exactly the scope
+        # it runs in, and the binder DECLARATIONS are not walked at all.
+        payload = node.value
+        if node.type in ("ForArray", "ForSet", "ForDict"):
+            # The source is evaluated OUTSIDE the loop; only the body sees
+            # the loop variables (the module-level `_free_vars` agrees).
+            src = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[node.type]
+            loop_vars = {payload["key"].value["name"]}
+            if node.type != "ForSet":
+                loop_vars.add(payload["value"].value["name"])
+            return free_vars(payload[src], bound) | free_vars(payload["body"],
+                                                              bound | loop_vars)
+        if node.type == "Match":
+            # Each case binds its own payload variable over its own body.
+            out_m = free_vars(payload["variant"], bound)
+            for case in payload["cases"]:
+                out_m |= free_vars(case["body"],
+                                   bound | {case["variable"].value["name"]})
+            return out_m
+        if node.type == "TryCatch":
+            # `message`/`stack` scope over the CATCH arm alone — the guarded
+            # body and the finally clause never see them.
+            caught = bound | {payload["message"].value["name"],
+                              payload["stack"].value["name"]}
+            return (free_vars(payload["try_body"], bound)
+                    | free_vars(payload["catch_body"], caught)
+                    | free_vars(payload["finally_body"], bound))
         inner = bound
         if node.type == "Function":
             inner = bound | {p.value["name"] for p in node.value["parameters"]}

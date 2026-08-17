@@ -12,15 +12,28 @@ makes the stream-fold case a cross-runtime decode of TS-writer bytes.
 
 These cases exercise the whole seam end to end: ``_EmitSink`` (batching, the
 order-robust spill/merge path and its duplicate-key check — issue #518 —
-and output validation), the ``foreign_function_value`` bridge that passes
-the sink's ``emit`` into the compiled body, and ``Beast2FileWriter``
-finalization (terminator + index + footer).
+and output validation), the native accumulator function value that carries
+the sink's ``emit`` into the compiled body (issue #560 phase 2), and
+``Beast2FileWriter`` finalization (terminator + index + footer). The last
+case drives the sink from python instead of from a compiled program — the
+harness route that issue #592 closed.
 """
 
 from pathlib import Path
 
 import pytest
-from east import ArrayType, DictType, IntegerType, StringType
+from east import (
+    ArrayType,
+    DictType,
+    EastDict,
+    FloatType,
+    FunctionType,
+    IntegerType,
+    NullType,
+    StringType,
+    platform_function,
+)
+from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
@@ -28,11 +41,12 @@ from east.serialization.beast2 import (
     read_beast2_index,
 )
 
-from east_py_cli.runner import run_program
+from east_py_cli.runner import _EmitSink, run_program
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INT_ARRAY = ArrayType(IntegerType)
 INT_STR_DICT = DictType(IntegerType, StringType)
+STR_FLOAT_DICT = DictType(StringType, FloatType)
 
 
 def test_producer_emits_indexed_array(tmp_path):
@@ -204,6 +218,37 @@ def test_lazy_paged_input_pins(tmp_path, monkeypatch):
         run_program(
             FIXTURES / "paged_nested_mutate.beast2", [], [], [FIXTURES / "paged_nested.beast2"]
         )
+
+
+def test_sink_drives_a_python_invoked_platform_function_natively(tmp_path):
+    # Issue #592: a harness that calls a @platform_function DIRECTLY from
+    # python — a unit test, a probe, a driver — hands it `function_value()`
+    # as-is. That used to be a non-callable value holder, so a PURE emit
+    # callback raised "'_EmitFnHold' object is not callable" with no
+    # fallback. It is now the same call wrapper east-c hands a platform
+    # function, so the callback pushes down: the emit lowers to a native IR
+    # Call, no python runs per row, and the sink writes the real beast2 file.
+    emit_t = FunctionType([StringType, FloatType], NullType)
+
+    @platform_function(inputs=[STR_FLOAT_DICT, emit_t], output=NullType,
+                       name="issue592.double_all")
+    def double_all(rows, emit):
+        rows.for_each(lambda k, v: emit(k, v * 2.0))
+
+    out = tmp_path / "doubled.beast2"
+    sink = _EmitSink("dict", emit_t, out)
+    emit = sink.function_value()
+    assert callable(emit)
+
+    rows = EastDict(StringType, FloatType, {f"k{i}": float(i) for i in range(50)})
+    before = eager_stats()["trampoline_calls"]
+    double_all(rows, emit)
+    moved = eager_stats()["trampoline_calls"] - before
+    sink.finish()
+
+    assert moved == 0, f"{moved} per-element python trampoline call(s)"
+    table = decode_beast2_with_header_for(STR_FLOAT_DICT)(out.read_bytes())
+    assert dict(table.items()) == {f"k{i}": 2.0 * i for i in range(50)}
 
 
 def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):
