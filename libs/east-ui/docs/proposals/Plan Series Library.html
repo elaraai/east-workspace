@@ -128,6 +128,11 @@ pre.dx{font-family:var(--font-mono);font-size:11px;line-height:1.65;color:var(--
 .inline-edit .sedit-body{padding:12px 14px}
 .inline-edit .sedit-foot{padding:10px 14px}
 .stack2{display:flex;flex-direction:column;gap:14px}
+pre.dx.big{font-size:11.5px;line-height:1.7;padding:16px 18px}
+pre.dx .c{color:var(--ink-5)}
+pre.dx .n{color:var(--brand-dd);background:#eaf5f6;display:inline-block;width:100%}
+table.q.api td{font-size:12px}
+table.q.api td code{font-family:var(--font-mono);font-size:11px}
 
 </style></head><body><h1>Plan · the series library</h1>
 <p class="lede"><b>#590: a template IS a series.</b> The current <code>Plan.template</code> / <code>library</code>
@@ -143,39 +148,90 @@ eyeballed — <code>sliceFrame.ts</code>, <code>sliceEdit.ts</code>, <code>recip
   <span class="tag t-prop">proposed</span>
   <span class="tag t-open">needs your call</span>
 </div><div class="fig" id="f0">
-  <div class="fig-h"><span class="fig-t">0 · the DX, beside the one it mirrors</span><span class="tag t-prop">proposed</span></div>
-  <div class="fig-b"><div class="dxgrid">
-    <div class="dxcol"><div class="dxh">Slice — what exists</div><pre class="dx">const cfg = Slice.config(EventType, {
-    fields: { region: { label: "Region" } },
-    breakdownFieldIds: ["region"],
+  <div class="fig-h"><span class="fig-t">0 · a complete file</span><span class="tag t-prop">Plan.families is NEW — it does not exist yet</span></div>
+  <div class="fig-b"><pre class="dx big"><span class="c">// Everything below exists today EXCEPT the three lines marked NEW.</span>
+import { East, DictType, StringType, StructType, DateTimeType, FloatType } from "@elaraai/east";
+import { Plan, Reactive, HStack, UIComponentType } from "@elaraai/east-ui";
+
+const OpsRow = StructType({
+    line: StringType, kind: StringType, at: DateTimeType, tonnes: FloatType,
 });
-const slice = $.let(Slice.bind(
-    [EventType], "view.key", cfg, Slice.state()));
 
-const rows = $.let(Slice.rows([EventType], slice));
+export default East.function([], UIComponentType, (_$) =&gt; (
+    &lt;Reactive&gt;{$ =&gt; {
+        <span class="c">// ── 1. the data. ONE source, as always ─────────────────────────</span>
+        const ops = $.let(Data.bind([OpsRow], "ops").read());
 
-&lt;Slice.Rail slice={slice} affordances={[…]} /&gt;
-&lt;Table data={rows} … /&gt;</pre></div>
-    <div class="dxcol"><div class="dxh">Families — the same shape</div><pre class="dx">const all = [
-    Plan.series.span(OpsRow,  { key: "machines",
-        label: "Machine jobs", … }),
-    Plan.series.heat(OpsRow,  { key: "load",
-        label: "Load heat", … }),
-];
-const families = $.let(Plan.families.bind(
-    [OpsRow], "ops.families", all, Plan.families.state()));
+        <span class="c">// ── 2. the families. Ordinary Plan.series.* values — the only</span>
+        <span class="c">//     change is `key` + `label`, which is phase 1 of #590 ───────</span>
+        const all = $.const([
+            Plan.series.span(OpsRow, {
+                <span class="n">key: "machines", label: "Machine jobs", sublabel: "one row per machine",</span>
+                match: r =&gt; r.kind.equal("job"),
+                label_: (_r, k) =&gt; k, id: true,
+                runs: (r, k) =&gt; [Plan.run({ key: k, start: r.at, end: r.at.addWeeks(2n),
+                                            label: East.str`RUN · ${k}`, state: "confirmed" })],
+            }),
+            Plan.series.heat(OpsRow, {
+                <span class="n">key: "load", label: "Load heat", sublabel: "per line",</span>
+                match: r =&gt; r.kind.equal("load"),
+                label_: r =&gt; r.line,
+                cells: r =&gt; Plan.heatCells(…),
+            }),
+            Plan.series.cards(OpsRow, {
+                <span class="n">key: "crew", label: "Crew shifts", sublabel: "per crew",</span>
+                match: r =&gt; r.kind.equal("shift"),
+                label_: r =&gt; r.line, chips: (r, k) =&gt; [Plan.chip({ … })],
+            }),
+        ], ArrayType(Plan.Types.Series(OpsRow)));
 
-const active = $.let(Plan.families.active(families));
+        <span class="c">// ── 3. the handle. NEW — mirrors Slice.bind exactly ────────────</span>
+        <span class="n">const families = $.let(Plan.families.bind(</span>
+        <span class="n">    "ops.families",        // storage key — the active set persists per user</span>
+        <span class="n">    all,                   // every family that COULD be shown (carries R)</span>
+        <span class="n">    Plan.families.state({ active: ["machines", "load"] }),  // seed; omit for all-on</span>
+        <span class="n">));</span>
 
-&lt;Plan.Library families={families} /&gt;
-&lt;Plan data={ops} series={active} … /&gt;</pre></div>
-  </div></div>
-  <div class="fig-c"><b>Same four moves, same order.</b> A static description (the series, now carrying
-    <code>key</code> / <code>label</code>), a <code>bind</code> that takes the row type, a storage key and a
-    seedable <code>state()</code>, a derived feed (<code>Slice.rows</code> → <code>families.active</code>),
-    and consumers that take the handle. Nothing new to learn: if you can wire a slice you can wire this.
-    <b>The Plan reads, the library writes, neither imports the other</b> — which is why the panel can live
-    beside the canvas, in a <code>Drawer</code>, or behind a toolbar chip without the Plan knowing.</div>
+
+        return (
+            &lt;HStack gap="4"&gt;
+                <span class="n">&lt;SeriesLibrary value={families} /&gt;</span>
+                &lt;Plan axis={axis} data={ops} series={<span class="n">families.active()</span>} /&gt;
+            &lt;/HStack&gt;
+        );
+    }}&lt;/Reactive&gt;
+));</pre></div>
+  <div class="fig-c"><b>Three new lines, one new namespace.</b> The series are the ones you already write —
+    <code>key</code> and <code>label</code> are the only additions, and they are phase 1 because a family with
+    no stable identity cannot be ordered, persisted, or named to a user. <code>Plan.families</code> then does
+    for series what <code>Slice</code> does for rows: <code>bind</code> takes a storage key, the full set and a
+    seedable <code>state()</code>; <code>families.active()</code> is the derived feed the canvas consumes,
+    exactly as <code>Slice.rows(...)</code> is for a Table.
+    <br><br><b>This is #590's own shape, verbatim.</b> An earlier draft of this figure added a row-type first
+    argument, renamed the component to <code>Plan.Library</code> and made <code>active()</code> a free
+    function. All three were mine and all three were worse: the series array already carries <code>R</code>;
+    <code>SeriesLibrary</code> being outside the <code>Plan</code> namespace is the point (neither imports the
+    other); and Slice puts methods on handles too (<code>slice.read()</code>).
+    <br><br><b><code>label_</code> above is the existing per-row gutter accessor</b>, shown renamed only so
+    this figure can put it beside the family's own <code>label</code> — they are different things and one of
+    them needs a better name before this ships.</div>
+</div><div class="fig" id="f0b">
+  <div class="fig-h"><span class="fig-t">0b · the whole new surface</span><span class="tag t-prop">proposed</span></div>
+  <div class="fig-b">
+  <table class="q api">
+   <tr><th style="width:290px">Call</th><th>Does</th><th style="width:210px">Mirrors</th></tr>
+   <tr><td><code>Plan.families.state(seed?)</code></td><td>Seed the view state — which families start active, in what order. Omit and every family is on.</td><td><code>Slice.state(seed?)</code></td></tr>
+   <tr><td><code>Plan.families.bind(key, all, state)</code></td><td>The handle. <code>key</code> is the persistence key: the active set is view state, like column widths, so it survives reload per user. <code>all</code> carries the row type.</td><td><code>Slice.bind([R], key, cfg, state)</code></td></tr>
+   <tr><td><code>families.active()</code></td><td>The ordered, visible series — what <code>&lt;Plan series={…}&gt;</code> takes. A method on the handle, like <code>slice.read()</code>.</td><td><code>Slice.rows([R], slice)</code></td></tr>
+   <tr><td><code>&lt;SeriesLibrary value={…} /&gt;</code></td><td>The panel. Outside the <code>Plan</code> namespace on purpose — mount it beside the canvas, in a <code>Drawer</code>, behind a toolbar chip.</td><td><code>&lt;Slice.Rail slice={…} /&gt;</code></td></tr>
+  </table>
+  <div class="note" style="margin-top:14px"><b>The Plan never learns about the library.</b> It takes an array
+    of series, as it does today — <code>active()</code> just happens to produce a shorter one. That is what
+    lets the panel live anywhere, and it is why this is a separate component rather than a Plan prop.</div>
+  </div>
+  <div class="fig-c">Deliberately small: four calls, and the shape you already know from a slice. Everything
+    else in #590 — per-family filtering, options as data — hangs off this handle later without changing it.
+    <b>Nothing here is invented for the mock: this is the issue's own surface.</b></div>
 </div><div class="fig" id="f1">
   <div class="fig-h"><span class="fig-t">1 · the panel, beside the canvas</span><span class="tag t-real">canvas is a real render</span></div>
   <div class="fig-b"><div class="split">
