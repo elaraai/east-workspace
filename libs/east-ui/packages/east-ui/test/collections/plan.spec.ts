@@ -614,7 +614,7 @@ describeEast("Plan", (test) => {
             ],
         }));
         // L1 strip + 2 members, L2 strip + 1 member. Member keys are the
-        // DATA's; strip keys carry the series' `prefix`, so two families
+        // DATA's; strip keys carry the series' `prefix`, so two series
         // grouping the same column cannot land on one key.
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.size(), 5n));
@@ -642,7 +642,7 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [Plan.series.span(SpanRow, {
-                        key: "span", title: "Span",
+                key: "span", title: "Span",
                 label: (_r, k) => k, id: true,
                 runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, qty: r.tonnes, state: variant("confirmed", null) })],
                 groupBy: [r => r.program], rollup: "union", unit: "t",
@@ -661,9 +661,9 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get("m3").parent.unwrap("some"), "B"));
     });
 
-    test("a series `prefix` namespaces its whole family — leaves included (#568)", $ => {
-        // Two families over the SAME keyed source would otherwise emit two rows
-        // under one key. A prefix is the author moving one family off the
+    test("a series `prefix` namespaces its whole series — leaves included (#568)", $ => {
+        // Two series over the SAME keyed source would otherwise emit two rows
+        // under one key. A prefix is the author moving one series off the
         // source key space deliberately; the default keeps the source's keys.
         const Row = StructType({ v: FloatType });
         const data = $.const(new Map([["m1", { v: 1.0 }], ["m2", { v: 2.0 }]]),
@@ -680,7 +680,7 @@ describeEast("Plan", (test) => {
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
         $(Assert.equal(rows.size(), 4n));
-        // The unprefixed family keeps the SOURCE's keys — the property a paged
+        // The unprefixed series keeps the SOURCE's keys — the property a paged
         // canvas needs, since `seek` addresses that key space.
         $(Assert.equal(rows.get("m1").gutter.label, "m1"));
         $(Assert.equal(rows.get("alt/m1").gutter.label, "m1"));
@@ -709,7 +709,7 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [Plan.series.span(MachineRow, {
-                        key: "span-2", title: "Span",
+                key: "span-2", title: "Span",
                 label: (_r, k) => k, id: true,
                 value: r => some(East.str`${East.Float.printFixed(r.cap, 0n)} t`),
                 status: r => r.warn.ifElse(
@@ -749,7 +749,7 @@ describeEast("Plan", (test) => {
     // Series — the data + series canvas
     // =========================================================================
 
-    test("data+series: families build in series order, match filters, rollup parents declare", $ => {
+    test("data+series: series build in series order, match filters, rollup parents declare", $ => {
         const JobRow = StructType({
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
         });
@@ -776,7 +776,7 @@ describeEast("Plan", (test) => {
             data: ops,
             series: [
                 Plan.series.span(OpsRow, {
-                        key: "span-3", title: "Span",
+                    key: "span-3", title: "Span",
                     match: r => r.kind.hasTag("machine"),
                     label: (_r, k) => k, id: true,
                     runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
@@ -786,7 +786,7 @@ describeEast("Plan", (test) => {
                     groupBy: [r => r.line], rollup: "union", unit: "t",
                 }),
                 Plan.series.cards(OpsRow, {
-                        key: "cards", title: "Cards",
+                    key: "cards", title: "Cards",
                     match: r => r.kind.hasTag("crew"),
                     label: (_r, k) => k,
                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
@@ -800,8 +800,8 @@ describeEast("Plan", (test) => {
             ],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
-        // The span family's rollup parent + its two machines (the crew row
-        // filtered out by match), plus the cards family's row; the chip label
+        // The span series's rollup parent + its two machines (the crew row
+        // filtered out by match), plus the cards series's row; the chip label
         // derives from the raw hours in the stored make.
         $(Assert.equal(rows.size(), 4n));
         $(Assert.equal(rows.get("L1").kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
@@ -827,7 +827,7 @@ describeEast("Plan", (test) => {
         // The series list is itself an East VALUE — typed by the constructor.
         const series = $.const([
             Plan.series.span(OpsRow, {
-                        key: "span-4", title: "Span",
+                key: "span-4", title: "Span",
                 label: (_r, k) => k,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
@@ -843,7 +843,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get("ms").kind.hasTag("events"), true));
     });
 
-    test("series.group wraps child families under a strip; series.rows carries literal chrome", $ => {
+    test("series.group wraps child series under a strip; series.rows carries literal chrome", $ => {
         const ShiftRow = StructType({
             key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType,
         });
@@ -912,7 +912,7 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data: handle,
             series: [Plan.series.span(OpsRow, {
-                        key: "span-5", title: "Span",
+                key: "span-5", title: "Span",
                 label: (_r, k) => k,
                 runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                     key: j.batch, start: j.start, end: j.end,
