@@ -55,7 +55,7 @@ const btnDisabled = {
 
 export const commitBarSlotRecipe = defineSlotRecipe({
     className: "elara-commit-bar",
-    slots: ["root", "draft", "pending", "btnRow", "btn", "btnPrimary", "btnDanger"],
+    slots: ["root", "draft", "pending", "btnRow", "btn", "btnPrimary", "btnDanger", "btnGhost"],
     base: {
         root: {
             display: "grid",
@@ -99,6 +99,41 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             borderColor: "{colors.brand.600}",
             _hover: { background: "{colors.brand.700}", borderColor: "{colors.brand.700}", color: "fg.inverse" },
             ...btnDisabled,
+            // A commit bar's 32px control cannot sit INSIDE a 32px row — it
+            // fills the row edge to edge and a column of them fuses into one
+            // block. `data-compact` is the in-row size (spec `.abtn`: 11.5px
+            // on 5/13 padding), on the SAME slot so the colour stays shared.
+            "&[data-compact]": {
+                height: "24px",
+                paddingInline: "11px",
+                fontSize: "11.5px",
+                borderRadius: "{radii.sm}",
+            },
+        },
+        // The PER-ROW decline — spec `.rbtn`: bare text, no fill, no border,
+        // muted ink. It exists here rather than on the button recipe so a row's
+        // Approve / Reject and the foot's Approve all / Reject all resolve from
+        // ONE place: two recipes for the same four actions is how they drifted
+        // to different greens in the first place.
+        btnGhost: {
+            ...btnBase,
+            background: "transparent",
+            borderColor: "transparent",
+            color: "fg.muted",
+            padding: "5px 2px",
+            _hover: { background: "transparent", color: "fg.default" },
+            "&[data-verdict='rejected']": { color: "fg.danger", fontWeight: "semibold" },
+            ...btnDisabled,
+            // A commit bar's 32px control cannot sit INSIDE a 32px row — it
+            // fills the row edge to edge and a column of them fuses into one
+            // block. `data-compact` is the in-row size (spec `.abtn`: 11.5px
+            // on 5/13 padding), on the SAME slot so the colour stays shared.
+            "&[data-compact]": {
+                height: "24px",
+                paddingInline: "11px",
+                fontSize: "11.5px",
+                borderRadius: "{radii.sm}",
+            },
         },
         // Destructive commit action (Reject all / Discard) — the danger look.
         btnDanger: {
