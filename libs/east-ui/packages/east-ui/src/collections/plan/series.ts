@@ -75,7 +75,7 @@ import {
     type PlanTableOfConfig,
     type PlanResolvedLevel,
     type PlanRowFn,
-    prefixedKey,
+    rowKey,
     reifyLevelKey,
     groupRows,
     spanParentKind,
@@ -209,8 +209,17 @@ export interface PlanSeriesIdentity {
 export interface PlanSeriesEnvelopeConfig<R extends StructType> extends PlanSeriesIdentity {
     /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
-    /** Key prefix for this series' rows; omit ⇒ the source's keys, unchanged. */
-    prefix?: string;
+    /** Key prefix for this series' rows; omit ⇒ the source's keys, unchanged.
+     *  Banks the series together and takes it off the source key space, so
+     *  `seek` can no longer reach it — see `keySuffix` first. */
+    keyPrefix?: string;
+    /** Key suffix for this series' rows (`m03` → `m03/chart`).
+     *
+     *  How several series show the SAME entity: the data key stays FIRST, so
+     *  the canvas keeps the source's order, one asset's rows sit adjacent, and
+     *  `seek` still lands on it. Without an affix the second series over a
+     *  source silently replaces the first, since both emit the same key. */
+    keySuffix?: string;
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
@@ -327,10 +336,13 @@ export interface PlanGroupSeriesByConfig<R extends StructType> extends PlanSerie
     /** The group-key accessor — one strip per discovered value. */
     by: PlanAccessor<R, StringType>;
     /** Key prefix for the synthesized strip keys — a strip's key is
-     *  `${prefix}${groupValue}`. Omit ⇒ the bare group value. Supply one to
-     *  keep two series grouping the same column apart, or where a group
-     *  value could collide with a source key. */
-    prefix?: string;
+     *  `${keyPrefix}${groupValue}`. Omit ⇒ the bare group value. Supply one to
+     *  keep two series grouping the same column apart, or where a group value
+     *  could collide with a source key.
+     *
+     *  There is no strip SUFFIX: a strip's key is the group VALUE, not a data
+     *  key, so nothing about the source's order is riding on it. */
+    keyPrefix?: string;
     /** Strips start collapsed. */
     collapsed?: boolean;
     /** DECLARED strip aggregation over descendant heat rows — `"mean"`/`"max"`/`"sum"` or a `PlanAggregateType` expression. */
@@ -496,7 +508,7 @@ export function applySeries(
 export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanSpanSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanSpanSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
-        () => groupParentFn(spanParentKind(cfg)), spanRowOf(cfg), cfg.prefix);
+        () => groupParentFn(spanParentKind(cfg)), spanRowOf(cfg), cfg.keyPrefix);
     return seriesValue(rowType, "span", { derive }, cfg);
 }
 
@@ -514,7 +526,7 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
     const mode = cfg.aggregate ?? "mean";
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(heatParentKind(cfg), some(resolveTag(mode, PlanAggregateType).getTag())),
-        heatRowOf(cfg), cfg.prefix);
+        heatRowOf(cfg), cfg.keyPrefix);
     return seriesValue(rowType, "heat", { derive }, cfg);
 }
 
@@ -532,7 +544,7 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
     const mode = cfg.aggregate ?? "sum";
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(tableParentKind(cfg), some(resolveTag(mode, TableAggregateType).getTag())),
-        tableRowOf(cfg), cfg.prefix);
+        tableRowOf(cfg), cfg.keyPrefix);
     return seriesValue(rowType, "table", { derive }, cfg);
 }
 
@@ -549,7 +561,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
     const cfg = config as PlanBucketsSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createBuckets({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
@@ -558,7 +570,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
             ...(cfg.markers !== undefined ? { markers: cfg.markers(r, k) } : {}),
         }),
         envelopeOverrides(cfg, r, k),
-    ), cfg.prefix);
+    ), cfg.keyPrefix);
     return seriesValue(rowType, "buckets", { derive }, cfg);
 }
 
@@ -575,14 +587,14 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
     const cfg = config as PlanCardsSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createCards({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             chips: cfg.chips(r, k),
         }),
         envelopeOverrides(cfg, r, k),
-    ), cfg.prefix);
+    ), cfg.keyPrefix);
     return seriesValue(rowType, "cards", { derive }, cfg);
 }
 
@@ -598,14 +610,14 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
     const cfg = config as PlanEventsSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createEvents({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
             marks: cfg.marks(r, k),
         }),
         envelopeOverrides(cfg, r, k),
-    ), cfg.prefix);
+    ), cfg.keyPrefix);
     return seriesValue(rowType, "events", { derive }, cfg);
 }
 
@@ -622,7 +634,7 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
     const cfg = config as PlanChartSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createChart({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
@@ -638,7 +650,7 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
             ...envelopeOverrides(cfg, r, k),
             ...(cfg.pinned !== undefined ? { pinned: some(cfg.pinned(r, k)) } : {}),
         },
-    ), cfg.prefix);
+    ), cfg.keyPrefix);
     return seriesValue(rowType, "chart", { derive }, cfg);
 }
 
@@ -687,7 +699,7 @@ export function createSeriesGroup<R extends StructType>(
             collapsed:        cfg.collapsed !== undefined ? some(cfg.collapsed) : none,
         }), PlanRowKindType);
         const parentFn = groupParentFn(kind);
-        const prefix = cfg.prefix ?? "";
+        const prefix = cfg.keyPrefix ?? "";
         const rt: StructType = rowType;
         const sourceType = DictType(StringType, rt);
         const make = East.function([sourceType], PlanRowsCollectionType, ($, rows) => {

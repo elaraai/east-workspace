@@ -94,20 +94,42 @@ export function reifyLevelKey(rowType: StructType, by: PlanAccessor<StructType, 
 }
 
 /**
- * A leaf row's key — the DATA key, optionally behind the series' `prefix`.
+ * A leaf row's key — the DATA key, optionally wrapped by the series'
+ * `keyPrefix` / `keySuffix`.
  *
  * @remarks
- * Empty prefix (the default) means the canvas key IS the source key, which is
- * what keeps a paged canvas addressable: `seek` returns a row in the source's
- * key order and the canvas has a row under that very key. A non-empty prefix
- * is the author knowingly leaving that key space to keep two series over one
- * source apart.
+ * Bare (the default) the canvas key IS the source key, which is what keeps a
+ * paged canvas addressable: `seek` returns a row in the source's key order and
+ * the canvas has a row under that very key.
+ *
+ * Two series over ONE source both emit a row per entry, so both would land on
+ * the same key and the later would silently replace the earlier. Either affix
+ * separates them — but they are NOT equivalent, and which you reach for decides
+ * whether the canvas still works:
+ *
+ * - **`keySuffix` keeps the data key FIRST** (`m03/chart`), so the canvas stays
+ *   in the source's order, the two views of one asset sit ADJACENT, and seek
+ *   still lands: it positions on "the first row at-or-after the sought key"
+ *   (`use-seek.ts`), and `m03/chart` is at-or-after `m03`. A prefix SEARCH for
+ *   an asset now returns every row about it.
+ * - **`keyPrefix` puts the series first** (`chart/m03`), which sorts all of one
+ *   series together and takes those rows OFF the source key space — `chart/m03`
+ *   sorts before `m03`, so a seek for `m03` skips them entirely.
+ *
+ * So: `keySuffix` for several views of the same entity, `keyPrefix` only when
+ * you deliberately want a series banked together and do not need to seek it.
  */
-export function prefixedKey(
-    prefix: string | undefined,
+export function rowKey(
+    keyPrefix: string | undefined,
     key: ExprType<StringType>,
+    keySuffix?: string | undefined,
 ): SubtypeExprOrValue<StringType> {
-    return prefix === undefined || prefix === "" ? key : East.str`${prefix}${key}`;
+    const pre = keyPrefix === undefined || keyPrefix === "" ? undefined : keyPrefix;
+    const suf = keySuffix === undefined || keySuffix === "" ? undefined : keySuffix;
+    if (pre === undefined && suf === undefined) return key;
+    if (pre === undefined) return East.str`${key}${suf as string}`;
+    if (suf === undefined) return East.str`${pre}${key}`;
+    return East.str`${pre}${key}${suf}`;
 }
 
 /**
@@ -198,7 +220,8 @@ export function groupRows(
  * @property decisions - Per-row decision-diamonds accessor
  * @property ports - Per-row ports accessor
  * @property groupBy - Group-key accessors (span rollup parents per level)
- * @property prefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keyPrefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keySuffix - Key suffix for this series' LEAF rows — what lets several series show the same entity
  * @property rollup - Parent rollup mode (default `"union"`)
  * @property unit - Quantity unit for band sums
  */
@@ -231,10 +254,18 @@ export interface PlanSpanOfConfig<R extends StructType> {
     groupBy?: PlanAccessor<R, StringType>[];
     /** Key prefix for this series' rows — leaf keys and synthesized group
      *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
-     *  the canvas stays addressable by the same keys `seek` searches. Supply
-     *  one only to keep two series over the SAME source apart; it takes the
-     *  series off the source key space, which is the author's call to make. */
-    prefix?: string;
+     *  the canvas stays addressable by the same keys `seek` searches. A prefix
+     *  banks the whole series together and takes it OFF that key space, so
+     *  `seek` can no longer reach it — prefer {@link rowKey}'s `keySuffix` when
+     *  the point is simply to show two series over one source. */
+    keyPrefix?: string;
+    /** Key suffix for this series' LEAF rows (`m03` → `m03/chart`).
+     *
+     *  This is how several series show the SAME entity: the data key stays
+     *  FIRST, so the canvas keeps the source's order, one asset's rows sit
+     *  adjacent, and `seek` still lands on it. Synthesized group parents do not
+     *  take it — their key is the group VALUE, not a data key. */
+    keySuffix?: string;
     /** Parent rollup mode (default `"union"`; a literal or a `PlanRollupType` expression). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
     /** Quantity unit for band sums (`"t"`). */
@@ -273,7 +304,7 @@ export function spanParentKind(cfg: PlanSpanOfConfig<StructType>): ExprType<Plan
 export function spanRowOf(cfg: PlanSpanOfConfig<StructType>): PlanRowFn {
     return (_$, r, k) => applyRowOverrides(
         createSpan({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
@@ -302,7 +333,8 @@ export function spanRowOf(cfg: PlanSpanOfConfig<StructType>): PlanRowFn {
  * @property status - Per-row status-dot accessor
  * @property cells - Per-row cells accessor (a `PlanHeatCellsType`)
  * @property groupBy - Group-key accessors (aggregated heat parents per level)
- * @property prefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keyPrefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keySuffix - Key suffix for this series' LEAF rows — what lets several series show the same entity
  * @property aggregate - Parent aggregation mode (default `"mean"`)
  * @property scale - Heat scale applied to derived parent cells
  */
@@ -331,10 +363,18 @@ export interface PlanHeatOfConfig<R extends StructType> {
     groupBy?: PlanAccessor<R, StringType>[];
     /** Key prefix for this series' rows — leaf keys and synthesized group
      *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
-     *  the canvas stays addressable by the same keys `seek` searches. Supply
-     *  one only to keep two series over the SAME source apart; it takes the
-     *  series off the source key space, which is the author's call to make. */
-    prefix?: string;
+     *  the canvas stays addressable by the same keys `seek` searches. A prefix
+     *  banks the whole series together and takes it OFF that key space, so
+     *  `seek` can no longer reach it — prefer {@link rowKey}'s `keySuffix` when
+     *  the point is simply to show two series over one source. */
+    keyPrefix?: string;
+    /** Key suffix for this series' LEAF rows (`m03` → `m03/chart`).
+     *
+     *  This is how several series show the SAME entity: the data key stays
+     *  FIRST, so the canvas keeps the source's order, one asset's rows sit
+     *  adjacent, and `seek` still lands on it. Synthesized group parents do not
+     *  take it — their key is the group VALUE, not a data key. */
+    keySuffix?: string;
     /** Parent aggregation mode (default `"mean"`; a literal or a `PlanAggregateType` expression). */
     aggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
     /** Heat scale + warn threshold applied to derived parent cells. */
@@ -353,7 +393,7 @@ export function heatParentKind(cfg: PlanHeatOfConfig<StructType>): ExprType<Plan
 export function heatRowOf(cfg: PlanHeatOfConfig<StructType>): PlanRowFn {
     return (_$, r, k) => applyRowOverrides(
         createHeat({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
@@ -381,7 +421,8 @@ export function heatRowOf(cfg: PlanHeatOfConfig<StructType>): PlanRowFn {
  * @property split - Part layout when several value series render
  * @property emphasis - Row emphasis (`"body"` / `"header"` / `"footer"`)
  * @property groupBy - Group-key accessors (subtotal parents per level)
- * @property prefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keyPrefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keySuffix - Key suffix for this series' LEAF rows — what lets several series show the same entity
  * @property aggregate - Subtotal mode (default `"sum"`)
  * @property format - Numeral format for derived subtotals
  */
@@ -412,10 +453,18 @@ export interface PlanTableOfConfig<R extends StructType> {
     groupBy?: PlanAccessor<R, StringType>[];
     /** Key prefix for this series' rows — leaf keys and synthesized group
      *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
-     *  the canvas stays addressable by the same keys `seek` searches. Supply
-     *  one only to keep two series over the SAME source apart; it takes the
-     *  series off the source key space, which is the author's call to make. */
-    prefix?: string;
+     *  the canvas stays addressable by the same keys `seek` searches. A prefix
+     *  banks the whole series together and takes it OFF that key space, so
+     *  `seek` can no longer reach it — prefer {@link rowKey}'s `keySuffix` when
+     *  the point is simply to show two series over one source. */
+    keyPrefix?: string;
+    /** Key suffix for this series' LEAF rows (`m03` → `m03/chart`).
+     *
+     *  This is how several series show the SAME entity: the data key stays
+     *  FIRST, so the canvas keeps the source's order, one asset's rows sit
+     *  adjacent, and `seek` still lands on it. Synthesized group parents do not
+     *  take it — their key is the group VALUE, not a data key. */
+    keySuffix?: string;
     /** Subtotal mode (default `"sum"`; a literal or a `TableAggregateType` expression). */
     aggregate?: SubtypeExprOrValue<TableAggregateType> | TableAggregateLiteral;
     /** Numeral format for the rows' values + derived subtotals — a `Format.*` spec. */
@@ -446,7 +495,7 @@ export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<Pl
 export function tableRowOf(cfg: PlanTableOfConfig<StructType>): PlanRowFn {
     return (_$, r, k) => applyRowOverrides(
         createTable({
-            key:   prefixedKey(cfg.prefix, k),
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
             label: cfg.label(r, k),
             ...(cfg.id !== undefined ? { id: cfg.id } : {}),
             ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),

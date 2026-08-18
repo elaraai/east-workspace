@@ -606,7 +606,7 @@ describeEast("Plan", (test) => {
             series: [
                 Plan.series.group(LineRow, {
                     key: "lines", title: "Lines",
-                    by: r => r.line, prefix: "line-", collapsed: true, summaryAggregate: "mean",
+                    by: r => r.line, keyPrefix: "line-", collapsed: true, summaryAggregate: "mean",
                 }, [
                     Plan.series.heat(LineRow, {
                         key: "heat", title: "Heat",
@@ -664,6 +664,61 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get("m3").parent.unwrap("some"), "B"));
     });
 
+    test("`keySuffix` lets SEVERAL series show the same entity, adjacent and still seekable", $ => {
+        // The real case: a chart of an asset AND a table of the same asset,
+        // both on the canvas. Without an affix the second silently replaces the
+        // first — they emit the same key, and the union is last-wins (#568).
+        const Row = StructType({ v: FloatType });
+        const data = $.const(new Map([["m03", { v: 1.0 }], ["m04", { v: 2.0 }]]),
+            DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data,
+            series: [
+                Plan.series.heat(Row, {
+                    key: "load", title: "Load", keySuffix: "/chart", label: (_r, k) => k,
+                    cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                }),
+                Plan.series.table(Row, {
+                    key: "detail", title: "Detail", keySuffix: "/table", label: (_r, k) => k,
+                    cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
+                }),
+            ],
+        }));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        // Both survive — two views per asset, not one.
+        $(Assert.equal(rows.size(), 4n));
+        // ADJACENT: the canvas is in key order and the DATA key sorts first, so
+        // an asset's views sit together instead of banking by series.
+        const keys = $.let(rows.toArray((_$, _v, k) => k));
+        $(Assert.equal(keys.get(0n), "m03/chart"));
+        $(Assert.equal(keys.get(1n), "m03/table"));
+        $(Assert.equal(keys.get(2n), "m04/chart"));
+        $(Assert.equal(keys.get(3n), "m04/table"));
+        // ...and still SEEKABLE. `use-seek.ts` positions on the first row
+        // at-or-after the sought key; `m03/chart` is at-or-after `m03`, and a
+        // prefix search for the asset returns both of its rows.
+        $(Assert.equal(keys.get(0n).startsWith("m03"), true));
+        $(Assert.equal(keys.filter((_$, k) => k.startsWith("m03")).length(), 2n));
+
+        // A keyPrefix does the opposite: banks the series, and sorts the rows
+        // BEFORE the bare data keys, which is what puts them out of seek's way.
+        const pre = $.let(Plan.Root({
+            axis: Plan.axis({ resolution: "week" }),
+            data,
+            series: [
+                Plan.series.heat(Row, {
+                    key: "load", title: "Load", keyPrefix: "chart/", label: (_r, k) => k,
+                    cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                }),
+                Plan.series.events(Row, { key: "ms", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
+            ],
+        }));
+        const preKeys = $.let(pre.unwrap().unwrap("Plan").rows.unwrap("inline").toArray((_$, _v, k) => k));
+        $(Assert.equal(preKeys.get(0n), "chart/m03"));
+        $(Assert.equal(preKeys.get(2n), "m03"));
+    });
+
     test("a series `prefix` namespaces its whole series — leaves included (#568)", $ => {
         // Two series over the SAME keyed source would otherwise emit two rows
         // under one key. A prefix is the author moving one series off the
@@ -678,7 +733,7 @@ describeEast("Plan", (test) => {
                 Plan.series.events(Row, {
                         key: "events", title: "Events", label: (_r, k) => k, marks: _r => [] }),
                 Plan.series.events(Row, {
-                        key: "events-2", title: "Events", prefix: "alt/", label: (_r, k) => k, marks: _r => [] }),
+                        key: "events-2", title: "Events", keyPrefix: "alt/", label: (_r, k) => k, marks: _r => [] }),
             ],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));

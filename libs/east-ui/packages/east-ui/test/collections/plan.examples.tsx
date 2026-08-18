@@ -1593,7 +1593,7 @@ export const planLibraryDnd = example({
                 // own identity instead of borrowing a strip's.
                 Plan.series.group(OpsRow, {
                     key: "programs", title: "Programs", subtitle: "one strip per line",
-                    by: r => r.line, match: r => r.pick.equal("programs"), prefix: "p-",
+                    by: r => r.line, match: r => r.pick.equal("programs"), keyPrefix: "p-",
                 }, [spanOf("programs", "Program runs", "member")]),
             ], ArrayType(Plan.Types.Series(OpsRow)));
 
