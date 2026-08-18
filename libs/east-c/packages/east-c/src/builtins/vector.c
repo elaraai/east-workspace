@@ -659,16 +659,35 @@ static EastValue *vector_clamp_impl(EastValue **args, size_t n)
     EastType *et = v->data.vector.elem_type;
     if (!require_numeric("VectorClamp", et)) return NULL;
     size_t len = v->data.vector.len;
-    size_t es = elem_size(et);
     const void *in = v->data.vector.data;
     EastValue *result = east_vector_new_uninit(et, len);
-    for (size_t i = 0; i < len; i++) {
-        if (elem_cmp_scalar(et, in, i, lo) < 0) {
-            vec_set_elem(result, i, lo);
-        } else if (elem_cmp_scalar(et, in, i, hi) > 0) {
-            vec_set_elem(result, i, hi);
-        } else {
-            memcpy((char *)result->data.vector.data + i * es, (const char *)in + i * es, es);
+    /* Comparisons stay on east_value_compare (NaN greatest, -0 < +0); only
+     * the writes are hoisted to typed pointers. */
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *vf = (const double *)in;
+        double *of = (double *)result->data.vector.data;
+        double flo = lo->data.float64;
+        double fhi = hi->data.float64;
+        for (size_t i = 0; i < len; i++) {
+            if (elem_cmp_scalar(et, in, i, lo) < 0)
+                of[i] = flo;
+            else if (elem_cmp_scalar(et, in, i, hi) > 0)
+                of[i] = fhi;
+            else
+                of[i] = vf[i];
+        }
+    } else {
+        const int64_t *vz = (const int64_t *)in;
+        int64_t *oz = (int64_t *)result->data.vector.data;
+        int64_t zlo = lo->data.integer;
+        int64_t zhi = hi->data.integer;
+        for (size_t i = 0; i < len; i++) {
+            if (elem_cmp_scalar(et, in, i, lo) < 0)
+                oz[i] = zlo;
+            else if (elem_cmp_scalar(et, in, i, hi) > 0)
+                oz[i] = zhi;
+            else
+                oz[i] = vz[i];
         }
     }
     return result;
@@ -995,6 +1014,10 @@ static EastValue *sparse_from_pairs_impl(EastValue **args, size_t n)
     SparsePairSlot *order = NULL;
     if (len > 0) {
         order = malloc(len * sizeof(SparsePairSlot));
+        if (!order) {
+            east_builtin_error("out of memory");
+            return NULL;
+        }
         for (size_t i = 0; i < len; i++) {
             order[i].ix = ixd[i];
             order[i].pos = i;

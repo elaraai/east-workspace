@@ -50,6 +50,18 @@ set(EAST_C_SOURCES
 
 add_library(east-c ${EAST_C_SOURCES})
 
+# Keep FP contraction off: a fused multiply-add rounds once where the
+# reference TypeScript runtime always rounds twice, so a contracted a*b+c
+# (VectorAddScaled, VectorDot, SparseAxpy, ...) diverges from east-node in
+# the last bit. GCC and Clang contract by default wherever hardware FMA is
+# baseline (arm64). Set on the target so it also applies when east-py builds
+# east-c via add_subdirectory (which bypasses the root CMakeLists options).
+# MSVC has no -ffp-contract; it needs /fp:strict or `#pragma fp_contract`
+# when the MSVC build lands.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(east-c PRIVATE -ffp-contract=off)
+endif()
+
 target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE pcre2-8)
 # values.c backs Set/Dict with tidwall/btree.c. Parents that add_subdirectory()
@@ -138,6 +150,9 @@ if(EAST_C_BUILD_OBJECT)
     add_library(east-c-obj OBJECT ${EAST_C_SOURCES})
     target_include_directories(east-c-obj PUBLIC include)
     target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec miniz)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(east-c-obj PRIVATE -ffp-contract=off)
+    endif()
     # Mark east-c's extern DATA singletons (the type/value globals) dllexport so
     # they're in the DLL's export table; consumers see them as dllimport. Functions
     # auto-export via WINDOWS_EXPORT_ALL_SYMBOLS and need no marker. (EAST_DATA is a

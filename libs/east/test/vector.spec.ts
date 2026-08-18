@@ -453,6 +453,28 @@ await describe("Vector", (test) => {
         $(assert.equal(v.dot(ones), 0.0))
     });
 
+    test("Vector multiply-add rounds twice (no FP contraction)", $ => {
+        // With b = 1 + 2^-30, b*b rounds to 1 + 2^-29 BEFORE the add, so
+        // -1 + b*b is exactly 2^-29. A fused multiply-add rounds once and
+        // keeps the product's 2^-60 term (1.8626451500983188e-9) — these
+        // constants diverge under contraction, pinning the two-rounding
+        // JS reference semantics on every runtime (east-c builds with
+        // -ffp-contract=off).
+        const b = 1.0000000009313226; // 1 + 2^-30
+        const av = $.let(East.Vector.fromArray([-1.0]));
+        const bv = $.let(East.Vector.fromArray([b]));
+        $(assert.equal(av.addScaled(bv, b), new Float64Array([1.862645149230957e-9])))
+        const x = $.let(East.Vector.fromArray([1.0, b]));
+        const y = $.let(East.Vector.fromArray([-1.0, b]));
+        $(assert.equal(x.dot(y), 1.862645149230957e-9))
+        const merged = $.let(East.Vector.sparseAxpy(
+            new BigInt64Array([0n]), new Float64Array([-1.0]),
+            new BigInt64Array([0n]), new Float64Array([b]),
+            b,
+        ));
+        $(assert.equal(merged.v, new Float64Array([1.862645149230957e-9])))
+    });
+
     test("Vector reductions follow East float order", $ => {
         // NaN is greatest under East's total order; ties keep the first index
         const v = $.let(East.Vector.fromArray([1.0, Number.NaN, 3.0]));
