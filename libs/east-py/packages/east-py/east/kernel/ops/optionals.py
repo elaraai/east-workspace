@@ -46,9 +46,13 @@ class _OptionOps(_ExprBase):
                 f"option access on a non-Option expression ({self.east_type.type})"
             )
         inner_t = _option_inner(self.east_type)
-        some_var = _var("__m0", inner_t)
+        # Arm variables get trace-unique names: a nested match re-using a
+        # fixed name rebinds it in the runtime environment, so an outer
+        # binding read inside the inner arm resolves against the inner
+        # payload (#603).
+        some_var = _var(_fresh_name(), inner_t)
         some_body = some_body_fn(self._expr(some_var, inner_t))
-        none_var = _var("__m1", NullType)
+        none_var = _var(_fresh_name(), NullType)
         node = _k_match(
             out_t,
             self.ir,
@@ -98,8 +102,8 @@ class _OptionOps(_ExprBase):
     def get_tag(self) -> KernelExpr:
         """The case name as a String (Match over every case)."""
         cases = []
-        for i, c in enumerate(self._variant_cases()):
-            var = _var(f"__t{i}", c["type"])
+        for c in self._variant_cases():
+            var = _var(_fresh_name(), c["type"])
             cases.append((c["name"], var, _literal(c["name"], StringType)))
         node = _k_match(StringType, self.ir, cases)
         return self._expr(node, StringType)
@@ -111,8 +115,8 @@ class _OptionOps(_ExprBase):
         if tag not in names:
             raise KernelTraceError(f"variant has no case {tag!r} (cases: {', '.join(names)})")
         cases = []
-        for i, c in enumerate(self._variant_cases()):
-            var = _var(f"__t{i}", c["type"])
+        for c in self._variant_cases():
+            var = _var(_fresh_name(), c["type"])
             cases.append((c["name"], var, _literal(c["name"] == tag, BooleanType)))
         node = _k_match(BooleanType, self.ir, cases)
         return self._expr(node, BooleanType)
@@ -136,8 +140,8 @@ class _OptionOps(_ExprBase):
                 f"missing {missing}, unknown {extra}"
             )
         results = []
-        for i, c in enumerate(declared):
-            var = _var(f"__t{i}", c["type"])
+        for c in declared:
+            var = _var(_fresh_name(), c["type"])
             handler = cases[c["name"]]
             # A KernelExpr arm is a VALUE arm, not a handler — expressions
             # became callable when Function-typed expressions gained Call
@@ -186,8 +190,8 @@ class _OptionOps(_ExprBase):
             raise KernelTraceError(f"variant has no case {tag!r} (cases: {names})")
         out_t = target["type"]
         case_nodes = []
-        for i, c in enumerate(declared):
-            var = _var(f"__t{i}", c["type"])
+        for c in declared:
+            var = _var(_fresh_name(), c["type"])
             if c["name"] == tag:
                 body = var
             else:

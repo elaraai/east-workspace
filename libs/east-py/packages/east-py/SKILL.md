@@ -128,7 +128,9 @@ syntax, fastest first:
 
    - **Array**: `map` `filter` `filter_map` `first_map` `fold` `scan`
      `map_reduce` `flatten_to_array` `flatten_to_set` `flatten_to_dict`
-     `to_dict` `to_set` `unique` `group_by` `sorted` `is_sorted` `some` `every` `string_join`
+     `to_dict` `to_set` `unique` `to_vector` (Float/Integer/Boolean
+     elements — the entry to the tensor surface, #601)
+     `group_by` `sorted` `is_sorted` `some` `every` `string_join`
      `concat` `slice` `reversed` `copy` `get_keys` `size` `has` `get`
      `get_or_default` `try_get` `sum` `mean` `maximum` `minimum`
      `find_first` `find_all` `find_maximum` `find_minimum` `find_sorted_first`
@@ -367,8 +369,10 @@ python never runs per element**. In order of impact:
    compiles to ONE `Let` — the split runs once per row, not 30×
    (~2.5× on that shape). Sharing the *variable* is what dedupes;
    re-calling `.split()` per column re-emits the split. Loop-invariant
-   shared subexpressions hoist out of nested lambdas to the kernel body
-   the same way.
+   subexpressions hoist out of nested lambdas to the kernel body the same
+   way — including a derived value read only ONCE inside a callback
+   (#602), so `table = derive(rec)` before a `.map` runs once, not per
+   element.
 3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
    opposite contracts — never conflate them:
 
@@ -552,6 +556,7 @@ Task → What do you need?
     │   │   │            group_find_maximum/minimum(key, by=) → the INDEX per group (ties keep the earliest) ·
     │   │   │            group_to_arrays(key, value=) · group_to_sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
     │   │   ├─ Convert → to_dict(key, value=, combine=) ❗dup w/o combine · to_set(key=) · unique() · string_join(sep) ·
+    │   │   │            to_vector() ❗non-numeric (Float/Integer/Boolean elements → Vector, #601) ·
     │   │   │            flatten_to_array/set/dict (flatten_to_dict ❗dup w/o combine)
     │   │   ├─ Columnar → to_columns(fields=) · EastArray.from_columns(T, cols) · map_batches(fn, out=, batch_size=)
     │   │   ├─ Mutate (in place) → append · extend (bulk, one crossing) · insert · pop · remove · clear · arr[i]=v
@@ -595,10 +600,13 @@ Task → What do you need?
     │   │   ├─ Masks & selection → eq/lt/gt(other)→Vector<Boolean> · mask.select(a, b) ·
     │   │   │            v.compress(mask) · mask.count_true() · gather(idxs) ·
     │   │   │            scatter_add(idxs, src) · search_sorted(needles)
-    │   │   └─ Sparse accumulators (Struct{ix, v}; strictly ascending ix) →
+    │   │   └─ Sparse accumulators (Struct{ix, v}; strictly ascending ix; every ix/v input
+    │   │                takes a Vector OR an Array — arrays convert in order, #601) →
     │   │                East.Vector.sparse_axpy(ixA, vA, ixB, vB, α) (union merge, vA + α·vB) ·
     │   │                East.Vector.sparse_from_pairs(ix, v) (sorts + sums duplicates, stable) ·
-    │   │                East.Vector.sparse_filter_gt(ix, v, threshold) (noise-floor compaction)
+    │   │                East.Vector.sparse_filter_gt(ix, v, threshold) (noise-floor compaction) ·
+    │   │                seed/construct → arr.to_vector() · East.Vector.zeros/ones(T, n) ·
+    │   │                East.Vector.fill(T, n, value) (eager-classmethod arity, #601)
     │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
     │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · .match({case: handler}, default=)
     │   ├─ Ref           → get() · set(value) · update(fn(current)) · merge(patch, combine)
@@ -630,7 +638,9 @@ Task → What do you need?
     │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats() (trampoline/kernel/pushdown counters)
     │   ├─ What traces (the expression surface inside kernels)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
-    │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() · .sign() ·
+    │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() (exact-only ❗non-integral) · .sign() ·
+    │   │   │                .round()/.floor()/.ceil()/.trunc() (Float → Integer, #604; round = half AWAY from zero —
+    │   │   │                math.floor/ceil/trunc trace via the dunders; python round() raises, its tie rule differs) ·
     │   │   │                .sqrt()/.exp()/.log()/.sin()/.cos()/.tan() (Float) · .log()/.sign() (Integer)
     │   │   ├─ Compare → == != < <= > >= (East total order, any comparable type) · greatest(a, b) · least(a, b)
     │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · East.if_else(cond, value, …, otherwise) — pairs then the else, one node
@@ -664,7 +674,8 @@ Task → What do you need?
     │   │   │   ❗ read a capture with .get(expr)/.get_or_default(expr, d)/.try_get(expr) — the [expr] subscript
     │   │   │   spelling does NOT trace (python coerces the index via __index__ and the trace bails)
     │   │   └─ Shared subexpressions → REUSE the python variable (fields = r.data.split("|"); read it N times)
-    │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
+    │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too —
+    │   │       including a derived value read only ONCE inside a .map/.filter callback (#602)
     │   ├─ Conditionals → East.if_else(cond, value, …, otherwise) — cond/value pairs THEN the else, so a
     │   │                  chain is ONE IfElse node; exactly one arm evaluates; dual-mode (eager off-trace)
     │   ├─ Sequential logic — the next step depends on the LAST (worklist · BFS/DFS · fixpoint · topological replay)
@@ -926,7 +937,7 @@ input, or a widening map). `.element_type` is the logical element type.
 | Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
 | Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* (C-side fill needs numpy columns — float64/int64/bool, `Option<Float>` as float64+NaN; python lists convert per cell) · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
-| Convert | `string_join(sep) -> str` (String arrays) |
+| Convert | `string_join(sep) -> str` (String arrays) · `to_vector() -> EastVector` (Float/Integer/Boolean elements, in order — east-c VectorFromArray; the traced twin emits the same builtin, #601) |
 | Mutate (in place) | `append(item)` · `extend(items)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `clear()` · `count(value) -> int` · `index(value) -> int` |
 
 ### EastSet — complete method surface

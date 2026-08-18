@@ -394,8 +394,9 @@ def test_paged_loop_task_inputs_project(array_path):
     the whole decode, visible in the paired counter."""
     from pathlib import Path
 
-    from east import East
     from east.runtime._compiler_eastc import open_paged_value
+
+    from east import East
 
     data = Path(array_path).read_bytes()
 

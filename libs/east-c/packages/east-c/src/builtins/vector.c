@@ -145,18 +145,33 @@ static EastValue *vector_concat_impl(EastValue **args, size_t n)
     return result;
 }
 
-static EastValue *vector_from_array_impl(EastValue **args, size_t n)
+/* The DECLARED type parameter is authoritative (#601): a builtin-produced
+ * input array may carry a stale or Null elem-type label (an ArrayMap result),
+ * and vec_set_elem against that label silently writes nothing. */
+static EastValue *vector_from_array_with_type(EastValue **args, EastType *et)
 {
-    (void)n;
     EastValue *arr = args[0];
     size_t len = east_array_len(arr);
-    /* Determine elem type from type params or from array contents */
-    EastType *et = arr->data.array.elem_type ? arr->data.array.elem_type : &east_float_type;
     EastValue *result = east_vector_new(et, len);
     for (size_t i = 0; i < len; i++) {
         vec_set_elem(result, i, east_array_get(arr, i));
     }
     return result;
+}
+static EastValue *vector_from_array_float(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_from_array_with_type(args, &east_float_type);
+}
+static EastValue *vector_from_array_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_from_array_with_type(args, &east_integer_type);
+}
+static EastValue *vector_from_array_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_from_array_with_type(args, &east_boolean_type);
 }
 
 static EastValue *vector_to_array_impl(EastValue **args, size_t n)
@@ -186,43 +201,92 @@ static EastValue *vector_to_matrix_impl(EastValue **args, size_t n)
     return mat;
 }
 
-static EastValue *vector_zeros_impl(EastValue **args, size_t n)
+/* zeros/ones honor the DECLARED element type (#601): the impls were
+ * Float-hardwired, so `VectorOnes` with T=Integer returned a Float-buffered
+ * value that decoded as double-1.0 bit patterns. Zero bits coincide across
+ * kinds, so zeros only mislabelled the element type. */
+static EastValue *vector_zeros_with_type(EastValue **args, EastType *et)
 {
-    (void)n;
-    /* Type param tp[0] gives element type */
     int64_t length = args[0]->data.integer;
-    EastValue *result = east_vector_new(&east_float_type, (size_t)length);
-    size_t es = elem_size(&east_float_type);
-    memset(result->data.vector.data, 0, (size_t)length * es);
+    EastValue *result = east_vector_new(et, (size_t)length);
+    memset(result->data.vector.data, 0, (size_t)length * elem_size(et));
     return result;
 }
-
-static EastValue *vector_ones_impl(EastValue **args, size_t n)
+static EastValue *vector_zeros_float(EastValue **args, size_t n)
 {
     (void)n;
-    int64_t length = args[0]->data.integer;
-    EastValue *result = east_vector_new(&east_float_type, (size_t)length);
-    double *data = (double *)result->data.vector.data;
-    for (int64_t i = 0; i < length; i++)
-        data[i] = 1.0;
-    return result;
+    return vector_zeros_with_type(args, &east_float_type);
+}
+static EastValue *vector_zeros_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_zeros_with_type(args, &east_integer_type);
+}
+static EastValue *vector_zeros_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_zeros_with_type(args, &east_boolean_type);
 }
 
-static EastValue *vector_fill_impl(EastValue **args, size_t n)
+static EastValue *vector_ones_with_type(EastValue **args, EastType *et)
+{
+    int64_t length = args[0]->data.integer;
+    EastValue *result = east_vector_new(et, (size_t)length);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        double *data = (double *)result->data.vector.data;
+        for (int64_t i = 0; i < length; i++)
+            data[i] = 1.0;
+    } else if (et->kind == EAST_TYPE_INTEGER) {
+        int64_t *data = (int64_t *)result->data.vector.data;
+        for (int64_t i = 0; i < length; i++)
+            data[i] = 1;
+    } else {
+        bool *data = (bool *)result->data.vector.data;
+        for (int64_t i = 0; i < length; i++)
+            data[i] = true;
+    }
+    return result;
+}
+static EastValue *vector_ones_float(EastValue **args, size_t n)
 {
     (void)n;
+    return vector_ones_with_type(args, &east_float_type);
+}
+static EastValue *vector_ones_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_ones_with_type(args, &east_integer_type);
+}
+static EastValue *vector_ones_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_ones_with_type(args, &east_boolean_type);
+}
+
+static EastValue *vector_fill_with_type(EastValue **args, EastType *et)
+{
     int64_t length = args[0]->data.integer;
     EastValue *val = args[1];
-    EastType *et = &east_float_type;
-    if (val->kind == EAST_VAL_INTEGER)
-        et = &east_integer_type;
-    else if (val->kind == EAST_VAL_BOOLEAN)
-        et = &east_boolean_type;
     EastValue *result = east_vector_new(et, (size_t)length);
     for (int64_t i = 0; i < length; i++) {
         vec_set_elem(result, (size_t)i, val);
     }
     return result;
+}
+static EastValue *vector_fill_float(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_fill_with_type(args, &east_float_type);
+}
+static EastValue *vector_fill_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_fill_with_type(args, &east_integer_type);
+}
+static EastValue *vector_fill_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return vector_fill_with_type(args, &east_boolean_type);
 }
 
 static EastValue *vector_map_with_type(EastValue **args, size_t n, EastType *out_type)
@@ -1088,31 +1152,36 @@ static EastValue *sparse_filter_gt_impl(EastValue **args, size_t n)
     return sparse_result(out_ix, out_v, et);
 }
 
-/* --- typed factory functions that use type params for zeros/ones/fill --- */
+/* --- typed factory functions that use type params for construction --- */
+/* The constructors have no input vector to read an element type from, so the
+ * factory picks a per-kind impl from tp[0] — the same dispatch the
+ * vector_map factory uses for its output type (#601). */
 
 static BuiltinImpl vector_zeros_typed_factory(EastType **tp, size_t ntp)
 {
-    (void)ntp;
-    /* We store the type param and return a specialized function.
-       Since our impl needs the type at call time and we can only return a
-       single function pointer, we use the generic impl which defaults to float.
-       A more complete implementation would allocate a closure. */
-    (void)tp;
-    return vector_zeros_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return vector_zeros_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return vector_zeros_bool;
+    }
+    return vector_zeros_float;
 }
 
 static BuiltinImpl vector_ones_typed_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return vector_ones_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return vector_ones_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return vector_ones_bool;
+    }
+    return vector_ones_float;
 }
 
 static BuiltinImpl vector_fill_typed_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return vector_fill_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return vector_fill_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return vector_fill_bool;
+    }
+    return vector_fill_float;
 }
 
 /* --- factory functions --- */
@@ -1149,9 +1218,11 @@ static BuiltinImpl vector_concat_factory(EastType **tp, size_t ntp)
 }
 static BuiltinImpl vector_from_array_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return vector_from_array_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return vector_from_array_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return vector_from_array_bool;
+    }
+    return vector_from_array_float;
 }
 static BuiltinImpl vector_to_array_factory(EastType **tp, size_t ntp)
 {

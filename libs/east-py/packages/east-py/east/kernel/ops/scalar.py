@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.kernel.errors import KernelTraceError
 from east.kernel.lift import _lift
-from east.kernel.nodes import _builtin
+from east.kernel.nodes import _builtin, _k_ifelse
 from east.kernel.ops import _ExprBase
 from east.types.types import BooleanType, FloatType, IntegerType, StringType
 
@@ -223,6 +223,75 @@ class _ScalarOps(_ExprBase):
         if self.east_type.type != "Float":
             raise KernelTraceError(".sqrt() needs a Float")
         return self._expr(_builtin("FloatSqrt", FloatType, [], [self.ir]), FloatType)
+
+    # ── Float → Integer rounding (#604) ─────────────────────────────────
+    #
+    # Composed from Remainder/Subtract/IfElse/FloatToInteger, so every
+    # runtime executes them with no new builtins. `frac = x % 1.0 + 0.0` is
+    # the fractional part, exactly (fmod is exact), with `+ 0.0` folding the
+    # -0.0 that fmod returns for negative integral x — East's float TOTAL
+    # order puts -0.0 below 0.0, so an unnormalized frac would make every
+    # sign test lie on whole negatives. All decisions compare that exact
+    # frac; never add 0.5 to x, which double-rounds at the tie boundary
+    # (0.49999999999999994 + 0.5 rounds to 1.0).
+
+    def _pick_float(self, pred: KernelExpr, then: KernelExpr, other: KernelExpr) -> KernelExpr:
+        return self._expr(_k_ifelse(FloatType, [(pred.ir, then.ir)], other.ir), FloatType)
+
+    def _require_float(self, method: str) -> None:
+        if self.east_type.type != "Float":
+            raise KernelTraceError(f".{method}() needs a Float")
+
+    def trunc(self) -> KernelExpr:
+        """Truncate toward zero, as an Integer: 3.7 → 3, -3.7 → -3."""
+        self._require_float("trunc")
+        return (self - self % 1.0).to_integer()
+
+    def floor(self) -> KernelExpr:
+        """Round toward negative infinity, as an Integer: -3.2 → -4."""
+        self._require_float("floor")
+        frac = self % 1.0 + 0.0
+        whole = self - frac
+        return self._pick_float(frac < 0.0, whole - 1.0, whole).to_integer()
+
+    def ceil(self) -> KernelExpr:
+        """Round toward positive infinity, as an Integer: 3.2 → 4."""
+        self._require_float("ceil")
+        frac = self % 1.0 + 0.0
+        whole = self - frac
+        return self._pick_float(frac > 0.0, whole + 1.0, whole).to_integer()
+
+    def round(self) -> KernelExpr:
+        """Round half AWAY FROM ZERO, as an Integer: 2.5 → 3, -2.5 → -3.
+
+        Deliberately not python's round(): the builtin rounds ties to even,
+        and a silently different tie rule between the traced and eager paths
+        would surface as one-unit discrepancies long after the fact — so the
+        traced spelling is an explicit method with an explicit rule.
+        """
+        self._require_float("round")
+        frac = self % 1.0 + 0.0
+        whole = self - frac
+        return self._pick_float(
+            frac >= 0.5, whole + 1.0,
+            self._pick_float(frac <= -0.5, whole - 1.0, whole),
+        ).to_integer()
+
+    def __trunc__(self) -> KernelExpr:
+        return self.trunc()
+
+    def __floor__(self) -> KernelExpr:
+        return self.floor()
+
+    def __ceil__(self) -> KernelExpr:
+        return self.ceil()
+
+    def __round__(self, ndigits: Any = None) -> KernelExpr:
+        raise KernelTraceError(
+            "python round() rounds ties to even; the traced surface rounds "
+            "half away from zero — call .round() explicitly (or compose "
+            ".floor()/.ceil()/.trunc())"
+        )
 
     # ── float / integer math tail ───────────────────────────────────────
 

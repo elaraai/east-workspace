@@ -1029,6 +1029,62 @@ def _sparse_type(elem: EastType) -> EastType:
     return StructType([("ix", VectorType(IntegerType)), ("v", VectorType(elem))])
 
 
+def _as_vector(x: Any, what: str) -> Any:
+    """``x`` as a Vector — passed through, or an ``Array`` of Float/Integer/
+    Boolean elements converted in order via east-c VectorFromArray (#601).
+
+    Serves both paths like every namespace function: a traced Array emits the
+    conversion as IR, an eager ``EastArray`` converts natively — so the sparse
+    entry points accept the ``rows.map(...)`` results a kernel actually has,
+    at exactly the point the values are materialised.
+    """
+    east_type = getattr(x, "east_type", None)
+    if east_type is not None:
+        tag = east_type.type
+        elem = east_type.value if tag in ("Vector", "Array") else None
+    else:
+        from east.types.values.collections import EastArray
+        from east.types.values.tensor import EastVector
+
+        if isinstance(x, EastVector):
+            tag, elem = "Vector", x.element_type
+        elif isinstance(x, EastArray):
+            tag, elem = "Array", x.element_type
+        else:
+            raise TypeError(f"{what} expects a Vector or Array, got {type(x).__name__}")
+    if tag == "Vector":
+        return x
+    if tag != "Array":
+        raise TypeError(f"{what} expects a Vector or Array, got {tag}")
+    if elem.type not in ("Float", "Integer", "Boolean"):
+        raise TypeError(
+            f"{what} needs Float, Integer or Boolean elements, got {elem.type}")
+    return _call_builtin("VectorFromArray", [elem], [x], VectorType(elem))
+
+
+def _construct_elem(element_type: Any, what: str) -> EastType:
+    """Validate the explicit element type of a Vector/Matrix constructor."""
+    if not isinstance(element_type, EastType):
+        raise TypeError(
+            f"{what} takes the element type first, matching the eager "
+            f"classmethod — got {type(element_type).__name__}")
+    if element_type.type not in ("Float", "Integer", "Boolean"):
+        raise TypeError(
+            f"{what} element type must be Float, Integer or Boolean, "
+            f"got {element_type.type}")
+    return element_type
+
+
+def _fill_value_elem(value: Any, element_type: EastType, what: str) -> None:
+    """A fill value must carry the declared element type exactly — a mismatch
+    would reinterpret the scalar under the builtin's type parameter."""
+    actual = _scalar_elem_of(value)
+    if actual != element_type:
+        raise TypeError(
+            f"{what} value must be {element_type.type} (the declared element "
+            f"type), got {actual.type}")
+
+
 class _VectorNamespace:
     """East ``Vector`` builtins — constructors and the sparse accumulators."""
 
@@ -1047,41 +1103,78 @@ class _VectorNamespace:
         return _call_builtin("VectorFromArray", [elem], [arr], VectorType(elem))
 
     @staticmethod
-    def zeros(length: Any) -> Any:
-        """A zero-filled Float Vector (east-c VectorZeros).
+    def zeros(element_type: Any, length: Any = None) -> Any:
+        """A zero-filled Vector (east-c VectorZeros).
+
+        Matches the eager ``EastVector.zeros(element_type, length)``
+        classmethod (#601); the one-argument ``zeros(length)`` spelling is
+        kept and pins Float.
 
         Args:
+            element_type: The Float, Integer or Boolean element type — or,
+                in the one-argument form, the length of a Float vector.
             length: The number of elements.
 
         Returns:
-            A ``Vector<Float>`` of ``length`` zeros.
+            A ``Vector<element_type>`` of ``length`` zeros.
         """
-        return _call_builtin("VectorZeros", [FloatType], [length], VectorType(FloatType))
+        if length is None:
+            if isinstance(element_type, EastType):
+                raise TypeError("East.Vector.zeros(element_type, length) needs a length")
+            element_type, length = FloatType, element_type
+        elem = _construct_elem(element_type, "East.Vector.zeros()")
+        return _call_builtin("VectorZeros", [elem], [length], VectorType(elem))
 
     @staticmethod
-    def ones(length: Any) -> Any:
-        """A ones-filled Float Vector (east-c VectorOnes).
+    def ones(element_type: Any, length: Any = None) -> Any:
+        """A ones-filled Vector (east-c VectorOnes).
+
+        Matches the eager ``EastVector.ones(element_type, length)``
+        classmethod (#601); the one-argument ``ones(length)`` spelling is
+        kept and pins Float.
 
         Args:
+            element_type: The Float, Integer or Boolean element type — or,
+                in the one-argument form, the length of a Float vector.
             length: The number of elements.
 
         Returns:
-            A ``Vector<Float>`` of ``length`` ones.
+            A ``Vector<element_type>`` of ``length`` ones.
         """
-        return _call_builtin("VectorOnes", [FloatType], [length], VectorType(FloatType))
+        if length is None:
+            if isinstance(element_type, EastType):
+                raise TypeError("East.Vector.ones(element_type, length) needs a length")
+            element_type, length = FloatType, element_type
+        elem = _construct_elem(element_type, "East.Vector.ones()")
+        return _call_builtin("VectorOnes", [elem], [length], VectorType(elem))
 
     @staticmethod
-    def fill(length: Any, value: Any) -> Any:
+    def fill(element_type: Any, length: Any = None, value: Any = None) -> Any:
         """A Vector of ``length`` copies of ``value`` (east-c VectorFill).
 
+        Matches the eager ``EastVector.fill(element_type, length, value)``
+        classmethod (#601); the two-argument ``fill(length, value)`` spelling
+        is kept, with the value's type pinning the element type.
+
         Args:
-            length: The number of elements.
-            value: The fill value; its type pins the element type.
+            element_type: The Float, Integer or Boolean element type — or,
+                in the two-argument form, the length.
+            length: The number of elements — or, in the two-argument form,
+                the fill value.
+            value: The fill value; must carry the declared element type.
 
         Returns:
             A Vector with every element set to ``value``.
         """
-        elem = _scalar_elem_of(value)
+        if value is None:
+            if isinstance(element_type, EastType):
+                raise TypeError(
+                    "East.Vector.fill(element_type, length, value) needs a value")
+            length, value = element_type, length
+            elem = _scalar_elem_of(value)
+        else:
+            elem = _construct_elem(element_type, "East.Vector.fill()")
+            _fill_value_elem(value, elem, "East.Vector.fill()")
         return _call_builtin("VectorFill", [elem], [length, value], VectorType(elem))
 
     @staticmethod
@@ -1094,6 +1187,10 @@ class _VectorNamespace:
         side). Entries absent from a side are structurally absent, not
         explicit zeros: an A-only entry passes through unscaled, a B-only
         entry contributes ``alpha * vB`` even when ``alpha`` is NaN.
+
+        Each index/value input may also be an ``Array`` (converted in order
+        via VectorFromArray, #601), so per-row values computed inside a
+        kernel feed the merge directly.
 
         Args:
             ix_a: The left accumulator's strictly ascending Integer indices.
@@ -1109,6 +1206,10 @@ class _VectorNamespace:
             EastError: If an index vector is not strictly ascending, or index
                 and value lengths differ.
         """
+        ix_a = _as_vector(ix_a, "sparse_axpy() indices")
+        v_a = _as_vector(v_a, "sparse_axpy() values")
+        ix_b = _as_vector(ix_b, "sparse_axpy() indices")
+        v_b = _as_vector(v_b, "sparse_axpy() values")
         elem = _tensor_elem_of(v_a, "Vector")
         return _call_builtin(
             "SparseAxpy", [elem], [ix_a, v_a, ix_b, v_b, alpha], _sparse_type(elem)
@@ -1121,6 +1222,11 @@ class _VectorNamespace:
 
         Indices sort ascending and duplicate indices sum, stably, in input
         order — so the float result is deterministic for a given input order.
+        Either input may be an ``Array`` (converted in order via
+        VectorFromArray, #601) — the natural way to seed an accumulator from
+        ``rows.map(...)`` results inside a kernel — and the conversion
+        preserves input order, so the duplicate-summing stability is
+        identical whichever input type is given.
 
         Args:
             ix: The Integer indices, in any order, possibly with duplicates.
@@ -1132,6 +1238,8 @@ class _VectorNamespace:
         Raises:
             EastError: If the index and value lengths differ.
         """
+        ix = _as_vector(ix, "sparse_from_pairs() indices")
+        v = _as_vector(v, "sparse_from_pairs() values")
         elem = _tensor_elem_of(v, "Vector")
         return _call_builtin("SparseFromPairs", [elem], [ix, v], _sparse_type(elem))
 
@@ -1139,6 +1247,9 @@ class _VectorNamespace:
     def sparse_filter_gt(ix: Any, v: Any, threshold: Any) -> Any:
         """Compact a sparse accumulator, keeping entries strictly greater than
         ``threshold`` under East's total order (east-c SparseFilterGt).
+
+        Either input may be an ``Array`` (converted in order via
+        VectorFromArray, #601).
 
         Args:
             ix: The accumulator's strictly ascending Integer indices.
@@ -1152,6 +1263,8 @@ class _VectorNamespace:
             EastError: If the index vector is not strictly ascending, or index
                 and value lengths differ.
         """
+        ix = _as_vector(ix, "sparse_filter_gt() indices")
+        v = _as_vector(v, "sparse_filter_gt() values")
         elem = _tensor_elem_of(v, "Vector")
         return _call_builtin("SparseFilterGt", [elem], [ix, v, threshold], _sparse_type(elem))
 
@@ -1190,44 +1303,83 @@ class _MatrixNamespace:
         return _call_builtin("MatrixFromRows", [elem], [rows], MatrixType(elem))
 
     @staticmethod
-    def zeros(rows: Any, cols: Any) -> Any:
-        """A zero-filled Float Matrix (east-c MatrixZeros).
+    def zeros(element_type: Any, rows: Any = None, cols: Any = None) -> Any:
+        """A zero-filled Matrix (east-c MatrixZeros).
+
+        Matches the eager ``EastMatrix.zeros(element_type, rows, cols)``
+        classmethod (#601); the two-argument ``zeros(rows, cols)`` spelling
+        is kept and pins Float.
 
         Args:
+            element_type: The Float, Integer or Boolean element type — or,
+                in the two-argument form, the number of rows.
             rows: The number of rows.
             cols: The number of columns.
 
         Returns:
-            A ``Matrix<Float>`` of zeros.
+            A ``Matrix<element_type>`` of zeros.
         """
-        return _call_builtin("MatrixZeros", [FloatType], [rows, cols], MatrixType(FloatType))
+        if cols is None:
+            if isinstance(element_type, EastType):
+                raise TypeError(
+                    "East.Matrix.zeros(element_type, rows, cols) needs rows and cols")
+            element_type, rows, cols = FloatType, element_type, rows
+        elem = _construct_elem(element_type, "East.Matrix.zeros()")
+        return _call_builtin("MatrixZeros", [elem], [rows, cols], MatrixType(elem))
 
     @staticmethod
-    def ones(rows: Any, cols: Any) -> Any:
-        """A ones-filled Float Matrix (east-c MatrixOnes).
+    def ones(element_type: Any, rows: Any = None, cols: Any = None) -> Any:
+        """A ones-filled Matrix (east-c MatrixOnes).
+
+        Matches the eager ``EastMatrix.ones(element_type, rows, cols)``
+        classmethod (#601); the two-argument ``ones(rows, cols)`` spelling is
+        kept and pins Float.
 
         Args:
+            element_type: The Float, Integer or Boolean element type — or,
+                in the two-argument form, the number of rows.
             rows: The number of rows.
             cols: The number of columns.
 
         Returns:
-            A ``Matrix<Float>`` of ones.
+            A ``Matrix<element_type>`` of ones.
         """
-        return _call_builtin("MatrixOnes", [FloatType], [rows, cols], MatrixType(FloatType))
+        if cols is None:
+            if isinstance(element_type, EastType):
+                raise TypeError(
+                    "East.Matrix.ones(element_type, rows, cols) needs rows and cols")
+            element_type, rows, cols = FloatType, element_type, rows
+        elem = _construct_elem(element_type, "East.Matrix.ones()")
+        return _call_builtin("MatrixOnes", [elem], [rows, cols], MatrixType(elem))
 
     @staticmethod
-    def fill(rows: Any, cols: Any, value: Any) -> Any:
+    def fill(element_type: Any, rows: Any = None, cols: Any = None,
+             value: Any = None) -> Any:
         """A Matrix filled with ``value`` (east-c MatrixFill).
 
+        Matches the eager ``EastMatrix.fill(element_type, rows, cols, value)``
+        classmethod (#601); the three-argument ``fill(rows, cols, value)``
+        spelling is kept, with the value's type pinning the element type.
+
         Args:
+            element_type: The Float, Integer or Boolean element type — or,
+                in the three-argument form, the number of rows.
             rows: The number of rows.
             cols: The number of columns.
-            value: The fill value; its type pins the element type.
+            value: The fill value; must carry the declared element type.
 
         Returns:
             A Matrix with every cell set to ``value``.
         """
-        elem = _scalar_elem_of(value)
+        if value is None:
+            if isinstance(element_type, EastType):
+                raise TypeError(
+                    "East.Matrix.fill(element_type, rows, cols, value) needs a value")
+            rows, cols, value = element_type, rows, cols
+            elem = _scalar_elem_of(value)
+        else:
+            elem = _construct_elem(element_type, "East.Matrix.fill()")
+            _fill_value_elem(value, elem, "East.Matrix.fill()")
         return _call_builtin("MatrixFill", [elem], [rows, cols, value], MatrixType(elem))
 
 

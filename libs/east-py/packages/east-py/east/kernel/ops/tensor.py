@@ -259,7 +259,18 @@ class _TensorOps(_ExprBase):
         )
 
     def to_vector(self) -> KernelExpr:
-        """Traced MatrixToVector: flatten row-major into a Vector."""
+        """Traced VectorFromArray on an Array of Float/Integer/Boolean
+        elements (#601 — the construction seam the sparse builtins need);
+        MatrixToVector (row-major flatten) on a Matrix."""
+        if self.east_type.type == "Array":
+            elem_t = self.east_type.value
+            if elem_t.type not in ("Float", "Integer", "Boolean"):
+                raise KernelTraceError(
+                    f".to_vector() needs Float, Integer or Boolean array "
+                    f"elements, got {elem_t.type}")
+            out_t = VectorType(elem_t)
+            return self._expr(
+                _builtin("VectorFromArray", out_t, [elem_t], [self.ir]), out_t)
         elem_t = self._matrix_only("to_vector")
         out_t = VectorType(elem_t)
         return self._expr(
