@@ -11,14 +11,18 @@
  * the right-edge `N of M · narrowings` line.
  */
 
-import { useMemo } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { useMemo, useState } from "react";
+import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
 import { usePlanDispatch } from "../context.js";
 import { DatasetKeySearch } from "../../key-search/index.js";
+import { SliceEditPopover } from "../../../slice/edit/index.js";
+import { EastChakraPickPanel } from "../../../pick/panel/index.js";
 import { transportLabel, type PlanTransport } from "./transport.js";
 import type { PlanSearch } from "../use-seek.js";
 
@@ -65,11 +69,16 @@ export interface PlanToolbarProps {
     /** Key search over the source — mounted IN PLACE of the slice `search`
      *  affordance when the paged source declares `seek` (#574). */
     search?: PlanSearch | undefined;
+    /** The bound series library (#590) — mounts the right-edge Series button,
+     *  which opens the library in the shared slice-editor popover. */
+    pick?: unknown;
 }
 
 /** The 44px toolbar band. */
-export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, transport, search }: PlanToolbarProps) {
+export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, transport, search, pick }: PlanToolbarProps) {
     const dispatch = usePlanDispatch();
+    const btn = useRecipe({ key: "button" });
+    const [libraryOpen, setLibraryOpen] = useState(false);
     // Rail-cluster affordances (the Table adopter pattern): route the listed
     // kinds through `railAffordanceKinds` (auto-appended cohort etc.), then
     // drop the kinds that mount as Plan chrome bands rather than rail chips —
@@ -129,9 +138,65 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                     />
                 )}
             </Box>
-            {summary !== undefined && (
-                <Box css={styles.footerItem} marginLeft="auto" data-slot="toolbarSummary">{summary}</Box>
+            {/* The right edge: the summary line, then the library button. Both
+                are trailing chrome, so they share one auto-margined group
+                rather than each claiming `marginLeft: auto` and fighting. */}
+            {(summary !== undefined || pick !== undefined) && (
+                <Box css={styles.toolbarGroup} marginLeft="auto">
+                    {summary !== undefined && (
+                        <Box css={styles.footerItem} data-slot="toolbarSummary">{summary}</Box>
+                    )}
+                    {pick !== undefined && (
+                        <PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen} btn={btn} />
+                    )}
+                </Box>
             )}
         </Box>
+    );
+}
+
+/** One pickable thing, as the panel reads it — enough to count what is shown. */
+type PickItemLike = { id: string };
+type PickBindLike = { items: ReadonlyArray<PickItemLike>; state: { read: () => string[] } };
+
+/**
+ * The right-edge **Series** button — the library's only chrome at rest.
+ *
+ * @remarks
+ * A docked panel costs 320px of canvas on every Plan that has one, forever,
+ * whether or not anyone is picking. A trigger costs a button. It opens into
+ * `SliceEditPopover`, the single overlay shape every compact slice affordance
+ * already uses, so the library reads as one more piece of the same toolbar
+ * rather than a surface of its own.
+ *
+ * The count rides the popover's head, not the panel's — the popover brings its
+ * own heading, and two of them saying the same thing is why the panel has a
+ * frameless mode.
+ */
+function PlanLibraryButton({ pick, open, onOpenChange, btn }: {
+    pick: unknown;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    btn: ReturnType<typeof useRecipe>;
+}) {
+    const bind = pick as PickBindLike;
+    const hidden = new Set(bind.state.read());
+    const shown = bind.items.filter((i) => !hidden.has(i.id)).length;
+    return (
+        <SliceEditPopover
+            open={open}
+            onOpenChange={onOpenChange}
+            size="lg"
+            label={<>Series · <Box as="span" color="{colors.brand.700}" fontWeight="700">{`${shown} of ${bind.items.length}`}</Box></>}
+            trigger={
+                <chakra.button type="button" css={btn({ variant: "ghost", size: "xs" })}
+                    data-slot="planLibraryTrigger" aria-label="Series library" aria-expanded={open}>
+                    <FontAwesomeIcon icon={faLayerGroup} style={{ fontSize: "11px" }} />
+                    <Box as="span">Series</Box>
+                </chakra.button>
+            }
+        >
+            <EastChakraPickPanel value={{ pick, title: "Series" } as never} bare />
+        </SliceEditPopover>
     );
 }

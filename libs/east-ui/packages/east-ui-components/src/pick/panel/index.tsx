@@ -21,6 +21,16 @@ type PickItemValue = ValueTypeOf<typeof Pick.Types.Item>;
 
 export interface EastChakraPickPanelProps {
     value: PickPanelValue;
+    /**
+     * Render the ROWS only, with no frame or header.
+     *
+     * @remarks
+     * For mounting inside a surface that already provides both — the Plan opens
+     * its library in a `SliceEditPopover`, which brings its own head, body and
+     * close. Drawing the panel's own frame in there would be two borders and
+     * two headings saying the same thing.
+     */
+    bare?: boolean;
 }
 
 /**
@@ -48,7 +58,7 @@ export interface EastChakraPickPanelProps {
  * closures, and East compares every function as equal, so a structural
  * comparator would report "unchanged" across a real state change.
  */
-export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: EastChakraPickPanelProps) {
+export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value, bare }: EastChakraPickPanelProps) {
     const { pick, title } = value;
     useSliceReactivity(pick.key);
 
@@ -66,14 +76,8 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
         pick.state.write([...live]);
     };
 
-    return (
-        <Box css={frame.root} data-slot="pickPanel">
-            <Box css={frame.header}>
-                <Box as="span" css={frame.eyebrow}>{title}</Box>
-                <Box as="span" css={styles.headMeta}>
-                    {`${shownCount} of ${items.length}`}
-                </Box>
-            </Box>
+    const rows = (
+        <>
             {items.map((item: PickItemValue) => {
                 const on = !hidden.has(item.id);
                 const icon = getSomeorUndefined(item.icon);
@@ -113,6 +117,17 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
                     </chakra.button>
                 );
             })}
+        </>
+    );
+
+    if (bare === true) return <Box data-slot="pickPanel" data-bare="">{rows}</Box>;
+    return (
+        <Box css={frame.root} data-slot="pickPanel">
+            <Box css={frame.header}>
+                <Box as="span" css={frame.eyebrow}>{title}</Box>
+                <Box as="span" css={styles.headMeta}>{`${shownCount} of ${items.length}`}</Box>
+            </Box>
+            {rows}
         </Box>
     );
-}, () => false);
+}, (prev, next) => prev.bare === next.bare && false);

@@ -68,7 +68,6 @@ import {
     usePlanReview, PlanDecisionCell, PlanDecisionHeader, tagOf, DECISION_WIDTH,
 } from "./shell/Review.js";
 import { ReviewFoot } from "../shared/review.js";
-import { EastChakraPickPanel } from "../../pick/panel/index.js";
 import { type PlanTransport } from "./shell/transport.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -792,11 +791,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 reach it — no search box, so no jump, so no random access at
                 all. So the bar mounts for either reason; `PlanToolbar` is
                 already slice-safe (every cluster is guarded, `railKinds` is
-                empty without one), and no slice is fabricated to get it. */}
-            {(chrome !== undefined || search !== undefined) && (
+                empty without one), and no slice is fabricated to get it.
+
+                The series library (#590) is the same argument a third time: a
+                pickable canvas needs its trigger whether or not a slice was
+                ever bound. */}
+            {(chrome !== undefined || search !== undefined || pick !== undefined) && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
                     resolution={scale.resolution} resolutions={resolutions}
-                    transport={transport} search={search} />
+                    transport={transport} search={search} pick={pick} />
             )}
             {slice !== undefined && affordances.includes("brush") && (
                 <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice}
@@ -850,9 +853,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         display: "flex",
                         flexDirection: "column",
                         minHeight: 0,
-                        // Inside a library shell the ROW owns the bound and this
-                        // column fills it; standalone, the bound lives here.
-                        ...(pick !== undefined ? { height: "100%", flex: "1" } : { height, maxHeight }),
+                        height,
+                        maxHeight,
                     })}
                     onKeyDown={(e) => {
                         const target = e.target as HTMLElement;
@@ -931,30 +933,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         </PlanScaleContext.Provider>
     );
 
-    // With a library the canvas is one column of a two-column row. The bound
-    // moves to the ROW — a percentage on a child of an auto-height parent
-    // computes to `auto` and silently unbinds (#567 D1), which is the same trap
-    // the frame/wrapper split exists to avoid.
-    const shell = pick === undefined ? body : (
-        <Box
-            display="flex"
-            gap="{spacing.4}"
-            alignItems="stretch"
-            minWidth={0}
-            data-plan-shell="picked"
-            {...(frameFills && { height, maxHeight, minHeight: 0 })}
-        >
-            <Box width="320px" flexShrink={0} minWidth={0} overflowY="auto">
-                <EastChakraPickPanel value={{ pick, title: "Series" } as never} />
-            </Box>
-            <Box flex="1" minWidth={0} display="flex" flexDirection="column" minHeight={0}>
-                {body}
-            </Box>
-        </Box>
-    );
-
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
     return densityTag !== undefined
-        ? <DensityProvider value={densityTag}>{shell}</DensityProvider>
-        : shell;
+        ? <DensityProvider value={densityTag}>{body}</DensityProvider>
+        : body;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

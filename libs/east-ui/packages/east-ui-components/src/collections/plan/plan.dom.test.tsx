@@ -88,7 +88,7 @@ function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
     return new Map(rows.map((r) => [r.key, r]));
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; style?: { height?: string; maxHeight?: string } }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; style?: { height?: string; maxHeight?: string } }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
         links: opts?.links ?? [],
@@ -105,6 +105,7 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
         review: none,
+        pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
         id: "", sources: [], onDrag: none, canDrop: none,
@@ -1191,5 +1192,62 @@ describe("Plan sizing (#320 / #567 D1)", () => {
         const body = container.querySelector("[data-plan-body]")!;
         expect(body.hasAttribute("data-plan-bounded")).toBe(false);
         expect(container.querySelectorAll("[data-plan-row]").length).toBe(many.length);
+    });
+});
+
+describe("the series library is TOOLBAR chrome (#590)", () => {
+    /** A `PickBindType` closure — the whole surface the panel consumes. */
+    function fakePick(hidden: string[] = []) {
+        let st = [...hidden];
+        return {
+            key: "test.plan.pick",
+            state: { read: () => st, write: (n: string[]) => { st = n; }, has: () => true },
+            items: [
+                { id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "b", title: "Line load", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "c", title: "Crew shifts", subtitle: none, icon: none, count: none, narrowed: false },
+            ],
+        };
+    }
+
+    test("a pick mounts the toolbar even with NO slice bound, and costs no canvas at rest", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], { pick: fakePick() }));
+        // The bar mounts for the library the way it already mounts for a
+        // seek-capable source: neither is a slice, both need their chrome.
+        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
+        expect(container.querySelector("[data-slot='planLibraryTrigger']")).not.toBeNull();
+        // Closed: the library takes NO width from the canvas — that is the
+        // whole point of a trigger over a dock.
+        expect(container.querySelector("[data-slot='pickPanel']")).toBeNull();
+    });
+
+    test("no pick, no trigger — and no toolbar conjured for one", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]));
+        expect(container.querySelector("[data-slot='planLibraryTrigger']")).toBeNull();
+        expect(container.querySelector("[data-slot='toolbar']")).toBeNull();
+    });
+
+    test("the trigger opens the library, and the panel comes up FRAMELESS inside the popover", async () => {
+        const user = userEvent.setup();
+        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick: fakePick(["c"]) }));
+        await user.click(screen.getByRole("button", { name: "Series library" }));
+        await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
+        const panel = document.querySelector("[data-slot='pickPanel']") as HTMLElement;
+        // The popover brings its own head and border; the panel must not draw
+        // a second set.
+        expect(panel.hasAttribute("data-bare")).toBe(true);
+        expect(screen.getByText("Machine jobs")).toBeTruthy();
+        // The count rides the popover's head, not the panel's.
+        expect(screen.getByText("2 of 3")).toBeTruthy();
+    });
+
+    test("toggling inside the popover writes the hidden set", async () => {
+        const user = userEvent.setup();
+        const pick = fakePick();
+        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
+        await user.click(screen.getByRole("button", { name: "Series library" }));
+        await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
+        await user.click(screen.getByLabelText("Toggle Machine jobs"));
+        expect(pick.state.read()).toEqual(["a"]);
     });
 });
