@@ -1395,9 +1395,10 @@ export const planLibraryDnd = example({
         "Plan", "data", "series", "library", "Pick", "pick", "Panel", "pickItems", "hidden",
         "toggle", "eye", "kind icon", "count", "group", "grouped", "discovered", "by", "rows",
         "chrome", "span", "buckets", "chart", "heat", "table", "cards", "events", "duplicate",
+        "keySuffix", "keyPrefix", "same entity", "multiple views", "adjacent", "seek",
         "DnD", "drag", "drop", "onDrag", "canDrop", "sources", "add", "Reactive", "State", "#590",
     ],
-    description: "The series library across the whole vocabulary — every row kind as its own entry, two entries of the SAME kind (two spans, two heats) proving a kind is not an identity, three static groups each wrapping a different kind, a discovered group building one strip per line, and literal `rows` chrome; Plan.pick binds them all, Pick.Panel lists each with its kind icon and derived row count, and Pick.active feeds the survivors back so a toggle changes the canvas with no data change",
+    description: "The series library across the whole vocabulary — every row kind as its own entry, two entries of the SAME kind (two spans, two heats) proving a kind is not an identity, three static groups each wrapping a different kind, a discovered group building one strip per line, literal `rows` chrome, and a `keySuffix` pair putting a chart and a table over the SAME asset the span series already draws — three views per machine, adjacent in key order and still seekable; Plan.pick binds them all, Pick.Panel lists each with its kind icon and derived row count, and Pick.active feeds the survivors back so a toggle changes the canvas with no data change",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -1462,10 +1463,24 @@ export const planLibraryDnd = example({
             // series' rows; group strips sort among the ROOTS by their own key.
             const ops = $.const(new Map([
                 ["10-util",   { ...base, pick: "util",     label: "UTIL %",   points }],
+                // ONE asset, THREE views — the span the machines series draws,
+                // plus a chart and a table over these same two rows (see the
+                // `keySuffix` pair below). The extra channels are what those
+                // two read; nothing about the row is duplicated.
                 ["20-m03",    { ...base, pick: "machines", label: "L1-M03",
-                                jobs: [run("b214", "RUN · B-214", 28n, 31n, RUNNING)] }],
+                                jobs: [run("b214", "RUN · B-214", 28n, 31n, RUNNING)],
+                                points,
+                                nums: [
+                                    { at: week(28n), value: some(96.0), text: none, tone: none },
+                                    { at: week(31n), value: some(88.0), text: none, tone: none },
+                                ] }],
                 ["20-m04",    { ...base, pick: "machines", label: "L1-M04",
-                                jobs: [run("b208", "RUN · B-208", 27n, 30n, ACTUAL)] }],
+                                jobs: [run("b208", "RUN · B-208", 27n, 30n, ACTUAL)],
+                                points,
+                                nums: [
+                                    { at: week(28n), value: some(112.0), text: none, tone: none },
+                                    { at: week(31n), value: some(-24.0), text: none, tone: none },
+                                ] }],
                 // SAME KIND as the machines series, different entry — a kind is
                 // not an identity, which is why the library keys on `key`.
                 ["25-c01",    { ...base, pick: "contract", label: "CON-01",
@@ -1548,6 +1563,37 @@ export const planLibraryDnd = example({
                     layers: r => [Chart.Column(r.points, { x: p => p.week, y: p => p.pct })],
                 }),
                 spanOf("machines", "Machine jobs", "one row per machine"),
+                // ── THE SAME ASSET, SEEN TWO MORE WAYS ────────────────────
+                // Both of these match the machines slice the span series
+                // already claims, so all three emit a row per machine. Without
+                // an affix they would land on one key and the last would
+                // silently replace the others (#568's union is last-wins).
+                //
+                // `keySuffix` separates them while keeping the DATA key first,
+                // which is the whole point: the canvas is in key order, so an
+                // asset's three views sit ADJACENT (`20-m03`, `20-m03/chart`,
+                // `20-m03/table`) instead of the series banking together — and
+                // seek still lands, because it positions on the first row
+                // at-or-after the sought key. A `keyPrefix` would do neither.
+                Plan.series.chart(OpsRow, {
+                    key: "machine-util", title: "Machine · utilisation", subtitle: "same asset, 2nd view",
+                    match: r => r.pick.equal("machines"),
+                    keySuffix: "/chart",
+                    // The label stays the ASSET — all three rows are the same
+                    // machine, and pretending otherwise would hide that. What
+                    // distinguishes them is the VIEW, which is what the gutter
+                    // sub-line is for.
+                    label: r => r.label, stacked: true, sub: _r => some("utilisation %"), height: "spark",
+                    layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+                Plan.series.table(OpsRow, {
+                    key: "machine-tonnes", title: "Machine · tonnes", subtitle: "same asset, 3rd view",
+                    match: r => r.pick.equal("machines"),
+                    keySuffix: "/table",
+                    label: r => r.label, stacked: true, sub: _r => some("tonnes · plan Δ"),
+                    cells: r => r.nums,
+                    format: Format.Number({ maximumFractionDigits: 0n }),
+                }),
                 spanOf("contract", "Contractor jobs", "same KIND, own entry"),
                 heatOf("load", "Line load", "% per fortnight"),
                 heatOf("quality", "Quality index", "same KIND, own entry"),

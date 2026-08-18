@@ -68,6 +68,22 @@ describe("Plan rowHeight (§8)", () => {
         expect(rowHeight(visible(row(chart(variant("fixed", "140px"), some("96px")))), false, new Set())).toBe(140);
     });
 
+    test("a two-line gutter floors a chart SPARK row too — the sub-line has to fit", () => {
+        const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
+            layers: [], left: none, right: none, height, expandedHeight, expandable: none,
+        });
+        // Every other kind ran through the two-line `floor()`; chart returned
+        // its spark height directly, so a chart row carrying a sub-line clipped
+        // it. Found by rendering one, not by a test.
+        const spark = chart(variant("spark", null), none);
+        expect(rowHeight(visible(row(spark)), false, new Set())).toBe(32);
+        expect(rowHeight(visible(row(spark, { sub: "utilisation %" })), false, new Set())).toBe(ROW_H_STACKED);
+        expect(rowHeight(visible(row(spark, { stacked: true })), false, new Set())).toBe(ROW_H_STACKED);
+        // A DECLARED px is the author's word and stays unfloored — the same
+        // rule the row-level `height` override follows.
+        expect(rowHeight(visible(row(chart(variant("fixed", "24px"), none), { sub: "x" })), false, new Set())).toBe(24);
+    });
+
     test("vertical multi-series table rows grow per stacked line", () => {
         const two = variant("table", {
             series: [

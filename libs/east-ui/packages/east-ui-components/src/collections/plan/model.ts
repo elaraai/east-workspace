@@ -255,11 +255,17 @@ export function rowHeight(
                 if (px !== undefined) return px;
             }
             const expanded = h.type === "expanded" || chartsExpanded.has(v.row.key);
-            if (!expanded) return CHART_SPARK_H;
+            // The two-line floor applies to a chart's DEFAULT heights like
+            // every other kind: a spark row is 32px, and a 42px sub-line does
+            // not fit in it — it clipped, which is what the floor exists to
+            // prevent. A DECLARED px (`fixed`, `expandedHeight`) is the
+            // author's word and stays unfloored, the same rule the row-level
+            // `height` override above follows.
+            if (!expanded) return floor(CHART_SPARK_H);
             // A declared expandedHeight overrides the 88px expanded default —
             // an expandable spark can open to a full composition height.
             const eh = kind.value.expandedHeight.type === "some" ? pxOf(kind.value.expandedHeight.value) : undefined;
-            return eh ?? CHART_EXPANDED_H;
+            return eh ?? floor(CHART_EXPANDED_H);
         }
         case "heat": return floor(HEAT_ROW_H);
         case "table": {
