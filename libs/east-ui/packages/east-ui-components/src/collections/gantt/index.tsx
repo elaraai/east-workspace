@@ -39,6 +39,7 @@ import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
 import { useDragTarget, useDropCell, type DragEventValue, type DragMeta, type DragPayload, type CellCoord } from "../../dnd/drag-layer";
 import { canDropAllows, candidateEvent, type CanDropFn } from "../../dnd/ir-can-drop";
+import { toEastDateTimeSlot } from "../../dnd/slot-key";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
@@ -52,11 +53,11 @@ import { snapToStep as snapDateToStep, timeStepToMs as timeStepMs } from "./Gant
 const ganttRootEqual = equalFor(Gantt.Types.Root);
 
 // Parse CSS size values to pixels (simple numeric extraction)
-/** Drag-grammar slot text for a datetime. East's `parse(DateTimeType)`
- *  rejects `toISOString()`'s trailing `Z` (East DateTimes are implicitly
- *  UTC), and the documented grammar contract is that a Gantt slot parses
- *  as an East DateTime — so slots carry the Z-less ISO form. */
-export const toEastDateTimeSlot = (d: Date): string => d.toISOString().slice(0, -1);
+/** Drag-grammar slot text for a datetime — the SHARED encoding
+ *  (`dnd/slot-key.ts`), re-exported here because this was its original home
+ *  and `gantt-slot.test.ts` pins it. The Plan is the second temporal target
+ *  and reads the same module, so the two cannot drift apart. */
+export { toEastDateTimeSlot };
 
 const parseSize = (val: string | undefined, defaultVal: number): number => {
     if (!val) return defaultVal;

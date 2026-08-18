@@ -49,7 +49,11 @@ import { PlanSeriesType, applySeriesValue, type PlanSeriesInput, type PlanSeries
  */
 const KIND_ICONS: Record<string, string> = {
     span:    "bars-staggered",
-    buckets: "border-all",
+    // `border-all` was a 2x2 grid of squares — the same mark `table-cells-large`
+    // draws for heat, and at 12px the two were indistinguishable (#590 §6.3).
+    // Buckets quantise into COLUMNS with lanes inside them, so a columns mark
+    // says what the row is and separates cleanly from heat's grid.
+    buckets: "table-columns",
     chart:   "chart-line",
     heat:    "table-cells-large",
     table:   "table-list",

@@ -49,7 +49,9 @@ import {
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { EastChakraComponent } from "../../component.js";
-import { RowShell } from "./rows/RowShell.js";
+import { useDragTarget, type DragEventValue } from "../../dnd/drag-layer";
+import { type CanDropFn } from "../../dnd/ir-can-drop";
+import { RowShell, type PlanRowDrop } from "./rows/RowShell.js";
 import { SpanRow } from "./rows/SpanRow.js";
 import { GroupRow } from "./rows/GroupRow.js";
 import { ChartRowPlot, ChartLeftTicks } from "./rows/ChartRow.js";
@@ -84,6 +86,30 @@ const EXPAND_DEFAULT_PX = 240;
 /** The render never clamps below this — a region too short to hold anything
  *  is worse than one that scrolls. */
 const EXPAND_FLOOR_PX = 88;
+
+/**
+ * The row kinds that accept a drop.
+ *
+ * @remarks
+ * A Plan's rows are heterogeneous, so "can you drop here" is a per-KIND
+ * question before it is a per-row one — and the line is not arbitrary. These
+ * four render a **collection of discrete scheduled objects** (runs, bucket
+ * events, marks, chips): things a library card can BECOME, at an instant the
+ * pointer names.
+ *
+ * The rest are excluded on the same principle:
+ *
+ * - `chart` / `heat` / `table` render DERIVED values — a plotted series, an
+ *   intensity field, computed cells. There is nothing for a card to become,
+ *   and a number is not a destination.
+ * - `group` is wayfinding chrome; its MEMBERS are the droppable things, and
+ *   accepting on the strip would make a collapsed group swallow drops meant
+ *   for a row inside it.
+ *
+ * A canvas narrows further with `canDrop` — this set is what is structurally
+ * possible, the predicate is what this particular canvas permits.
+ */
+const DROPPABLE_KINDS: ReadonlySet<string> = new Set(["span", "buckets", "events", "cards"]);
 
 export interface EastChakraPlanProps {
     /** The Plan root value. */
@@ -379,6 +405,48 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const onGroupToggle = useMemo(() => getSomeorUndefined(value.onGroupToggle), [value.onGroupToggle]);
     const onGrainChange = useMemo(() => getSomeorUndefined(value.onGrainChange), [value.onGrainChange]);
 
+    // ── DnD target role ───────────────────────────────────────────────────
+    // The canvas is a drag TARGET: library cards land on a row at an instant.
+    // Rows register their own cells (`RowShell`); this registers the surface
+    // those cells name and funnels every completed drag to the host.
+    //
+    // A target needs BOTH an `id` (cells are addressed `surface × row × slot`,
+    // and an unnamed surface cannot be addressed) and an `onDrag` (a drop with
+    // nowhere to report is a gesture that silently loses work). Missing either
+    // ⇒ no registration at all, so no row lights up and no drag can complete
+    // against a canvas that cannot act on it.
+    const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    const canDropFn = useMemo(
+        () => getSomeorUndefined(value.canDrop) as CanDropFn | undefined,
+        [value.canDrop],
+    );
+    const dropEligible = onDragFn !== undefined && value.id !== "";
+    const handleDrop = useCallback((event: DragEventValue) => {
+        // No optimistic row is synthesized. The Gantt can invent a proposed
+        // bar because its rows ARE its tasks; a Plan's rows are derived from
+        // `data` through the series pipeline, so the honest flow is the one
+        // the grammar documents — the host commits, the data changes, the
+        // rows re-derive. Painting a speculative run here would put a row on
+        // screen that no series produced.
+        if (onDragFn !== undefined) queueMicrotask(() => onDragFn(event));
+    }, [onDragFn]);
+    const targetConfig = useMemo(() => (dropEligible ? {
+        id: value.id,
+        sources: [...value.sources],
+        // `add` only. `move` / `resize` need a drag to START on the canvas —
+        // a draggable run bar or chip — and nothing here begins one, so
+        // declaring them would advertise a capability with no gesture behind it.
+        kinds: { add: true },
+        onDrag: handleDrop,
+    } : null), [dropEligible, value.id, value.sources, handleDrop]);
+    useDragTarget(targetConfig);
+    // One config shared by every droppable row — the per-row part of the
+    // coordinate is the row itself, which `RowShell` already knows.
+    const rowDrop = useMemo<PlanRowDrop | undefined>(
+        () => (dropEligible ? { surface: value.id, canDrop: canDropFn } : undefined),
+        [dropEligible, value.id, canDropFn],
+    );
+
     const runEffects = useCallback((effects: PlanEffect[]) => {
         for (const eff of effects) {
             switch (eff.t) {
@@ -639,6 +707,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             decision: review !== undefined && review.hasRowVerbs
                 ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
                 : undefined,
+            // Only the kinds that hold droppable objects register a cell —
+            // a chart / heat / table row is inert to a drag by construction,
+            // not by predicate (see `DROPPABLE_KINDS`).
+            drop: DROPPABLE_KINDS.has(kind.type) ? rowDrop : undefined,
         } as const;
         switch (kind.type) {
             case "span": {
@@ -726,7 +798,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         }
     }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
         focusCtx, heightCtx, linkedKeys, linkFamily, expandRenderFn, expandBody, expandGutterBody,
-        transport, review]);
+        transport, review, rowDrop]);
 
     // R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
     // rows (their count rides beside the icon, worst hidden tone at right);

@@ -12,10 +12,13 @@
  * now / cursor hairlines; the kind renderer supplies the plot content.
  */
 
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
+import { useDropCell, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
+import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-can-drop";
+import { toEastDateTimeSlot } from "../../../dnd/slot-key";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanRowValue } from "../model.js";
 
@@ -23,6 +26,18 @@ type Styles = Record<string, Record<string, unknown>>;
 
 /** Indent per nesting level (px) — the §4 nested figures. */
 export const INDENT_PX = 30;
+
+/**
+ * A row's DnD drop registration — present only when the canvas is a drag
+ * target AND this row's KIND accepts drops (see `DROPPABLE_KINDS`).
+ */
+export interface PlanRowDrop {
+    /** The canvas's declared DnD id — the cell ref's `surface`. */
+    surface: string;
+    /** The root's decoded IR `canDrop`, consulted with the candidate event the
+     *  pointer's CURRENT bucket would produce. */
+    canDrop?: CanDropFn | undefined;
+}
 
 export interface RowShellProps {
     row: PlanRowValue;
@@ -72,6 +87,9 @@ export interface RowShellProps {
     /** The trailing review cell, when the canvas carries review chrome — the
      *  third track `gridTemplate` grows by (#569). */
     decision?: ReactNode;
+    /** DnD drop registration for this row's plot. Absent ⇒ the row registers
+     *  no cell, so it is never a destination and never lights up. */
+    drop?: PlanRowDrop | undefined;
     children: ReactNode;
 }
 
@@ -79,7 +97,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     cursorFrac, caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, ctx, decision, children,
+    controls, focusTag, axisMode, ctx, decision, drop, children,
     expandBody, expandGutter, bandHeight,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -105,6 +123,62 @@ export function RowShell({
         () => scale.buckets.slice(0, -1).map((b) => b.x1),
         [scale],
     );
+
+    // ── DnD drop cell ─────────────────────────────────────────────────────
+    // The PLOT is the drop target, and its coordinate resolves from the
+    // pointer at drop time (the Gantt's continuous-surface pattern). Two
+    // things differ from the Gantt, both because of what a Plan row is:
+    //
+    //  - the ROW needs no virtualizer band math — a Plan row key IS its data
+    //    key, and this component already is that row;
+    //  - registration is PER ROW rather than one cell over the whole body,
+    //    because a Plan's rows are heterogeneous. Which kinds accept a drop
+    //    is a per-row question (`DROPPABLE_KINDS`), and the valid / active /
+    //    ⊘ treatment has to land on the row the pointer is over rather than
+    //    washing the entire canvas.
+    //
+    // The SLOT is the bucket under the pointer, named by its start instant —
+    // the canvas's own vocabulary for "when" (`onCellClick` reports the same
+    // bucket instant, not an index), spelled with the shared temporal
+    // encoding so a host parses a Plan slot exactly like a Gantt slot.
+    const plotElRef = useRef<HTMLElement | null>(null);
+    const resolveCoord = useCallback((clientX: number, _clientY: number): CellCoord => {
+        const rect = plotElRef.current?.getBoundingClientRect();
+        const frac = rect !== undefined && rect.width > 0
+            ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+            : 0;
+        // The window is half-open, so a pointer exactly at the right edge
+        // (frac === 1) falls outside every bucket — clamp it into the last.
+        const bucket = scale.buckets.find((b) => frac >= b.x0 && frac < b.x1)
+            ?? scale.buckets[scale.buckets.length - 1];
+        return {
+            surface: drop?.surface ?? "",
+            row: row.key,
+            slot: bucket !== undefined ? toEastDateTimeSlot(bucket.start) : "",
+        };
+    }, [scale, drop?.surface, row.key]);
+    // The registered coord is a placeholder: every real coordinate comes back
+    // through `resolveCoord`, which the layer calls at hover and at drop.
+    const dropCoord = useMemo<CellCoord | null>(
+        () => (drop !== undefined ? { surface: drop.surface, row: row.key, slot: "" } : null),
+        [drop, row.key],
+    );
+    const dropVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
+        const fn = drop?.canDrop;
+        if (fn === undefined) return true;
+        // The drag-START sweep has no pointer yet. Answer structurally there
+        // (so the row still shows as a candidate) and veto on hover, where the
+        // bucket — and so the candidate event — is actually known.
+        if (x === undefined || y === undefined) return true;
+        return canDropAllows(fn, candidateEvent(payload, resolveCoord(x, y)));
+    }, [drop, resolveCoord]);
+    const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord);
+    // One ref doing two jobs: the layer's registration, and the rect
+    // `resolveCoord` measures the pointer against.
+    const plotRef = useCallback((el: HTMLDivElement | null) => {
+        plotElRef.current = el;
+        dropRef(el);
+    }, [dropRef]);
 
     return (
         <Box
@@ -193,6 +267,7 @@ export function RowShell({
                 {gutterOverlay}
             </Box>
             <Box
+                ref={plotRef}
                 css={styles.plot}
                 data-axis={axisMode}
                 onPointerMove={(e) => {

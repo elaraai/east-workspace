@@ -23,7 +23,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, State, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
+import { Box, Chart, Format, Library, Plan, Progress, Reactive, Slice, Sparkline, Text, VStack, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1452,9 +1452,6 @@ export const planLibraryDnd = example({
             const CONFIRMED = variant("confirmed", null);
             const RUNNING = variant("in-progress", null);
             const PROPOSED = variant("proposed", variant("recommended", null));
-            type RunState = typeof ACTUAL | typeof CONFIRMED | typeof RUNNING | typeof PROPOSED;
-            const run = (k: string, label: string, from: bigint, to: bigint, state: RunState) =>
-                ({ key: k, label, start: week(from), end: week(to), state });
             const base = {
                 line: "", jobs: noJobs, points: noPoints, cells: noCells,
                 allocs: noAllocs, nums: noNums, shifts: noShifts, marks: noMarks,
@@ -1468,14 +1465,14 @@ export const planLibraryDnd = example({
                 // `keySuffix` pair below). The extra channels are what those
                 // two read; nothing about the row is duplicated.
                 ["20-m03",    { ...base, pick: "machines", label: "L1-M03",
-                                jobs: [run("b214", "RUN · B-214", 28n, 31n, RUNNING)],
+                                jobs: [{ key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: RUNNING }],
                                 points,
                                 nums: [
                                     { at: week(28n), value: some(96.0), text: none, tone: none },
                                     { at: week(31n), value: some(88.0), text: none, tone: none },
                                 ] }],
                 ["20-m04",    { ...base, pick: "machines", label: "L1-M04",
-                                jobs: [run("b208", "RUN · B-208", 27n, 30n, ACTUAL)],
+                                jobs: [{ key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: ACTUAL }],
                                 points,
                                 nums: [
                                     { at: week(28n), value: some(112.0), text: none, tone: none },
@@ -1484,7 +1481,7 @@ export const planLibraryDnd = example({
                 // SAME KIND as the machines series, different entry — a kind is
                 // not an identity, which is why the library keys on `key`.
                 ["25-c01",    { ...base, pick: "contract", label: "CON-01",
-                                jobs: [run("c1", "RUN · C-1", 30n, 34n, CONFIRMED)] }],
+                                jobs: [{ key: "c1", label: "RUN · C-1", start: week(30n), end: week(34n), state: CONFIRMED }] }],
                 ["30-load",   { ...base, pick: "load",     label: "L2 load",  cells }],
                 ["35-qual",   { ...base, pick: "quality",  label: "Quality",  cells }],
                 ["40-dock2",  { ...base, pick: "docks",    label: "Dock 2",
@@ -1510,47 +1507,24 @@ export const planLibraryDnd = example({
                 // Members of the three STATIC groups — they hang under their
                 // strip, so their keys only order within that subtree.
                 ["g1-m11",    { ...base, pick: "gspan",    label: "L3-M11",
-                                jobs: [run("b301", "RUN · B-301", 29n, 33n, CONFIRMED)] }],
+                                jobs: [{ key: "b301", label: "RUN · B-301", start: week(29n), end: week(33n), state: CONFIRMED }] }],
                 ["g1-m12",    { ...base, pick: "gspan",    label: "L3-M12",
-                                jobs: [run("b302", "RUN · B-302", 31n, 36n, ACTUAL)] }],
+                                jobs: [{ key: "b302", label: "RUN · B-302", start: week(31n), end: week(36n), state: ACTUAL }] }],
                 ["g2-l1",     { ...base, pick: "gheat",    label: "L4 load",  cells }],
                 ["g3-d5",     { ...base, pick: "gbuckets", label: "Dock 5",
                                 allocs: [{ key: "a3", at: week(33n), state: variant("confirmed", null) }] }],
                 // The DISCOVERED group's members — one strip per `line`.
                 ["p1-a",      { ...base, pick: "programs", label: "PR-A1", line: "Program A",
-                                jobs: [run("p1", "RUN · P-1", 28n, 32n, CONFIRMED)] }],
+                                jobs: [{ key: "p1", label: "RUN · P-1", start: week(28n), end: week(32n), state: CONFIRMED }] }],
                 ["p2-a",      { ...base, pick: "programs", label: "PR-A2", line: "Program A",
-                                jobs: [run("p2", "RUN · P-2", 33n, 37n, PROPOSED)] }],
+                                jobs: [{ key: "p2", label: "RUN · P-2", start: week(33n), end: week(37n), state: PROPOSED }] }],
                 ["p3-b",      { ...base, pick: "programs", label: "PR-B1", line: "Program B",
-                                jobs: [run("p3", "RUN · P-3", 30n, 35n, ACTUAL)] }],
+                                jobs: [{ key: "p3", label: "RUN · P-3", start: week(30n), end: week(35n), state: ACTUAL }] }],
             ]), DictType(StringType, OpsRow));
 
             // The whole library: every kind once, two kinds TWICE, each of three
             // static groups wrapping a different kind, the discovered form, and
             // literal chrome. Fourteen entries, nine distinct arms.
-            const spanOf = (key: string, title: string, subtitle: string) =>
-                Plan.series.span(OpsRow, {
-                    key, title, subtitle,
-                    match: r => r.pick.equal(key),
-                    label: r => r.label, id: true,
-                    runs: r => r.jobs.map((_$, j) => Plan.run({
-                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
-                    })),
-                });
-            const heatOf = (key: string, title: string, subtitle: string) =>
-                Plan.series.heat(OpsRow, {
-                    key, title, subtitle,
-                    match: r => r.pick.equal(key),
-                    label: r => r.label,
-                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
-                });
-            const bucketsOf = (key: string, title: string, subtitle: string) =>
-                Plan.series.buckets(OpsRow, {
-                    key, title, subtitle,
-                    match: r => r.pick.equal(key),
-                    label: r => r.label,
-                    events: r => r.allocs.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
-                });
             const all = $.const([
                 // Literal one-off chrome — it names itself, so it can be
                 // switched off like anything else.
@@ -1562,7 +1536,14 @@ export const planLibraryDnd = example({
                     label: r => r.label, id: true, height: "spark",
                     layers: r => [Chart.Column(r.points, { x: p => p.week, y: p => p.pct })],
                 }),
-                spanOf("machines", "Machine jobs", "one row per machine"),
+                Plan.series.span(OpsRow, {
+                    key: "machines", title: "Machine jobs", subtitle: "one row per machine",
+                    match: r => r.pick.equal("machines"),
+                    label: r => r.label, id: true,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({
+                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                    })),
+                }),
                 // ── THE SAME ASSET, SEEN TWO MORE WAYS ────────────────────
                 // Both of these match the machines slice the span series
                 // already claims, so all three emit a row per machine. Without
@@ -1594,10 +1575,32 @@ export const planLibraryDnd = example({
                     cells: r => r.nums,
                     format: Format.Number({ maximumFractionDigits: 0n }),
                 }),
-                spanOf("contract", "Contractor jobs", "same KIND, own entry"),
-                heatOf("load", "Line load", "% per fortnight"),
-                heatOf("quality", "Quality index", "same KIND, own entry"),
-                bucketsOf("docks", "Dock allocations", "tiles per bucket"),
+                Plan.series.span(OpsRow, {
+                    key: "contract", title: "Contractor jobs", subtitle: "same KIND, own entry",
+                    match: r => r.pick.equal("contract"),
+                    label: r => r.label, id: true,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({
+                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                    })),
+                }),
+                Plan.series.heat(OpsRow, {
+                    key: "load", title: "Line load", subtitle: "% per fortnight",
+                    match: r => r.pick.equal("load"),
+                    label: r => r.label,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                }),
+                Plan.series.heat(OpsRow, {
+                    key: "quality", title: "Quality index", subtitle: "same KIND, own entry",
+                    match: r => r.pick.equal("quality"),
+                    label: r => r.label,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                }),
+                Plan.series.buckets(OpsRow, {
+                    key: "docks", title: "Dock allocations", subtitle: "tiles per bucket",
+                    match: r => r.pick.equal("docks"),
+                    label: r => r.label,
+                    events: r => r.allocs.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
+                }),
                 Plan.series.table(OpsRow, {
                     key: "table", title: "Despatch tonnes", subtitle: "per bucket",
                     match: r => r.pick.equal("table"),
@@ -1629,18 +1632,50 @@ export const planLibraryDnd = example({
                 // in the panel. Borrowing identity means one string serves both
                 // — the cost of the group needing nothing extra written.
                 Plan.series.group(OpsRow, { key: "g1-line3", label: "Line 3", meta: "span" },
-                    [spanOf("gspan", "Grouped span", "member")]),
+                    [
+                        Plan.series.span(OpsRow, {
+                            key: "gspan", title: "Grouped span", subtitle: "member",
+                            match: r => r.pick.equal("gspan"),
+                            label: r => r.label, id: true,
+                            runs: r => r.jobs.map((_$, j) => Plan.run({
+                                key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                            })),
+                        }),
+                    ]),
                 Plan.series.group(OpsRow, { key: "g2-lines", label: "Load", meta: "heat" },
-                    [heatOf("gheat", "Grouped heat", "member")]),
+                    [
+                        Plan.series.heat(OpsRow, {
+                            key: "gheat", title: "Grouped heat", subtitle: "member",
+                            match: r => r.pick.equal("gheat"),
+                            label: r => r.label,
+                            cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                        }),
+                    ]),
                 Plan.series.group(OpsRow, { key: "g3-docks", label: "Docks", meta: "buckets" },
-                    [bucketsOf("gbuckets", "Grouped buckets", "member")]),
+                    [
+                        Plan.series.buckets(OpsRow, {
+                            key: "gbuckets", title: "Grouped buckets", subtitle: "member",
+                            match: r => r.pick.equal("gbuckets"),
+                            label: r => r.label,
+                            events: r => r.allocs.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
+                        }),
+                    ]),
                 // The DISCOVERED form — one strip per distinct `line`, and ONE
                 // library entry for all of them, which is why it declares its
                 // own identity instead of borrowing a strip's.
                 Plan.series.group(OpsRow, {
                     key: "programs", title: "Programs", subtitle: "one strip per line",
                     by: r => r.line, match: r => r.pick.equal("programs"), keyPrefix: "p-",
-                }, [spanOf("programs", "Program runs", "member")]),
+                }, [
+                    Plan.series.span(OpsRow, {
+                        key: "programs", title: "Program runs", subtitle: "member",
+                        match: r => r.pick.equal("programs"),
+                        label: r => r.label, id: true,
+                        runs: r => r.jobs.map((_$, j) => Plan.run({
+                            key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                        })),
+                    }),
+                ]),
             ], ArrayType(Plan.Types.Series(OpsRow)));
 
             // `data` gives each entry its row count, so a series that selects
@@ -1665,6 +1700,335 @@ export const planLibraryDnd = example({
                     canDrop={canDrop}
                     style={{ height: "620px" }}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// planRowDrop — the canvas as a drag TARGET, and which rows can receive
+// ============================================================================
+
+/**
+ * A Plan is a drag target, and a heterogeneous one — which is what makes it
+ * different from every other target in the grammar.
+ *
+ * Roster, Board and Blend have ONE kind of cell, so "can you drop here" is a
+ * question about the cell's contents. A Plan's rows are nine different things,
+ * so the question is answered TWICE, at two different levels:
+ *
+ *  1. **Structurally, by kind.** Only rows holding discrete scheduled objects
+ *     register a drop cell at all — `span` (runs), `buckets` (tiles), `events`
+ *     (marks), `cards` (chips). A `chart` / `heat` / `table` row renders
+ *     DERIVED values, so there is nothing for a card to become; it registers
+ *     no cell, never lights up during a drag, and is not reachable by any
+ *     predicate. Group strips are wayfinding, so they are inert too — their
+ *     MEMBERS receive.
+ *  2. **By policy, with `canDrop`.** Of the rows that can receive, this canvas
+ *     admits only the matching FAMILY: a job goes on a machine, a delivery on
+ *     a dock, a shift on a crew, a milestone on a stream. The `PALLET` card
+ *     belongs to no family and is therefore refused everywhere — the ⊘ stage
+ *     on every row, which is what a card with nowhere to go should look like.
+ *
+ * The drop is not cosmetic. `onDrag` writes to bound state, the series
+ * accessors read that state back, and the row re-derives — the documented flow
+ * for every target ("no drop writes state directly"). Nothing is painted
+ * optimistically, so what appears on the canvas is only ever what the data
+ * says.
+ */
+export const planRowDrop = example({
+    keywords: [
+        "Plan", "Library", "DnD", "drag", "drop", "onDrag", "canDrop", "sources", "id",
+        "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
+        "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "group",
+        "droppable", "inert", "bucket instant", "Reactive", "State", "commit", "re-derive",
+    ],
+    description: "Library + Plan DnD — drag a card onto a row and it lands at the bucket under the pointer, committed through bound state so the row re-derives; the four kinds that hold discrete objects (span / buckets / events / cards) receive, the three that render derived values (chart / heat / table) and the group strip register no cell at all, and canDrop admits only the matching family so a job on a dock, or the family-less PALLET card anywhere, shows the ⊘ stage and drops nothing",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+            const JobRow = StructType({
+                key: StringType, label: StringType,
+                start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            const ShiftRow = StructType({
+                key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
+            });
+            const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
+            // What a completed drop leaves behind: an instant and a name. The
+            // KIND it becomes is the receiving series' business, which is why
+            // one shape serves all four.
+            const DropRow = StructType({ key: StringType, at: DateTimeType, label: StringType });
+            const OpsRow = StructType({
+                series: StringType, label: StringType, line: StringType,
+                jobs: ArrayType(JobRow),
+                points: ArrayType(MeasureRow),
+                cells: ArrayType(Plan.Types.HeatCell),
+                allocs: ArrayType(AllocRow),
+                nums: ArrayType(Plan.Types.TableCell),
+                shifts: ArrayType(ShiftRow),
+                marks: ArrayType(Plan.Types.EventMark),
+            });
+            const noJobs = $.const([], ArrayType(JobRow));
+            const noPoints = $.const([], ArrayType(MeasureRow));
+            const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const noAllocs = $.const([], ArrayType(AllocRow));
+            const noNums = $.const([], ArrayType(Plan.Types.TableCell));
+            const noShifts = $.const([], ArrayType(ShiftRow));
+            const noMarks = $.const([], ArrayType(Plan.Types.EventMark));
+            const noDrops = $.const([], ArrayType(DropRow));
+            const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
+            const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
+                ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
+            const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
+                at: week(i.multiply(2n).add(27n)),
+                value: some(pcts.get(i)),
+                label: some(East.Float.printFixed(pcts.get(i), 0n)),
+            })));
+            const CONFIRMED = variant("confirmed", null);
+            const RUNNING = variant("in-progress", null);
+            // Everything a drop creates is a PROPOSAL — it is a suggestion the
+            // host has not committed, and the lifecycle is how the canvas says so.
+            const ADDED = variant("proposed", variant("added", null));
+            const base = {
+                line: "", jobs: noJobs, points: noPoints, cells: noCells,
+                allocs: noAllocs, nums: noNums, shifts: noShifts, marks: noMarks,
+            };
+            // Keys order the canvas (#568), numbered so the droppable and inert
+            // kinds INTERLEAVE — a solid block of receiving rows would not show
+            // that the line is drawn per kind.
+            const ops = $.const(new Map([
+                ["10-util",  { ...base, series: "util",  label: "UTIL %",     points }],
+                ["20-m03",   { ...base, series: "mach",  label: "L1-M03",
+                               jobs: [{ key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: RUNNING }] }],
+                ["20-m04",   { ...base, series: "mach",  label: "L1-M04",
+                               jobs: [{ key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: CONFIRMED }] }],
+                ["30-load",  { ...base, series: "load",  label: "L2 load",    cells }],
+                ["40-dock2", { ...base, series: "dock",  label: "Dock 2",
+                               allocs: [{ key: "a1", at: week(29n), state: CONFIRMED }] }],
+                ["50-desp",  { ...base, series: "table", label: "Despatch t",
+                               nums: [
+                                   { at: week(28n), value: some(128.0), text: none, tone: none },
+                                   { at: week(31n), value: some(-96.0), text: none, tone: none },
+                               ] }],
+                ["60-crewA", { ...base, series: "crew",  label: "Crew A",
+                               shifts: [{ key: "s1", from: week(27n), to: week(29n), label: "80h", state: CONFIRMED }] }],
+                ["70-ms",    { ...base, series: "strm",  label: "MILESTONES",
+                               marks: [{ key: "k", at: week(29n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") }] }],
+                // A group MEMBER — the strip itself takes no drops, but the
+                // span row inside it receives like any other span row.
+                ["g1-m11",   { ...base, series: "gmach", label: "L3-M11", line: "Line 3",
+                               jobs: [{ key: "b301", label: "RUN · B-301", start: week(30n), end: week(34n), state: CONFIRMED }] }],
+            ]), DictType(StringType, OpsRow));
+
+            // ── The two policy tables the host owns ───────────────────────
+            // Which FAMILY of card each row will take. A row absent from this
+            // map takes nothing — which is how the inert kinds would behave
+            // even if they did register a cell.
+            const rowAccepts = $.const(new Map([
+                ["20-m03", "job"], ["20-m04", "job"], ["g1-m11", "job"],
+                ["40-dock2", "delivery"],
+                ["60-crewA", "shift"],
+                ["70-ms", "milestone"],
+            ]), DictType(StringType, StringType));
+            const CardRow = StructType({
+                key: StringType, name: StringType, family: StringType, note: StringType, icon: StringType,
+            });
+            const cards = $.const([
+                { key: "job-weld",  name: "Weld cell",   family: "job",       note: "job · machines",   icon: "gear" },
+                { key: "job-cure",  name: "Cure oven",   family: "job",       note: "job · machines",   icon: "fire" },
+                { key: "dlv-truck", name: "Truck 12",    family: "delivery",  note: "delivery · docks", icon: "truck" },
+                { key: "shf-night", name: "Night shift", family: "shift",     note: "shift · crews",    icon: "moon" },
+                { key: "mst-audit", name: "Audit gate",  family: "milestone", note: "milestone · streams", icon: "flag" },
+                // Belongs to no family, so no row accepts it — the ⊘ stage
+                // everywhere, which is what a card with nowhere to go looks like.
+                { key: "pallet",    name: "PALLET",      family: "none",      note: "fits nowhere",     icon: "box" },
+            ], ArrayType(CardRow));
+            const cardFamily = $.const(cards.toDict((_$, c) => c.key, (_$, c) => c.family));
+            const cardName = $.const(cards.toDict((_$, c) => c.key, (_$, c) => c.name));
+
+            // ── The drop veto ────────────────────────────────────────────
+            // Consulted with the candidate event the pointer's CURRENT bucket
+            // would produce, so the ⊘ appears while dragging rather than after.
+            // Only `add` can reach a Plan (nothing on the canvas starts a drag,
+            // so the surface declares no move / resize), and refusing the rest
+            // says that rather than pretending they are permitted.
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
+                const no = $.const(false, BooleanType);
+                return event.match({
+                    add: ($, add) => {
+                        const row = $.let(add.into.row);
+                        const card = $.let(add.from.key);
+                        return rowAccepts.has(row)
+                            .and(_$ => cardFamily.has(card))
+                            .and(_$ => rowAccepts.get(row).equal(cardFamily.get(card)));
+                    },
+                }, _$ => no);
+            }));
+
+            // ── The commit ───────────────────────────────────────────────
+            // The drop reports; the HOST writes. Nothing is painted
+            // optimistically — this state is what the series read back, so a
+            // dropped card only appears because the data now says it is there.
+            const dropBind = $.let(State.bind([DictType(StringType, ArrayType(DropRow))],
+                "ex.plan.drops", new Map()));
+            const lastBind = $.let(State.bind([StringType], "ex.plan.lastdrop", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => {
+                        const next = $.let(dropBind.read());
+                        const row = $.let(add.into.row);
+                        const card = $.let(add.from.key);
+                        // The slot IS an East DateTime in text — that is the
+                        // contract the Z-less ISO spelling exists to keep.
+                        const at = $.let(add.into.slot.parse(DateTimeType));
+                        const one = $.let([{
+                            key: East.str`drop-${card}-${add.into.slot}`,
+                            at, label: cardName.get(card),
+                        }], ArrayType(DropRow));
+                        $(next.insertOrUpdate(row, one,
+                            (_$, existing, incoming) => existing.concat(incoming)));
+                        $(dropBind.write(next));
+                        $(lastBind.write(East.str`add ${card} → ${row} · ${add.into.slot}`));
+                    },
+                    move: (_$) => {}, remove: (_$) => {}, resize: (_$) => {},
+                });
+            }));
+            // Read DIRECTLY in the accessors below — never through a helper
+            // East.function. A series accessor is reified into a standalone
+            // function, so whatever it captures crosses that boundary: a
+            // captured DICT travels as the value it is, but a captured
+            // FUNCTION drags the enclosing block along with it, once per
+            // accessor, and four accessors was enough to take this example's
+            // render payload past 100MB. `planReview` is the shape to copy.
+            const drops = $.let(dropBind.read());
+            const last = $.let(lastBind.read());
+
+            const axis = $.const(Plan.axis({
+                window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+            }));
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="plan-library"
+                        data={cards}
+                        item={c => ({ key: c.key, label: c.name, sublabel: c.note, icon: c.icon })}
+                    />
+                    <Plan
+                        axis={axis}
+                        data={ops}
+                        // The DnD target role: `id` names this surface in every
+                        // cell ref, `sources` says which palettes it will take
+                        // from, and the two callbacks are the policy and the
+                        // commit. Omitting either `id` or `onDrag` registers no
+                        // target at all — a drop with nowhere to report is a
+                        // gesture that silently loses work.
+                        id="ops-plan"
+                        sources={["plan-library"]}
+                        canDrop={canDrop}
+                        onDrag={onDrag}
+                        series={[
+                            // INERT — a chart plots a derived series, so there
+                            // is nothing a card could become here.
+                            Plan.series.chart(OpsRow, {
+                                key: "util", title: "Utilisation",
+                                match: r => r.series.equal("util"),
+                                label: r => r.label, id: true, height: "spark",
+                                layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
+                            }),
+                            // RECEIVES — runs are discrete scheduled objects.
+                            // The row's own runs, plus one proposed run per
+                            // card dropped on it — a fortnight long, starting
+                            // at the bucket the pointer named.
+                            Plan.series.span(OpsRow, {
+                                key: "mach", title: "Machine jobs",
+                                match: r => r.series.equal("mach"),
+                                label: r => r.label, id: true,
+                                runs: (r, k) => r.jobs.map((_$, j) => Plan.run({
+                                    key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                                })).concat(drops.has(k).ifElse(() => drops.get(k), () => noDrops)
+                                    .map((_$, d) => Plan.run({
+                                        key: d.key, start: d.at, end: d.at.addWeeks(2n),
+                                        label: d.label, state: ADDED,
+                                    }))),
+                            }),
+                            // INERT — an intensity field has no object to add to.
+                            Plan.series.heat(OpsRow, {
+                                key: "load", title: "Line load",
+                                match: r => r.series.equal("load"),
+                                label: r => r.label,
+                                cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                            }),
+                            // RECEIVES — a dropped delivery becomes a tile in
+                            // the bucket under the pointer.
+                            Plan.series.buckets(OpsRow, {
+                                key: "dock", title: "Dock allocations",
+                                match: r => r.series.equal("dock"),
+                                label: r => r.label,
+                                events: (r, k) => r.allocs.map((_$, a) =>
+                                    Plan.event({ key: a.key, at: a.at, state: a.state }))
+                                    .concat(drops.has(k).ifElse(() => drops.get(k), () => noDrops)
+                                        .map((_$, d) => Plan.event({ key: d.key, at: d.at, state: ADDED }))),
+                            }),
+                            // INERT — the cells are computed numbers.
+                            Plan.series.table(OpsRow, {
+                                key: "table", title: "Despatch tonnes",
+                                match: r => r.series.equal("table"),
+                                label: r => r.label,
+                                cells: r => r.nums,
+                                format: Format.Number({ maximumFractionDigits: 0n }),
+                            }),
+                            // RECEIVES — a dropped shift becomes a chip.
+                            Plan.series.cards(OpsRow, {
+                                key: "crew", title: "Crew shifts",
+                                match: r => r.series.equal("crew"),
+                                label: r => r.label,
+                                chips: (r, k) => r.shifts.map((_$, s) => Plan.chip({
+                                    key: s.key, from: s.from, to: s.to, label: s.label, state: s.state,
+                                })).concat(drops.has(k).ifElse(() => drops.get(k), () => noDrops)
+                                    .map((_$, d) => Plan.chip({
+                                        key: d.key, from: d.at, to: d.at.addWeeks(2n),
+                                        label: d.label, state: ADDED,
+                                    }))),
+                            }),
+                            // RECEIVES — a dropped milestone becomes a mark at
+                            // the instant, the one kind with no duration.
+                            Plan.series.events(OpsRow, {
+                                key: "strm", title: "Milestones",
+                                match: r => r.series.equal("strm"),
+                                label: r => r.label, id: true,
+                                marks: (r, k) => r.marks.concat(
+                                    drops.has(k).ifElse(() => drops.get(k), () => noDrops)
+                                        .map((_$, d) => Plan.mark({
+                                            key: d.key, at: d.at, kind: "milestone", label: d.label,
+                                        }))),
+                            }),
+                            // The STRIP is inert; the span row inside it is not.
+                            Plan.series.group(OpsRow, { key: "g1-line3", label: "Line 3", meta: "span" }, [
+                                Plan.series.span(OpsRow, {
+                                    key: "gmach", title: "Grouped machine jobs",
+                                    match: r => r.series.equal("gmach"),
+                                    label: r => r.label, id: true,
+                                    runs: (r, k) => r.jobs.map((_$, j) => Plan.run({
+                                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                                    })).concat(drops.has(k).ifElse(() => drops.get(k), () => noDrops)
+                                        .map((_$, d) => Plan.run({
+                                            key: d.key, start: d.at, end: d.at.addWeeks(2n),
+                                            label: d.label, state: ADDED,
+                                        }))),
+                                }),
+                            ]),
+                        ]}
+                        style={{ height: "420px" }}
+                    />
+                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>
+                </VStack>
             );
         }}</Reactive>
     )),

@@ -29,12 +29,24 @@ import {
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
 // | Planner | row key          | axis key, with the bucket composed in — `"wed"` unbucketed, `"wed:am"` for the AM bucket |
 // | Gantt   | row index key    | snapped datetime key (ISO instant after the component's grid snap) |
+// | Plan    | canvas row key   | the pointed-at bucket's START instant (ISO), at the canvas's resolution |
 //
 // The composite rule: when a slot subdivides (Planner buckets), the sub-slot
 // key is appended with `":"` — the same composite key the renderer uses to
 // index its cells. Axis coordinates that are not strings (numbers, datetimes)
 // are printed canonically: numbers via their decimal form, datetimes as the
 // snapped ISO-8601 instant. Hosts map keys straight back to their source data.
+//
+// The two TEMPORAL targets — Gantt and Plan — share one encoding
+// (`east-ui-components/src/dnd/slot-key.ts`), so a host parses either the same
+// way. They differ in what `row` names: a Gantt row key is a row INDEX, while
+// a Plan row key IS the data key its canvas is built from and searched by, so
+// a Plan `add` maps straight back to the source element with no lookup table.
+//
+// A Plan accepts drops only on the row kinds that hold discrete scheduled
+// objects — `span`, `buckets`, `events`, `cards`. Rows rendering derived values
+// (`chart`, `heat`, `table`) and group strips register no cell at all, so they
+// are inert to a drag before any `canDrop` predicate is consulted.
 
 /**
  * Reference to an item in a Library (a drag **source**).

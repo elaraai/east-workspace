@@ -29,8 +29,11 @@ describeEast("Plan", (test) => {
         planGroupedRows: ex.planGroupedRows,
         planSeriesData: ex.planSeriesData,
         planLibraryDnd: ex.planLibraryDnd,
+        planRowDrop: ex.planRowDrop,
         planFill: ex.planFill,
         planReview: ex.planReview,
+        // Was never wired — the example shipped without ever being executed.
+        planExpand: ex.planExpand,
     });
 
     // =========================================================================
