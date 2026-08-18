@@ -181,4 +181,24 @@ export const pickPanelSlotRecipe = defineSlotRecipe({
             "&[data-on='false']": { color: "fg.muted" },
         },
     },
+    variants: {
+        /**
+         * Which surface the panel is sitting on.
+         *
+         * @remarks
+         * `framed` is the standalone panel — 12px, the mock's own rhythm, read
+         * against its own border. `editor` is inside a `SliceEditPopover`,
+         * whose head insets 14px; matching it is what makes the rows line up
+         * with the heading above them instead of sitting 2px inside it.
+         */
+        surface: {
+            framed: {},
+            editor: {
+                search: { paddingX: "14px" },
+                row:    { paddingX: "14px" },
+                empty:  { paddingX: "14px" },
+            },
+        },
+    },
+    defaultVariants: { surface: "framed" },
 });

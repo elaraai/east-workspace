@@ -63,7 +63,7 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
     useSliceReactivity(pick.key);
 
     const frame = useSlotRecipe({ key: "sliceFrame" })();
-    const styles = useSlotRecipe({ key: "pickPanel" })();
+    const styles = useSlotRecipe({ key: "pickPanel" })({ surface: density === "editor" ? "editor" : "framed" });
 
     const hidden = new Set(pick.state.read());
     const items = pick.items;

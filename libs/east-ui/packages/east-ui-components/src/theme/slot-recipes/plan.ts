@@ -31,7 +31,7 @@ export const planSlotRecipe = defineSlotRecipe({
     slots: [
         "root",
         // chrome bands
-        "toolbar", "toolbarGroup", "brushRow", "brushCaption",
+        "toolbar", "toolbarGroup", "toolbarTrailing", "toolbarLibraryCount", "brushRow", "brushCaption",
         "ruler", "rulerTick", "nowChip", "footer", "footerItem",
         // the alignment contract
         "row", "gutterCell", "plot", "gridCol",
@@ -86,6 +86,22 @@ export const planSlotRecipe = defineSlotRecipe({
             gap: "8px",
             minWidth: 0,
             flexShrink: 0,
+        },
+        // The right-edge cluster — the summary line and the library trigger.
+        // Both are trailing chrome, so ONE auto margin pushes the group rather
+        // than each child claiming the edge and fighting over it.
+        toolbarTrailing: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            marginLeft: "auto",
+            minWidth: 0,
+        },
+        // The `N of M` in the library popover's head — the brand marks it as a
+        // live count of what is showing, not a static caption.
+        toolbarLibraryCount: {
+            color: "{colors.brand.700}",
+            fontWeight: "bold",
         },
         // ── Horizon brush band (32px): caption in the gutter, strip in the plot ──
         brushRow: {

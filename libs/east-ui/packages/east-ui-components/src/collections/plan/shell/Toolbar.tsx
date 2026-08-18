@@ -143,12 +143,13 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                 are trailing chrome, so they share one auto-margined group
                 rather than each claiming `marginLeft: auto` and fighting. */}
             {(summary !== undefined || pick !== undefined) && (
-                <Box css={styles.toolbarGroup} marginLeft="auto">
+                <Box css={styles.toolbarTrailing} data-slot="toolbarTrailing">
                     {summary !== undefined && (
                         <Box css={styles.footerItem} data-slot="toolbarSummary">{summary}</Box>
                     )}
                     {pick !== undefined && (
-                        <PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen} btn={btn} />
+                        <PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen}
+                            btn={btn} styles={styles} />
                     )}
                 </Box>
             )}
@@ -176,11 +177,12 @@ type PickBindLike = { items: ReadonlyArray<PickItemLike>; state: { read: () => s
  * around its editor content and `SliceEditPopover` reads to decide whether to
  * nest. No per-call flag.
  */
-function PlanLibraryButton({ pick, open, onOpenChange, btn }: {
+function PlanLibraryButton({ pick, open, onOpenChange, btn, styles }: {
     pick: unknown;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     btn: ReturnType<typeof useRecipe>;
+    styles: Styles;
 }) {
     const bind = pick as PickBindLike;
     const hidden = new Set(bind.state.read());
@@ -190,7 +192,8 @@ function PlanLibraryButton({ pick, open, onOpenChange, btn }: {
             open={open}
             onOpenChange={onOpenChange}
             size="lg"
-            label={<>Series · <Box as="span" color="{colors.brand.700}" fontWeight="700">{`${shown} of ${bind.items.length}`}</Box></>}
+            flush
+            label={<>Series · <Box as="span" css={styles.toolbarLibraryCount}>{`${shown} of ${bind.items.length}`}</Box></>}
             trigger={
                 <chakra.button type="button" css={btn({ variant: "ghost", size: "xs" })}
                     data-slot="planLibraryTrigger" aria-label="Series library" aria-expanded={open}>
