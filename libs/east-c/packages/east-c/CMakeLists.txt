@@ -41,6 +41,7 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/codec.c
     src/serialization/beast2/v5/container.c
     src/serialization/beast2/v5/stream.c
+    src/serialization/beast2/v5/project.c
     src/serialization/csv.c
     src/serialization/east_parser.c
     src/serialization/east_printer.c
@@ -236,6 +237,16 @@ add_test(NAME gc_pacing COMMAND test_gc_pacing)
 add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
+
+# Beast2 v5 column-projection gate (issue #599): plan validation (subset by
+# name, Dict-key/Set-element/variant-case/function-skip refusals with errors
+# naming the field), projected vs whole segment equality, skipped-definition
+# REF alias detection, open-time pager projection + keyed reads, and the
+# sequential reader's projection. Run under ASan/LSan for the skip walker
+# and narrow-construction allocation paths.
+add_executable(test_beast2_projection tests/test_beast2_projection.c)
+target_link_libraries(test_beast2_projection east-c)
+add_test(NAME beast2_projection COMMAND test_beast2_projection)
 
 # Lazy paged collection value gate (issue #505): EAST_VAL_PAGED construction,
 # pager-served size/keyed reads, hydrate-on-demand equivalence with the eager

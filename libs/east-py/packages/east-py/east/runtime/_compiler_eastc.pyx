@@ -59,16 +59,39 @@ cdef void _ensure_runtime() except *:
 # east.runtime.compiler.eager_stats() — the difference between a native
 # kernel loop and a silent per-element trampoline is invisible in results
 # and enormous in cost, so make it measurable.
-_eager_counters = {"trampoline_calls": 0, "kernel_direct": 0, "pushdown_traced": 0}
+#
+# The beast2_* counters (#599) make column projection observable the same
+# way: an inferred optimisation that silently stops applying is an invisible
+# performance cliff, so every segment decode in the compute family counts as
+# projected or whole, and every declined inference counts with its reason
+# (an untraceable callback, the element escaping whole, a kernel with no
+# retraceable source, an unpageable blob, or a per-segment alias fallback).
+_eager_counters = {
+    "trampoline_calls": 0, "kernel_direct": 0, "pushdown_traced": 0,
+    "beast2_segments_projected": 0, "beast2_segments_whole": 0,
+    "beast2_projection_declined_untraceable": 0,
+    "beast2_projection_declined_escape": 0,
+    "beast2_projection_declined_kernel": 0,
+    "beast2_projection_declined_unpageable": 0,
+    "beast2_projection_declined_shape": 0,
+    "beast2_projection_alias_fallback": 0,
+}
 
 
 def _eager_counters_snapshot():
+    cdef size_t loop_projected = 0
+    cdef size_t loop_whole = 0
     snap = dict(_eager_counters)
     # The C→py decode counter lives in the bridge (a cdef long on the decode
     # hot path); surface it through the same single stats API.
     from east._eastc_bridge import decode_stats
 
     snap["c_to_py_decodes"] = decode_stats()
+    # The compiled-body paged-loop projection counters (#599 task inputs)
+    # live thread-local in east-c; same single stats API.
+    _eastc.east_beast2_paged_loop_stats(&loop_projected, &loop_whole)
+    snap["beast2_paged_loop_segments_projected"] = loop_projected
+    snap["beast2_paged_loop_segments_whole"] = loop_whole
     return snap
 
 

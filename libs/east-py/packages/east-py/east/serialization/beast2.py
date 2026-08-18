@@ -47,10 +47,12 @@ class Beast2DecodeOptions(TypedDict, total=False):
 
 
 from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]  # noqa: E402
+    Beast2ProjectionAlias,
     _beast2_read_type,
     _beast2_splice_extents,
     _beast2_splice_tail,
     _Beast2PagesCore,
+    _Beast2Projection,
     _Beast2ReaderCore,
     _Beast2WriterCore,
     _encode_beast2_v5,
@@ -71,6 +73,24 @@ def _check_segmented(collection_type) -> str:
     if kind not in _SEGMENTED:
         raise TypeError(f"beast2 v5 streams hold Array, Set or Dict values, not {kind!r}")
     return kind
+
+
+def _counters() -> dict:
+    """The shared eager_stats() counter dict (projection observability, #599)."""
+    from east.runtime._compiler_eastc import _eager_counters
+
+    return _eager_counters
+
+
+def _typed_or_none_t(value):
+    """``type_of(value)``, or None — the fold-accumulator type for
+    projection inference; None simply declines it."""
+    import east.types.values as _ev
+
+    try:
+        return _ev.type_of(value)
+    except Exception:
+        return None
 
 
 class Beast2Writer:
@@ -507,13 +527,15 @@ class Beast2File:
     input-side memory at a time). Close via ``with`` or :meth:`close`.
     """
 
-    def __init__(self, path, collection_type=None):
+    def __init__(self, path, collection_type=None, project=None):
         self.path = os.fspath(path)
         """The opened file's path."""
         self._file = open(self.path, "rb")  # noqa: SIM115 — the file object owns the handle
         self._mm: mmap.mmap | None = None
         self._pages: Beast2Pages | None = None
         self._lazy = None
+        self._projection: Any = None
+        self._proj_cache: dict[str, Any] = {}
         try:
             size = os.fstat(self._file.fileno()).st_size
             if size < 8:
@@ -539,17 +561,32 @@ class Beast2File:
                     f"{print_type(self.wire_type)}"
                 )
             self.collection_type = collection_type if collection_type is not None else self.wire_type
-            """The root collection type reads decode with (the wire type when
-            none was declared)."""
+            """The root collection type reads decode with — the wire type when
+            none was declared, the projected subset under ``project=``."""
+            if project is not None:
+                # The explicit projection (#599): `project` must be a subset
+                # of the WIRE type (validation names the offending field);
+                # the declared type, when given, keeps its exact meaning and
+                # was validated against the wire above.
+                _check_segmented(project)
+                projection = _Beast2Projection(self.wire_type, project)
+                if not projection.is_identity():
+                    self._projection = projection
+                    self.collection_type = project
             _check_segmented(self.collection_type)
             try:
-                self._pages = Beast2Pages(self.collection_type, self._mm)
+                # The pager decodes by walking the WIRE bytes; the projection
+                # (when set) narrows what materializes.
+                self._pages = Beast2Pages(self.wire_type, self._mm)
             except RuntimeError as exc:
                 # An index-less v5 blob degrades to stream-only access
                 # (segments()/load()); anything else is a real error.
                 if "no index" not in str(exc):
                     raise
-            if self._pages is not None and self._pages.self_contained:
+            if self._pages is not None and self._projection is not None:
+                self._pages._core.set_projection(self._projection)
+            if self._pages is not None and self._pages.self_contained \
+                    and self._projection is None:
                 # The pager-backed C VALUE behind the kernel-bind and
                 # compiled-argument seams (#560): a borrowed view over the
                 # mmap (no byte copy), opened FROZEN so a compiled body's
@@ -666,19 +703,44 @@ class Beast2File:
         """Whether segments decode independently (requires the index)."""
         return self._require_pages().self_contained
 
-    def _iter_segments(self):
+    def _iter_segments(self, project=None):
         """Yield one decoded collection per segment, in stream order.
 
         O(one segment) of decoded memory; process each batch with the native
         eager methods rather than iterating its elements from python.
+        ``project`` is a per-operation column projection inferred from the
+        operation's callbacks (#599): each segment then decodes narrow (and
+        uncached); a segment whose aliasing crosses the projection boundary
+        falls back to a whole decode of just that segment — sound here
+        because only operations whose every element use flows through the
+        callbacks infer a projection, and those observe the same fields
+        either way.
         """
         self._check_open()
-        core = _Beast2ReaderCore(self.collection_type, self._mm)
+        counters = _counters()
+        if project is not None and self._pages is not None and self._pages.self_contained:
+            core = self._pages._core
+            for i in range(self._pages.segment_count):
+                try:
+                    seg = core.segment_projected(i, project)
+                    counters["beast2_segments_projected"] += 1
+                except Beast2ProjectionAlias:
+                    counters["beast2_projection_alias_fallback"] += 1
+                    seg = core.segment(i)
+                yield seg
+            return
+        # The sequential reader walks the WIRE bytes; the file's explicit
+        # projection (project=) rides it so every stream consumer sees the
+        # projected shape.
+        core = _Beast2ReaderCore(self.wire_type, self._mm, self._projection)
+        key = "beast2_segments_projected" if self._projection is not None \
+            else "beast2_segments_whole"
         try:
             while True:
                 segment = core.next()
                 if segment is None:
                     return
+                counters[key] += 1
                 yield segment
         finally:
             del core
@@ -707,10 +769,148 @@ class Beast2File:
 
         The mmap is borrowed zero-copy, so input-side memory stays at one
         inflated segment regardless of file size; the returned collection is
-        the only O(value) allocation.
+        the only O(value) allocation. Under ``project=`` only the projected
+        fields materialize — segments stream through the projection and
+        merge, so input-side memory is still one segment.
         """
         self._check_open()
-        return decode_beast2_with_header_for(self.collection_type)(self._mm)
+        if self._projection is None:
+            return decode_beast2_with_header_for(self.collection_type)(self._mm)
+        from east.types.values.collections import EastArray, EastDict, EastSet
+
+        kind = self.collection_type.type
+        if kind == "Array":
+            out: Any = EastArray(self.collection_type.value, [])
+            for segment in self._iter_segments():
+                out.extend(segment)
+            return out
+        if kind == "Set":
+            out = EastSet(self.collection_type.value)
+            for segment in self._iter_segments():
+                out.union_in_place(segment)
+            return out
+        kt = self.collection_type.value["key"]
+        vt = self.collection_type.value["value"]
+        out = EastDict(kt, vt)
+        for segment in self._iter_segments():
+            keys = segment.to_array(lambda k, _v: k, out=kt)
+            values = segment.to_array(lambda _k, v: v, out=vt)
+            out.update_many(keys, values)
+        return out
+
+    def _project(self, *specs):
+        """Infer a per-operation column projection from the callbacks (#599).
+
+        Each spec names how one callback consumes the row — the projectable
+        unit is the Array ELEMENT or the Dict VALUE (Set elements are keys
+        and never project):
+
+        - ``("el", fn)`` — Array element callback ``fn(el[, idx])``;
+        - ``("acc_el", fn, acc_type)`` — fold-shaped ``fn(acc, el[, idx])``;
+        - ``("kv", fn)`` — Dict callback ``fn(k, v)``;
+        - ``("acc_kv", fn, acc_type)`` — ``fn(acc, k, v)``;
+        - ``("whole",)`` — the operation embeds the row whole (no inference,
+          counted as declined);
+        - ``("fields", names)`` — an explicit top-level field list
+          (``to_columns``; ``[]`` reads nothing of the row).
+
+        Returns ``(projection | None, [exec_fn per spec])`` — the exec fns
+        replace the originals (a precompiled kernel substitutes a re-trace
+        wrapper, since its wide native form cannot run against narrow rows).
+        Every decline is counted in ``eager_stats()`` with its reason; a row
+        type that is not a struct returns silently (nothing to project).
+        """
+        fns = [s[1] if len(s) > 1 and callable(s[1]) else None for s in specs]
+        kind = self.collection_type.type
+        if kind == "Set":
+            return None, fns
+        row_t = self.collection_type.value if kind == "Array" \
+            else self.collection_type.value["value"]
+        if getattr(row_t, "type", None) != "Struct":
+            return None, fns
+        counters = _counters()
+        if self._pages is None or not self._pages.self_contained:
+            counters["beast2_projection_declined_unpageable"] += 1
+            return None, fns
+        from east.kernel.project import (
+            WHOLE_MASK,
+            infer_field_mask,
+            merge_masks,
+            narrow_type_for,
+        )
+        from east.types.types import ArrayType, DictType, IntegerType
+        from east.types.values.collections import _callback_arity
+
+        key_t = self.collection_type.value["key"] if kind == "Dict" else None
+        mask: Any = {}
+        out_fns = list(fns)
+        for idx, spec in enumerate(specs):
+            skind = spec[0]
+            if skind == "whole":
+                counters["beast2_projection_declined_escape"] += 1
+                return None, fns
+            if skind == "fields":
+                for name in spec[1]:
+                    mask = merge_masks(mask, {name: WHOLE_MASK})
+                continue
+            fn = spec[1]
+            if fn is None:
+                # No callback means the operation consumes the row itself.
+                counters["beast2_projection_declined_escape"] += 1
+                return None, fns
+            if skind == "el":
+                param_types = [row_t, IntegerType] if _callback_arity(fn, 1) >= 2 else [row_t]
+                elem_pos = 0
+            elif skind == "kv":
+                param_types = [key_t, row_t]
+                elem_pos = 1
+            elif skind == "acc_el":
+                acc_t = spec[2]
+                if acc_t is None:
+                    counters["beast2_projection_declined_untraceable"] += 1
+                    return None, fns
+                param_types = [acc_t, row_t, IntegerType] \
+                    if _callback_arity(fn, 2) >= 3 else [acc_t, row_t]
+                elem_pos = 1
+            else:  # "acc_kv"
+                acc_t = spec[2]
+                if acc_t is None:
+                    counters["beast2_projection_declined_untraceable"] += 1
+                    return None, fns
+                param_types = [acc_t, key_t, row_t]
+                elem_pos = 2
+            fn_mask, exec_fn, reason = infer_field_mask(fn, param_types, elem_pos)
+            if reason is not None:
+                counters[f"beast2_projection_declined_{reason}"] += 1
+                return None, fns
+            if fn_mask is WHOLE_MASK:
+                counters["beast2_projection_declined_escape"] += 1
+                return None, fns
+            mask = merge_masks(mask, fn_mask)
+            out_fns[idx] = exec_fn
+        if mask is WHOLE_MASK:
+            counters["beast2_projection_declined_escape"] += 1
+            return None, fns
+        narrow_row = narrow_type_for(row_t, mask)
+        if narrow_row == row_t:
+            return None, fns  # every field read: nothing to skip, no cliff
+        narrow_root = ArrayType(narrow_row) if kind == "Array" else DictType(key_t, narrow_row)
+        from east.kernel.nodes import _type_key
+
+        cache_key = _type_key(narrow_root)
+        proj = self._proj_cache.get(cache_key)
+        if proj is None:
+            try:
+                # Plans build against the WIRE type — under an explicit
+                # project= the inferred subset narrows within it.
+                proj = _Beast2Projection(self.wire_type, narrow_root)
+            except ValueError:
+                # A shape the plan refuses to skip (a projected-away
+                # function-typed field): decode whole instead.
+                counters["beast2_projection_declined_shape"] += 1
+                return None, fns
+            self._proj_cache[cache_key] = proj
+        return proj, out_fns
 
     def __len__(self) -> int:
         """Element count from the index, O(1) — exact for every root kind
@@ -728,14 +928,32 @@ class Beast2File:
             starts.append(starts[-1] + c)
         return starts
 
-    def _disjoint_segments(self):
+    def _disjoint_segments(self, project=None):
         """Yield decoded segments under the keyed-read disjointness contract
         (Set/Dict compute streams) — east-c verifies the fences ascend and
         each segment's greatest key stays below the next fence, so a
-        cross-segment fold sees exactly what a whole-value decode would."""
+        cross-segment fold sees exactly what a whole-value decode would.
+        ``project`` narrows each decode per operation (#599); keys stay
+        whole (they order the container), so the disjointness checks are
+        unchanged, and an alias crossing the projection boundary falls back
+        to that one segment's whole decode."""
         pages = self._require_pages()
         core = pages._core
+        counters = _counters()
+        if project is not None:
+            for i in range(pages.segment_count):
+                try:
+                    seg = core.segment_disjoint_projected(i, project)
+                    counters["beast2_segments_projected"] += 1
+                except Beast2ProjectionAlias:
+                    counters["beast2_projection_alias_fallback"] += 1
+                    seg = core.segment_disjoint(i)
+                yield seg
+            return
+        key = "beast2_segments_projected" if self._projection is not None \
+            else "beast2_segments_whole"
         for i in range(pages.segment_count):
+            counters[key] += 1
             yield core.segment_disjoint(i)
 
 
@@ -873,6 +1091,14 @@ class Beast2ArrayFile(Beast2File, EastArray):
             [cache[o][i - starts[o]] for o, i in zip(owners, wanted, strict=True)],
         )
 
+    def _refuse_projected_find_sorted(self) -> None:
+        if self._projection is not None:
+            raise RuntimeError(
+                "find_sorted needs whole elements — the file is sorted by the "
+                "full element, and a projection changes comparisons; open "
+                "without project= to search"
+            )
+
     def find_sorted_first(self, target: Any, key: Any = None) -> int:
         """Leftmost insertion index for ``target``, global across segments
         (``EastArray.find_sorted_first`` over the whole file).
@@ -888,6 +1114,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
                 "the file pages by element order; load() the array (or scan "
                 "segments()) for projected searches"
             )
+        self._refuse_projected_find_sorted()
         return self._require_pages()._core.find_sorted(target, False)
 
     def find_sorted_last(self, target: Any, key: Any = None) -> int:
@@ -901,6 +1128,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
                 "the file pages by element order; load() the array (or scan "
                 "segments()) for projected searches"
             )
+        self._refuse_projected_find_sorted()
         return self._require_pages()._core.find_sorted(target, True)
 
     def find_sorted_range(self, target: Any, key: Any = None):
@@ -915,6 +1143,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
                 "the file pages by element order; load() the array (or scan "
                 "segments()) for projected searches"
             )
+        self._refuse_projected_find_sorted()
         from east.types.construct import struct
         from east.types.types import IntegerType, StructType
 
@@ -940,9 +1169,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import NullType
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("el", fn))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.map(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -957,6 +1187,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         """``EastArray.filter`` over the whole file, one segment at a time."""
         from east.types.values.collections import EastArray
 
+        self._project(("whole",))  # the result embeds whole elements
         result: Any = EastArray(self.element_type, [])
         base = 0
         for segment in self._iter_segments():
@@ -969,9 +1200,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import NullType
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("el", fn))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.filter_map(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -988,8 +1220,9 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.values.primitives import east_null
         from east.types.values.structural import EastVariant
 
+        project, (fn,) = self._project(("el", fn))
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             hit = segment.first_map(_shift_idx(fn, base), out=out)
             if hit.type == "some":
                 return hit
@@ -1000,9 +1233,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         """``EastArray.fold`` — ONE accumulator threads through the segments
         in stream order, so the result (float ordering included) is exactly
         the eager left fold's."""
+        project, (fn,) = self._project(("acc_el", fn, _typed_or_none_t(initial)))
         acc = initial
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             acc = segment.fold(acc, _shift_acc_idx(fn, base))
             base += len(segment)
         return acc
@@ -1016,10 +1250,11 @@ class Beast2ArrayFile(Beast2File, EastArray):
         import east.types.values as _ev
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("acc_el", fn, _typed_or_none_t(initial)))
         result: Any = EastArray(_ev.type_of(initial), [])
         acc = initial
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.scan(acc, _shift_acc_idx(fn, base))
             if len(part):
                 acc = part[len(part) - 1]
@@ -1032,10 +1267,11 @@ class Beast2ArrayFile(Beast2File, EastArray):
         later segments continue the accumulator with a composed fold."""
         from east.types.values.collections import _callback_arity
 
+        project, (map_fn,) = self._project(("el", map_fn))
         acc = None
         seeded = False
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             if not seeded:
                 acc = segment.map_reduce(map_fn, reduce_fn, out=out)
                 seeded = True
@@ -1069,9 +1305,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
             _kernel_out_type,
         )
 
+        project, (fn,) = self._project(("el", fn)) if fn is not None else (None, (None,))
         acc = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             if acc is None:
                 acc = segment.sum(_shift_idx(fn, base))
             else:
@@ -1120,12 +1357,13 @@ class Beast2ArrayFile(Beast2File, EastArray):
             _kernel_out_type,
         )
 
+        project, (fn,) = self._project(("el", fn)) if fn is not None else (None, (None,))
         total = 0.0
         n = 0
         base = 0
         proj = None
         p_wants = False
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             if proj is None:
                 t2 = self.element_type if fn is None else (
                     _kernel_out_type(fn)
@@ -1154,6 +1392,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         import east.types.values as _ev
         from east.types.values.collections import EastArray
 
+        self._project(("whole",))  # the result IS an element
         candidates = []
         base = 0
         for segment in self._iter_segments():
@@ -1169,6 +1408,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         import east.types.values as _ev
         from east.types.values.collections import EastArray
 
+        self._project(("whole",))  # the result IS an element
         candidates = []
         base = 0
         for segment in self._iter_segments():
@@ -1185,8 +1425,9 @@ class Beast2ArrayFile(Beast2File, EastArray):
             if self.element_type.type != "Boolean":
                 raise TypeError("every() without a predicate needs Boolean elements")
             pred = lambda el: el  # noqa: E731
+        project, (pred,) = self._project(("el", pred))
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             if not segment.every(_shift_idx(pred, base)):
                 return False
             base += len(segment)
@@ -1198,8 +1439,9 @@ class Beast2ArrayFile(Beast2File, EastArray):
             if self.element_type.type != "Boolean":
                 raise TypeError("some() without a predicate needs Boolean elements")
             pred = lambda el: el  # noqa: E731
+        project, (pred,) = self._project(("el", pred))
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             if segment.some(_shift_idx(pred, base)):
                 return True
             base += len(segment)
@@ -1211,8 +1453,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.values.primitives import east_null
         from east.types.values.structural import EastVariant
 
+        project, (key,) = self._project(("el", key)) if key is not None \
+            else (self._project(("whole",))[0], (None,))
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             hit = segment.find_first(target, key=key)
             if hit.type == "some":
                 return EastVariant("some", hit.value + base)
@@ -1224,9 +1468,13 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import IntegerType
         from east.types.values.collections import EastArray
 
+        if by is not None:
+            project, (by,) = self._project(("el", by))
+        else:
+            project, _ = self._project(("whole",))
         result: Any = EastArray(IntegerType, [])
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             local = segment.find_all(value, by=_shift_idx(by, base))
             if base:
                 local = local.map(lambda i, *, _b=base: i + _b, out=IntegerType)
@@ -1249,11 +1497,16 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import ArrayType, IntegerType
         from east.types.values.collections import EastDict
 
+        if by is not None:
+            project, (key, by) = self._project(("el", key), ("el", by))
+        else:
+            # With no `by`, matching compares the ELEMENT against `value`.
+            project, _ = self._project(("whole",))
         matched = None   # Dict<k2, Array<Integer>> — only the groups that hit
         groups = None    # Set<k2> — every group key the file contains
         k2 = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             shifted_key = _shift_idx(key, base)
             pairs, k2, _pair_t = segment._find_index_pairs(
                 shifted_key, value, _shift_idx(by, base), base)
@@ -1291,9 +1544,14 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import IntegerType
         from east.types.values.collections import EastArray, EastDict
 
+        if by is not None:
+            project, (key, by) = self._project(("el", key), ("el", by))
+        else:
+            # With no `by`, the extreme compares whole elements.
+            project, _ = self._project(("whole",))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment._group_find_extreme_pairs(
                 _shift_idx(key, base), _shift_idx(by, base), want_max)
             pair_t = part.value_type
@@ -1349,9 +1607,13 @@ class Beast2ArrayFile(Beast2File, EastArray):
         import east.types.values as _ev
         from east.namespace import East
 
+        if key is not None:
+            project, (key,) = self._project(("el", key))
+        else:
+            project, _ = self._project(("whole",))
         prev_key = None
         t2 = None
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             if not segment.is_sorted(key):
                 return False
             first = segment[0]
@@ -1368,8 +1630,9 @@ class Beast2ArrayFile(Beast2File, EastArray):
     def for_each(self, fn: Any) -> None:
         """``EastArray.for_each`` — streams the segments; ``fn`` sees global
         indices when it takes ``(el, idx)``."""
+        project, (fn,) = self._project(("el", fn))
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             segment.for_each(_shift_idx(fn, base))
             base += len(segment)
 
@@ -1377,9 +1640,13 @@ class Beast2ArrayFile(Beast2File, EastArray):
         """``EastArray.to_set`` — per-segment sets unioned natively."""
         from east.types.values.collections import EastSet
 
+        if key is not None:
+            project, (key,) = self._project(("el", key))
+        else:
+            project, _ = self._project(("whole",))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.to_set(_shift_idx(key, base))
             base += len(segment)
             if result is None:
@@ -1399,9 +1666,14 @@ class Beast2ArrayFile(Beast2File, EastArray):
         without ``combine`` any duplicate errors, exactly like eager."""
         from east.types.values.collections import EastDict
 
+        if value is not None:
+            project, (key, value) = self._project(("el", key), ("el", value))
+        else:
+            # With no value projection the dict's values ARE the elements.
+            project, _ = self._project(("whole",))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.to_dict(
                 _shift_idx(key, base),
                 value=_shift_idx(value, base) if value is not None else None,
@@ -1421,6 +1693,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import ArrayType
         from east.types.values.collections import EastDict
 
+        self._project(("whole",))  # group arrays embed whole elements
         result = None
         base = 0
         for segment in self._iter_segments():
@@ -1440,11 +1713,14 @@ class Beast2ArrayFile(Beast2File, EastArray):
         is the eager one. Accumulator types are inferred per segment exactly
         as the eager method infers them, so Option/Variant accumulators
         carry the same single-case sampling caveat."""
-        from east.types.values.collections import EastDict
+        from east.types.values.collections import EastDict, _elem_in, _kernel_out_type
 
+        gk_t = _kernel_out_type(key, _elem_in(key, self.element_type))
+        acc_t = _kernel_out_type(init, [gk_t]) if gk_t is not None else None
+        project, (key, fold) = self._project(("el", key), ("acc_el", fold, acc_t))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             seeded = init if result is None else (
                 lambda gk, _acc=result, _init=init: _acc.get_or_default(gk, _init(gk)))
             part = segment.group_reduce(
@@ -1551,6 +1827,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.kernel import greatest
         from east.types.values.collections import EastDict
 
+        self._project(("whole",))  # group values ARE elements
         result = None
         base = 0
         for segment in self._iter_segments():
@@ -1569,6 +1846,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.kernel import least
         from east.types.values.collections import EastDict
 
+        self._project(("whole",))  # group values ARE elements
         result = None
         base = 0
         for segment in self._iter_segments():
@@ -1605,9 +1883,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
 
         if value is None:
             return self.group_by(key)
+        project, (key, value) = self._project(("el", key), ("el", value))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.group_to_arrays(_shift_idx(key, base), _shift_idx(value, base))
             base += len(segment)
             if result is None:
@@ -1623,9 +1902,13 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import SetType
         from east.types.values.collections import EastDict
 
+        if value is not None:
+            project, (key, value) = self._project(("el", key), ("el", value))
+        else:
+            project, _ = self._project(("whole",))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.group_to_sets(_shift_idx(key, base), _shift_idx(value, base))
             base += len(segment)
             if result is None:
@@ -1654,9 +1937,14 @@ class Beast2ArrayFile(Beast2File, EastArray):
 
             return a.union(b, _dup)
 
+        if value is not None:
+            project, (key, key2, value) = self._project(
+                ("el", key), ("el", key2), ("el", value))
+        else:
+            project, _ = self._project(("whole",))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.group_to_dicts(
                 _shift_idx(key, base), _shift_idx(key2, base),
                 _shift_idx(value, base) if value is not None else None, combine)
@@ -1674,9 +1962,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import NullType
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("el", fn))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.flatten_to_array(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -1692,9 +1981,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         natively."""
         from east.types.values.collections import EastSet
 
+        project, (fn,) = self._project(("el", fn))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.flatten_to_set(_shift_idx(fn, base), out=out)
             base += len(segment)
             if result is None:
@@ -1711,9 +2001,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         duplicate-key error, like eager)."""
         from east.types.values.collections import EastDict
 
+        project, (fn,) = self._project(("el", fn))
         result = None
         base = 0
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             part = segment.flatten_to_dict(_shift_idx(fn, base), combine)
             base += len(segment)
             if result is None:
@@ -1741,8 +2032,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
 
         from east.types.values.collections import EastArray
 
+        # An explicit field list IS a projection declaration.
+        project = self._project(("fields", list(fields)))[0] if fields is not None else None
         collected: dict[str, list] = {}
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             for name, col in segment.to_columns(fields).items():
                 collected.setdefault(name, []).append(col)
         if not collected:
@@ -1799,11 +2092,14 @@ class Beast2DictFile(Beast2File, EastDict):
         return len(self)
 
     def keys_set(self):
-        """The set of keys, built by streaming segments and unioning natively."""
+        """The set of keys, built by streaming segments and unioning
+        natively — the values decode to NOTHING (an empty projection) when
+        the blob supports it, so the scan costs keys, not rows (#599)."""
         from east.types.values.collections import EastSet
 
+        project, _ = self._project(("fields", []))
         out: Any = EastSet(self.key_type)
-        for segment in self._iter_segments():
+        for segment in self._iter_segments(project):
             out.union_in_place(segment.keys_set())
         return out
 
@@ -1893,7 +2189,8 @@ class Beast2DictFile(Beast2File, EastDict):
 
     def for_each(self, fn: Any) -> None:
         """``EastDict.for_each`` — streams entries in key order."""
-        for segment in self._disjoint_segments():
+        project, (fn,) = self._project(("kv", fn))
+        for segment in self._disjoint_segments(project):
             segment.for_each(fn)
 
     def map(self, fn: Any, out: Any = None):
@@ -1901,8 +2198,9 @@ class Beast2DictFile(Beast2File, EastDict):
         bulk-merged (segments are key-disjoint, so nothing collides)."""
         from east.types.values.collections import EastDict
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.map(fn, out=out)
             if result is None:
                 result = part
@@ -1916,6 +2214,7 @@ class Beast2DictFile(Beast2File, EastDict):
         """``EastDict.filter`` over the whole file."""
         from east.types.values.collections import EastDict
 
+        self._project(("whole",))  # the result embeds whole values
         result = None
         for segment in self._disjoint_segments():
             part = segment.filter(predicate)
@@ -1929,8 +2228,9 @@ class Beast2DictFile(Beast2File, EastDict):
         """``EastDict.filter_map`` over the whole file."""
         from east.types.values.collections import EastDict
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.filter_map(fn, out=out)
             if result is None:
                 result = part
@@ -1946,7 +2246,8 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.types.values.primitives import east_null
         from east.types.values.structural import EastVariant
 
-        for segment in self._disjoint_segments():
+        project, (fn,) = self._project(("kv", fn))
+        for segment in self._disjoint_segments(project):
             hit = segment.first_map(fn, out=out)
             if hit.type == "some":
                 return hit
@@ -1955,9 +2256,10 @@ class Beast2DictFile(Beast2File, EastDict):
     def map_reduce(self, map_fn: Any, reduce_fn: Any, out: Any = None) -> Any:
         """``EastDict.map_reduce`` — first segment reduces natively, later
         segments continue the accumulator with a composed fold."""
+        project, (map_fn,) = self._project(("kv", map_fn))
         acc = None
         seeded = False
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             if not seeded:
                 acc = segment.map_reduce(map_fn, reduce_fn, out=out)
                 seeded = True
@@ -1970,8 +2272,9 @@ class Beast2DictFile(Beast2File, EastDict):
     def reduce(self, initial: Any, fn: Any) -> Any:
         """``EastDict.reduce`` — one accumulator threads the segments in key
         order, exactly the eager fold."""
+        project, (fn,) = self._project(("acc_kv", fn, _typed_or_none_t(initial)))
         acc = initial
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             acc = segment.reduce(acc, fn)
         return acc
 
@@ -1984,9 +2287,10 @@ class Beast2DictFile(Beast2File, EastDict):
         import east.types.values as _ev
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("acc_kv", fn, _typed_or_none_t(initial)))
         result: Any = EastArray(_ev.type_of(initial), [])
         acc = initial
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.scan(acc, fn)
             if len(part):
                 acc = part[len(part) - 1]
@@ -2000,7 +2304,8 @@ class Beast2DictFile(Beast2File, EastDict):
             if self.value_type.type != "Boolean":
                 raise TypeError("every() without a predicate needs Boolean values")
             pred = lambda _k, v: v  # noqa: E731
-        return all(segment.every(pred) for segment in self._disjoint_segments())
+        project, (pred,) = self._project(("kv", pred))
+        return all(segment.every(pred) for segment in self._disjoint_segments(project))
 
     def some(self, pred: Any = None) -> bool:
         """``EastDict.some`` — native short-circuit per segment."""
@@ -2008,15 +2313,17 @@ class Beast2DictFile(Beast2File, EastDict):
             if self.value_type.type != "Boolean":
                 raise TypeError("some() without a predicate needs Boolean values")
             pred = lambda _k, v: v  # noqa: E731
-        return any(segment.some(pred) for segment in self._disjoint_segments())
+        project, (pred,) = self._project(("kv", pred))
+        return any(segment.some(pred) for segment in self._disjoint_segments(project))
 
     def sum(self, fn: Any = None) -> Any:
         """``EastDict.sum`` — one accumulator threads the segments in key
         order, exactly the eager fold's element order."""
         from east.types.values.collections import _kernel_out_type
 
+        project, (fn,) = self._project(("kv", fn)) if fn is not None else (None, (None,))
         acc = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             if acc is None:
                 acc = segment.sum(fn)
             else:
@@ -2049,10 +2356,11 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.namespace import East
         from east.types.values.collections import _kernel_out_type
 
+        project, (fn,) = self._project(("kv", fn)) if fn is not None else (None, (None,))
         total = 0.0
         n = 0
         proj = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             if proj is None:
                 if fn is None:
                     t2 = self.value_type
@@ -2080,8 +2388,9 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.types.types import NullType
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.to_array(fn, out=out)
             if result is None:
                 result = part
@@ -2095,8 +2404,9 @@ class Beast2DictFile(Beast2File, EastDict):
         """``EastDict.to_set`` — per-segment sets unioned natively."""
         from east.types.values.collections import EastSet
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.to_set(fn, out=out)
             if result is None:
                 result = part
@@ -2113,8 +2423,9 @@ class Beast2DictFile(Beast2File, EastDict):
         stream order (use an associative ``combine``)."""
         from east.types.values.collections import EastDict
 
+        project, (key_fn, value_fn) = self._project(("kv", key_fn), ("kv", value_fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.to_dict(key_fn, value_fn, combine,
                                    key_out=key_out, value_out=value_out)
             if result is None:
@@ -2133,8 +2444,9 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.types.types import NullType
         from east.types.values.collections import EastArray
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.flatten_to_array(fn)
             if result is None:
                 result = part
@@ -2146,8 +2458,9 @@ class Beast2DictFile(Beast2File, EastDict):
         """``EastDict.flatten_to_set`` — per-entry sets unioned natively."""
         from east.types.values.collections import EastSet
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.flatten_to_set(fn)
             if result is None:
                 result = part
@@ -2160,8 +2473,9 @@ class Beast2DictFile(Beast2File, EastDict):
         keys resolve through ``combine`` (or raise, like eager)."""
         from east.types.values.collections import EastDict
 
+        project, (fn,) = self._project(("kv", fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.flatten_to_dict(fn, combine)
             if result is None:
                 result = part
@@ -2174,10 +2488,14 @@ class Beast2DictFile(Beast2File, EastDict):
         """``EastDict.group_reduce`` — each segment's fold SEEDS its init from
         the running per-group accumulators, so every entry folds exactly
         once, in key order: the eager result, float ordering included."""
-        from east.types.values.collections import EastDict
+        from east.types.values.collections import EastDict, _kernel_out_type
 
+        gk_t = _kernel_out_type(key_fn, [self.key_type, self.value_type])
+        acc_t = _kernel_out_type(init_fn, [gk_t]) if gk_t is not None else None
+        project, (key_fn, fold_fn) = self._project(
+            ("kv", key_fn), ("acc_kv", fold_fn, acc_t))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             seeded = init_fn if result is None else (
                 lambda gk, _acc=result, _init=init_fn: _acc.get_or_default(gk, _init(gk)))
             part = segment.group_reduce(key_fn, seeded, fold_fn,
@@ -2281,8 +2599,9 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.types.types import ArrayType
         from east.types.values.collections import EastDict
 
+        project, (key_fn, value_fn) = self._project(("kv", key_fn), ("kv", value_fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.group_to_arrays(key_fn, value_fn)
             if result is None:
                 result = part
@@ -2296,8 +2615,9 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.types.types import SetType
         from east.types.values.collections import EastDict
 
+        project, (key_fn, value_fn) = self._project(("kv", key_fn), ("kv", value_fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.group_to_sets(key_fn, value_fn)
             if result is None:
                 result = part
@@ -2324,8 +2644,10 @@ class Beast2DictFile(Beast2File, EastDict):
 
             return a.union(b, _dup)
 
+        project, (key_fn, key2_fn, value_fn) = self._project(
+            ("kv", key_fn), ("kv", key2_fn), ("kv", value_fn))
         result = None
-        for segment in self._disjoint_segments():
+        for segment in self._disjoint_segments(project):
             part = segment.group_to_dicts(key_fn, key2_fn, value_fn, combine)
             if result is None:
                 result = part
@@ -3051,7 +3373,8 @@ class Beast2FileWriter:
 
 
 def open_beast2_file(path, collection_type=None, mode: str = "r", *,
-                     codec: str = "deflate", segment_rows: int | None = None):
+                     project=None, codec: str = "deflate",
+                     segment_rows: int | None = None):
     """Open a beast2 v5 collection file, managed end to end.
 
     Read mode returns the root-kind flavor of :class:`Beast2File`
@@ -3066,6 +3389,18 @@ def open_beast2_file(path, collection_type=None, mode: str = "r", *,
             given it is validated against the header and a mismatch fails at
             open instead of decoding garbage. Required for write mode.
         mode: ``"r"`` (default) or ``"w"``.
+        project: Read mode only — an explicit column projection (#599): a
+            SUBSET of the wire type (struct fields subset by name at any
+            depth; variant case lists must match exactly though payloads may
+            project; Dict keys, Set elements, primitives, Vector and Matrix
+            must be identical). Every read then materializes only the
+            projected fields — skipped fields are parsed-and-hopped, never
+            built — and the file behaves as a collection of the projected
+            type (``collection_type`` keeps its ordinary meaning and is
+            still validated against the wire type when given). A projected
+            field absent from the wire type raises ``ValueError`` naming the
+            field and the wire's fields. ``find_sorted_*`` refuse under a
+            projection (the file is sorted by whole elements).
         codec: Write mode only — segment codec, ``"deflate"`` (default) or
             ``"none"``.
         segment_rows: Write mode only — rows per segment; managed when
@@ -3078,10 +3413,13 @@ def open_beast2_file(path, collection_type=None, mode: str = "r", *,
     if mode == "r":
         if codec != "deflate" or segment_rows is not None:
             raise ValueError("codec/segment_rows are write-mode options")
-        resolved = collection_type if collection_type is not None else read_beast2_type(path)
+        resolved = project if project is not None else (
+            collection_type if collection_type is not None else read_beast2_type(path))
         kind = _check_segmented(resolved)
-        return _FILE_KINDS[kind](path, collection_type if collection_type is not None else resolved)
+        return _FILE_KINDS[kind](path, collection_type, project=project)
     if mode == "w":
+        if project is not None:
+            raise ValueError("open_beast2_file: project= is a read-mode option")
         if collection_type is None:
             raise ValueError(
                 "open_beast2_file: write mode requires collection_type — only "

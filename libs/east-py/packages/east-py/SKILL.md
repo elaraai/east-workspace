@@ -725,14 +725,23 @@ Task → What do you need?
     │   │   ├─ Set membership → x in f · f.has(x)
     │   │   ├─ Array sorted search → f.find_sorted_first/last/range(target) — GLOBAL insertion
     │   │   │   indices; no key= projection (the file pages by element order)
-    │   │   └─ whole-file compute → the FULL eager read surface runs on f directly: map · filter ·
-    │   │       filter_map · first_map · fold · map_reduce · sum · mean · maximum · minimum ·
-    │   │       every · some · find_first/all/maximum/minimum · is_sorted · to_set/unique ·
-    │   │       to_dict · to_array · to_columns · map_batches · string_join · flatten_* ·
-    │   │       the group_* family · Set algebra — segment folds, east-c per segment,
-    │   │       results == f.load() exactly (the file is never materialized); anything
-    │   │       else inherits the eager method through ordinary iteration
-    │   │       (f.segments() is a DEPRECATED alias — the value surface subsumes it, #560)
+    │   │   ├─ whole-file compute → the FULL eager read surface runs on f directly: map · filter ·
+    │   │   │   filter_map · first_map · fold · map_reduce · sum · mean · maximum · minimum ·
+    │   │   │   every · some · find_first/all/maximum/minimum · is_sorted · to_set/unique ·
+    │   │   │   to_dict · to_array · to_columns · map_batches · string_join · flatten_* ·
+    │   │   │   the group_* family · Set algebra — segment folds, east-c per segment,
+    │   │   │   results == f.load() exactly (the file is never materialized); anything
+    │   │   │   else inherits the eager method through ordinary iteration
+    │   │   │   (f.segments() is a DEPRECATED alias — the value surface subsumes it, #560)
+    │   │   └─ wide rows, few columns read → column projection (#599) is INFERRED: a traced
+    │   │       callback's IR names the struct fields it reads, and each segment decodes to
+    │   │       exactly that subset (skipped fields are parsed-and-hopped, never built) —
+    │   │       no API, applies to the whole compute family and runner-opened task inputs;
+    │   │       non-inferable callbacks (impure, element used whole, un-retraceable kernels)
+    │   │       decode whole, counted in eager_stats() with the reason. Declare it instead →
+    │   │       open_beast2_file(path, project=NARROW) — NARROW ⊆ the wire type (struct
+    │   │       fields subset by name at any depth); every read serves the subset, incl.
+    │   │       point reads (find_sorted_* refuse: the file sorts by whole elements)
     │   └─ Buffer-level (you hold the bytes, not a path):
     │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
@@ -1057,6 +1066,7 @@ name-for-name.
 | Dict: `f[k]` ❗KeyError · `f.get(k, default=None)` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads (#481 W2): east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Disjoint ascending segments are the v5 wire contract; the first keyed read still verifies the fences, and a corrupt (or pre-contract) blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
 | Array sorted search: `f.find_sorted_first/last(target)` → global index · `f.find_sorted_range(target)` → `{start, end}` | Same contract as the eager `EastArray` builtins over the whole file — the fences pick the boundary segment, its in-segment search adds the segment's base, and only that segment decodes. No `key=` projection (the file pages by element order); pair with `f.slice(start, end)` to fetch the matching rows |
 | Compute (#481 W4): `f.map/filter/filter_map/first_map/fold/scan/map_reduce/sum/mean/maximum/minimum/every/some/find_first/find_all/find_maximum/find_minimum/is_sorted/to_set/unique/to_dict/to_array/to_columns/map_batches/string_join/flatten_to_array/set/dict/for_each` · the full `group_*` family (including `group_find_all/first/maximum/minimum`, whose indices are rebased to GLOBAL rows) · Set algebra (`union/intersect/diff/sym_diff/is_subset/is_superset_of/is_disjoint`) | The whole eager read surface, one segment decoded at a time: each segment runs the ordinary eager method — pure lambdas trace to kernels, precompiled kernels pass through — and partials combine through east-c containers in stream order. Order-dependent folds thread ONE accumulator and grouped folds SEED each segment's init from the running per-group accumulators, so results equal `load()` exactly, float ordering included. Array `(el, idx)` callbacks see GLOBAL row indices, and so do the indices `find_*`/`group_find_*` report; `first_map`/`some`/`every`/`is_superset_of` stop decoding at the answer. Dict/Set compute streams disjointness-verified segments (a corrupt blob fails loudly, like keyed reads). Re-keyed collisions in `to_dict`/`flatten_to_dict`/`group_to_dicts` combine left-associatively in stream order — use an associative `combine`. `sorted`/`reversed`/`copy`/`concat`/`merge` stay off the file (they materialize the whole collection — `load()` first) |
+| Column projection (#599, finishing #481 W3) — INFERRED: automatic on the compute family above; EXPLICIT: `open_beast2_file(path, project=NARROW)` | The compute family traces its callbacks FIRST and decodes each segment to exactly the struct fields the traced IR reads (skipped fields are parsed-and-hopped through the inflated bytes, never built into values — value materialisation, not byte-walking, dominates decode cost). Struct fields subset by name at ANY depth; a subtree used any way other than a further field read stays whole, so every comparison and builtin sees full values and results are unchanged. Dict KEYS and Set elements never narrow (they order the container). Runner-opened task inputs get the same inference from the compiled body's loop IR — no API change at either site. Non-inferable cases decode whole and are COUNTED in `eager_stats()` (`beast2_segments_projected/whole`, `beast2_projection_declined_*` by reason: an impure callback, the element escaping whole, a `.bind` kernel with no retraceable source, an unpageable blob) — an inferred optimisation that silently stops applying is an invisible cliff. The explicit form serves the subset from EVERY read (point reads, keyed gets, `load()`); `project` must be a subset of the wire type — a missing field raises `ValueError` naming it and the wire's fields — while a declared `T` keeps its exact meaning; `find_sorted_*` refuse under it (the file sorts by whole elements). Cache rule: a segment decoded under one mask is never served to an operation needing more. Zero wire change — every blob stays readable by every runtime |
 | Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
 
 ```python

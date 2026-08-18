@@ -185,6 +185,59 @@ void east_beast2_pages_free(Beast2Pages *p);
 // The pager's root collection type (borrowed — owned by the pager).
 EastType *east_beast2_pages_type(Beast2Pages *p);
 
+// ============================================================================
+// BEAST2 v5 column projection (issue #599, finishing #481 W3).
+// A Beast2Projection is a validated plan from the WIRE type to a subset
+// PROJECTED type: struct fields subset by name at any depth (skipped fields
+// are parsed-and-hopped, never materialized); variant case lists must match
+// exactly though payloads may project; Dict keys and Set elements must be
+// identical (they order the container); primitives/Vector/Matrix/functions
+// must be identical. Zero wire change — the same blob decodes whole or
+// projected. Validation failures post an error naming the offending field
+// and the wire type's fields.
+// ============================================================================
+typedef struct Beast2Projection Beast2Projection;
+// Build + validate a plan. Returns NULL with the validation error posted.
+Beast2Projection *east_beast2_projection_new(EastType *wire, EastType *proj);
+void east_beast2_projection_free(Beast2Projection *pr);
+// The plan's endpoint types (borrowed — owned by the projection).
+EastType *east_beast2_projection_wire_type(Beast2Projection *pr);
+EastType *east_beast2_projection_root_type(Beast2Projection *pr);
+// Whether the plan is a no-op (projected type deep-equals the wire type).
+bool east_beast2_projection_is_identity(Beast2Projection *pr);
+// One segment decoded through `pr`, bypassing the pager's shared cache — a
+// segment decoded under one mask is never served to an operation needing a
+// wider one. A REF crossing the projection boundary (a container aliased
+// from a projected-away field) fails with a "beast2 v5 projection alias"
+// error; retry with east_beast2_pages_segment for the whole decode.
+EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i,
+                                               const Beast2Projection *pr);
+// The disjointness-checked sibling for Set/Dict roots (fences verify on
+// wire-shaped keys; the decode itself is projected and uncached).
+EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i,
+                                                        const Beast2Projection *pr);
+// Open-time projection: EVERY pager read (segment(), element(), keyed gets,
+// the shared cache) decodes through `pr` from now on — the cache stays
+// consistent because the pager's shape is fixed for its lifetime. `pr` is
+// borrowed (caller keeps it alive for the pager's lifetime); NULL clears.
+// The decoded-segment cache is dropped on every change. find_sorted refuses
+// under a projection (the file is sorted by whole elements).
+void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr);
+// Sequential-reader sibling; must be called before the first next().
+void east_beast2_reader_set_projection(Beast2SegmentReader *r, const Beast2Projection *pr);
+// Derive a projection for a paged for-loop from the loop BODY's IR: the mask
+// is the set of GetField paths the body reaches from `target` (the loop's
+// element/value variable). Returns NULL — decode whole — when the variable
+// escapes a field read, a binder shadows it, the row is not a struct, every
+// field is read, or the plan refuses (a skipped function field). The caller
+// owns a non-NULL result (east_beast2_projection_free).
+Beast2Projection *east_beast2_projection_for_loop(const IRNode *body, const char *target,
+                                                  EastType *root_type);
+// Thread-local segment counters for the paged-loop seam (task inputs): how
+// many segments decoded projected vs whole. Surfaced through eager_stats().
+void east_beast2_paged_loop_count(bool projected);
+void east_beast2_paged_loop_stats(size_t *projected, size_t *whole);
+
 // Lazy pager-backed collection value (issue #505): wraps an indexed,
 // self-contained v5 blob as an EAST_VAL_PAGED value whose size, keyed reads
 // and for-loop iteration answer from the pager, and whose every other

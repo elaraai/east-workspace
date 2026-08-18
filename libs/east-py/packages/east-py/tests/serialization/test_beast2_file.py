@@ -827,9 +827,9 @@ def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):
     consumed = 0
     original = Beast2ArrayFile._iter_segments
 
-    def counting(self):
+    def counting(self, project=None):
         nonlocal consumed
-        for segment in original(self):
+        for segment in original(self, project):
             consumed += 1
             yield segment
 

@@ -337,6 +337,7 @@ struct Beast2SegmentReader {
     EastValue *root_placeholder; /* definition 0; owned, never returned */
     EastSourceMap sm;            /* owned (header + inline deltas) */
     B2V5Index index;
+    const Beast2Projection *proj; /* borrowed column projection, or NULL (#599) */
     bool has_index;
     bool started;
     bool done;
@@ -427,6 +428,14 @@ static bool reader_start(Beast2SegmentReader *r)
     return true;
 }
 
+void east_beast2_reader_set_projection(Beast2SegmentReader *r, const Beast2Projection *pr)
+{
+    if (!r || r->started) return; /* projection must be set before the first next() */
+    if (pr && east_beast2_projection_is_identity((Beast2Projection *)pr)) pr = NULL;
+    r->proj = pr;
+    r->ctx.proj_active = pr != NULL;
+}
+
 EastValue *east_beast2_reader_next(Beast2SegmentReader *r)
 {
     if (!r || r->done || r->failed) return NULL;
@@ -473,14 +482,21 @@ EastValue *east_beast2_reader_next(Beast2SegmentReader *r)
         return NULL;
     }
 
-    EastValue *segment = b2v5_new_segment_container(r->type, (size_t)n);
+    EastValue *segment =
+        b2v5_new_segment_container(r->proj ? r->proj->root->proj : r->type, (size_t)n);
     if (!segment) {
         r->failed = true;
         return NULL;
     }
-    if (!b2v5_decode_elements_into(segment, r->type, n, r->frames.chunk, r->frames.chunk_len,
-                                   &r->frames.chunk_off, &r->ctx,
-                                   r->type->kind == EAST_TYPE_ARRAY ? NULL : &r->order)) {
+    bool decoded =
+        r->proj ? b2v5_decode_elements_into_projected(
+                      segment, r->proj->root, n, r->frames.chunk, r->frames.chunk_len,
+                      &r->frames.chunk_off, &r->ctx,
+                      r->type->kind == EAST_TYPE_ARRAY ? NULL : &r->order)
+                : b2v5_decode_elements_into(segment, r->type, n, r->frames.chunk,
+                                            r->frames.chunk_len, &r->frames.chunk_off, &r->ctx,
+                                            r->type->kind == EAST_TYPE_ARRAY ? NULL : &r->order);
+    if (!decoded) {
         east_value_release(segment);
         /* Keep a specific posted message (e.g. the canonical-order
          * violation) over the generic one. */
@@ -688,13 +704,21 @@ typedef struct {
 struct Beast2Pages {
     const uint8_t *data; /* borrowed — caller keeps it alive and unchanged */
     size_t len;
-    EastType *type;        /* retained decode type */
-    EastSourceMap sm;      /* owned (header) */
-    B2V5Index index;       /* owned */
-    size_t *cumulative;    /* prefix sums of index.counts; NULL when count == 0 */
-    EastValue **fences;    /* lazily decoded first element/key per segment (owned) */
-    bool fences_verified;  /* strict ascent checked (first keyed read) */
-    bool frozen;           /* frozen open: every decoded segment/fence is branded */
+    EastType *type;       /* retained decode type */
+    EastSourceMap sm;     /* owned (header) */
+    B2V5Index index;      /* owned */
+    size_t *cumulative;   /* prefix sums of index.counts; NULL when count == 0 */
+    EastValue **fences;   /* lazily decoded first element/key per segment (owned) */
+    bool fences_verified; /* strict ascent checked (first keyed read) */
+    bool frozen;          /* frozen open: every decoded segment/fence is branded */
+    /* Open-time column projection (#599): when set, EVERY segment decode —
+     * including the shared cache — materializes the projected subset, so
+     * cache entries all carry one shape for the pager's whole lifetime (the
+     * cache-correctness rule: a segment decoded under one mask is never
+     * served to an operation needing a wider one). Borrowed; the owner
+     * keeps it alive for the pager's lifetime. Fences stay wire-shaped
+     * (keys/elements never project). */
+    const Beast2Projection *proj;
     B2V5CacheEntry *cache; /* dynamic; cache_count entries live */
     size_t cache_count;
     size_t cache_cap;
@@ -812,7 +836,11 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
     return p ? p->index.counts : NULL;
 }
 
-EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
+/* One segment decode, optionally through a column projection (#599). The
+ * projected path registers skipped containers as sentinel definitions and a
+ * REF crossing the projection boundary posts B2V5_PROJ_ALIAS_MSG — the
+ * caller retries whole. */
+static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr)
 {
     if (!p) return NULL;
     /* Self-contained is checked BEFORE the range check: on a cross-aliased
@@ -830,6 +858,7 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
         east_builtin_error(msg);
         return NULL;
     }
+    if (pr && east_beast2_projection_is_identity((Beast2Projection *)pr)) pr = NULL;
 
     B2V5Frames f;
     B2V5DecodeCtx ctx;
@@ -842,6 +871,7 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
     b2v5_frames_init(&f, p->data, p->len, p->index.offsets[i]);
     b2v5_dec_ctx_init(&ctx, &p->sm);
     ctx.frozen = p->frozen;
+    ctx.proj_active = pr != NULL;
 
     if (!b2v5_frames_next(&f)) goto done; /* error already posted */
     if (!read_varint_checked(f.chunk, f.chunk_len, &f.chunk_off, &n)) {
@@ -860,11 +890,16 @@ EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
         east_builtin_error("beast2 v5: segment count exceeds its frame");
         goto done;
     }
-    segment = b2v5_new_segment_container(p->type, (size_t)n);
+    segment = b2v5_new_segment_container(pr ? pr->root->proj : p->type, (size_t)n);
     if (!segment) goto done;
     if (ctx.frozen) east_value_set_frozen(segment);
-    if (!b2v5_decode_elements_into(segment, p->type, n, f.chunk, f.chunk_len, &f.chunk_off, &ctx,
-                                   p->type->kind == EAST_TYPE_ARRAY ? NULL : &order)) {
+    bool decoded =
+        pr ? b2v5_decode_elements_into_projected(segment, pr->root, n, f.chunk, f.chunk_len,
+                                                 &f.chunk_off, &ctx,
+                                                 p->type->kind == EAST_TYPE_ARRAY ? NULL : &order)
+           : b2v5_decode_elements_into(segment, p->type, n, f.chunk, f.chunk_len, &f.chunk_off,
+                                       &ctx, p->type->kind == EAST_TYPE_ARRAY ? NULL : &order);
+    if (!decoded) {
         /* Keep a specific posted message (e.g. the canonical-order
          * violation) over the generic one. */
         char *specific = east_builtin_get_error();
@@ -898,6 +933,30 @@ done:
     b2v5_dec_ctx_free(&ctx);
     b2v5_frames_dispose(&f);
     return result;
+}
+
+EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
+{
+    return pages_decode_segment(p, i, p ? p->proj : NULL);
+}
+
+EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i, const Beast2Projection *pr)
+{
+    /* Per-call projections NEVER touch the shared cache: an entry decoded
+     * under one mask must not answer an operation needing another. */
+    return pages_decode_segment(p, i, pr);
+}
+
+void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr)
+{
+    if (!p) return;
+    if (pr && east_beast2_projection_is_identity((Beast2Projection *)pr)) pr = NULL;
+    /* Cached segments decoded under the previous shape are unusable now. */
+    for (size_t k = 0; k < p->cache_count; k++)
+        east_value_release(p->cache[k].seg);
+    p->cache_count = 0;
+    p->cache_bytes = 0;
+    p->proj = pr;
 }
 
 /* Segment i's budget weight: its frame's decompressed byte length, an O(1)
@@ -1294,7 +1353,10 @@ EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys, EastValue
 
     if (!pages_verify_fences(p)) return NULL;
 
-    EastValue *found = east_dict_new(p->type->data.dict.key, p->type->data.dict.value);
+    /* Under an open-time projection the served values are narrow, so the
+     * result dict must carry the projected value type. */
+    EastType *found_vt = p->proj ? p->proj->root->proj->data.dict.value : p->type->data.dict.value;
+    EastValue *found = east_dict_new(p->type->data.dict.key, found_vt);
     EastValue *missing = east_set_new(p->type->data.dict.key);
     EastValue *seg = NULL;
     if (!found || !missing) goto fail;
@@ -1372,6 +1434,39 @@ EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
     }
     if (!pages_verify_fences(p)) return NULL;
     EastValue *seg = pages_segment_cached(p, i);
+    if (!seg) return NULL;
+    if (!pages_tail_guard(p, i, seg)) {
+        east_value_release(seg);
+        return NULL;
+    }
+    return seg;
+}
+
+EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i,
+                                                        const Beast2Projection *pr)
+{
+    if (!p) return NULL;
+    if (p->type->kind == EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: disjoint segment reads address Set and Dict roots");
+        return NULL;
+    }
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return NULL;
+    }
+    if (i >= p->index.count) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "beast2 v5: segment %zu out of range (%zu segments)", i,
+                 p->index.count);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    /* Fences decode wire-shaped keys, so the disjointness contract is
+     * verified exactly as in the whole-decode path; the segment itself is a
+     * fresh projected decode that never enters the shared cache. */
+    if (!pages_verify_fences(p)) return NULL;
+    EastValue *seg = pages_decode_segment(p, i, pr);
     if (!seg) return NULL;
     if (!pages_tail_guard(p, i, seg)) {
         east_value_release(seg);
@@ -1579,6 +1674,12 @@ bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last,
     *index_out = 0;
     if (p->type->kind != EAST_TYPE_ARRAY) {
         east_builtin_error("beast2 v5: find_sorted addresses Array roots");
+        return false;
+    }
+    if (p->proj) {
+        east_builtin_error("beast2 v5: find_sorted needs whole elements — the file is sorted by "
+                           "the full element, and a projection changes comparisons; open without "
+                           "project= to search");
         return false;
     }
     if (!p->index.self_contained) {

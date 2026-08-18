@@ -426,6 +426,27 @@ cdef extern from "east/serialization.h":
     EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
     void east_beast2_pages_free(Beast2Pages *p)
 
+    # v5 column projection (issue #599): a validated wire-type → subset-type
+    # decode plan. Projected segment decodes bypass the pager's shared cache;
+    # an open-time projection (set_projection) reshapes every pager read and
+    # keeps the cache consistent for the pager's lifetime.
+    ctypedef struct Beast2Projection:
+        pass
+    Beast2Projection *east_beast2_projection_new(EastType *wire, EastType *proj)
+    void east_beast2_projection_free(Beast2Projection *pr)
+    EastType *east_beast2_projection_wire_type(Beast2Projection *pr)
+    EastType *east_beast2_projection_root_type(Beast2Projection *pr)
+    bint east_beast2_projection_is_identity(Beast2Projection *pr)
+    EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i,
+                                                   const Beast2Projection *pr)
+    EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i,
+                                                            const Beast2Projection *pr)
+    void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr)
+    void east_beast2_reader_set_projection(Beast2SegmentReader *r, const Beast2Projection *pr)
+    # Thread-local counters for the compiled-body paged-loop seam (task
+    # inputs): segments decoded projected vs whole, read by eager_stats().
+    void east_beast2_paged_loop_stats(size_t *projected, size_t *whole)
+
     # Lazy pager-backed collection value (issue #505). open_paged takes
     # ownership of `data` (free()-compatible) ON SUCCESS only; hydrated
     # returns a BORROWED value kept alive by the wrapper (NULL on decode
