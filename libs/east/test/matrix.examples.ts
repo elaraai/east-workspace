@@ -209,3 +209,82 @@ export const matrixMapRows = example({
     inputs: [],
     returns: 40.0,
 });
+
+// ---------------------------------------------------------------------------
+// Elementwise Arithmetic and Reductions
+// ---------------------------------------------------------------------------
+
+export const matrixScale = example({
+    keywords: ["matrix", "MatrixType", "scale", "multiply", "scalar", "elementwise"],
+    description: "Scale every matrix element by a scalar",
+    fn: East.function([], FloatType, ($) => {
+        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));
+        const scaled = $.let(m.scale(2.0));
+        return scaled.get(1n, 0n);
+    }),
+    inputs: [],
+    returns: 6.0,
+});
+
+export const matrixAddScaled = example({
+    keywords: ["matrix", "MatrixType", "addScaled", "axpy", "add", "elementwise"],
+    description: "Add a scaled matrix elementwise (a + alpha * b)",
+    fn: East.function([], FloatType, ($) => {
+        const a = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));
+        const b = $.let(East.Matrix.fromArray([[10.0, 20.0], [30.0, 40.0]]));
+        const result = $.let(a.addScaled(b, 0.5));
+        return result.get(0n, 1n);
+    }),
+    inputs: [],
+    returns: 12.0,
+});
+
+export const matrixMulElementwise = example({
+    keywords: ["matrix", "MatrixType", "mulElementwise", "multiply", "hadamard", "elementwise"],
+    description: "Multiply two matrices elementwise",
+    fn: East.function([], FloatType, ($) => {
+        const a = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));
+        const b = $.let(East.Matrix.fromArray([[5.0, 6.0], [7.0, 8.0]]));
+        const result = $.let(a.mulElementwise(b));
+        return result.get(1n, 1n);
+    }),
+    inputs: [],
+    returns: 32.0,
+});
+
+export const matrixRowSums = example({
+    keywords: ["matrix", "MatrixType", "rowSums", "sum", "reduction", "row"],
+    description: "Sum each matrix row into a vector",
+    fn: East.function([], FloatType, ($) => {
+        const m = $.let(East.Matrix.fromArray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));
+        const sums = $.let(m.rowSums());
+        return sums.get(1n);
+    }),
+    inputs: [],
+    returns: 15.0,
+});
+
+export const matrixColSums = example({
+    keywords: ["matrix", "MatrixType", "colSums", "sum", "reduction", "column"],
+    description: "Sum each matrix column into a vector",
+    fn: East.function([], FloatType, ($) => {
+        const m = $.let(East.Matrix.fromArray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));
+        const sums = $.let(m.colSums());
+        return sums.get(2n);
+    }),
+    inputs: [],
+    returns: 9.0,
+});
+
+export const matrixVecMul = example({
+    keywords: ["matrix", "MatrixType", "vecMul", "multiply", "vector", "gemv"],
+    description: "Multiply a matrix by a vector",
+    fn: East.function([], FloatType, ($) => {
+        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));
+        const v = $.let(East.Vector.fromArray([10.0, 20.0]));
+        const result = $.let(m.vecMul(v));
+        return result.get(1n);
+    }),
+    inputs: [],
+    returns: 110.0,
+});

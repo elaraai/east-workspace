@@ -536,18 +536,24 @@ class EagerEvaluator:
         if kind == "NewRef":
             return EastRef(self.eval(p["value"], env))
         if kind == "NewVector":
+            # from_array pins the storage dtype from the element type — the raw
+            # constructor's np.asarray([]) defaults an EMPTY literal to float64.
             from east.types.values import EastVector
 
-            return EastVector(child_type(self.canon(p["type"])), [self.eval(v, env) for v in p["values"]])
+            return EastVector.from_array(
+                child_type(self.canon(p["type"])), [self.eval(v, env) for v in p["values"]])
         if kind == "NewMatrix":
             import numpy as np
 
             from east.types.values import EastMatrix
+            from east.types.values._helpers import EAST_ELEMENT_TO_DTYPE
 
+            et = child_type(self.canon(p["type"]))
             vals = [self.eval(v, env) for v in p["values"]]
             rows, cols = p["rows"], p["cols"]
-            return EastMatrix(child_type(self.canon(p["type"])),
-                              np.array(vals).reshape(rows, cols), rows, cols)
+            return EastMatrix(
+                et, np.asarray(vals, dtype=EAST_ELEMENT_TO_DTYPE[et.type]).reshape(rows, cols),
+                rows, cols)
         if kind in ("WrapRecursive", "UnwrapRecursive"):
             return self.eval(p["value"], env)
         if kind in ("Function", "AsyncFunction"):
@@ -1103,6 +1109,42 @@ _ROWS: dict[str, Any] = {
     "RefUpdate": lambda ev, n, a: (setattr(a[0], "value", a[1]), east_null)[1],
     "RefMerge": lambda ev, n, a: (setattr(
         a[0], "value", _arity_trim(ev, a[2])(a[0].value, a[1])), east_null)[1],
+    # Vector/Matrix arithmetic + sparse accumulators (#598) — the eager
+    # EastVector/EastMatrix methods and the East.Vector namespace, whose
+    # traced twins share the same spellings.
+    "VectorScale": lambda ev, n, a: a[0].scale(a[1]),
+    "VectorSum": lambda ev, n, a: a[0].sum(),
+    "VectorAddScaled": lambda ev, n, a: a[0].add_scaled(a[1], a[2]),
+    "VectorMul": lambda ev, n, a: a[0].mul(a[1]),
+    "VectorAddScalar": lambda ev, n, a: a[0].add_scalar(a[1]),
+    "VectorDot": lambda ev, n, a: a[0].dot(a[1]),
+    "VectorMax": lambda ev, n, a: a[0].maximum(),
+    "VectorMin": lambda ev, n, a: a[0].minimum(),
+    "VectorArgMax": lambda ev, n, a: a[0].arg_max(),
+    "VectorArgMin": lambda ev, n, a: a[0].arg_min(),
+    "VectorMean": lambda ev, n, a: a[0].mean(),
+    "VectorCumSum": lambda ev, n, a: a[0].cum_sum(),
+    "VectorAbs": lambda ev, n, a: a[0].abs(),
+    "VectorClamp": lambda ev, n, a: a[0].clamp(a[1], a[2]),
+    "VectorGather": lambda ev, n, a: a[0].gather(a[1]),
+    "VectorScatterAdd": lambda ev, n, a: a[0].scatter_add(a[1], a[2]),
+    "VectorSearchSorted": lambda ev, n, a: a[0].search_sorted(a[1]),
+    "VectorEq": lambda ev, n, a: a[0].eq(a[1]),
+    "VectorLt": lambda ev, n, a: a[0].lt(a[1]),
+    "VectorGt": lambda ev, n, a: a[0].gt(a[1]),
+    "VectorSelect": lambda ev, n, a: a[0].select(a[1], a[2]),
+    # the builtin takes (mask, v); the data-first user spelling is v.compress(mask)
+    "VectorCompress": lambda ev, n, a: a[1].compress(a[0]),
+    "VectorCountTrue": lambda ev, n, a: a[0].count_true(),
+    "SparseAxpy": lambda ev, n, a: East.Vector.sparse_axpy(a[0], a[1], a[2], a[3], a[4]),
+    "SparseFromPairs": lambda ev, n, a: East.Vector.sparse_from_pairs(a[0], a[1]),
+    "SparseFilterGt": lambda ev, n, a: East.Vector.sparse_filter_gt(a[0], a[1], a[2]),
+    "MatrixScale": lambda ev, n, a: a[0].scale(a[1]),
+    "MatrixAddScaled": lambda ev, n, a: a[0].add_scaled(a[1], a[2]),
+    "MatrixMulElementwise": lambda ev, n, a: a[0].mul_elementwise(a[1]),
+    "MatrixRowSums": lambda ev, n, a: a[0].row_sums(),
+    "MatrixColSums": lambda ev, n, a: a[0].col_sums(),
+    "MatrixVecMul": lambda ev, n, a: a[0].vec_mul(a[1]),
 }
 
 

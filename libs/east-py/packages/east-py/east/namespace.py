@@ -47,8 +47,11 @@ from east.types.types import (
     EastType,
     FloatType,
     IntegerType,
+    MatrixType,
     PatchType,
     StringType,
+    StructType,
+    VectorType,
 )
 from east.types.values import EastValue, _call_builtin
 
@@ -996,6 +999,238 @@ class _BooleanNamespace:
         return _call_builtin("BooleanXor", [], [a, b], BooleanType)
 
 
+def _tensor_elem_of(value: Any, kind: str) -> EastType:
+    """The element type of a Vector/Matrix argument — an eager
+    ``EastVector``/``EastMatrix`` (``element_type``) or a traced expression
+    (``east_type``), so one namespace function serves both paths."""
+    east_type = getattr(value, "east_type", None)
+    if east_type is not None:
+        if east_type.type != kind:
+            raise TypeError(f"expected a {kind}, got {east_type.type}")
+        return east_type.value
+    return value.element_type
+
+
+def _scalar_elem_of(value: Any) -> EastType:
+    """The element type a fill value pins (bool before int, like the lifter)."""
+    east_type = getattr(value, "east_type", None)
+    if east_type is not None:
+        return east_type
+    if isinstance(value, bool):
+        return BooleanType
+    if isinstance(value, int):
+        return IntegerType
+    if isinstance(value, float):
+        return FloatType
+    raise TypeError(f"cannot infer a Vector element type from {type(value).__name__}")
+
+
+def _sparse_type(elem: EastType) -> EastType:
+    return StructType([("ix", VectorType(IntegerType)), ("v", VectorType(elem))])
+
+
+class _VectorNamespace:
+    """East ``Vector`` builtins — constructors and the sparse accumulators."""
+
+    @staticmethod
+    def from_array(arr: Any) -> Any:
+        """Build a Vector from an Array of scalars (east-c VectorFromArray).
+
+        Args:
+            arr: The source Array of Float, Integer or Boolean elements.
+
+        Returns:
+            A Vector of the array's element type.
+        """
+        east_type = getattr(arr, "east_type", None)
+        elem = east_type.value if east_type is not None else arr.element_type
+        return _call_builtin("VectorFromArray", [elem], [arr], VectorType(elem))
+
+    @staticmethod
+    def zeros(length: Any) -> Any:
+        """A zero-filled Float Vector (east-c VectorZeros).
+
+        Args:
+            length: The number of elements.
+
+        Returns:
+            A ``Vector<Float>`` of ``length`` zeros.
+        """
+        return _call_builtin("VectorZeros", [FloatType], [length], VectorType(FloatType))
+
+    @staticmethod
+    def ones(length: Any) -> Any:
+        """A ones-filled Float Vector (east-c VectorOnes).
+
+        Args:
+            length: The number of elements.
+
+        Returns:
+            A ``Vector<Float>`` of ``length`` ones.
+        """
+        return _call_builtin("VectorOnes", [FloatType], [length], VectorType(FloatType))
+
+    @staticmethod
+    def fill(length: Any, value: Any) -> Any:
+        """A Vector of ``length`` copies of ``value`` (east-c VectorFill).
+
+        Args:
+            length: The number of elements.
+            value: The fill value; its type pins the element type.
+
+        Returns:
+            A Vector with every element set to ``value``.
+        """
+        elem = _scalar_elem_of(value)
+        return _call_builtin("VectorFill", [elem], [length, value], VectorType(elem))
+
+    @staticmethod
+    def sparse_axpy(ix_a: Any, v_a: Any, ix_b: Any, v_b: Any, alpha: Any) -> Any:
+        """Merge two sparse accumulators, ``vA + alpha * vB`` over the union
+        of their strictly ascending index vectors (east-c SparseAxpy).
+
+        Merge, scaled deposit and single-key accumulate all fall out of one
+        call (``alpha`` of one, a scale factor, or a one-element right-hand
+        side). Entries absent from a side are structurally absent, not
+        explicit zeros: an A-only entry passes through unscaled, a B-only
+        entry contributes ``alpha * vB`` even when ``alpha`` is NaN.
+
+        Args:
+            ix_a: The left accumulator's strictly ascending Integer indices.
+            v_a: The left accumulator's values (same length as ``ix_a``).
+            ix_b: The right accumulator's strictly ascending Integer indices.
+            v_b: The right accumulator's values (same length as ``ix_b``).
+            alpha: The scalar factor applied to ``v_b``.
+
+        Returns:
+            A ``Struct{ix, v}`` of the merged accumulator.
+
+        Raises:
+            EastError: If an index vector is not strictly ascending, or index
+                and value lengths differ.
+        """
+        elem = _tensor_elem_of(v_a, "Vector")
+        return _call_builtin(
+            "SparseAxpy", [elem], [ix_a, v_a, ix_b, v_b, alpha], _sparse_type(elem)
+        )
+
+    @staticmethod
+    def sparse_from_pairs(ix: Any, v: Any) -> Any:
+        """Build the canonical sparse accumulator from unsorted ``(index,
+        value)`` pairs (east-c SparseFromPairs).
+
+        Indices sort ascending and duplicate indices sum, stably, in input
+        order — so the float result is deterministic for a given input order.
+
+        Args:
+            ix: The Integer indices, in any order, possibly with duplicates.
+            v: The values (same length as ``ix``).
+
+        Returns:
+            A ``Struct{ix, v}`` with strictly ascending ``ix`` and summed ``v``.
+
+        Raises:
+            EastError: If the index and value lengths differ.
+        """
+        elem = _tensor_elem_of(v, "Vector")
+        return _call_builtin("SparseFromPairs", [elem], [ix, v], _sparse_type(elem))
+
+    @staticmethod
+    def sparse_filter_gt(ix: Any, v: Any, threshold: Any) -> Any:
+        """Compact a sparse accumulator, keeping entries strictly greater than
+        ``threshold`` under East's total order (east-c SparseFilterGt).
+
+        Args:
+            ix: The accumulator's strictly ascending Integer indices.
+            v: The accumulator's values (same length as ``ix``).
+            threshold: The exclusive lower bound a value must exceed to survive.
+
+        Returns:
+            A ``Struct{ix, v}`` of the surviving entries, in order.
+
+        Raises:
+            EastError: If the index vector is not strictly ascending, or index
+                and value lengths differ.
+        """
+        elem = _tensor_elem_of(v, "Vector")
+        return _call_builtin("SparseFilterGt", [elem], [ix, v, threshold], _sparse_type(elem))
+
+
+class _MatrixNamespace:
+    """East ``Matrix`` builtins — constructors."""
+
+    @staticmethod
+    def from_array(rows: Any) -> Any:
+        """Build a Matrix from a nested Array of rows (east-c MatrixFromArray).
+
+        Args:
+            rows: An ``Array<Array<T>>`` of equal-length rows.
+
+        Returns:
+            A Matrix of the rows' element type.
+        """
+        east_type = getattr(rows, "east_type", None)
+        inner = east_type.value if east_type is not None else rows.element_type
+        elem = inner.value
+        return _call_builtin("MatrixFromArray", [elem], [rows], MatrixType(elem))
+
+    @staticmethod
+    def from_rows(rows: Any) -> Any:
+        """Build a Matrix from an Array of row Vectors (east-c MatrixFromRows).
+
+        Args:
+            rows: An ``Array<Vector<T>>`` of equal-length rows.
+
+        Returns:
+            A Matrix of the rows' element type.
+        """
+        east_type = getattr(rows, "east_type", None)
+        inner = east_type.value if east_type is not None else rows.element_type
+        elem = inner.value
+        return _call_builtin("MatrixFromRows", [elem], [rows], MatrixType(elem))
+
+    @staticmethod
+    def zeros(rows: Any, cols: Any) -> Any:
+        """A zero-filled Float Matrix (east-c MatrixZeros).
+
+        Args:
+            rows: The number of rows.
+            cols: The number of columns.
+
+        Returns:
+            A ``Matrix<Float>`` of zeros.
+        """
+        return _call_builtin("MatrixZeros", [FloatType], [rows, cols], MatrixType(FloatType))
+
+    @staticmethod
+    def ones(rows: Any, cols: Any) -> Any:
+        """A ones-filled Float Matrix (east-c MatrixOnes).
+
+        Args:
+            rows: The number of rows.
+            cols: The number of columns.
+
+        Returns:
+            A ``Matrix<Float>`` of ones.
+        """
+        return _call_builtin("MatrixOnes", [FloatType], [rows, cols], MatrixType(FloatType))
+
+    @staticmethod
+    def fill(rows: Any, cols: Any, value: Any) -> Any:
+        """A Matrix filled with ``value`` (east-c MatrixFill).
+
+        Args:
+            rows: The number of rows.
+            cols: The number of columns.
+            value: The fill value; its type pins the element type.
+
+        Returns:
+            A Matrix with every cell set to ``value``.
+        """
+        elem = _scalar_elem_of(value)
+        return _call_builtin("MatrixFill", [elem], [rows, cols, value], MatrixType(elem))
+
+
 class _East:
     """The ``East`` namespace object — primitive builtins, comparisons and
     the block-level control flow."""
@@ -1005,6 +1240,8 @@ class _East:
     String = _StringNamespace()
     Boolean = _BooleanNamespace()
     DateTime = _DateTimeNamespace()
+    Vector = _VectorNamespace()
+    Matrix = _MatrixNamespace()
 
     # ── block-level control flow (#578, east/kernel/control.py) ──────────
     # Attached rather than defined here: they are dual-mode expression

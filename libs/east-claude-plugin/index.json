@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1077,
+    "totalEntries": 1109,
     "totalFiles": 192,
     "packages": {
-      "east": 500,
+      "east": 532,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -6884,6 +6884,126 @@
       "source": "// Transform each row of a matrix with a mapping function\n// inputs: []  returns: 40.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const result = $.let(m.mapRows(($, row) => row.map(($, x) => x.multiply(10.0))));\n        return result.get(1n, 1n);\n    })"
     },
     {
+      "id": "east:matrix.examples.ts:matrixScale",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/matrix.examples.ts",
+      "suite": "Elementwise Arithmetic and Reductions",
+      "test": "Scale every matrix element by a scalar",
+      "keywords": [
+        "matrix",
+        "MatrixType",
+        "scale",
+        "multiply",
+        "scalar",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Scale every matrix element by a scalar\n// inputs: []  returns: 6.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const scaled = $.let(m.scale(2.0));\n        return scaled.get(1n, 0n);\n    })"
+    },
+    {
+      "id": "east:matrix.examples.ts:matrixAddScaled",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/matrix.examples.ts",
+      "suite": "Elementwise Arithmetic and Reductions",
+      "test": "Add a scaled matrix elementwise (a + alpha * b)",
+      "keywords": [
+        "matrix",
+        "MatrixType",
+        "addScaled",
+        "axpy",
+        "add",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Add a scaled matrix elementwise (a + alpha * b)\n// inputs: []  returns: 12.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const b = $.let(East.Matrix.fromArray([[10.0, 20.0], [30.0, 40.0]]));\n        const result = $.let(a.addScaled(b, 0.5));\n        return result.get(0n, 1n);\n    })"
+    },
+    {
+      "id": "east:matrix.examples.ts:matrixMulElementwise",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/matrix.examples.ts",
+      "suite": "Elementwise Arithmetic and Reductions",
+      "test": "Multiply two matrices elementwise",
+      "keywords": [
+        "matrix",
+        "MatrixType",
+        "mulElementwise",
+        "multiply",
+        "hadamard",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Multiply two matrices elementwise\n// inputs: []  returns: 32.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const b = $.let(East.Matrix.fromArray([[5.0, 6.0], [7.0, 8.0]]));\n        const result = $.let(a.mulElementwise(b));\n        return result.get(1n, 1n);\n    })"
+    },
+    {
+      "id": "east:matrix.examples.ts:matrixRowSums",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/matrix.examples.ts",
+      "suite": "Elementwise Arithmetic and Reductions",
+      "test": "Sum each matrix row into a vector",
+      "keywords": [
+        "matrix",
+        "MatrixType",
+        "rowSums",
+        "sum",
+        "reduction",
+        "row"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Sum each matrix row into a vector\n// inputs: []  returns: 15.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));\n        const sums = $.let(m.rowSums());\n        return sums.get(1n);\n    })"
+    },
+    {
+      "id": "east:matrix.examples.ts:matrixColSums",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/matrix.examples.ts",
+      "suite": "Elementwise Arithmetic and Reductions",
+      "test": "Sum each matrix column into a vector",
+      "keywords": [
+        "matrix",
+        "MatrixType",
+        "colSums",
+        "sum",
+        "reduction",
+        "column"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Sum each matrix column into a vector\n// inputs: []  returns: 9.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));\n        const sums = $.let(m.colSums());\n        return sums.get(2n);\n    })"
+    },
+    {
+      "id": "east:matrix.examples.ts:matrixVecMul",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/matrix.examples.ts",
+      "suite": "Elementwise Arithmetic and Reductions",
+      "test": "Multiply a matrix by a vector",
+      "keywords": [
+        "matrix",
+        "MatrixType",
+        "vecMul",
+        "multiply",
+        "vector",
+        "gemv"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Multiply a matrix by a vector\n// inputs: []  returns: 110.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));\n        const v = $.let(East.Vector.fromArray([10.0, 20.0]));\n        const result = $.let(m.vecMul(v));\n        return result.get(1n);\n    })"
+    },
+    {
       "id": "east:patch.examples.ts:patchDiffUnchanged",
       "skill": "east",
       "package": "east",
@@ -9391,7 +9511,7 @@
         "float"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector of zeros\n// inputs: []  returns: 0.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.zeros(3n));\n        return v.get(0n);\n    })"
     },
@@ -9410,7 +9530,7 @@
         "float"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector of ones\n// inputs: []  returns: 1.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.ones(3n));\n        return v.get(1n);\n    })"
     },
@@ -9429,7 +9549,7 @@
         "value"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector filled with a specific value\n// inputs: []  returns: 3.14\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fill(4n, 3.14));\n        return v.get(0n);\n    })"
     },
@@ -9448,7 +9568,7 @@
         "convert"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Create a vector from an array\n// inputs: []  returns: 3.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        return v.get(2n);\n    })"
     },
@@ -9467,7 +9587,7 @@
         "count"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Get the length of a vector\n// inputs: []  returns: 3n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        return v.length();\n    })"
     },
@@ -9486,7 +9606,7 @@
         "access"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Get an element from a vector by index\n// inputs: []  returns: 20.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));\n        return v.get(1n);\n    })"
     },
@@ -9506,7 +9626,7 @@
         "functional"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Set an element in a vector by index, returning a new vector\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.zeros(3n));\n        const v2 = $.let(v.set(1n, 42.0));\n        return v2.get(1n);\n    })"
     },
@@ -9525,7 +9645,7 @@
         "range"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Slice a vector to get a sub-range\n// inputs: []  returns: 2.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0, 5.0]));\n        const s = $.let(v.slice(1n, 4n));\n        return s.get(0n);\n    })"
     },
@@ -9544,7 +9664,7 @@
         "combine"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Concatenate two vectors\n// inputs: []  returns: 5n\nEast.function([], IntegerType, ($) => {\n        const a = $.let(East.Vector.fill(2n, 1.0));\n        const b = $.let(East.Vector.fill(3n, 2.0));\n        const c = $.let(a.concat(b));\n        return c.length();\n    })"
     },
@@ -9563,7 +9683,7 @@
         "array"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Convert a vector to an array\n// inputs: []  returns: [1.0, 2.0, 3.0]\nEast.function([], ArrayType(FloatType), ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        return v.toArray();\n    })"
     },
@@ -9582,7 +9702,7 @@
         "matrix"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Reshape a vector into a matrix\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));\n        const m = $.let(v.toMatrix(2n, 3n));\n        return m.rows();\n    })"
     },
@@ -9601,7 +9721,7 @@
         "element"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Map over vector elements with a transformation function\n// inputs: []  returns: 4.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const doubled = $.let(v.map(($, x) => x.multiply(2.0)));\n        return doubled.get(1n);\n    })"
     },
@@ -9620,9 +9740,534 @@
         "accumulate"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
       "source": "// Reduce a vector to a single value with an accumulator\n// inputs: []  returns: 10.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0]));\n        return v.reduce(($, acc, val) => acc.add(val), 0.0);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorScale",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Scale every vector element by a scalar",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "scale",
+        "multiply",
+        "scalar",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Scale every vector element by a scalar\n// inputs: []  returns: 4.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const scaled = $.let(v.scale(2.0));\n        return scaled.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorSum",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Sum vector elements in index order",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "sum",
+        "reduction",
+        "total"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Sum vector elements in index order\n// inputs: []  returns: 7.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.5, 2.5, 3.0]));\n        return v.sum();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorAddScaled",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Add a scaled vector elementwise (a + alpha * b)",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "addScaled",
+        "axpy",
+        "add",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Add a scaled vector elementwise (a + alpha * b)\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 2.0]));\n        const b = $.let(East.Vector.fromArray([10.0, 20.0]));\n        const result = $.let(a.addScaled(b, 2.0));\n        return result.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorMul",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Multiply two vectors elementwise",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "mul",
+        "multiply",
+        "elementwise",
+        "product"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Multiply two vectors elementwise\n// inputs: []  returns: 8.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Vector.fromArray([2.0, 3.0]));\n        const b = $.let(East.Vector.fromArray([4.0, 5.0]));\n        const result = $.let(a.mul(b));\n        return result.get(0n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorAddScalar",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Add a scalar to every vector element",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "addScalar",
+        "add",
+        "offset",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Add a scalar to every vector element\n// inputs: []  returns: 1.5\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0]));\n        const result = $.let(v.addScalar(0.5));\n        return result.get(0n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorDot",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Compute the dot product of two vectors",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "dot",
+        "product",
+        "reduction",
+        "inner"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Compute the dot product of two vectors\n// inputs: []  returns: 32.0\nEast.function([], FloatType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const b = $.let(East.Vector.fromArray([4.0, 5.0, 6.0]));\n        return a.dot(b);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorMax",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Find the largest vector element",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "max",
+        "maximum",
+        "reduction"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Find the largest vector element\n// inputs: []  returns: 5.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 5.0, 3.0]));\n        return v.max();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorMin",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Find the smallest vector element",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "min",
+        "minimum",
+        "reduction"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Find the smallest vector element\n// inputs: []  returns: 2.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([4.0, 2.0, 9.0]));\n        return v.min();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorArgMax",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Find the index of the largest vector element",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "argMax",
+        "argmax",
+        "index",
+        "maximum"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Find the index of the largest vector element\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 5.0, 3.0]));\n        return v.argMax();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorArgMin",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Find the index of the smallest vector element",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "argMin",
+        "argmin",
+        "index",
+        "minimum"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Find the index of the smallest vector element\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const v = $.let(East.Vector.fromArray([4.0, 2.0, 9.0]));\n        return v.argMin();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorMean",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Compute the arithmetic mean of a vector as a Float",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "mean",
+        "average",
+        "reduction"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Compute the arithmetic mean of a vector as a Float\n// inputs: []  returns: 2.5\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0]));\n        return v.mean();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorCumSum",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Compute the running sum of a vector",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "cumSum",
+        "cumulative",
+        "running",
+        "prefix"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Compute the running sum of a vector\n// inputs: []  returns: 6.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const sums = $.let(v.cumSum());\n        return sums.get(2n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorAbs",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Take the absolute value of every vector element",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "abs",
+        "absolute",
+        "magnitude",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Take the absolute value of every vector element\n// inputs: []  returns: 1.5\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([-1.5, 2.0]));\n        const result = $.let(v.abs());\n        return result.get(0n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorClamp",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Elementwise Arithmetic",
+      "test": "Clamp every vector element between bounds",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "clamp",
+        "bound",
+        "limit",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Clamp every vector element between bounds\n// inputs: []  returns: 1.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([-1.0, 0.5, 2.0]));\n        const result = $.let(v.clamp(0.0, 1.0));\n        return result.get(2n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorGather",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Gather, Scatter and Sorted Search",
+      "test": "Gather vector elements at the given indices",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "gather",
+        "index",
+        "permute",
+        "lookup"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Gather vector elements at the given indices\n// inputs: []  returns: 30.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));\n        const gathered = $.let(v.gather(new BigInt64Array([2n, 0n])));\n        return gathered.get(0n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorScatterAdd",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Gather, Scatter and Sorted Search",
+      "test": "Add source values into a vector at the given indices",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "scatterAdd",
+        "scatter",
+        "accumulate",
+        "deposit"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Add source values into a vector at the given indices\n// inputs: []  returns: 5.0\nEast.function([], FloatType, ($) => {\n        const dst = $.let(East.Vector.zeros(3n));\n        const result = $.let(dst.scatterAdd(new BigInt64Array([1n, 1n]), new Float64Array([2.0, 3.0])));\n        return result.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorSearchSorted",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Gather, Scatter and Sorted Search",
+      "test": "Find the sorted insertion index for each needle",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "searchSorted",
+        "searchsorted",
+        "binary",
+        "search",
+        "insertion"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Find the sorted insertion index for each needle\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const haystack = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));\n        const found = $.let(haystack.searchSorted(new Float64Array([25.0])));\n        return found.get(0n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorEq",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Masks and Selection",
+      "test": "Compare two vectors elementwise for equality",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "eq",
+        "equal",
+        "mask",
+        "comparison",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Compare two vectors elementwise for equality\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));\n        const mask = $.let(a.eq(new Float64Array([1.0, 5.0, 3.0])));\n        return mask.countTrue();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorLt",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Masks and Selection",
+      "test": "Compare two vectors elementwise with less-than",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "lt",
+        "less",
+        "mask",
+        "comparison",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Compare two vectors elementwise with less-than\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 5.0]));\n        const mask = $.let(a.lt(new Float64Array([2.0, 2.0])));\n        return mask.get(0n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorGt",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Masks and Selection",
+      "test": "Compare two vectors elementwise with greater-than",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "gt",
+        "greater",
+        "mask",
+        "comparison",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Compare two vectors elementwise with greater-than\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const a = $.let(East.Vector.fromArray([1.0, 5.0]));\n        const mask = $.let(a.gt(new Float64Array([2.0, 2.0])));\n        return mask.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorSelect",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Masks and Selection",
+      "test": "Select elements from two vectors using a Boolean mask",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "select",
+        "mask",
+        "where",
+        "blend",
+        "elementwise"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Select elements from two vectors using a Boolean mask\n// inputs: []  returns: 20.0\nEast.function([], FloatType, ($) => {\n        const mask = $.let(East.Vector.fromArray([true, false]));\n        const a = $.let(East.Vector.fromArray([1.0, 2.0]));\n        const b = $.let(East.Vector.fromArray([10.0, 20.0]));\n        const result = $.let(mask.select(a, b));\n        return result.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorCompress",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Masks and Selection",
+      "test": "Keep the vector elements where the mask is true",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "compress",
+        "filter",
+        "mask",
+        "keep"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Keep the vector elements where the mask is true\n// inputs: []  returns: 3.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.fromArray([1.0, 2.0, 3.0, 4.0]));\n        const kept = $.let(v.compress(East.Vector.fromArray([true, false, true, false])));\n        return kept.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorCountTrue",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Masks and Selection",
+      "test": "Count the true elements of a Boolean vector",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "countTrue",
+        "count",
+        "mask",
+        "boolean"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Count the true elements of a Boolean vector\n// inputs: []  returns: 2n\nEast.function([], IntegerType, ($) => {\n        const mask = $.let(East.Vector.fromArray([true, false, true]));\n        return mask.countTrue();\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorSparseAxpy",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Sparse Accumulators",
+      "test": "Merge two sparse accumulators with a scaled right-hand side",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "sparseAxpy",
+        "sparse",
+        "axpy",
+        "merge",
+        "accumulator",
+        "union"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Merge two sparse accumulators with a scaled right-hand side\n// inputs: []  returns: 5.0\nEast.function([], FloatType, ($) => {\n        const merged = $.let(East.Vector.sparseAxpy(\n            new BigInt64Array([0n, 2n]), new Float64Array([1.0, 2.0]),\n            new BigInt64Array([1n, 2n]), new Float64Array([10.0, 20.0]),\n            0.5,\n        ));\n        return merged.v.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorSparseFromPairs",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Sparse Accumulators",
+      "test": "Build a sparse accumulator from unsorted index and value pairs",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "sparseFromPairs",
+        "sparse",
+        "construct",
+        "pairs",
+        "accumulate"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Build a sparse accumulator from unsorted index and value pairs\n// inputs: []  returns: 4.0\nEast.function([], FloatType, ($) => {\n        const sparse = $.let(East.Vector.sparseFromPairs(\n            new BigInt64Array([2n, 0n, 2n]), new Float64Array([1.0, 2.0, 3.0]),\n        ));\n        return sparse.v.get(1n);\n    })"
+    },
+    {
+      "id": "east:vector.examples.ts:vectorSparseFilterGt",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/vector.examples.ts",
+      "suite": "Sparse Accumulators",
+      "test": "Drop sparse accumulator entries at or below a threshold",
+      "keywords": [
+        "vector",
+        "VectorType",
+        "sparseFilterGt",
+        "sparse",
+        "filter",
+        "threshold",
+        "compact"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Drop sparse accumulator entries at or below a threshold\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const filtered = $.let(East.Vector.sparseFilterGt(\n            new BigInt64Array([0n, 1n, 2n]), new Float64Array([0.5, 2.0, 0.1]), 1.0,\n        ));\n        return filtered.ix.get(0n);\n    })"
     },
     {
       "id": "east-node-std:console.examples.ts:consoleLog",

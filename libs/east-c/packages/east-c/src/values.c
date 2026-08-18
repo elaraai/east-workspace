@@ -1023,6 +1023,32 @@ EastValue *east_vector_new(EastType *elem_type, size_t len)
     return v;
 }
 
+/* east_vector_new without the zero fill — for builtins that overwrite every
+ * element before the value escapes. The redundant zeroing pass is a full
+ * extra sweep over the buffer, which the memory-bound elementwise builtins
+ * (#598) would otherwise pay on every operation. */
+EastValue *east_vector_new_uninit(EastType *elem_type, size_t len)
+{
+    EastValue *v = alloc_value(EAST_VAL_VECTOR);
+    if (!v) return NULL;
+    v->data.vector.len = len;
+    v->data.vector.frozen = false;
+    v->data.vector.elem_type = elem_type;
+    if (elem_type) east_type_retain(elem_type);
+    size_t esize = elem_size_for_type(elem_type);
+    if (len > 0) {
+        v->data.vector.data = east_alloc(len * esize);
+        if (!v->data.vector.data) {
+            if (elem_type) east_type_release(elem_type);
+            abort_value(v);
+            return NULL;
+        }
+    } else {
+        v->data.vector.data = NULL;
+    }
+    return v;
+}
+
 EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols)
 {
     /* Reject dimension products that overflow: rows/cols would keep their
@@ -1040,6 +1066,33 @@ EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols)
     size_t esize = elem_size_for_type(elem_type);
     if (count > 0) {
         v->data.matrix.data = east_calloc(count, esize);
+        if (!v->data.matrix.data) {
+            if (elem_type) east_type_release(elem_type);
+            abort_value(v);
+            return NULL;
+        }
+    } else {
+        v->data.matrix.data = NULL;
+    }
+    return v;
+}
+
+/* east_matrix_new without the zero fill — same contract and rationale as
+ * east_vector_new_uninit. */
+EastValue *east_matrix_new_uninit(EastType *elem_type, size_t rows, size_t cols)
+{
+    if (cols != 0 && rows > SIZE_MAX / cols) return NULL;
+    EastValue *v = alloc_value(EAST_VAL_MATRIX);
+    if (!v) return NULL;
+    v->data.matrix.rows = rows;
+    v->data.matrix.cols = cols;
+    v->data.matrix.frozen = false;
+    v->data.matrix.elem_type = elem_type;
+    if (elem_type) east_type_retain(elem_type);
+    size_t count = rows * cols;
+    size_t esize = elem_size_for_type(elem_type);
+    if (count > 0) {
+        v->data.matrix.data = east_alloc(count * esize);
         if (!v->data.matrix.data) {
             if (elem_type) east_type_release(elem_type);
             abort_value(v);

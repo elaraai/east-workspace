@@ -423,6 +423,11 @@ void east_ref_set(EastValue *ref, EastValue *value);
 
 EastValue *east_vector_new(EastType *elem_type, size_t len);
 EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols);
+/* Constructors without the zero fill, for builtins that overwrite every
+ * element before the value escapes — the redundant zeroing is a full extra
+ * sweep the memory-bound elementwise builtins would pay per operation. */
+EastValue *east_vector_new_uninit(EastType *elem_type, size_t len);
+EastValue *east_matrix_new_uninit(EastType *elem_type, size_t rows, size_t cols);
 
 EastValue *east_function_value(EastCompiledFn *fn);
 

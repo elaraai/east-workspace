@@ -164,13 +164,15 @@ def test_to_dict_duplicate_key_errors_like_eager_and_ts():
 def test_every_listed_method_resolves():
     """The enumeration in ``_TRACED_SURFACE`` is real: each name resolves on
     an expression of its kind (a typo in either place fails here)."""
-    from east.types.types import DictType, SetType
+    from east.types.types import DictType, MatrixType, SetType, VectorType
 
     exprs = {
         "Array": KernelExpr(_var("a", ArrayType(StringType)), ArrayType(StringType)),
         "Set": KernelExpr(_var("s", SetType(StringType)), SetType(StringType)),
         "Dict": KernelExpr(_var("d", DictType(StringType, IntegerType)),
                            DictType(StringType, IntegerType)),
+        "Vector": KernelExpr(_var("v", VectorType(FloatType)), VectorType(FloatType)),
+        "Matrix": KernelExpr(_var("m", MatrixType(FloatType)), MatrixType(FloatType)),
     }
     for tag, expr in exprs.items():
         for name in _TRACED_SURFACE[tag]:
@@ -203,8 +205,8 @@ def test_skill_documents_the_exact_traced_surface():
     from pathlib import Path
 
     skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
-    for tag in ("Array", "Set", "Dict"):
-        m = re.search(rf"- \*\*{tag}\*\*: (.*?)(?=\n   - \*\*|\n\n)", skill, re.S)
+    for tag in ("Array", "Set", "Dict", "Vector", "Matrix"):
+        m = re.search(rf"- \*\*{tag}\*\*(?: \(.*?\))?: (.*?)(?=\n   - \*\*|\n\n)", skill, re.S)
         assert m, f"SKILL.md lost the {tag} traced-surface bullet"
         listed = set(re.findall(r"`([a-z_]+)`", m.group(1)))
         assert listed == set(_TRACED_SURFACE[tag]), (

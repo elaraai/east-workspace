@@ -178,6 +178,16 @@ def _k_new_array(t: EastType, values: list):
     return EastVariant("NewArray", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
 
 
+def _k_new_vector(t: EastType, values: list):
+    return EastVariant("NewVector", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
+
+
+def _k_new_matrix(t: EastType, rows: int, cols: int, values: list):
+    return EastVariant("NewMatrix", EastStruct({
+        "type": t, "loc_id": 0, "values": list(values), "rows": rows, "cols": cols,
+    }))
+
+
 def _k_new_set(t: EastType, values: list):
     return EastVariant("NewSet", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
 

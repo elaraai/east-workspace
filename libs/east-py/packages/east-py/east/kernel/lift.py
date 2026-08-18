@@ -31,7 +31,9 @@ from east.kernel.nodes import (
     _k_ifelse,
     _k_new_array,
     _k_new_dict,
+    _k_new_matrix,
     _k_new_set,
+    _k_new_vector,
     _k_struct,
     _literal,
     _option_type,
@@ -376,8 +378,10 @@ def _lift_collection(value: Any) -> KernelExpr | None:
     from east.kernel.expr import KernelExpr
     from east.types.types import ArrayType as _ArrayType
     from east.types.types import DictType as _DictType
+    from east.types.types import MatrixType as _MatrixType
     from east.types.types import SetType as _SetType
-    from east.types.values import EastDict, EastSet, is_east_struct
+    from east.types.types import VectorType as _VectorType
+    from east.types.values import EastDict, EastMatrix, EastSet, EastVector, is_east_struct
 
     if isinstance(value, EastArray):
         elem_t = value.element_type
@@ -385,6 +389,22 @@ def _lift_collection(value: Any) -> KernelExpr | None:
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
             value, KernelExpr(_k_new_array(arr_t, nodes), arr_t)
+        )
+    if isinstance(value, EastVector):
+        elem_t = value.element_type
+        vec_t = _VectorType(elem_t)
+        nodes = [_lift(x, hint=elem_t).ir for x in value.to_numpy().tolist()]
+        return _register_const(
+            value, KernelExpr(_k_new_vector(vec_t, nodes), vec_t)
+        )
+    if isinstance(value, EastMatrix):
+        elem_t = value.element_type
+        mat_t = _MatrixType(elem_t)
+        flat = value.to_numpy().reshape(-1).tolist()
+        nodes = [_lift(x, hint=elem_t).ir for x in flat]
+        return _register_const(
+            value,
+            KernelExpr(_k_new_matrix(mat_t, value.rows, value.cols, nodes), mat_t),
         )
     if isinstance(value, EastSet):
         elem_t = value.element_type

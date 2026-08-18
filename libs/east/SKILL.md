@@ -149,11 +149,17 @@ Task → What do you need?
     │   │   ├─ Read → .length(), .get()
     │   │   ├─ Functional update → .set() (returns a new vector)
     │   │   ├─ Transform → .slice(), .concat(), .map(), .reduce()
+    │   │   ├─ Arithmetic (Float/Integer elements) → .scale(), .addScaled(), .mul(), .addScalar(), .abs(), .clamp(), .cumSum()
+    │   │   ├─ Reduce (left-to-right index order) → .sum(), .dot(), .max(), .min(), .argMax(), .argMin(), .mean() ❗ empty vector: sum()==0, max/min/argMax/argMin raise
+    │   │   ├─ Masks (Vector<Boolean>) → .eq(), .lt(), .gt(), then mask.select(a, b), data.compress(mask), mask.countTrue()
+    │   │   ├─ Gather / scatter / search → .gather(indices), .scatterAdd(indices, src), .searchSorted(needles) (receiver sorted ascending; leftmost insertion point)
     │   │   └─ Convert → .toArray(), .toMatrix()
     │   ├─ Matrix
     │   │   ├─ Read → .rows(), .cols(), .get(), .getRow(), .getCol()
     │   │   ├─ Functional update → .set() (returns a new matrix)
     │   │   ├─ Transform → .transpose()
+    │   │   ├─ Arithmetic (Float/Integer elements) → .scale(), .addScaled(), .mulElementwise()
+    │   │   ├─ Reduce → .rowSums(), .colSums(), .vecMul(v) ❗ cols must equal v.length()
     │   │   └─ Convert → .toVector(), .toArray()
     │   ├─ Struct → .fieldName (direct property access)
     │   ├─ Variant → .match(), .matchTag(), .unwrap(), .hasTag(), .getTag(), .equals()/.equal()/.eq(), .notEquals()/.notEqual()/.ne()
@@ -167,7 +173,7 @@ Task → What do you need?
     │   ├─ Set → East.Set.generate()
     │   ├─ Dict → East.Dict.generate()
     │   ├─ Blob → East.Blob.encodeBeast(), blob.decodeCsv(), array.encodeCsv()
-    │   ├─ Vector → East.Vector.zeros(), .ones(), .fill(), .fromArray()
+    │   ├─ Vector → East.Vector.zeros(), .ones(), .fill(), .fromArray(), .sparseAxpy(), .sparseFromPairs(), .sparseFilterGt() (sparse pairs are {ix: Vector<Integer>, v: Vector<T>}, ix strictly ascending)
     │   ├─ Matrix → East.Matrix.zeros(), .ones(), .fill(), .fromArray()
     │   └─ String → East.String.printJson(), East.String.printError()
     │
