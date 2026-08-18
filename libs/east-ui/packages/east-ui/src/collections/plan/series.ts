@@ -113,11 +113,14 @@ const seriesShape = (r: EastType) => {
     // Every data-driven arm carries the same identity + the same reified
     // pipeline. `key` and `title` are what let a series be listed, ordered and
     // persisted (#590 phase 1); `derive` is the pipeline itself.
-    const identified = (rt: EastType) => ({
+    const identity = {
         key:      StringType,
         title:    StringType,
         subtitle: OptionType(StringType),
         icon:     OptionType(IconType),
+    };
+    const identified = (rt: EastType) => ({
+        ...identity,
         derive:   FunctionType([DictType(StringType, rt)], PlanRowsCollectionType),
     });
     return VariantType({
@@ -128,11 +131,13 @@ const seriesShape = (r: EastType) => {
         table:   StructType(identified(r)),
         cards:   StructType(identified(r)),
         events:  StructType(identified(r)),
-        // `group` and `rows` keep the old shape until their own identity
-        // collision is resolved — both configs already spend `key` / `label`
-        // on the group ROW (#590 §6.1, second instance).
-        group:   StructType({ derive: FunctionType([DictType(StringType, r)], PlanRowsCollectionType) }),
-        rows:    StructType({ rows: PlanRowsCollectionType }),
+        // `group` and `rows` carry identity too (#590 §6.1, resolved). A GROUP
+        // is the unit a person actually picks — "add Machines" — and hiding one
+        // takes its whole subtree with it, because the children are built by
+        // the group's own `derive`. Without this the library could only offer
+        // top-level series, which on a grouped canvas is almost nothing.
+        group:   StructType(identified(r)),
+        rows:    StructType({ ...identity, rows: PlanRowsCollectionType }),
     });
 };
 
@@ -308,13 +313,15 @@ export type PlanGroupSeriesChrome = Omit<PlanGroupInput, "rows">;
  * child series applied to each group's member rows and re-parented beneath its
  * strip.
  *
+ * @property key - The SERIES' identity (one series, many strips — so it cannot borrow a strip's)
+ * @property title - The series' name, as the library lists it
  * @property match - Strip membership (omitted ⇒ every data row)
  * @property by - The group-key accessor
  * @property prefix - Key prefix for the synthesized strip keys (omit ⇒ the bare group value)
  * @property collapsed - Strips start collapsed
  * @property summaryAggregate - DECLARED strip aggregation over descendant heat rows
  */
-export interface PlanGroupSeriesByConfig<R extends StructType> {
+export interface PlanGroupSeriesByConfig<R extends StructType> extends PlanSeriesIdentity {
     /** Strip membership (omitted ⇒ every data entry). */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
     /** The group-key accessor — one strip per discovered value. */
@@ -334,16 +341,28 @@ export interface PlanGroupSeriesByConfig<R extends StructType> {
 // Internal helpers
 // ============================================================================
 
+/**
+ * The identity as the ARM stores it — widened to expressions, because a static
+ * group's identity IS its strip's `key` / `label`, and those are already
+ * `SubtypeExprOrValue<StringType>`. The author-facing {@link PlanSeriesIdentity}
+ * (plain strings) is assignable to this.
+ */
+interface PlanSeriesIdentityValue {
+    key: SubtypeExprOrValue<StringType>;
+    title: SubtypeExprOrValue<StringType>;
+    subtitle?: SubtypeExprOrValue<StringType>;
+    icon?: PlanIconInput;
+}
+
 /** Pin one arm value against the instantiated series type. */
 function seriesValue<R extends StructType>(
     rowType: R,
     tag: string,
     payload: object,
-    /** The series identity (#590). Omitted by `group` / `rows`, whose arms do
-     *  not carry it yet. */
-    identity?: PlanSeriesIdentity,
+    /** The series identity (#590) — every arm carries one. */
+    identity: PlanSeriesIdentityValue,
 ): PlanSeriesValue {
-    const id = identity === undefined ? {} : {
+    const id = {
         key:      identity.key,
         title:    identity.title,
         subtitle: identity.subtitle !== undefined ? some(identity.subtitle) : none,
@@ -629,6 +648,15 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
  *
  * @typeParam R - The data row type
  * @param rowType - The data row type
+ * @remarks
+ * A group is the unit a person picks — "add Machines" — so the STATIC form's
+ * series identity IS the strip's: `key` and `label` become the series' `key`
+ * and `title`, and `meta` its subtitle. Nothing extra to write, and the two can
+ * never disagree about what the section is called.
+ *
+ * The DISCOVERED (`by`) form cannot borrow that, because one series makes MANY
+ * strips — it declares its own `key` / `title` ({@link PlanGroupSeriesByConfig}).
+ *
  * @param chrome - The group's literal chrome ({@link PlanGroupSeriesChrome})
  * @param children - The member series (applied in declared order; their rows sit in KEY order)
  * @returns A series value (`variant("group", { derive })`)
@@ -667,14 +695,19 @@ export function createSeriesGroup<R extends StructType>(
             const levels: PlanResolvedLevel[] = [{ by: reifyLevelKey(rt, cfg.by), parentFn }];
             return groupRows(matched, levels, (subset, _prefix) => applyChildren(subset), prefix);
         });
-        return seriesValue(rowType, "group", { derive: make });
+        return seriesValue(rowType, "group", { derive: make }, cfg as PlanSeriesIdentity);
     }
     // STATIC chrome — one literal strip around the children.
     const chrome = chromeOrBy as PlanGroupSeriesChrome;
     const make = East.function([DictType(StringType, rowType)], PlanRowsCollectionType, (_$, rows) => {
         return createGroup({ ...(chrome as PlanGroupInput), rows: applyChildren(rows as unknown as ExprType<DictType<StringType, StructType>>) });
     });
-    return seriesValue(rowType, "group", { derive: make });
+    // The strip's own identity, reused verbatim — see the remarks above.
+    return seriesValue(rowType, "group", { derive: make }, {
+        key:   chrome.key,
+        title: chrome.label,
+        ...(chrome.meta !== undefined ? { subtitle: chrome.meta } : {}),
+    });
 }
 
 /**
@@ -683,13 +716,24 @@ export function createSeriesGroup<R extends StructType>(
  * data dependence. They are placed by their own KEYS like every other row,
  * not by where this series sits in the list.
  *
+ * @remarks
+ * Unlike a group, a `rows` series has no single row to borrow identity from —
+ * it may carry several — so it declares one. That is what lets a hand-built
+ * section be switched off like anything else, instead of being the one thing on
+ * the canvas a user cannot turn off.
+ *
  * @typeParam R - The data row type (pins the series against its siblings)
  * @param rowType - The data row type
+ * @param identity - How the library lists this section ({@link PlanSeriesIdentity})
  * @param rows - The literal rows (kind-factory results)
  * @returns A series value (`variant("rows", { rows })`)
  */
-export function createSeriesRows<R extends StructType>(rowType: R, rows: PlanRowsInput): PlanSeriesValue {
-    return seriesValue(rowType, "rows", { rows: normalizeRows(rows) });
+export function createSeriesRows<R extends StructType>(
+    rowType: R,
+    identity: PlanSeriesIdentity,
+    rows: PlanRowsInput,
+): PlanSeriesValue {
+    return seriesValue(rowType, "rows", { rows: normalizeRows(rows) }, identity);
 }
 
 /**

@@ -1262,7 +1262,11 @@ export const planGroupedRows = example({
             ]),
             // DISCOVERED strips — one collapsed group per distinct `by`
             // value, wearing the member-count meta.
-            Plan.series.group(LineRow, { by: r => r.line, match: r => r.series.equal("byline"), collapsed: true, summaryAggregate: "mean" }, [
+            Plan.series.group(LineRow, {
+                key: "discovered", title: "Discovered lines",
+                by: r => r.line, match: r => r.series.equal("byline"),
+                collapsed: true, summaryAggregate: "mean",
+            }, [
                 Plan.series.heat(LineRow, {
                     key: "byline", title: "By line",
                     match: r => r.series.equal("byline"),
@@ -1334,10 +1338,11 @@ export const planSeriesData = example({
         // raw fields become canvas vocabulary: labels, quantity displays and
         // chip text all derive CLIENT-SIDE inside each series's stored make.
         const series = $.const([
-            Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
-                Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
-                Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
-            ] })]),
+            Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
+                [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
+                    Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
+                    Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
+                ] })]),
             Plan.series.span(OpsRow, {
                 key: "span-2", title: "Span",
                 match: r => r.kind.hasTag("machine"),
@@ -1550,7 +1555,7 @@ export const planFill = example({
         // `groupBy` at all.) Inside a strip the members are in KEY order, so
         // the kinds interleave the way the keys do.
         const series = $.const([
-            Plan.series.group(UnitRow, { by: r => r.line }, [
+            Plan.series.group(UnitRow, { key: "lines", title: "Lines", by: r => r.line }, [
                 Plan.series.span(UnitRow, {
                     key: "span-4", title: "Span",
                     match: r => r.series.equal("span"),

@@ -604,7 +604,10 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data,
             series: [
-                Plan.series.group(LineRow, { by: r => r.line, prefix: "line-", collapsed: true, summaryAggregate: "mean" }, [
+                Plan.series.group(LineRow, {
+                    key: "lines", title: "Lines",
+                    by: r => r.line, prefix: "line-", collapsed: true, summaryAggregate: "mean",
+                }, [
                     Plan.series.heat(LineRow, {
                         key: "heat", title: "Heat",
                         label: (_r, k) => k,
@@ -834,7 +837,8 @@ describeEast("Plan", (test) => {
                     label: East.str`RUN · ${j.batch}`, state: j.state,
                 })),
             }),
-            Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MS" })]),
+            Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones" },
+                [Plan.events({ key: "ms", label: "MS" })]),
         ], ArrayType(Plan.Types.Series(OpsRow)));
         const p = $.let(Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: ops, series }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
@@ -858,7 +862,8 @@ describeEast("Plan", (test) => {
             axis: Plan.axis({ resolution: "week" }),
             data: ops,
             series: [
-                Plan.series.rows(OpsRow, [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
+                Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones" },
+                    [Plan.events({ key: "ms", label: "MILESTONES", id: true })]),
                 Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
                     Plan.series.cards(OpsRow, {
                         key: "cards-2", title: "Cards",
@@ -881,6 +886,37 @@ describeEast("Plan", (test) => {
         // Static chrome keeps its AUTHORED meta line verbatim.
         $(Assert.equal(rows.get("crews").gutter.meta.unwrap("some"), "1 rs"));
         $(Assert.equal(rows.get("crewA").parent.unwrap("some"), "crews"));
+    });
+
+    test("every series arm carries identity — a GROUP is the unit a person picks (#590)", $ => {
+        const Row = StructType({ v: FloatType });
+        // A STATIC group borrows the strip's own identity, so an existing
+        // canvas becomes pickable without the author writing anything new.
+        const g = $.let(Plan.series.group(Row, { key: "machines", label: "Machines", meta: "8 rs" }, []));
+        $(Assert.equal(g.getTag(), "group"));
+        $(Assert.equal(g.unwrap("group").key, "machines"));
+        $(Assert.equal(g.unwrap("group").title, "Machines"));
+        $(Assert.equal(g.unwrap("group").subtitle.unwrap("some"), "8 rs"));
+
+        // A group with no meta simply has no sub-line.
+        const bare = $.let(Plan.series.group(Row, { key: "docks", label: "Docks" }, []));
+        $(Assert.equal(bare.unwrap("group").subtitle.hasTag("none"), true));
+
+        // The DISCOVERED form makes MANY strips, so it cannot borrow one
+        // strip's identity — it declares its own.
+        const disc = $.let(Plan.series.group(Row, {
+            key: "lines", title: "Lines", by: (_r) => East.value("L1"),
+        }, []));
+        $(Assert.equal(disc.unwrap("group").key, "lines"));
+        $(Assert.equal(disc.unwrap("group").title, "Lines"));
+
+        // Literal chrome names itself, so it can be switched off like anything
+        // else rather than being the one row a user cannot turn off.
+        const chrome = $.let(Plan.series.rows(Row, { key: "chrome", title: "Milestones" },
+            [Plan.events({ key: "ms", label: "MS" })]));
+        $(Assert.equal(chrome.getTag(), "rows"));
+        $(Assert.equal(chrome.unwrap("rows").key, "chrome"));
+        $(Assert.equal(chrome.unwrap("rows").title, "Milestones"));
     });
 
     test("a paged data handle derives the canvas-row source — page wraps the series makes, total passes through", $ => {
