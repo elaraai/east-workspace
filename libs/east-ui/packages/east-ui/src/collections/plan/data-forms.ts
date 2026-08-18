@@ -6,7 +6,7 @@
 /**
  * The shared data-driven pipeline (`Plan Data Interface.md` §3.5a) — the
  * accessor config surfaces, the reified groupBy engine, and the per-kind
- * leaf/parent constructors that the `Plan.series.*` builders compose into
+ * row/parent constructors that the `Plan.series.*` builders compose into
  * their `derive` functions. Structure (groupBy levels) is host config; every
  * per-row value flows through accessors as expressions, optional ones
  * returning the fields' `Option` types.
@@ -242,10 +242,15 @@ export interface PlanSpanOfConfig<R extends StructType> {
 }
 
 /**
- * One series' per-ENTRY leaf constructor — the entry's value and key in, its
+ * One series' per-ENTRY ROW constructor — the entry's value and key in, its
  * 1-row keyed subtree out.
+ *
+ * @remarks
+ * Named for what it BUILDS, not for where it happens to sit: it is a leaf only
+ * when `groupBy` synthesizes parents above it, and the same function runs
+ * unchanged when there are none.
  */
-export type PlanLeafFn = (
+export type PlanRowFn = (
     $: BlockBuilder<PlanRowsCollectionType>,
     row: ExprType<StructType>,
     key: ExprType<StringType>,
@@ -265,7 +270,7 @@ export function spanParentKind(cfg: PlanSpanOfConfig<StructType>): ExprType<Plan
 /** The span LEAF constructor — one data ENTRY to its 1-row subtree, keyed by
  *  the entry's own key, the envelope's Option fields injected from the
  *  accessors. */
-export function spanLeafOf(cfg: PlanSpanOfConfig<StructType>): PlanLeafFn {
+export function spanRowOf(cfg: PlanSpanOfConfig<StructType>): PlanRowFn {
     return (_$, r, k) => applyRowOverrides(
         createSpan({
             key:   prefixedKey(cfg.prefix, k),
@@ -345,7 +350,7 @@ export function heatParentKind(cfg: PlanHeatOfConfig<StructType>): ExprType<Plan
 }
 
 /** The heat LEAF constructor. */
-export function heatLeafOf(cfg: PlanHeatOfConfig<StructType>): PlanLeafFn {
+export function heatRowOf(cfg: PlanHeatOfConfig<StructType>): PlanRowFn {
     return (_$, r, k) => applyRowOverrides(
         createHeat({
             key:   prefixedKey(cfg.prefix, k),
@@ -438,7 +443,7 @@ export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<Pl
 }
 
 /** The table LEAF constructor. */
-export function tableLeafOf(cfg: PlanTableOfConfig<StructType>): PlanLeafFn {
+export function tableRowOf(cfg: PlanTableOfConfig<StructType>): PlanRowFn {
     return (_$, r, k) => applyRowOverrides(
         createTable({
             key:   prefixedKey(cfg.prefix, k),

@@ -74,16 +74,16 @@ import {
     type PlanHeatOfConfig,
     type PlanTableOfConfig,
     type PlanResolvedLevel,
-    type PlanLeafFn,
+    type PlanRowFn,
     prefixedKey,
     reifyLevelKey,
     groupRows,
     spanParentKind,
-    spanLeafOf,
+    spanRowOf,
     heatParentKind,
-    heatLeafOf,
+    heatRowOf,
     tableParentKind,
-    tableLeafOf,
+    tableRowOf,
 } from "./data-forms.js";
 
 // ============================================================================
@@ -408,14 +408,14 @@ function seriesScaffold(
     match: PlanMatchFn | undefined,
     groupBy: PlanAccessor<StructType, StringType>[] | undefined,
     parentFn: (() => PlanResolvedLevel["parentFn"]) | undefined,
-    leaf: PlanLeafFn,
+    row: PlanRowFn,
     prefix?: string,
 ): ExprType<FunctionType<[DictType<StringType, StructType>], PlanRowsCollectionType>> {
     const sourceType = DictType(StringType, rowType);
     return East.function([sourceType], PlanRowsCollectionType, ($, entries) => {
         const matched = $.let(matchedRows(entries, rowType, match), sourceType);
         if (groupBy === undefined || groupBy.length === 0 || parentFn === undefined) {
-            return foldEntriesToDict(matched, PlanRowsCollectionType, LAST_WINS, leaf);
+            return foldEntriesToDict(matched, PlanRowsCollectionType, LAST_WINS, row);
         }
         // Every level shares ONE parent constructor (the ofScaffold shape).
         const shared = parentFn();
@@ -424,9 +424,9 @@ function seriesScaffold(
             parentFn: shared,
         }));
         // The prefix keys the SYNTHESIZED parents; leaf keys are the source's
-        // own, carried through by `leaf` — see `groupRows`.
+        // own, carried through by `row` — see `groupRows`.
         return groupRows(matched, levels,
-            (subset, _prefix) => foldEntriesToDict(subset, PlanRowsCollectionType, LAST_WINS, leaf),
+            (subset, _prefix) => foldEntriesToDict(subset, PlanRowsCollectionType, LAST_WINS, row),
             prefix ?? "");
     }) as ExprType<FunctionType<[DictType<StringType, StructType>], PlanRowsCollectionType>>;
 }
@@ -496,7 +496,7 @@ export function applySeries(
 export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanSpanSeriesConfig<R>): PlanSeriesValue {
     const cfg = config as PlanSpanSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
-        () => groupParentFn(spanParentKind(cfg)), spanLeafOf(cfg), cfg.prefix);
+        () => groupParentFn(spanParentKind(cfg)), spanRowOf(cfg), cfg.prefix);
     return seriesValue(rowType, "span", { derive }, cfg);
 }
 
@@ -514,7 +514,7 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
     const mode = cfg.aggregate ?? "mean";
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(heatParentKind(cfg), some(resolveTag(mode, PlanAggregateType).getTag())),
-        heatLeafOf(cfg), cfg.prefix);
+        heatRowOf(cfg), cfg.prefix);
     return seriesValue(rowType, "heat", { derive }, cfg);
 }
 
@@ -532,7 +532,7 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
     const mode = cfg.aggregate ?? "sum";
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(tableParentKind(cfg), some(resolveTag(mode, TableAggregateType).getTag())),
-        tableLeafOf(cfg), cfg.prefix);
+        tableRowOf(cfg), cfg.prefix);
     return seriesValue(rowType, "table", { derive }, cfg);
 }
 
