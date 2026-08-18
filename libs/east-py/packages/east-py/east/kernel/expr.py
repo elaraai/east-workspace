@@ -48,6 +48,8 @@ _TRACED_SURFACE = {
         "map", "filter", "filter_map", "first_map", "fold", "scan", "map_reduce",
         "flatten_to_array", "flatten_to_set", "flatten_to_dict",
         "to_dict", "to_set", "unique",
+        # to_vector: the Array-side entry to the tensor surface (#601)
+        "to_vector",
         "group_by", "sorted", "is_sorted", "some", "every", "string_join",
         "concat", "slice", "reversed", "copy", "get_keys",
         "size", "has", "get", "get_or_default", "try_get",

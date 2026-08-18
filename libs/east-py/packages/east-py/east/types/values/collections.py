@@ -675,6 +675,31 @@ class EastArray(MutableSequence, Generic[T]):
         """
         return self.to_set()
 
+    def to_vector(self) -> Any:
+        """The elements as a Vector, in order (east-c VectorFromArray).
+
+        The Array-side entry to the tensor surface (#601): a computed
+        ``Array<Float/Integer/Boolean>`` becomes the contiguous ``Vector``
+        the arithmetic, reduction and sparse builtins take. The traced twin
+        emits the same builtin, so a kernel can seed a tensor from per-row
+        values without leaving east-c.
+
+        Returns:
+            A ``Vector`` of this array's element type.
+
+        Raises:
+            TypeError: If the element type is not Float, Integer or Boolean
+                (the Vector element kinds).
+        """
+        from east.types.types import VectorType
+
+        if self.element_type.type not in ("Float", "Integer", "Boolean"):
+            raise TypeError(
+                f".to_vector() needs Float, Integer or Boolean elements, "
+                f"got {self.element_type.type}")
+        return _call_builtin(
+            "VectorFromArray", [self.element_type], [self], VectorType(self.element_type))
+
     def to_dict(self, key: Any, value: Any = None, combine: Any = None) -> EastDict:
         """Build a dict keyed by ``key(element)`` from the array (east-c ArrayToDict).
 

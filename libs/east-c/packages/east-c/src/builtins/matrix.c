@@ -173,23 +173,16 @@ static EastValue *matrix_to_vector_impl(EastValue **args, size_t n)
     return vec;
 }
 
-static EastValue *matrix_from_array_impl(EastValue **args, size_t n)
+/* The DECLARED type parameter is authoritative (#601): sampling the first
+ * decoded element mislabels an empty (or empty-rowed) matrix and cannot see
+ * the declared kind at all. */
+static EastValue *matrix_from_array_with_type(EastValue **args, EastType *et)
 {
-    (void)n;
     EastValue *arr = args[0];
     size_t rows = east_array_len(arr);
-    if (rows == 0) return east_matrix_new(&east_float_type, 0, 0);
+    if (rows == 0) return east_matrix_new(et, 0, 0);
     EastValue *first_row = east_array_get(arr, 0);
     size_t cols = east_array_len(first_row);
-    /* Determine element type from first element */
-    EastType *et = &east_float_type;
-    if (cols > 0) {
-        EastValue *first_elem = east_array_get(first_row, 0);
-        if (first_elem->kind == EAST_VAL_INTEGER)
-            et = &east_integer_type;
-        else if (first_elem->kind == EAST_VAL_BOOLEAN)
-            et = &east_boolean_type;
-    }
     EastValue *mat = east_matrix_new(et, rows, cols);
     for (size_t r = 0; r < rows; r++) {
         EastValue *row = east_array_get(arr, r);
@@ -198,6 +191,21 @@ static EastValue *matrix_from_array_impl(EastValue **args, size_t n)
         }
     }
     return mat;
+}
+static EastValue *matrix_from_array_float(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_from_array_with_type(args, &east_float_type);
+}
+static EastValue *matrix_from_array_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_from_array_with_type(args, &east_integer_type);
+}
+static EastValue *matrix_from_array_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_from_array_with_type(args, &east_boolean_type);
 }
 
 static EastValue *matrix_to_array_impl(EastValue **args, size_t n)
@@ -243,44 +251,95 @@ static EastValue *matrix_transpose_impl(EastValue **args, size_t n)
     return result;
 }
 
-static EastValue *matrix_zeros_impl(EastValue **args, size_t n)
+/* zeros/ones/fill honor the DECLARED element type (#601) — they were
+ * Float-hardwired (zeros/ones) or value-sampled (fill), so an Integer T
+ * produced a mislabelled Float buffer, exactly like the Vector twins. */
+static EastValue *matrix_zeros_with_type(EastValue **args, EastType *et)
 {
-    (void)n;
     size_t rows = (size_t)args[0]->data.integer;
     size_t cols = (size_t)args[1]->data.integer;
-    EastValue *mat = east_matrix_new(&east_float_type, rows, cols);
-    memset(mat->data.matrix.data, 0, rows * cols * sizeof(double));
+    EastValue *mat = east_matrix_new(et, rows, cols);
+    memset(mat->data.matrix.data, 0, rows * cols * elem_size(et));
     return mat;
 }
-
-static EastValue *matrix_ones_impl(EastValue **args, size_t n)
+static EastValue *matrix_zeros_float(EastValue **args, size_t n)
 {
     (void)n;
+    return matrix_zeros_with_type(args, &east_float_type);
+}
+static EastValue *matrix_zeros_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_zeros_with_type(args, &east_integer_type);
+}
+static EastValue *matrix_zeros_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_zeros_with_type(args, &east_boolean_type);
+}
+
+static EastValue *matrix_ones_with_type(EastValue **args, EastType *et)
+{
     size_t rows = (size_t)args[0]->data.integer;
     size_t cols = (size_t)args[1]->data.integer;
-    EastValue *mat = east_matrix_new(&east_float_type, rows, cols);
-    double *data = (double *)mat->data.matrix.data;
-    for (size_t i = 0; i < rows * cols; i++)
-        data[i] = 1.0;
+    size_t count = rows * cols;
+    EastValue *mat = east_matrix_new(et, rows, cols);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        double *data = (double *)mat->data.matrix.data;
+        for (size_t i = 0; i < count; i++)
+            data[i] = 1.0;
+    } else if (et->kind == EAST_TYPE_INTEGER) {
+        int64_t *data = (int64_t *)mat->data.matrix.data;
+        for (size_t i = 0; i < count; i++)
+            data[i] = 1;
+    } else {
+        bool *data = (bool *)mat->data.matrix.data;
+        for (size_t i = 0; i < count; i++)
+            data[i] = true;
+    }
     return mat;
 }
-
-static EastValue *matrix_fill_impl(EastValue **args, size_t n)
+static EastValue *matrix_ones_float(EastValue **args, size_t n)
 {
     (void)n;
+    return matrix_ones_with_type(args, &east_float_type);
+}
+static EastValue *matrix_ones_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_ones_with_type(args, &east_integer_type);
+}
+static EastValue *matrix_ones_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_ones_with_type(args, &east_boolean_type);
+}
+
+static EastValue *matrix_fill_with_type(EastValue **args, EastType *et)
+{
     size_t rows = (size_t)args[0]->data.integer;
     size_t cols = (size_t)args[1]->data.integer;
     EastValue *val = args[2];
-    EastType *et = &east_float_type;
-    if (val->kind == EAST_VAL_INTEGER)
-        et = &east_integer_type;
-    else if (val->kind == EAST_VAL_BOOLEAN)
-        et = &east_boolean_type;
     EastValue *mat = east_matrix_new(et, rows, cols);
     for (size_t r = 0; r < rows; r++)
         for (size_t c = 0; c < cols; c++)
             mat_set_elem(mat, r, c, val);
     return mat;
+}
+static EastValue *matrix_fill_float(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_fill_with_type(args, &east_float_type);
+}
+static EastValue *matrix_fill_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_fill_with_type(args, &east_integer_type);
+}
+static EastValue *matrix_fill_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_fill_with_type(args, &east_boolean_type);
 }
 
 static EastValue *matrix_map_elements_impl(EastValue **args, size_t n)
@@ -380,15 +439,13 @@ static EastValue *matrix_to_rows_impl(EastValue **args, size_t n)
     return result;
 }
 
-static EastValue *matrix_from_rows_impl(EastValue **args, size_t n)
+static EastValue *matrix_from_rows_with_type(EastValue **args, EastType *et)
 {
-    (void)n;
     EastValue *arr = args[0];
     size_t rows = east_array_len(arr);
-    if (rows == 0) return east_matrix_new(&east_float_type, 0, 0);
+    if (rows == 0) return east_matrix_new(et, 0, 0);
     EastValue *first = east_array_get(arr, 0);
     size_t cols = first->data.vector.len;
-    EastType *et = first->data.vector.elem_type;
     size_t es = elem_size(et);
     EastValue *mat = east_matrix_new(et, rows, cols);
     for (size_t r = 0; r < rows; r++) {
@@ -396,6 +453,21 @@ static EastValue *matrix_from_rows_impl(EastValue **args, size_t n)
         memcpy((char *)mat->data.matrix.data + r * cols * es, rv->data.vector.data, cols * es);
     }
     return mat;
+}
+static EastValue *matrix_from_rows_float(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_from_rows_with_type(args, &east_float_type);
+}
+static EastValue *matrix_from_rows_int(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_from_rows_with_type(args, &east_integer_type);
+}
+static EastValue *matrix_from_rows_bool(EastValue **args, size_t n)
+{
+    (void)n;
+    return matrix_from_rows_with_type(args, &east_boolean_type);
 }
 
 /* ------------------------------------------------------------------ */
@@ -652,9 +724,11 @@ static BuiltinImpl matrix_to_vector_factory(EastType **tp, size_t ntp)
 }
 static BuiltinImpl matrix_from_array_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return matrix_from_array_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return matrix_from_array_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return matrix_from_array_bool;
+    }
+    return matrix_from_array_float;
 }
 static BuiltinImpl matrix_to_array_factory(EastType **tp, size_t ntp)
 {
@@ -670,21 +744,27 @@ static BuiltinImpl matrix_transpose_factory(EastType **tp, size_t ntp)
 }
 static BuiltinImpl matrix_zeros_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return matrix_zeros_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return matrix_zeros_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return matrix_zeros_bool;
+    }
+    return matrix_zeros_float;
 }
 static BuiltinImpl matrix_ones_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return matrix_ones_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return matrix_ones_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return matrix_ones_bool;
+    }
+    return matrix_ones_float;
 }
 static BuiltinImpl matrix_fill_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return matrix_fill_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return matrix_fill_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return matrix_fill_bool;
+    }
+    return matrix_fill_float;
 }
 static BuiltinImpl matrix_map_elements_factory(EastType **tp, size_t ntp)
 {
@@ -706,9 +786,11 @@ static BuiltinImpl matrix_to_rows_factory(EastType **tp, size_t ntp)
 }
 static BuiltinImpl matrix_from_rows_factory(EastType **tp, size_t ntp)
 {
-    (void)tp;
-    (void)ntp;
-    return matrix_from_rows_impl;
+    if (ntp >= 1 && tp[0]) {
+        if (tp[0]->kind == EAST_TYPE_INTEGER) return matrix_from_rows_int;
+        if (tp[0]->kind == EAST_TYPE_BOOLEAN) return matrix_from_rows_bool;
+    }
+    return matrix_from_rows_float;
 }
 
 static BuiltinImpl matrix_scale_factory(EastType **tp, size_t ntp)

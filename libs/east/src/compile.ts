@@ -3357,13 +3357,13 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return matrix(vec.slice() as any, r, c);
   },
 
-  VectorZeros: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (len: bigint) => {
-    return new Float64Array(Number(len));
+  VectorZeros: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (len: bigint) => {
+    return allocateTypedArray(T, Number(len));
   },
 
-  VectorOnes: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (len: bigint) => {
-    const arr = new Float64Array(Number(len));
-    arr.fill(1.0);
+  VectorOnes: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (len: bigint) => {
+    const arr = allocateTypedArray(T, Number(len));
+    arr.fill((arr instanceof BigInt64Array ? 1n : 1) as never);
     return arr;
   },
 
@@ -3940,13 +3940,13 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return matrix(result, m.cols, m.rows);
   },
 
-  MatrixZeros: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (rows: bigint, cols: bigint) => {
-    return matrix(new Float64Array(Number(rows) * Number(cols)), Number(rows), Number(cols));
+  MatrixZeros: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (rows: bigint, cols: bigint) => {
+    return matrix(allocateTypedArray(T, Number(rows) * Number(cols)), Number(rows), Number(cols));
   },
 
-  MatrixOnes: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (rows: bigint, cols: bigint) => {
-    const data = new Float64Array(Number(rows) * Number(cols));
-    data.fill(1.0);
+  MatrixOnes: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (rows: bigint, cols: bigint) => {
+    const data = allocateTypedArray(T, Number(rows) * Number(cols));
+    data.fill((data instanceof BigInt64Array ? 1n : 1) as never);
     return matrix(data, Number(rows), Number(cols));
   },
 
