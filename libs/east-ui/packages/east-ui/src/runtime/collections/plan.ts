@@ -89,7 +89,8 @@ export const Plan: {
     tableSeries: typeof PlanFactory.tableSeries;
     layer: typeof PlanFactory.layer;
     fixed: typeof PlanFactory.fixed;
-    template: typeof PlanFactory.template;
+    pick: typeof PlanFactory.pick;
+    pickItems: typeof PlanFactory.pickItems;
     Types: typeof PlanFactory.Types;
 } = Object.assign(
     function Plan(props: PlanConfig): UIElement {
@@ -124,7 +125,8 @@ export const Plan: {
         tableSeries: PlanFactory.tableSeries,
         layer: PlanFactory.layer,
         fixed: PlanFactory.fixed,
-        template: PlanFactory.template,
+        pick: PlanFactory.pick,
+        pickItems: PlanFactory.pickItems,
         Types: PlanFactory.Types,
     },
 );

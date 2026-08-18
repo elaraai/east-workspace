@@ -85,7 +85,7 @@ export type {
     PlanHeatInput, PlanTableInput, PlanCardsInput, PlanEventsInput, PlanGroupInput,
     PlanRunInput, PlanDecisionInput, PlanPortInput, PlanBucketEventInput,
     PlanCellMarkerInput, PlanChipInput, PlanEventMarkInput, PlanSegmentInput,
-    PlanTableSeriesInput, PlanTemplateInput, PlanExpandInput, PlanLinkInput,
+    PlanTableSeriesInput, PlanExpandInput, PlanLinkInput,
     PlanIconInput, PlanLayerChannels,
     PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
     PlanSpanOfConfig, PlanHeatOfConfig, PlanTableOfConfig,

@@ -100,7 +100,7 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
             format: none,
         },
         grain: none,
-        library: [],
+       
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,

@@ -34,7 +34,6 @@ import {
     PlanGrainType,
     PlanLinkType,
     PlanRowsType,
-    PlanTemplateType,
     PlanElementRefType,
     PlanRowRefType,
     PlanRunClickEventType,
@@ -78,7 +77,6 @@ export const PlanRootType = StructType({
     links: ArrayType(PlanLinkType),
     axis: PlanAxisType,
     grain: OptionType(PlanGrainType),
-    library: ArrayType(PlanTemplateType),
     // The generalized element resolvers (Plan Data Interface.md §3.3) —
     // invoked lazily at interaction time; naming per the Schematic /
     // Flowchart `*Hover` resolver convention (never `on*` — that prefix is

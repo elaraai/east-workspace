@@ -36,7 +36,7 @@ import {
 
 import { IconType } from "../../display/icon/types.js";
 import { createPickBind, pickItems, type PickHandle, type PickItemType, type PickOptions } from "../../contracts/pick.js";
-import { applySeriesValue, type PlanSeriesInput, type PlanSeriesValue } from "./series.js";
+import { PlanSeriesType, applySeriesValue, type PlanSeriesInput, type PlanSeriesValue } from "./series.js";
 
 /**
  * The FA glyph each row kind declares.
@@ -169,9 +169,12 @@ export function createPlanPick(
     key: string,
     all: PlanSeriesInput,
     options?: PlanPickOptions,
-): PickHandle<EastType> {
+): PickHandle<ReturnType<typeof PlanSeriesType>> {
     const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    return createPickBind(key, allExpr, planPickOptions(allExpr, options));
+    // Typed at the SERIES shape, not the erased element type: that is what
+    // makes `Pick.active(shown)` assignable straight back to the `series` prop.
+    return createPickBind(key, allExpr, planPickOptions(allExpr, options)) as unknown as
+        PickHandle<ReturnType<typeof PlanSeriesType>>;
 }
 
 /**

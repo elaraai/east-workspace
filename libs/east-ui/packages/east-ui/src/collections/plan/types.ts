@@ -46,7 +46,6 @@ import {
     DateTimeType,
     DictType,
     FloatType,
-    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -715,27 +714,6 @@ export type PlanStyleType = typeof PlanStyleType;
 // Templates + links — the plain vocabulary
 // ============================================================================
 
-/**
- * A template's row kind — drives the default library-card FA icon
- * (bars-staggered · border-all · chart-line · table-cells-large · table-list ·
- * user-group · flag).
- *
- * @property span - A span-row template
- * @property buckets - A bucket-row template
- * @property chart - A chart-row template
- * @property heat - A heat-row template
- * @property table - A table-row template
- * @property cards - A cards-row template
- * @property events - An event-row template
- */
-export const PlanTemplateKindType = VariantType({
-    span: NullType, buckets: NullType, chart: NullType, heat: NullType,
-    table: NullType, cards: NullType, events: NullType,
-});
-export type PlanTemplateKindType = typeof PlanTemplateKindType;
-
-/** String-literal shorthand for {@link PlanTemplateKindType}. */
-export type PlanTemplateKindLiteral = "span" | "buckets" | "chart" | "heat" | "table" | "cards" | "events";
 
 /**
  * One quantity link between two runs — the Plan's edge vocabulary. The root's
@@ -1042,23 +1020,6 @@ export const PlanRowsType = RowSourceType(PlanRowsCollectionType);
 /** Type alias for {@link PlanRowsType}. */
 export type PlanRowsType = typeof PlanRowsType;
 
-/**
- * One row-library template — a kind + label card whose `make` function IS
- * the binding: it builds the live row subtree ({@link PlanRowsCollectionType}
- * — the same keyed shape every kind factory returns) from captured data and
- * bind-handles, so a dropped row is live immediately. Templates are plain
- * East data: a host can store the library in a dataset.
- */
-export const PlanTemplateType = StructType({
-    key: StringType,
-    label: StringType,
-    sublabel: OptionType(StringType),
-    kind: PlanTemplateKindType,
-    icon: OptionType(IconType),
-    make: FunctionType([], PlanRowsCollectionType),
-});
-/** Type alias for {@link PlanTemplateType}. */
-export type PlanTemplateType = typeof PlanTemplateType;
 
 // ============================================================================
 // TypeScript input interfaces (UIComp-free)

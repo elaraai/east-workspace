@@ -4,9 +4,8 @@
  */
 
 /**
- * The Plan root — row-library templates (the binding rides `make`) and
- * `Plan.Root`, which assembles the whole canvas value against the
- * `component.ts` arm.
+ * The Plan root — `Plan.Root`, which assembles the whole canvas value against
+ * the `component.ts` arm.
  *
  * @packageDocumentation
  */
@@ -49,71 +48,15 @@ import {
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
-    PlanTemplateKindType,
-    type PlanTemplateKindLiteral,
     PlanElementRefType,
     PlanRowsCollectionType,
     PlanRowsType,
-    PlanTemplateType,
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
-import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
+import { resolveTag } from "./builders.js";
 import { applySeries, type PlanSeriesInput } from "./series.js";
 import { resolveRowSource, buildRowSource, type PagedSourceLike } from "../../contracts/source.js";
 
-// ============================================================================
-// Templates
-// ============================================================================
-
-/**
- * Flat input for {@link Plan.template} — one row-library card.
- *
- * @property key - Template identity (drag refs)
- * @property label - The card name (`"Chart"`)
- * @property sublabel - The muted role line (`"utilisation %"`)
- * @property kind - The row kind (drives the default card icon)
- * @property icon - Optional card-icon override
- * @property make - The binding — builds the live row subtree from captured data / bind-handles
- */
-export interface PlanTemplateInput {
-    /** Template identity (drag refs). */
-    key: SubtypeExprOrValue<StringType>;
-    /** The card name (`"Chart"`). */
-    label: SubtypeExprOrValue<StringType>;
-    /** The muted role line (`"utilisation %"`). */
-    sublabel?: SubtypeExprOrValue<StringType>;
-    /** The row kind — drives the default FA card icon. */
-    kind: PlanTemplateKindLiteral | SubtypeExprOrValue<PlanTemplateKindType>;
-    /** Optional card-icon override. */
-    icon?: PlanIconInput;
-    /** The binding — an `East.function([], Plan.Types.Rows)` building the live
-     *  keyed subtree from captured data / bind-handles. */
-    make: SubtypeExprOrValue<FunctionType<[], PlanRowsCollectionType>>;
-}
-
-/**
- * Builds one row-library template. Templates carry their binding — `make`
- * builds the finished subtree from captured data and bind-handles, so a
- * dropped row is live immediately and the host's `onDrag` add-handler is one
- * generic line (find the template, `make()`, insert).
- *
- * @param input - The template configuration ({@link PlanTemplateInput})
- * @returns An East expression of {@link PlanTemplateType}
- */
-export function createTemplate(input: PlanTemplateInput): ExprType<PlanTemplateType> {
-    return East.value({
-        key:      input.key,
-        label:    input.label,
-        sublabel: input.sublabel !== undefined ? some(input.sublabel) : none,
-        kind:     resolveTag(input.kind, PlanTemplateKindType),
-        icon:     input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
-        // Pin the exact East type (the Schematic `itemHover` / Table
-        // `expandedContent` pattern) — the widened input form erases
-        // `UIComponentType`'s nominal identity, which the `component.ts`
-        // arm's recursion-marker slots unify against.
-        make:     East.value(input.make, FunctionType([], PlanRowsCollectionType)),
-    }, PlanTemplateType);
-}
 
 // ============================================================================
 // Root
@@ -137,7 +80,6 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
  * @property series - The row series over `data` — `Plan.series.*` values (declared order resolves key collisions; rows sit in KEY order)
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
- * @property library - Row-library templates (`Plan.template` values)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row ref)
@@ -195,8 +137,6 @@ export interface PlanConfig {
     links?: SubtypeExprOrValue<ArrayType<PlanLinkType>>;
     /** Initial grain (default `"resource"`). */
     grain?: PlanGrainLiteral | SubtypeExprOrValue<PlanGrainType>;
-    /** Row-library templates (`Plan.template` values); non-empty enables the composition affordance. */
-    library?: SubtypeExprOrValue<PlanTemplateType>[];
     /** Generalized click-popover resolver — called with the clicked element's
      *  ref (`run` / `event` / `chip` / `mark` / `cell` arm, each carrying the
      *  row key); returning `none` opens no surface. */
@@ -336,7 +276,6 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
         links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
         axis:     config.axis,
         grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,
-        library:  East.value(config.library ?? [], ArrayType(PlanTemplateType)),
         // East.value pins the exact function type (the Schematic `itemHover`
         // pattern) so the arm's recursion-marker slots unify.
         popover: config.popover !== undefined

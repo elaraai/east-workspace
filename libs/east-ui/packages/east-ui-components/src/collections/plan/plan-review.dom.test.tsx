@@ -61,7 +61,7 @@ function planRoot(rows: PlanRowValue[], review: unknown): PlanRootValue {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [], now: some(W31), format: none,
         },
-        grain: none, library: [], popover: none, hover: none,
+        grain: none, popover: none, hover: none,
         expandRender: none,
         review: review === undefined ? none : some(review),
         slice: none, footer: [],

@@ -23,7 +23,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, State, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
+import { Box, Chart, Format, HStack, Pick, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1387,83 +1387,105 @@ export const planSeriesData = example({
 });
 
 // ============================================================================
-// planLibraryDnd — row-library composition (the DnD behavioral isolate)
+// planSeriesLibrary — the pickable series library (the DnD behavioral isolate)
 // ============================================================================
 
 export const planLibraryDnd = example({
     keywords: [
-        "Plan", "data", "series", "library", "template", "make", "binding", "DnD", "drag", "drop",
-        "onDrag", "canDrop", "sources", "add", "reorder", "compose",
+        "Plan", "data", "series", "library", "Pick", "pick", "Panel", "pickItems", "hidden",
+        "toggle", "eye", "kind icon", "count", "DnD", "drag", "drop", "onDrag", "canDrop",
+        "sources", "add", "Reactive", "State", "#590",
     ],
-    description: "Row-library composition — templates carrying their binding via make() (the kind factories are the SUBTREE vocabulary for template bodies), the base canvas defined as raw data + a span series, and the Plan declared as a DnD target with the shared onDrag funnel and a canDrop veto",
-    fn: East.function([], UIComponentType, ($) => {
-        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
-        const ShiftRow = StructType({
-            key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
-        });
-        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-            return w1.addWeeks(n.subtract(1n));
-        }));
-        // The base canvas — raw data + a span series, like every Plan.
-        const JobRow = StructType({
-            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
-        });
-        const MachineRow = StructType({ jobs: ArrayType(JobRow) });
-        const machines = $.const(new Map([
-            ["L1-M03", { jobs: [
-                { batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
-            ] }],
-        ]), DictType(StringType, MachineRow));
-        const series = $.const([
-            Plan.series.span(MachineRow, {
-                key: "span-3", title: "Span",
-                label: (_r, k) => k, id: true,
-                runs: r => r.jobs.map((_$, j) => Plan.run({
-                    key: j.batch, start: j.start, end: j.end,
-                    label: East.str`RUN · ${j.batch}`, state: j.state,
-                })),
-            }),
-        ], ArrayType(Plan.Types.Series(MachineRow)));
-        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
-        const loadPcts = $.const([46.0, 58.0, 66.0, 78.0, 90.0, 98.0], ArrayType(FloatType));
-        const load = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
-            ({ week: week(i.multiply(2n).add(27n)), pct: loadPcts.get(i) })));
-        const shifts = $.const([
-            { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
-            { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
-        ], ArrayType(ShiftRow));
-        // Templates carry their BINDING: `make` builds the live subtree from
-        // the captured data — the kind factories' remaining public role — so
-        // a dropped row renders immediately.
-        const makeUtil = $.const(East.function([], Plan.Types.Rows, (_$) =>
-            Plan.chart({
-                key: "util", label: "UTIL %", id: true, height: "spark",
-                layers: [Chart.Column(load, { x: r => r.week, y: r => r.pct })],
-            })));
-        const makeCrew = $.const(East.function([], Plan.Types.Rows, (_$) =>
-            Plan.cards({
-                key: "crew", label: "Crew A", sub: "152h", stacked: true,
-                chips: shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
-            })));
-        const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));
-        const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));
-        return (
-            <Plan
-                axis={axis}
-                data={machines}
-                series={series}
-                library={[
-                    Plan.template({ key: "util", label: "Chart", sublabel: "utilisation %", kind: "chart", make: makeUtil }),
-                    Plan.template({ key: "crew", label: "Cards", sublabel: "crew assignments", kind: "cards", icon: "user-group", make: makeCrew }),
-                ]}
-                id="plan" sources={["row-library"]}
-                onDrag={onDrag}
-                canDrop={canDrop}
-            />
-        );
-    }),
+    description: "The series library — Plan.pick binds every series to a persisted pick, Pick.Panel lists them with their kind icon and derived row count, and Pick.active feeds the survivors back so a toggle changes the canvas with no data change; the Plan is also a DnD target with the shared onDrag funnel and a canDrop veto",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+            const JobRow = StructType({
+                batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            const ShiftRow = StructType({
+                key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
+            });
+            // ONE variant-discriminated source, as every canvas has — what was
+            // a template palette is now just more series over the same data.
+            const OpsRow = StructType({
+                kind: VariantType({
+                    machine: StructType({ jobs: ArrayType(JobRow) }),
+                    util:    StructType({ points: ArrayType(MeasureRow) }),
+                    crew:    StructType({ shifts: ArrayType(ShiftRow) }),
+                }),
+            });
+            const loadPcts = $.const([46.0, 58.0, 66.0, 78.0, 90.0, 98.0], ArrayType(FloatType));
+            const load = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
+                ({ week: week(i.multiply(2n).add(27n)), pct: loadPcts.get(i) })));
+            const ops = $.const(new Map([
+                ["L1-M03", { kind: variant("machine", { jobs: [
+                    { batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
+                ] }) }],
+                ["L1-M04", { kind: variant("machine", { jobs: [
+                    { batch: "B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
+                ] }) }],
+                ["UTIL", { kind: variant("util", { points: load }) }],
+                ["crewA", { kind: variant("crew", { shifts: [
+                    { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
+                    { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
+                ] }) }],
+            ]), DictType(StringType, OpsRow));
+            const all = $.const([
+                Plan.series.span(OpsRow, {
+                    key: "machines", title: "Machine jobs", subtitle: "one row per machine",
+                    match: r => r.kind.hasTag("machine"),
+                    label: (_r, k) => k, id: true,
+                    runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+                        key: j.batch, start: j.start, end: j.end,
+                        label: East.str`RUN · ${j.batch}`, state: j.state,
+                    })),
+                }),
+                Plan.series.chart(OpsRow, {
+                    key: "util", title: "Utilisation", subtitle: "% per fortnight",
+                    match: r => r.kind.hasTag("util"),
+                    label: (_r, k) => k, id: true, height: "spark",
+                    layers: r => [Chart.Column(r.kind.unwrap("util").points, { x: p => p.week, y: p => p.pct })],
+                }),
+                Plan.series.cards(OpsRow, {
+                    key: "crew", title: "Crew shifts", subtitle: "assignments",
+                    match: r => r.kind.hasTag("crew"),
+                    label: (_r, k) => k,
+                    chips: r => r.kind.unwrap("crew").shifts.map((_$, s) =>
+                        Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            // The library. `data` gives each entry its row count, so a series
+            // that selects nothing says `0` rather than switching on silently.
+            const shown = $.let(Plan.pick("ex.plan.library", all, { data: ops, hidden: ["crew"] }));
+            const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+            const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));
+            const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));
+            return (
+                <HStack gap="4">
+                    {/* The panel takes its width from the host — it mounts beside
+                        a canvas, in a Drawer, or behind a toolbar chip. 320px is
+                        the width the spec's figure uses. */}
+                    <Box width="320px" flexShrink="0">
+                        <Pick.Panel value={shown} title="Series" />
+                    </Box>
+                    <Plan
+                        axis={axis}
+                        data={ops}
+                        series={Pick.active(shown)}
+                        id="plan" sources={["row-library"]}
+                        onDrag={onDrag}
+                        canDrop={canDrop}
+                    />
+                </HStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 

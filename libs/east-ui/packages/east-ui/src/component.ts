@@ -242,7 +242,6 @@ import {
     PlanGrainType,
     PlanLinkType,
     PlanRowsType,
-    PlanTemplateType,
     PlanElementRefType,
     PlanRowRefType,
     PlanRunClickEventType,
@@ -1134,9 +1133,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         links: ArrayType(PlanLinkType),
         axis: PlanAxisType,
         grain: OptionType(PlanGrainType),
-        // Templates are plain data too — `make` builds the dropped row's
-        // flattened DATA subtree.
-        library: ArrayType(PlanTemplateType),
         // The generalized element resolvers (Plan Data Interface.md §3.3),
         // over one element-ref variant — every ref carries the row key.
         // Resolved lazily at interaction time; a `none` result opens no

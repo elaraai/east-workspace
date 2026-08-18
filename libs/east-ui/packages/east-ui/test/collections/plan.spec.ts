@@ -1026,21 +1026,4 @@ describeEast("Plan", (test) => {
         $(Assert.equal(src.page(1n, 100n).hasTag("none"), true));
     });
 
-    // =========================================================================
-    // Templates
-    // =========================================================================
-
-    test("templates carry their kind, icon and binding", $ => {
-        const make = $.const(East.function([], Plan.Types.Rows, (_$) =>
-            Plan.events({ key: "ms", label: "MS", marks: [] })));
-        const t = $.let(Plan.template({
-            key: "ms", label: "Events", sublabel: "milestones", kind: "events", icon: "flag", make,
-        }));
-        $(Assert.equal(t.kind.hasTag("events"), true));
-        $(Assert.equal(t.sublabel.unwrap("some"), "milestones"));
-        $(Assert.equal(t.icon.unwrap("some").name, "flag"));
-        const made = $.let(t.make());
-        $(Assert.equal(made.size(), 1n));
-        $(Assert.equal(made.get("ms").gutter.label, "MS"));
-    });
 }, { platformFns: TestImpl });

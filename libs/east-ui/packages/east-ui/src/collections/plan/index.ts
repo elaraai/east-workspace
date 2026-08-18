@@ -67,7 +67,6 @@ import {
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
-    PlanTemplateKindType,
     PlanLinkType,
     PlanExpandAxisType,
     PlanElementRefType,
@@ -81,7 +80,6 @@ import {
     PlanRowKindType,
     PlanRowType,
     PlanRowsCollectionType,
-    PlanTemplateType,
 } from "./types.js";
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
@@ -128,7 +126,7 @@ import {
     createSeriesGroup,
     createSeriesRows,
 } from "./series.js";
-import { createTemplate, createPlanRoot } from "./root.js";
+import { createPlanRoot } from "./root.js";
 import { createPlanPick, createPlanPickItems } from "./pick.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
@@ -184,8 +182,6 @@ export {
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
-    PlanTemplateKindType,
-    type PlanTemplateKindLiteral,
     PlanLinkType,
     PlanExpandAxisType,
     type PlanExpandAxisLiteral,
@@ -200,7 +196,6 @@ export {
     PlanRowKindType,
     PlanRowType,
     PlanRowsCollectionType,
-    PlanTemplateType,
     type PlanRowsValue,
 } from "./types.js";
 
@@ -244,7 +239,7 @@ export {
     type PlanHeatOfConfig,
     type PlanTableOfConfig,
 } from "./data-forms.js";
-export { type PlanTemplateInput, type PlanReviewConfig, type PlanConfig } from "./root.js";
+export { type PlanReviewConfig, type PlanConfig } from "./root.js";
 export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
 export {
     PlanSeriesType,
@@ -276,7 +271,7 @@ export interface PlanNamespace {
     Root: typeof createPlanRoot;
     /** Builds the shared time-axis declaration. */
     axis: typeof createAxis;
-    /** Span-row SUBTREE builder (library `make` bodies + `series.rows` chrome). */
+    /** Span-row SUBTREE builder (`series.rows` chrome + nested `rows:` input). */
     span: typeof createSpan;
     /** Bucket-row subtree builder. */
     buckets: typeof createBuckets;
@@ -351,8 +346,6 @@ export interface PlanNamespace {
     layer: typeof createLayer;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
-    /** Builds one row-library template (the binding rides `make`). */
-    template: typeof createTemplate;
     /** Binds the canvas's row series to a persisted pick (#590) — the library
      *  lists sections and kinds, and `Pick.active` feeds the survivors back. */
     pick: typeof createPlanPick;
@@ -434,10 +427,6 @@ export interface PlanNamespace {
         EventMark: typeof PlanEventMarkType;
         /** The event-mark kind. */
         EventMarkKind: typeof PlanEventMarkKindType;
-        /** One row-library template. */
-        Template: typeof PlanTemplateType;
-        /** The template kind. */
-        TemplateKind: typeof PlanTemplateKindType;
         /** One link edge of the canvas's link graph (the ribbon shape). */
         Link: typeof PlanLinkType;
         /** A row's expand-in-place declaration (R2). */
@@ -521,7 +510,6 @@ export const Plan: PlanNamespace = {
     tableSeries: createTableSeries,
     layer: createLayer,
     fixed: createFixedHeight,
-    template: createTemplate,
     pick: createPlanPick,
     pickItems: createPlanPickItems,
     Types: {
@@ -562,8 +550,6 @@ export const Plan: PlanNamespace = {
         Chip: PlanChipType,
         EventMark: PlanEventMarkType,
         EventMarkKind: PlanEventMarkKindType,
-        Template: PlanTemplateType,
-        TemplateKind: PlanTemplateKindType,
         Link: PlanLinkType,
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,

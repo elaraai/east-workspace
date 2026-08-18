@@ -31,7 +31,6 @@ export {
     type PlanEventMarkInput,
     type PlanSegmentInput,
     type PlanTableSeriesInput,
-    type PlanTemplateInput,
     type PlanExpandInput,
     type PlanLinkInput,
     type PlanIconInput,
