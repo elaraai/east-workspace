@@ -369,8 +369,10 @@ python never runs per element**. In order of impact:
    compiles to ONE `Let` — the split runs once per row, not 30×
    (~2.5× on that shape). Sharing the *variable* is what dedupes;
    re-calling `.split()` per column re-emits the split. Loop-invariant
-   shared subexpressions hoist out of nested lambdas to the kernel body
-   the same way.
+   subexpressions hoist out of nested lambdas to the kernel body the same
+   way — including a derived value read only ONCE inside a callback
+   (#602), so `table = derive(rec)` before a `.map` runs once, not per
+   element.
 3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
    opposite contracts — never conflate them:
 
@@ -636,7 +638,9 @@ Task → What do you need?
     │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats() (trampoline/kernel/pushdown counters)
     │   ├─ What traces (the expression surface inside kernels)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
-    │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() · .sign() ·
+    │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() (exact-only ❗non-integral) · .sign() ·
+    │   │   │                .round()/.floor()/.ceil()/.trunc() (Float → Integer, #604; round = half AWAY from zero —
+    │   │   │                math.floor/ceil/trunc trace via the dunders; python round() raises, its tie rule differs) ·
     │   │   │                .sqrt()/.exp()/.log()/.sin()/.cos()/.tan() (Float) · .log()/.sign() (Integer)
     │   │   ├─ Compare → == != < <= > >= (East total order, any comparable type) · greatest(a, b) · least(a, b)
     │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · East.if_else(cond, value, …, otherwise) — pairs then the else, one node
@@ -670,7 +674,8 @@ Task → What do you need?
     │   │   │   ❗ read a capture with .get(expr)/.get_or_default(expr, d)/.try_get(expr) — the [expr] subscript
     │   │   │   spelling does NOT trace (python coerces the index via __index__ and the trace bails)
     │   │   └─ Shared subexpressions → REUSE the python variable (fields = r.data.split("|"); read it N times)
-    │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too
+    │   │       → compiles to one Let, work runs once per row; loop-invariants hoist out of nested lambdas too —
+    │   │       including a derived value read only ONCE inside a .map/.filter callback (#602)
     │   ├─ Conditionals → East.if_else(cond, value, …, otherwise) — cond/value pairs THEN the else, so a
     │   │                  chain is ONE IfElse node; exactly one arm evaluates; dual-mode (eager off-trace)
     │   ├─ Sequential logic — the next step depends on the LAST (worklist · BFS/DFS · fixpoint · topological replay)

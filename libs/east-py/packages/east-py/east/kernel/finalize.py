@@ -130,6 +130,27 @@ def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
 
 _CSE_SKIP_KINDS = frozenset({"Value", "Variable"})
 
+#: Kinds never hoisted on a SINGLE occurrence (#602). Function values stay
+#: where the trace created them, Error must keep firing exactly where (and as
+#: often as) it was written, Let/Break/Continue are statements not values.
+_SOLO_SKIP_KINDS = frozenset({"Function", "Error", "Let", "Break", "Continue"})
+
+
+def _reaches_mutable(t) -> bool:
+    """True when a value of type ``t`` can contain a mutable East value
+    (Array, Set, Dict, Ref). Hoisting shares ONE evaluation where the trace
+    had one per element, so a per-element result that reaches mutable state
+    would alias across elements."""
+    kind = t.type
+    if kind in ("Array", "Set", "Dict", "Ref"):
+        return True
+    if kind in ("Null", "Boolean", "Integer", "Float", "String", "DateTime",
+                "Blob", "Never", "Vector", "Matrix"):
+        return False
+    if kind in ("Struct", "Variant"):
+        return any(_reaches_mutable(f["type"]) for f in t.value)
+    return True
+
 #: node kind -> (child field specs, extra array fields converted not walked).
 #: A child spec is a field name, ("field", "list", ElementTypeThunk), or
 #: ("field", "structs", ElementTypeThunk, (subfields...)).
@@ -211,6 +232,12 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
     counts: dict[int, int] = {}
     keep: dict[int, Any] = {}
     visited: set[int] = set()
+    #: node id -> every parent reference is a non-mutating Builtin (a READ).
+    #: A single-occurrence mutable-typed node may only hoist when its one
+    #: consumer reads it — anywhere else (a Struct field, a callback's result
+    #: position) the container itself escapes per element and one shared
+    #: instance would alias (#602).
+    pure_parent: dict[int, bool] = {}
 
     def count(node):
         i = id(node)
@@ -220,10 +247,35 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         if i in visited:
             return
         visited.add(i)
+        reads_only = (node.type == "Builtin"
+                      and node.value["builtin"] not in _MUTATING_BUILTINS)
         for child in _node_children(node):
+            ci = id(child)
+            pure_parent[ci] = pure_parent.get(ci, True) and reads_only
             count(child)
 
     count(top)
+
+    # Occurrences inside a CALLBACK body — any Function that is not the
+    # kernel itself. The collection builtins apply these per element, so a
+    # subtree in one runs n times; that is the only place a single-occurrence
+    # hoist buys anything (#602).
+    in_callback: set[int] = set()
+    cb_walked: set[tuple] = set()
+
+    def callback_walk(node, inside):
+        key = (id(node), inside)
+        if key in cb_walked:
+            return
+        cb_walked.add(key)
+        if inside:
+            in_callback.add(id(node))
+        enter = inside or (kernel_fn is not None and node.type == "Function"
+                           and node is not kernel_fn)
+        for child in _node_children(node):
+            callback_walk(child, enter)
+
+    callback_walk(top, False)
 
     # A name that is REBOUND between the kernel body and a node's occurrence
     # (an inner-lambda param or match/catch variable shadowing a top param)
@@ -525,19 +577,57 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
             out |= mutated_free(child, inner)
         return out
 
+    anon_memo: dict[int, bool] = {}
+
+    def anonymous_mutation(node) -> bool:
+        """A mutating builtin in the subtree whose receiver has NO root
+        variable — mutating a builtin result or fresh container directly.
+        ``mutated_free`` cannot name such a target, so a single-occurrence
+        hoist (which cannot rely on shared-object intent the way a reused
+        KernelExpr can) must refuse the subtree outright (#602)."""
+        i = id(node)
+        hit = anon_memo.get(i)
+        if hit is not None:
+            return hit
+        anon_memo[i] = False       # cycle-safe placeholder
+        out = (node.type == "Builtin"
+               and node.value["builtin"] in _MUTATING_BUILTINS
+               and _root_var_name(node.value["arguments"][0]) is None)
+        if not out:
+            for child in _node_children(node):
+                if anonymous_mutation(child):
+                    out = True
+                    break
+        anon_memo[i] = out
+        return out
+
+    # ── What may hoist (#411 shared subtrees; #602 callback invariants) ─────
+    #
+    # A node referenced twice hoists as before. A node referenced ONCE hoists
+    # only when that occurrence sits inside a callback body — where the
+    # collection builtins run it per element — and it provably cannot tell
+    # the difference: no rebound name (invariant), no effect, no mutable
+    # value escaping anywhere but a read.
     hoistable: dict[int, str] = {}
     #: node id -> (Block id, statement index), or (None, 0) for the kernel body
     site: dict[int, tuple] = {}
     for i, n in counts.items():
-        if n < 2:
+        node = keep[i]
+        solo = n < 2
+        if solo and (i not in in_callback or node.type in _SOLO_SKIP_KINDS):
             continue
         if i not in uncond_seen:
             continue          # every occurrence is branch-guarded — see above
-        fv = free_vars(keep[i], set())
+        fv = free_vars(node, set())
         if fv & scope[i]:
             continue
-        if mutated_free(keep[i], set()):
+        if mutated_free(node, set()):
             continue          # the effect must stay where the trace put it
+        if solo:
+            if anonymous_mutation(node):
+                continue
+            if _reaches_mutable(node.value["type"]) and not pure_parent.get(i, False):
+                continue
         need = fv - param_names
         if need:
             home, at = binding_site(need, region.get(i, ()))

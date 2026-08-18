@@ -247,6 +247,14 @@ class KernelExpr(
                 f"{self.east_type.type}-typed expression — supported: "
                 f"{', '.join(_TRACED_SURFACE[self.east_type.type])}"
             )
+        if self.east_type.type != "Struct":
+            # A method miss on a scalar-typed expression: the real problem is
+            # the method does not exist, not that the receiver failed to be a
+            # struct (#604).
+            raise KernelTraceError(
+                f"`.{name}` is not on the traced kernel surface for a "
+                f"{self.east_type.type}-typed expression"
+            )
         return self.field(name)
 
     def __getitem__(self, name: Any) -> KernelExpr:
