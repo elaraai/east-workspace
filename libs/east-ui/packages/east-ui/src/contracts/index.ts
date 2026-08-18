@@ -68,6 +68,14 @@ export {
 } from "./review.js";
 
 export {
+    PickStateType, PickItemType, PickStateHandleType,
+    PickBindType, PickHandleType, type PickHandle,
+    type PickOptions,
+    createPickState, createPickBind, pickActive, pickVisible,
+    Pick,
+} from "./pick.js";
+
+export {
     SeekRangeType, SeekQueryType,
     PagedSourceType, type PagedSource,
     RowSourceType, type RowSource,

@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1096,
-    "totalFiles": 194,
+    "totalEntries": 1101,
+    "totalFiles": 195,
     "packages": {
       "east": 500,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 341,
+      "east-ui": 346,
       "e3-ui": 39,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -18069,6 +18069,124 @@
         "import { Badge, Box, Button, Card, Configurator, HStack, SegmentGroup, Select, Switch, Text, VStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Header forms — none, eyebrow, full and compound-meta cards side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <VStack gap=\"4\" align=\"stretch\">\n            <Card>\n                <Text>No header — body only.</Text>\n            </Card>\n            <Card header={{ eyebrow: \"Run summary\" }}>\n                <Text>Eyebrow-only header.</Text>\n            </Card>\n            <Card header={{ eyebrow: \"Featured\", title: \"Featured Article\", description: \"A brief summary of what this card contains\" }}>\n                <Text>Full header.</Text>\n            </Card>\n            <Card\n                header={{ eyebrow: \"Forecast · SE region\", title: \"Per plan week\", meta: \"14s ago\" }}\n                footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant=\"subtle\">Export</Button>] }}\n            >\n                <Text>Compound meta header with a content + actions footer.</Text>\n            </Card>\n        </VStack>\n    ))"
+    },
+    {
+      "id": "east-ui:pick.examples.tsx:pickState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/pick.examples.tsx",
+      "suite": "",
+      "test": "Seed a pick with ids switched off — the state is what is HIDDEN, so an empty seed shows everything",
+      "keywords": [
+        "Pick",
+        "state",
+        "hidden",
+        "seed",
+        "PickStateType",
+        "#590"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Seed a pick with ids switched off — the state is what is HIDDEN, so an empty seed shows everything\n// inputs: []  returns: [\"crew\"]\nEast.function([], ArrayType(StringType), (_$) => Pick.state([\"crew\"]))"
+    },
+    {
+      "id": "east-ui:pick.examples.tsx:pickVisibleAll",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/pick.examples.tsx",
+      "suite": "",
+      "test": "An empty hidden list shows every item, in declaration order",
+      "keywords": [
+        "Pick",
+        "visible",
+        "hidden",
+        "empty",
+        "default",
+        "declaration order",
+        "#590"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// An empty hidden list shows every item, in declaration order\n// inputs: []  returns: [\"machines\", \"load\", \"crew\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const all = $.const(LIBRARY, ArrayType(ITEM));\n        const idOf = $.const(East.function([ITEM], StringType, (_$, item) => item.key));\n        const shown = $.let(Pick.visible(all, idOf, []), ArrayType(ITEM));\n        return shown.map((_$, item) => item.key);\n    })"
+    },
+    {
+      "id": "east-ui:pick.examples.tsx:pickVisibleHidden",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/pick.examples.tsx",
+      "suite": "",
+      "test": "A hidden id drops its item and leaves the rest in declaration order",
+      "keywords": [
+        "Pick",
+        "visible",
+        "hidden",
+        "toggle",
+        "off",
+        "filter",
+        "#590"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A hidden id drops its item and leaves the rest in declaration order\n// inputs: []  returns: [\"machines\", \"crew\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const all = $.const(LIBRARY, ArrayType(ITEM));\n        const idOf = $.const(East.function([ITEM], StringType, (_$, item) => item.key));\n        const shown = $.let(Pick.visible(all, idOf, [\"load\"]), ArrayType(ITEM));\n        return shown.map((_$, item) => item.key);\n    })"
+    },
+    {
+      "id": "east-ui:pick.examples.tsx:pickVisibleStale",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/pick.examples.tsx",
+      "suite": "",
+      "test": "Persisted state survives the library changing — an id naming nothing is ignored, and an item the state never mentioned still shows",
+      "keywords": [
+        "Pick",
+        "visible",
+        "stale",
+        "unknown",
+        "rename",
+        "persisted",
+        "new item",
+        "#590"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Persisted state survives the library changing — an id naming nothing is ignored, and an item the state never mentioned still shows\n// inputs: []  returns: [\"load\", \"crew\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const all = $.const(LIBRARY, ArrayType(ITEM));\n        const idOf = $.const(East.function([ITEM], StringType, (_$, item) => item.key));\n        // \"defects\" was renamed away; \"crew\" shipped after this state was written.\n        const shown = $.let(Pick.visible(all, idOf, [\"defects\", \"machines\"]), ArrayType(ITEM));\n        return shown.map((_$, item) => item.key);\n    })"
+    },
+    {
+      "id": "east-ui:pick.examples.tsx:pickBindHandle",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/pick.examples.tsx",
+      "suite": "",
+      "test": "Bind a library to a persisted pick inside Reactive.Root and feed the survivors to a component",
+      "keywords": [
+        "Pick",
+        "bind",
+        "active",
+        "handle",
+        "Reactive",
+        "State",
+        "library",
+        "panel",
+        "persisted",
+        "#590"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Bind a library to a persisted pick inside Reactive.Root and feed the survivors to a component\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const all = $.const(LIBRARY, ArrayType(ITEM));\n            // Bind ONCE, in the evaluation that mounts both the panel and the\n            // component — a Reactive body is a free function and cannot capture\n            // a handle from an enclosing scope.\n            const shown = $.let(Pick.bind(\"demo.library\", all, {\n                id: (item) => item.key,\n                title: (item) => item.name,\n                hidden: [\"crew\"],\n            }));\n            const kept = $.let(Pick.active(shown), ArrayType(ITEM));\n            return <Text>{East.str`${kept.length()} of ${all.length()} showing`}</Text>;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:accordion.examples.tsx:accordionBasic",

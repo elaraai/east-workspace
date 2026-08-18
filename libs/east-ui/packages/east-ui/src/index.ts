@@ -82,6 +82,16 @@ export {
     Paged, type PagedOfOptions,
 } from "./contracts/source.js";
 
+// Pick contract (#590) — which of a component's declared things are shown. A
+// Plan picks row series, a Table would pick columns. The handle is what
+// decouples: `Pick.Panel` renders the library and never imports the component.
+export {
+    PickStateType, PickItemType, PickStateHandleType,
+    PickBindType, PickHandleType, type PickHandle,
+    type PickOptions,
+    Pick,
+} from "./contracts/pick.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
