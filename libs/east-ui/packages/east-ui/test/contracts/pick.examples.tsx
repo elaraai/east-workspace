@@ -3,18 +3,21 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, StringType, StructType, example } from "@elaraai/east";
+import { East, ArrayType, IntegerType, StringType, StructType, example, none, some } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Pick, Reactive, Text } from "@elaraai/east-ui";
+import { IconType, Pick, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 /** One pickable thing — the smallest shape with an id and a name. */
-const ITEM = StructType({ key: StringType, name: StringType });
+const ITEM = StructType({
+    key: StringType, name: StringType, role: StringType,
+    icon: StringType, rows: IntegerType, total: IntegerType,
+});
 
 /** The library, hoisted to module scope (no host helpers inside East bodies). */
 const LIBRARY = [
-    { key: "machines", name: "Machine jobs" },
-    { key: "load", name: "Line load" },
-    { key: "crew", name: "Crew shifts" },
+    { key: "machines", name: "Machine jobs", role: "span · one row per machine", icon: "bars-staggered", rows: 18n, total: 24n },
+    { key: "load",     name: "Line load",    role: "heat · per line",            icon: "table-cells-large", rows: 6n,  total: 6n },
+    { key: "crew",     name: "Crew shifts",  role: "cards · per crew",           icon: "user-group",        rows: 0n,  total: 0n },
 ];
 
 export const pickState = example({
@@ -75,12 +78,26 @@ export const pickBindHandle = example({
             // component — a Reactive body is a free function and cannot capture
             // a handle from an enclosing scope.
             const shown = $.let(Pick.bind("demo.library", all, {
-                id: (item) => item.key,
-                title: (item) => item.name,
-                hidden: ["crew"],
+                id:       (item) => item.key,
+                title:    (item) => item.name,
+                subtitle: (item) => some(item.role),
+                icon:     (item) => some(East.value(
+                    { name: item.icon, prefix: "fas", label: none, style: none },
+                    IconType,
+                )),
+                count:    (item) => some(item.rows),
+                // A series whose own filter narrowed it reports the NARROWED
+                // count, marked so a glance still says "this is filtered".
+                narrowed: (item) => item.rows.less(item.total),
+                hidden:   ["crew"],
             }));
             const kept = $.let(Pick.active(shown), ArrayType(ITEM));
-            return <Text>{East.str`${kept.length()} of ${all.length()} showing`}</Text>;
+            return (
+                <VStack gap="4" align="stretch">
+                    <Pick.Panel value={shown} title="Series" />
+                    <Text>{East.str`${kept.length()} of ${all.length()} showing`}</Text>
+                </VStack>
+            );
         }}</Reactive>
     )),
     inputs: [],

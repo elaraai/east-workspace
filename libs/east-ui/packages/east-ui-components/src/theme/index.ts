@@ -112,6 +112,7 @@ import { traceSlotRecipe } from "./slot-recipes/trace.js";
 import { brushStripSlotRecipe } from "./slot-recipes/brushStrip.js";
 import { segSlotRecipe } from "./slot-recipes/seg.js";
 import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
+import { pickPanelSlotRecipe } from "./slot-recipes/pickPanel.js";
 import { sliceEditSlotRecipe } from "./slot-recipes/sliceEdit.js";
 import { clauseBuilderSlotRecipe } from "./slot-recipes/clauseBuilder.js";
 import { facetTabsSlotRecipe } from "./slot-recipes/facetTabs.js";
@@ -229,6 +230,7 @@ const config = defineConfig({
             brushStrip:      brushStripSlotRecipe,
             seg:             segSlotRecipe,
             sliceFrame:      sliceFrameSlotRecipe,
+            pickPanel:       pickPanelSlotRecipe,
             sliceEdit:       sliceEditSlotRecipe,
             clauseBuilder:   clauseBuilderSlotRecipe,
             facetTabs:       facetTabsSlotRecipe,

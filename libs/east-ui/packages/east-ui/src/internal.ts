@@ -115,6 +115,8 @@ export {
 export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
+export { PickStateType, PickItemType, PickBindType, PickPanelType } from "./contracts/pick.js";
+export { Pick } from "./pick/index.js";
 export {
     Slice,
     SliceSummaryType, SliceRangePickerType, SliceFilterType,

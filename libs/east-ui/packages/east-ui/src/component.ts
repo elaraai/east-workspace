@@ -189,6 +189,7 @@ import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
 import { SliceBindType, SliceBrushStyleType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
 import { SliceAffordanceType } from "./contracts/slice-affordances.js";
+import { PickPanelType } from "./contracts/pick.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
@@ -812,6 +813,22 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         persist: OptionType(SlicePersistType),
         brush: OptionType(SliceBrushStyleType),
     }),
+
+    /**
+     * PickPanel — the library of a component's declared things (#590): one row
+     * each, an eye to switch it off, and nothing about what the things ARE.
+     *
+     * The payload is the non-generic `PickBindType`, which is the whole point:
+     * a `UIComponentType` arm must be a closed East type, so a panel generic in
+     * the item type is unconstructable. One arm therefore serves a Plan picking
+     * row series, a Table picking columns, a Chart picking layers — and the
+     * renderer draws `items` without ever learning which it is.
+     *
+     * `title` is the author's noun ("Series" / "Columns" / "Layers"), for the
+     * same reason: the contract holds identified things and cannot name them.
+     * `persist` reuses the slice's storage vocabulary (#168).
+     */
+    PickPanel: PickPanelType,
 
     // Container
     Card: StructType({

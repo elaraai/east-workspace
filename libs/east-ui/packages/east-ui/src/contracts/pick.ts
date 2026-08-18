@@ -180,6 +180,31 @@ export const PickBindType = StructType({
 export type PickBindType = typeof PickBindType;
 
 /**
+ * The `Pick.Panel` component payload — the contract plus the author's noun.
+ *
+ * @remarks
+ * Defined HERE rather than inline in `component.ts` because it carries no
+ * `UIComponentType`: only arms that need the recursion `node` for children have
+ * to be written inline (and then hand-synced). `SliceLegendType` is legal as a
+ * single shared export for exactly the same reason, and this follows it.
+ *
+ * `persist` is deliberately absent. The slice's storage vocabulary
+ * (`SlicePersistType`) lives in `platform/slice`, which imports FROM
+ * `contracts/` — referencing it here would close an import cycle. Persistence
+ * beyond the store's own lifetime is a separate decision, made where the
+ * dependency runs the right way.
+ *
+ * @property pick - The bound contract ({@link PickBindType})
+ * @property title - The author's noun for the collection ("Series" / "Columns")
+ */
+export const PickPanelType = StructType({
+    pick:  PickBindType,
+    title: StringType,
+});
+/** Type alias for {@link PickPanelType}. */
+export type PickPanelType = typeof PickPanelType;
+
+/**
  * The AUTHOR's handle — the contract plus the typed things it selects over.
  *
  * @remarks
@@ -402,36 +427,3 @@ export function pickVisible<I extends EastType>(
     const idErased = id as unknown as SubtypeExprOrValue<FunctionType<[EastType], StringType>>;
     return fn(hidden, allExpr, idErased) as unknown as ExprType<ArrayType<I>>;
 }
-
-/**
- * The `Pick` namespace — choosing which of a component's declared things show.
- *
- * @remarks
- * Bind a list with {@link Pick.bind}, feed the survivors to the component with
- * {@link Pick.active}, and render the library with `Pick.Panel`. The handle is
- * what decouples them: the panel never imports the component, and the component
- * never learns a panel exists.
- */
-export const Pick = {
-    /** Build a state seed — the ids switched off. */
-    state: createPickState,
-    /** Bind a list of things to a persisted pick. */
-    bind: createPickBind,
-    /** The items still switched on, in declaration order. */
-    active: pickActive,
-    /** The derivation alone — items minus a hidden list, no state binding. */
-    visible: pickVisible,
-    /** East types — the contract, for `$.const` / `$.let` annotations. */
-    Types: {
-        /** The ids switched off (an empty list shows everything). */
-        State: PickStateType,
-        /** One pickable thing as the panel sees it. */
-        Item: PickItemType,
-        /** The state binding — `State.bind`'s shape at {@link PickStateType}. */
-        StateHandle: PickStateHandleType,
-        /** The non-generic contract a component's IR holds. */
-        Bind: PickBindType,
-        /** The author's handle, at an item type. */
-        Handle: PickHandleType,
-    },
-} as const;

@@ -73,6 +73,7 @@ import { EastChakraSliceBreakdown } from "./slice/breakdown";
 import { EastChakraSliceSearch } from "./slice/search";
 import { EastChakraSliceCohort } from "./slice/cohort";
 import { EastChakraSliceRail } from "./slice/rail";
+import { EastChakraPickPanel } from "./pick/panel";
 import { EastChakraEditableChip } from "./display/editable-chip";
 import { EastChakraKbd } from "./display/kbd";
 import { EastChakraMeter } from "./display/meter";
@@ -251,6 +252,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             SliceSearch: (v) => <EastChakraSliceSearch value={v} />,
             SliceCohort: (v) => <EastChakraSliceCohort value={v} />,
             SliceRail: (v) => <EastChakraSliceRail value={v as never} />,
+            PickPanel: (v) => <EastChakraPickPanel value={v as never} />,
 
             // Container
             Card: (v) => <EastChakraCard value={v} storageKey={storageKey} />,

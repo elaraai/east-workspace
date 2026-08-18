@@ -18086,9 +18086,9 @@
         "#590"
       ],
       "imports": [
-        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, IntegerType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { IconType, Pick, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Seed a pick with ids switched off — the state is what is HIDDEN, so an empty seed shows everything\n// inputs: []  returns: [\"crew\"]\nEast.function([], ArrayType(StringType), (_$) => Pick.state([\"crew\"]))"
     },
@@ -18109,9 +18109,9 @@
         "#590"
       ],
       "imports": [
-        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, IntegerType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { IconType, Pick, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// An empty hidden list shows every item, in declaration order\n// inputs: []  returns: [\"machines\", \"load\", \"crew\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const all = $.const(LIBRARY, ArrayType(ITEM));\n        const idOf = $.const(East.function([ITEM], StringType, (_$, item) => item.key));\n        const shown = $.let(Pick.visible(all, idOf, []), ArrayType(ITEM));\n        return shown.map((_$, item) => item.key);\n    })"
     },
@@ -18132,9 +18132,9 @@
         "#590"
       ],
       "imports": [
-        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, IntegerType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { IconType, Pick, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// A hidden id drops its item and leaves the rest in declaration order\n// inputs: []  returns: [\"machines\", \"crew\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const all = $.const(LIBRARY, ArrayType(ITEM));\n        const idOf = $.const(East.function([ITEM], StringType, (_$, item) => item.key));\n        const shown = $.let(Pick.visible(all, idOf, [\"load\"]), ArrayType(ITEM));\n        return shown.map((_$, item) => item.key);\n    })"
     },
@@ -18156,9 +18156,9 @@
         "#590"
       ],
       "imports": [
-        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, IntegerType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { IconType, Pick, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Persisted state survives the library changing — an id naming nothing is ignored, and an item the state never mentioned still shows\n// inputs: []  returns: [\"load\", \"crew\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const all = $.const(LIBRARY, ArrayType(ITEM));\n        const idOf = $.const(East.function([ITEM], StringType, (_$, item) => item.key));\n        // \"defects\" was renamed away; \"crew\" shipped after this state was written.\n        const shown = $.let(Pick.visible(all, idOf, [\"defects\", \"machines\"]), ArrayType(ITEM));\n        return shown.map((_$, item) => item.key);\n    })"
     },
@@ -18182,11 +18182,11 @@
         "#590"
       ],
       "imports": [
-        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, IntegerType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Pick, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { IconType, Pick, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Bind a library to a persisted pick inside Reactive.Root and feed the survivors to a component\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const all = $.const(LIBRARY, ArrayType(ITEM));\n            // Bind ONCE, in the evaluation that mounts both the panel and the\n            // component — a Reactive body is a free function and cannot capture\n            // a handle from an enclosing scope.\n            const shown = $.let(Pick.bind(\"demo.library\", all, {\n                id: (item) => item.key,\n                title: (item) => item.name,\n                hidden: [\"crew\"],\n            }));\n            const kept = $.let(Pick.active(shown), ArrayType(ITEM));\n            return <Text>{East.str`${kept.length()} of ${all.length()} showing`}</Text>;\n        }}</Reactive>\n    ))"
+      "source": "// Bind a library to a persisted pick inside Reactive.Root and feed the survivors to a component\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const all = $.const(LIBRARY, ArrayType(ITEM));\n            // Bind ONCE, in the evaluation that mounts both the panel and the\n            // component — a Reactive body is a free function and cannot capture\n            // a handle from an enclosing scope.\n            const shown = $.let(Pick.bind(\"demo.library\", all, {\n                id:       (item) => item.key,\n                title:    (item) => item.name,\n                subtitle: (item) => some(item.role),\n                icon:     (item) => some(East.value(\n                    { name: item.icon, prefix: \"fas\", label: none, style: none },\n                    IconType,\n                )),\n                count:    (item) => some(item.rows),\n                // A series whose own filter narrowed it reports the NARROWED\n                // count, marked so a glance still says \"this is filtered\".\n                narrowed: (item) => item.rows.less(item.total),\n                hidden:   [\"crew\"],\n            }));\n            const kept = $.let(Pick.active(shown), ArrayType(ITEM));\n            return (\n                <VStack gap=\"4\" align=\"stretch\">\n                    <Pick.Panel value={shown} title=\"Series\" />\n                    <Text>{East.str`${kept.length()} of ${all.length()} showing`}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:accordion.examples.tsx:accordionBasic",

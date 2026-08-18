@@ -69,10 +69,9 @@ export {
 
 export {
     PickStateType, PickItemType, PickStateHandleType,
-    PickBindType, PickHandleType, type PickHandle,
+    PickBindType, PickPanelType, PickHandleType, type PickHandle,
     type PickOptions,
     createPickState, createPickBind, pickActive, pickVisible,
-    Pick,
 } from "./pick.js";
 
 export {

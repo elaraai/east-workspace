@@ -510,3 +510,4 @@ export { useSliceReactivity } from "./slice/use-slice-reactivity";
 export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";
 export { SliceEditPopover, type SliceEditPopoverProps } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";
+export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js";

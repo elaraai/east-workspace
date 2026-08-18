@@ -87,10 +87,10 @@ export {
 // decouples: `Pick.Panel` renders the library and never imports the component.
 export {
     PickStateType, PickItemType, PickStateHandleType,
-    PickBindType, PickHandleType, type PickHandle,
+    PickBindType, PickPanelType, PickHandleType, type PickHandle,
     type PickOptions,
-    Pick,
 } from "./contracts/pick.js";
+export { Pick, type PickPanelOptions } from "./pick/index.js";
 
 // Format helpers
 export { Format } from "./format/index.js";
@@ -140,6 +140,11 @@ export type {
 // Display
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";
 export type { IconName } from "./display/index.js";
+// The icon VALUE type + its plain-JS authoring payload. Public because any
+// per-item icon accessor (`Pick.bind`'s, a custom tag's) has to build one,
+// and `Button`/`Banner`/`Status` already make the concept part of authoring.
+export { IconType } from "./display/icon/types.js";
+export type { IconPayload } from "./buttons/button/types.js";
 
 // Containers
 export { Card } from "./runtime/container/index.js";
