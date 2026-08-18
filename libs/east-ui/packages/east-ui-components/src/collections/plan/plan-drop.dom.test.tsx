@@ -200,13 +200,25 @@ describe("Plan drop target", () => {
         const eventsCell = cells[3]!;
 
         fireEvent.pointerDown(getByTestId("card-job-1"), { clientX: 0, clientY: 0 });
-        // The drag-start sweep has no pointer, so every structurally-connected
-        // row is marked a candidate; the veto resolves on hover, where the
-        // bucket — and so the candidate event — is actually known.
-        expect(spanCell.hasAttribute("data-drop-valid")).toBe(true);
+        // The drag-start sweep consults `canDrop` for the ROW — which is known
+        // without a pointer — so a row that will always refuse never lights up
+        // as a candidate. Promising a drop and taking it back on hover is the
+        // thing this asserts against.
+        expect(spanCell.hasAttribute("data-drop-valid")).toBe(false);
+        expect(eventsCell.hasAttribute("data-drop-valid")).toBe(true);
         pointAt(spanCell);
         fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
         expect(spanCell.hasAttribute("data-drop-invalid")).toBe(true);
+        // Not a candidate AND refused: this row was never marked, so the two
+        // frames cannot layer here.
+        //
+        // The attributes are NOT mutually exclusive in general — `data-drop-valid`
+        // is the drag layer's own record of structural validity (`onMove` reads it
+        // back to pick its branch), so a cell whose predicate depends on the SLOT
+        // can be valid and hovered-invalid at once. That case is handled where it
+        // shows: `global-css.ts` guards the candidate frame with
+        // `:not([data-drop-invalid])`, so exactly one stage ever paints.
+        expect(spanCell.hasAttribute("data-drop-valid")).toBe(false);
         fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await microtasks();
         expect(events).toHaveLength(0);

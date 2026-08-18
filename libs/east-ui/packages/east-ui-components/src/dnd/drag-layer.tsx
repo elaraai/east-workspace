@@ -449,13 +449,31 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         engageDrag(origin, payload, e.clientX, e.clientY, e.altKey, e.pointerType === "touch");
     }, [engageDrag]);
 
+    // The context value must NOT change as the pointer moves. `onMove` calls
+    // `setDrag` on every pointermove to drive the ghost, and the only thing
+    // consumers read from that is whether a drag is in flight — so the memo
+    // keys on the BOOLEAN, not on the drag object.
+    //
+    // Keying on `drag` made every pointermove publish a new context value,
+    // which re-rendered every consumer (each `useDropCell` / `useDragTarget`
+    // reads this context), which changed each `useDropCell` ref callback's
+    // identity, which made React detach and re-attach every registered cell —
+    // unregister + re-register, per cell, per mouse move. Measured on a 9-row
+    // Plan: ~17ms and 6 re-registrations per move, so a real mouse (60-120
+    // events/sec) outruns the main thread and the queue never drains. The tab
+    // stops responding, and because `pointerup` queues behind the backlog it
+    // presents as "it freezes when I release".
+    //
+    // The provider itself still re-renders per move for the ghost; `children`
+    // is a stable element from props, so that costs nothing.
+    const active = drag !== null;
     const context = useMemo<DragLayerContextValue>(() => ({
         registerTarget,
         registerCell,
         registerSink,
         beginDrag,
-        active: drag !== null,
-    }), [registerTarget, registerCell, registerSink, beginDrag, drag]);
+        active,
+    }), [registerTarget, registerCell, registerSink, beginDrag, active]);
 
     // ── Shared trash sink (#267) ──────────────────────────────────────────
     // While a drag whose owning target declares `kinds.remove` is in flight,

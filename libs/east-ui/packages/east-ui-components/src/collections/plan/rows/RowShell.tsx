@@ -166,12 +166,25 @@ export function RowShell({
     const dropVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
         const fn = drop?.canDrop;
         if (fn === undefined) return true;
-        // The drag-START sweep has no pointer yet. Answer structurally there
-        // (so the row still shows as a candidate) and veto on hover, where the
-        // bucket — and so the candidate event — is actually known.
-        if (x === undefined || y === undefined) return true;
-        return canDropAllows(fn, candidateEvent(payload, resolveCoord(x, y)));
-    }, [drop, resolveCoord]);
+        if (x !== undefined && y !== undefined) {
+            return canDropAllows(fn, candidateEvent(payload, resolveCoord(x, y)));
+        }
+        // The drag-START sweep has no pointer yet — but a Plan cell's identity
+        // is its ROW, and that is known right here. So the sweep answers with
+        // this row at its FIRST bucket rather than blanket-allowing: a row the
+        // predicate will always refuse never lights up as a candidate, instead
+        // of promising a drop and taking it back the moment you hover.
+        //
+        // A predicate that also discriminates on the SLOT still resolves per
+        // bucket once the pointer arrives, so nothing is lost by answering for
+        // one representative instant here.
+        const first = scale.buckets[0];
+        return canDropAllows(fn, candidateEvent(payload, {
+            surface: drop.surface,
+            row: row.key,
+            slot: first !== undefined ? toEastDateTimeSlot(first.start) : "",
+        }));
+    }, [drop, resolveCoord, scale, row.key]);
     const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord);
     // One ref doing two jobs: the layer's registration, and the rect
     // `resolveCoord` measures the pointer against.

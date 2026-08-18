@@ -174,33 +174,57 @@ export const globalCss = defineGlobalStyles({
         outlineColor: "fg.danger",
         outlineOffset: "-3px",
     },
-    /* Valid destinations are marked before the drop (indicators precede).
-     * A dashed inset outline per the spec's "dashed = ephemeral" stroke —
-     * the earlier flat brand wash read washed-out when a whole grid of
-     * cells was valid at once. The −2px inset keeps adjacent grid cells
-     * from doubling strokes along shared edges. */
-    "[data-drag-cell][data-drop-valid]": {
-        outline: "1px dashed",
-        outlineColor: "{colors.brand.500}",
-        outlineOffset: "-2px",
+    /* The three drop stages are drawn as an OVERLAY pseudo-element, not as an
+     * `outline`. A cell's children may be absolutely positioned and paint over
+     * the parent's outline: a Plan row's plot holds a full-height grid line at
+     * every bucket edge, which chopped the frame into segments and read as a
+     * broken border. An overlay with its own stacking order paints above them,
+     * and `inset: 0` tracks the cell whatever its children do.
+     *
+     * The stages are mutually exclusive by construction — `valid` is the
+     * drag-start candidate marking and stays set while a cell is hovered, so
+     * without the `:not()` guards the dashed candidate frame would render
+     * underneath the active/invalid one. */
+    "[data-drag-cell][data-drop-valid], [data-drag-cell][data-drop-active], [data-drag-cell][data-drop-invalid], [data-drag-sink][data-drop-valid], [data-drag-sink][data-drop-active]": {
+        position: "relative",
     },
-    /* Only the active cell carries the outline, inset clear of its
-     * neighbours' borders. */
-    "[data-drag-cell][data-drop-active], [data-drag-sink][data-drop-active]": {
+    "[data-drag-cell][data-drop-valid]::before, [data-drag-cell][data-drop-active]::before, [data-drag-cell][data-drop-invalid]::before, [data-drag-sink][data-drop-valid]::before, [data-drag-sink][data-drop-active]::before": {
+        content: '""',
+        position: "absolute",
+        inset: "0",
+        pointerEvents: "none",
+        zIndex: 4,
+        borderRadius: "inherit",
+    },
+    /* Candidate: a dashed inset frame per the spec's "dashed = ephemeral"
+     * stroke — the earlier flat brand wash read washed-out when a whole grid of
+     * cells was valid at once. Suppressed once the cell becomes the active or
+     * the vetoed one, so exactly one stage is ever painted. */
+    "[data-drag-cell][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before, [data-drag-sink][data-drop-valid]:not([data-drop-active])::before": {
+        borderWidth: "1px",
+        borderStyle: "dashed",
+        borderColor: "{colors.brand.500}",
+    },
+    /* Active: the cell the pointer is actually over. */
+    "[data-drag-cell][data-drop-active]:not([data-drop-invalid])::before, [data-drag-sink][data-drop-active]::before": {
+        borderWidth: "2px",
+        borderStyle: "solid",
+        borderColor: "{colors.brand.600}",
+    },
+    "[data-drag-cell][data-drop-active]:not([data-drop-invalid]), [data-drag-sink][data-drop-active]": {
         background: "bg.brand.subtle",
-        outline: "2px solid",
-        outlineColor: "{colors.brand.600}",
-        outlineOffset: "-3px",
     },
     /* A connected-but-vetoed cell (duplicate person, host `canAssign` veto)
-     * while hovered — red outline + the circle-with-cross badge, and the
-     * not-allowed cursor, per the Schematic connect-tool danger treatment. */
+     * while hovered — red frame + the circle-with-cross badge, and the
+     * not-allowed cursor, per the Schematic connect-tool danger treatment.
+     * Outranks both stages above: a refusal must never read as an invitation. */
+    "[data-drag-cell][data-drop-invalid]::before": {
+        borderWidth: "2px",
+        borderStyle: "solid",
+        borderColor: "fg.danger",
+    },
     "[data-drag-cell][data-drop-invalid]": {
-        position: "relative",
         background: "bg.danger.subtle",
-        outline: "2px solid",
-        outlineColor: "fg.danger",
-        outlineOffset: "-3px",
         cursor: "not-allowed",
         "&::after": {
             content: '"⊘"',
@@ -211,6 +235,7 @@ export const globalCss = defineGlobalStyles({
             lineHeight: "1",
             color: "fg.danger",
             pointerEvents: "none",
+            zIndex: 5,
         },
     },
 
