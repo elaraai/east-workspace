@@ -258,12 +258,38 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
     Beast2Pages *pages = subject->data.paged.pages;
     size_t seg_count = east_beast2_pages_segment_count(pages);
     size_t base = 0;
+    /* Column projection (#599): the loop body's IR names the struct fields
+     * it reads from the element (Array) / value (Dict) variable — decode
+     * each segment to exactly that subset, uncached. Set elements are keys
+     * and never narrow; a body the walker cannot prove field-only decodes
+     * whole exactly as before. Keys stay whole either way, so the Dict
+     * disjointness checks are unchanged. */
+    const char *proj_target = NULL;
+    if (node->kind == IR_FOR_ARRAY) proj_target = node->data.for_array.var.name;
+    if (node->kind == IR_FOR_DICT) proj_target = node->data.for_dict.val.name;
+    Beast2Projection *proj =
+        proj_target
+            ? east_beast2_projection_for_loop(body, proj_target, east_beast2_pages_type(pages))
+            : NULL;
     paged_iter_lock(subject);
 
     for (size_t s = 0; s < seg_count; s++) {
-        EastValue *seg = disjoint ? east_beast2_pages_segment_disjoint(pages, s)
-                                  : east_beast2_pages_segment(pages, s);
+        EastValue *seg = NULL;
+        if (proj) {
+            seg = disjoint ? east_beast2_pages_segment_disjoint_projected(pages, s, proj)
+                           : east_beast2_pages_segment_projected(pages, s, proj);
+            /* An alias crossing the projection boundary (or any projected-
+             * decode failure) retries whole — the body reads the same
+             * fields either way. */
+            if (!seg) free(east_builtin_get_error());
+        }
+        east_beast2_paged_loop_count(seg != NULL);
         if (!seg) {
+            seg = disjoint ? east_beast2_pages_segment_disjoint(pages, s)
+                           : east_beast2_pages_segment(pages, s);
+        }
+        if (!seg) {
+            if (proj) east_beast2_projection_free(proj);
             paged_iter_unlock(subject);
             east_value_release(subject);
             return paged_error(node);
@@ -282,12 +308,14 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             PagedLoopStep step = paged_loop_step(&body_res, loop_label, &out);
             if (step == PAGED_LOOP_RETURN) {
                 east_value_release(seg);
+                if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
                 east_value_release(subject);
                 return out;
             }
             if (step == PAGED_LOOP_STOP) {
                 east_value_release(seg);
+                if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
                 east_value_release(subject);
                 return eval_ok(east_null());
@@ -297,6 +325,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
         east_value_release(seg);
     }
 
+    if (proj) east_beast2_projection_free(proj);
     paged_iter_unlock(subject);
     east_value_release(subject);
     return eval_ok(east_null());

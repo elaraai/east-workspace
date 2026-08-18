@@ -247,6 +247,72 @@ def decode_beast2_with_header_for(type_val, options=None):
     return decode
 
 
+# ─── v5: column projection (issue #599) ───────────────────────────────────
+
+
+class Beast2ProjectionAlias(ValueError):
+    """A projected segment decode hit a container aliased across the
+    projection boundary — the caller retries that segment whole."""
+
+
+cdef object _consume_projection_error(str fallback):
+    """Drain east-c's error slot, distinguishing the alias fallback signal
+    from real errors."""
+    cdef char *err = _eastc.east_builtin_get_error()
+    if err != NULL:
+        msg = (<bytes>err).decode("utf-8", errors="replace")
+        free(err)
+        if "projection alias" in msg:
+            raise Beast2ProjectionAlias(msg)
+        raise ValueError(msg)
+    raise ValueError(fallback)
+
+
+cdef class _Beast2Projection:
+    """A validated column-projection plan: wire type in, subset type out.
+
+    Built once per operation (or per file, for the explicit ``project=``
+    form) and passed to the projected read entry points. Validation failures
+    raise ``ValueError`` with east-c's message naming the offending field
+    and the wire type's fields.
+    """
+
+    cdef _eastc.Beast2Projection* _pr
+    cdef _eastc.EastType* _wire
+    cdef _eastc.EastType* _proj
+    cdef readonly object projected_type
+
+    def __cinit__(self, object wire_py_type, object proj_py_type):
+        _ensure_eastc_runtime()
+        self._wire = py_type_to_c(wire_py_type)
+        try:
+            self._proj = py_type_to_c(proj_py_type)
+        except BaseException:
+            _eastc.east_type_release(self._wire)
+            self._wire = NULL
+            raise
+        self._pr = _eastc.east_beast2_projection_new(self._wire, self._proj)
+        if self._pr == NULL:
+            _eastc.east_type_release(self._wire)
+            _eastc.east_type_release(self._proj)
+            self._wire = NULL
+            self._proj = NULL
+            _consume_eastc_error("beast2 v5 projection validation failed", ValueError)
+        self.projected_type = proj_py_type
+
+    def is_identity(self):
+        """Whether the plan is a no-op (subset deep-equals the wire type)."""
+        return _eastc.east_beast2_projection_is_identity(self._pr) != 0
+
+    def __dealloc__(self):
+        if self._pr != NULL:
+            _eastc.east_beast2_projection_free(self._pr)
+        if self._wire != NULL:
+            _eastc.east_type_release(self._wire)
+        if self._proj != NULL:
+            _eastc.east_type_release(self._proj)
+
+
 # ─── v5: segment-terminated record stream (issue #416) ────────────────────
 
 cdef int32_t _codec_id(object codec) except -1:
@@ -330,13 +396,16 @@ cdef class _Beast2WriterCore:
 cdef class _Beast2ReaderCore:
     """Thin wrapper over east-c's sequential v5 segment reader. Holds a
     contiguous view of the source bytes for the reader's whole lifetime
-    (the C reader borrows the buffer)."""
+    (the C reader borrows the buffer). An optional column projection (#599)
+    narrows every decoded segment; the reader keeps it alive."""
 
     cdef _eastc.Beast2SegmentReader* _r
     cdef _eastc.EastType* _type
     cdef const uint8_t[::1] _view
+    cdef object _projection
+    cdef _eastc.EastType* _out_type  # borrowed from _type or the projection
 
-    def __cinit__(self, object py_type, object data):
+    def __cinit__(self, object py_type, object data, object projection=None):
         _ensure_eastc_runtime()
         self._view = data
         self._type = py_type_to_c(py_type)
@@ -348,6 +417,12 @@ cdef class _Beast2ReaderCore:
             _eastc.east_type_release(self._type)
             self._type = NULL
             _consume_eastc_error("east-c beast2 v5 reader construction failed")
+        self._out_type = self._type
+        if projection is not None and not (<_Beast2Projection>projection).is_identity():
+            self._projection = projection
+            _eastc.east_beast2_reader_set_projection(
+                self._r, (<_Beast2Projection>projection)._pr)
+            self._out_type = (<_Beast2Projection>projection)._proj
 
     def next(self):
         """Decode the next segment, or return None at the terminator."""
@@ -357,7 +432,7 @@ cdef class _Beast2ReaderCore:
                 return None
             _consume_eastc_error("east-c beast2 v5 reader failed")
         try:
-            return c_value_to_py(c_val, self._type)
+            return c_value_to_py(c_val, self._out_type)
         finally:
             _eastc.east_value_release(c_val)
 
@@ -385,6 +460,8 @@ cdef class _Beast2PagesCore:
     cdef _eastc.Beast2Pages* _p
     cdef _eastc.EastType* _type
     cdef const uint8_t[::1] _view
+    cdef object _projection
+    cdef _eastc.EastType* _out_type  # borrowed from _type or the projection
 
     def __cinit__(self, object py_type, object data):
         _ensure_eastc_runtime()
@@ -398,6 +475,21 @@ cdef class _Beast2PagesCore:
             _eastc.east_type_release(self._type)
             self._type = NULL
             _consume_eastc_error("east-c beast2 v5 pages construction failed")
+        self._out_type = self._type
+
+    def set_projection(self, object projection):
+        """Install an open-time column projection (#599): every pager read —
+        segments, elements, keyed gets, the shared cache — serves the subset
+        shape from now on. Pass None to clear."""
+        if projection is None or (<_Beast2Projection>projection).is_identity():
+            self._projection = None
+            _eastc.east_beast2_pages_set_projection(self._p, NULL)
+            self._out_type = self._type
+            return
+        self._projection = projection
+        _eastc.east_beast2_pages_set_projection(
+            self._p, (<_Beast2Projection>projection)._pr)
+        self._out_type = (<_Beast2Projection>projection)._proj
 
     def segment_count(self):
         return _eastc.east_beast2_pages_segment_count(self._p)
@@ -422,7 +514,34 @@ cdef class _Beast2PagesCore:
         if c_val == NULL:
             _consume_eastc_error("east-c beast2 v5 pages segment failed")
         try:
-            return c_value_to_py(c_val, self._type)
+            return c_value_to_py(c_val, self._out_type)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def segment_projected(self, object i, object projection):
+        """Segment ``i`` decoded through a per-operation column projection
+        (#599) — a fresh decode that never touches the pager's shared cache.
+        Raises :class:`Beast2ProjectionAlias` when a shared container crosses
+        the projection boundary (retry with :meth:`segment`)."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_segment_projected(
+            self._p, <size_t>i, (<_Beast2Projection>projection)._pr)
+        if c_val == NULL:
+            _consume_projection_error("east-c beast2 v5 projected segment failed")
+        try:
+            return c_value_to_py(c_val, (<_Beast2Projection>projection)._proj)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def segment_disjoint_projected(self, object i, object projection):
+        """The disjointness-checked sibling of :meth:`segment_projected` for
+        Set/Dict roots — fences verify on whole keys, the decode is narrow
+        and uncached."""
+        cdef _eastc.EastValue* c_val = _eastc.east_beast2_pages_segment_disjoint_projected(
+            self._p, <size_t>i, (<_Beast2Projection>projection)._pr)
+        if c_val == NULL:
+            _consume_projection_error("east-c beast2 v5 projected disjoint segment failed")
+        try:
+            return c_value_to_py(c_val, (<_Beast2Projection>projection)._proj)
         finally:
             _eastc.east_value_release(c_val)
 
@@ -432,7 +551,7 @@ cdef class _Beast2PagesCore:
         if c_val == NULL:
             _consume_eastc_error("east-c beast2 v5 pages element failed")
         try:
-            return c_value_to_py(c_val, self._type.data.element)
+            return c_value_to_py(c_val, self._out_type.data.element)
         finally:
             _eastc.east_value_release(c_val)
 
@@ -466,7 +585,7 @@ cdef class _Beast2PagesCore:
         if c_val == NULL:
             return (rc == 1, None)
         try:
-            return (True, c_value_to_py(c_val, self._type.data.dict.value))
+            return (True, c_value_to_py(c_val, self._out_type.data.dict.value))
         finally:
             _eastc.east_value_release(c_val)
 
@@ -483,7 +602,7 @@ cdef class _Beast2PagesCore:
         if c_found == NULL:
             _consume_eastc_error("east-c beast2 v5 batched keyed read failed")
         try:
-            return (c_value_to_py(c_found, self._type), c_value_to_py(c_missing, set_t))
+            return (c_value_to_py(c_found, self._out_type), c_value_to_py(c_missing, set_t))
         finally:
             _eastc.east_value_release(c_found)
             _eastc.east_value_release(c_missing)
@@ -508,7 +627,7 @@ cdef class _Beast2PagesCore:
         if c_val == NULL:
             _consume_eastc_error("east-c beast2 v5 disjoint segment read failed")
         try:
-            return c_value_to_py(c_val, self._type)
+            return c_value_to_py(c_val, self._out_type)
         finally:
             _eastc.east_value_release(c_val)
 

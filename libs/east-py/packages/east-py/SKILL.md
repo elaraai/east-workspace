@@ -154,6 +154,17 @@ syntax, fastest first:
      `group_sum` `group_mean` `group_every` `group_some` `group_to_arrays`
      `group_to_sets` `group_to_dicts` `[key_expr]` — plus the in-place
      `insert` `insert_or_update` `delete` `try_delete` `clear`
+   - **Vector** (#598 — structural ops plus the elementwise arithmetic,
+     reductions in strict left-to-right index order, masks and
+     gather/scatter; the callback ops map and fold are deliberately absent,
+     the arithmetic replaces them for numeric work): `length` `get` `set` `slice` `concat`
+     `to_array` `to_matrix` `scale` `sum` `add_scaled` `mul` `add_scalar`
+     `dot` `maximum` `minimum` `arg_max` `arg_min` `mean` `cum_sum` `abs`
+     `clamp` `gather` `scatter_add` `search_sorted` `eq` `lt` `gt` `select`
+     `compress` `count_true`
+   - **Matrix** (#598): `num_rows` `num_cols` `get` `set` `get_row` `get_col`
+     `transpose` `to_vector` `to_array` `to_rows` `scale` `add_scaled`
+     `mul_elementwise` `row_sums` `col_sums` `vec_mul`
 
    Every transform is pure, so a whole `record → legs → values` descent — or
    a `group_by` + `to_dict(combine=)` + `sorted` aggregate — is ONE kernel,
@@ -575,6 +586,19 @@ Task → What do you need?
     │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col ·
     │   │                   to_array/to_vector/to_matrix/to_rows · to_numpy(copy=False)/to_torch() ·
     │   │                   from_numpy/from_torch/zeros/ones/fill
+    │   │   ├─ Elementwise arithmetic (east-c; #598) → scale(α) · add_scaled(other, α) · mul(other) ·
+    │   │   │            add_scalar(c) · abs() · clamp(lo, hi) · cum_sum() — Matrix: scale ·
+    │   │   │            add_scaled · mul_elementwise
+    │   │   ├─ Reductions (strict left-to-right order, cross-runtime) → sum() · dot(other) ·
+    │   │   │            maximum/minimum() ❗empty · arg_max/arg_min() ❗empty · mean()→Float ·
+    │   │   │            Matrix: row_sums() · col_sums() · vec_mul(v)
+    │   │   ├─ Masks & selection → eq/lt/gt(other)→Vector<Boolean> · mask.select(a, b) ·
+    │   │   │            v.compress(mask) · mask.count_true() · gather(idxs) ·
+    │   │   │            scatter_add(idxs, src) · search_sorted(needles)
+    │   │   └─ Sparse accumulators (Struct{ix, v}; strictly ascending ix) →
+    │   │                East.Vector.sparse_axpy(ixA, vA, ixB, vB, α) (union merge, vA + α·vB) ·
+    │   │                East.Vector.sparse_from_pairs(ix, v) (sorts + sums duplicates, stable) ·
+    │   │                East.Vector.sparse_filter_gt(ix, v, threshold) (noise-floor compaction)
     │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
     │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · .match({case: handler}, default=)
     │   ├─ Ref           → get() · set(value) · update(fn(current)) · merge(patch, combine)
@@ -673,7 +697,9 @@ Task → What do you need?
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
     │
-    ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()   (no arithmetic methods)
+    ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()
+    │   (the East arithmetic surface above covers elementwise/reduction/sparse work with the
+    │    cross-runtime order contract; numpy/torch is for math beyond it)
     │
     ├─ A collection FILE that does not fit in memory (beast2 v5) — start MANAGED:
     │   ├─ Write → write_beast2_file(path, T, value)  (any size; re-batched into segments)
@@ -699,14 +725,23 @@ Task → What do you need?
     │   │   ├─ Set membership → x in f · f.has(x)
     │   │   ├─ Array sorted search → f.find_sorted_first/last/range(target) — GLOBAL insertion
     │   │   │   indices; no key= projection (the file pages by element order)
-    │   │   └─ whole-file compute → the FULL eager read surface runs on f directly: map · filter ·
-    │   │       filter_map · first_map · fold · map_reduce · sum · mean · maximum · minimum ·
-    │   │       every · some · find_first/all/maximum/minimum · is_sorted · to_set/unique ·
-    │   │       to_dict · to_array · to_columns · map_batches · string_join · flatten_* ·
-    │   │       the group_* family · Set algebra — segment folds, east-c per segment,
-    │   │       results == f.load() exactly (the file is never materialized); anything
-    │   │       else inherits the eager method through ordinary iteration
-    │   │       (f.segments() is a DEPRECATED alias — the value surface subsumes it, #560)
+    │   │   ├─ whole-file compute → the FULL eager read surface runs on f directly: map · filter ·
+    │   │   │   filter_map · first_map · fold · map_reduce · sum · mean · maximum · minimum ·
+    │   │   │   every · some · find_first/all/maximum/minimum · is_sorted · to_set/unique ·
+    │   │   │   to_dict · to_array · to_columns · map_batches · string_join · flatten_* ·
+    │   │   │   the group_* family · Set algebra — segment folds, east-c per segment,
+    │   │   │   results == f.load() exactly (the file is never materialized); anything
+    │   │   │   else inherits the eager method through ordinary iteration
+    │   │   │   (f.segments() is a DEPRECATED alias — the value surface subsumes it, #560)
+    │   │   └─ wide rows, few columns read → column projection (#599) is INFERRED: a traced
+    │   │       callback's IR names the struct fields it reads, and each segment decodes to
+    │   │       exactly that subset (skipped fields are parsed-and-hopped, never built) —
+    │   │       no API, applies to the whole compute family and runner-opened task inputs;
+    │   │       non-inferable callbacks (impure, element used whole, un-retraceable kernels)
+    │   │       decode whole, counted in eager_stats() with the reason. Declare it instead →
+    │   │       open_beast2_file(path, project=NARROW) — NARROW ⊆ the wire type (struct
+    │   │       fields subset by name at any depth); every read serves the subset, incl.
+    │   │       point reads (find_sorted_* refuse: the file sorts by whole elements)
     │   └─ Buffer-level (you hold the bytes, not a path):
     │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
@@ -731,7 +766,9 @@ that still run python, so you can reason about cost and semantics:
   drives the loop, python runs per element (by design; `eager_stats()` shows
   it).
 - **`EastVector`/`EastMatrix` `map`/`fold`/`map_elements`/`map_rows`** run in
-  python (the tensor surface does its real math via `to_numpy`/`to_torch`).
+  python (per-element boxing is inherent to their callback contract). The
+  arithmetic/reduction/mask/sparse methods delegate to the east-c builtins
+  (#598); free-form math beyond that surface goes via `to_numpy`/`to_torch`.
 - **`Dict.get_or_insert`** composes membership + get python-side so `fn` is
   only called on a miss (deliberately lazier than East's strict default
   expression). The other singles (`insert`/`update`/`swap`/`delete`/
@@ -936,17 +973,28 @@ in `other`'s values; `merge_key` takes a single differently-typed value.
 
 Immutable 1-D numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by a
 contiguous NumPy buffer for zero-copy ML interop. The logical `.element_type` is fixed; the storage
-`.dtype` may be any compatible width (e.g. f32). **No arithmetic methods** — do tensor math via
-`to_numpy()`/`to_torch()` and wrap the result back. **Immutable:** `set`/transform return a NEW
-vector; the original is unchanged. **Not hashable**, but valid as an East Set/Dict key (ordered by
-value). Construct via the `EastVector.*` classmethods (see [Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted.
+`.dtype` may be any compatible width (e.g. f32). The **arithmetic surface delegates to the east-c
+builtins** (#598): reductions fold in strict left-to-right index order and comparisons use East's
+total order (NaN greatest, `-0.0 < 0.0`) — bit-identical across the TS, C and Python runtimes,
+which numpy's reassociating reductions are not. Free-form math beyond it goes via
+`to_numpy()`/`to_torch()`. **Immutable:** `set`/transform return a NEW vector; the original is
+unchanged. **Not hashable**, but valid as an East Set/Dict key (ordered by value). Construct via
+the `EastVector.*` classmethods (see [Container generators](#container-generators-classmethods));
+`from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted. Structural access
+methods called with a **traced** argument (inside a `kernel()` lambda) lift the vector as a
+constant and emit IR, like the eager collections.
 
 | Group | Methods |
 |-------|---------|
 | Access | `get(i)` (promoted Python scalar) · `length() -> int` · `slice(start, end) -> EastVector` (half-open, contiguous copy) |
 | Transform (returns new) | `set(i, v) -> EastVector` (original unchanged) · `concat(other) -> EastVector` (takes this vector's element type) |
+| Arithmetic (east-c; Float/Integer elements) | `scale(alpha)` · `add_scaled(other, alpha)` (`self + alpha*other`) ❗len · `mul(other)` ❗len · `add_scalar(c)` · `abs()` · `clamp(lo, hi)` (East order) · `cum_sum()` (running sum, left to right) |
+| Reduce (east-c; strict left-to-right order) | `sum()` (0 when empty) · `dot(other)` ❗len · `maximum()`/`minimum()` ❗empty · `arg_max()`/`arg_min()` ❗empty (ties keep the first index; NaN is greatest) · `mean() -> float` (Integer widens per element; NaN when empty) |
+| Masks & selection (east-c) | `eq(other)`/`lt(other)`/`gt(other)` ❗len `-> Vector<Boolean>` (East equality/order) · `mask.select(a, b)` ❗len (mask receiver) · `v.compress(mask)` ❗len · `mask.count_true() -> int` |
+| Gather / scatter / search (east-c) | `gather(indices)` ❗bounds · `scatter_add(indices, src)` ❗len/bounds (duplicates accumulate in order) · `search_sorted(needles) -> Vector<Integer>` (leftmost insertion index; assumes sorted) |
+| Sparse accumulators (east-c; `East.Vector.*`) | `sparse_axpy(ixA, vA, ixB, vB, alpha)` (union merge `vA + alpha*vB`; absent entries stay absent) ❗ascending/len · `sparse_from_pairs(ix, v)` (sorts + sums duplicates stably, in input order) ❗len · `sparse_filter_gt(ix, v, threshold)` ❗ascending/len — all return `Struct{ix: Vector<Integer>, v: Vector<T>}` with strictly ascending `ix` |
 | Per-element | `map(fn(el), out=None) -> EastVector` (runs in Python, not delegated; pin `out` to fix result element type / storage dtype) |
-| Reduce | `fold(initial, fn(acc, el))` (left fold in Python; returns `initial` if empty) |
+| Reduce (python) | `fold(initial, fn(acc, el))` (left fold in Python; returns `initial` if empty) |
 | Convert | `to_array() -> EastArray` (promotes scalars; severs the zero-copy link) · `to_matrix(rows, cols) -> EastMatrix` (row-major reshape; `rows*cols == length`) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (read-only view by default; a cast or `copy=True` is writeable) · `to_torch(dtype=None) -> torch.Tensor` (always a writeable copy) · `np.asarray(v)` via `__array__` · props `.dtype` (storage) / `.element_type` (logical) |
 
@@ -954,14 +1002,20 @@ value). Construct via the `EastVector.*` classmethods (see [Container generators
 
 Immutable 2-D row-major numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by
 a contiguous NumPy buffer. Logical `.element_type` is separate from storage `.dtype` (a Float matrix
-may be stored f32). Same contract as `EastVector`: **no arithmetic** (use `to_numpy()`/`to_torch()`),
-**immutable** (`set`/transform return a NEW matrix), **not hashable** but valid as an East Set/Dict
-key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted.
+may be stored f32). Same contract as `EastVector`: the arithmetic surface delegates to east-c
+(#598) with the strict left-to-right reduction order; free-form math goes via
+`to_numpy()`/`to_torch()`. **Immutable** (`set`/transform return a NEW matrix), **not hashable**
+but valid as an East Set/Dict key. Construct via the `EastMatrix.*` classmethods (see
+[Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer
+`element_type` from the array dtype when omitted. Structural access methods called with a traced
+argument lift the matrix as a constant and emit IR.
 
 | Group | Methods |
 |-------|---------|
 | Access | `get(r, c)` (Python scalar) · `num_rows() -> int` · `num_cols() -> int` |
 | Transform (returns new) | `set(r, c, v) -> EastMatrix` (original unchanged) · `transpose() -> EastMatrix` (new cols×rows, contiguous) |
+| Arithmetic (east-c; Float/Integer elements) | `scale(alpha)` · `add_scaled(other, alpha)` ❗dims · `mul_elementwise(other)` ❗dims (Hadamard) |
+| Reduce (east-c; ascending index order) | `row_sums() -> EastVector` (ascending column order per row) · `col_sums() -> EastVector` (ascending row order per column) · `vec_mul(v) -> EastVector` ❗cols≠len (row-by-vector dot products) |
 | Rows & cols | `get_row(r) -> EastVector` (contiguous copy) · `get_col(c) -> EastVector` (contiguous copy) |
 | Per-element & per-row | `map_elements(fn(el), out=None) -> EastMatrix` (row-major, no row/col index) · `map_rows(fn(row: EastVector), out=None) -> EastMatrix` (returned rows must share one width) |
 | Convert | `to_vector() -> EastVector` (row-major flatten) · `to_array() -> EastArray` (`Array<Array<el>>`, one inner array per row) · `to_rows() -> EastArray` (`Array<Vector<el>>`, one `EastVector` per row) |
@@ -1012,6 +1066,7 @@ name-for-name.
 | Dict: `f[k]` ❗KeyError · `f.get(k, default=None)` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/keys()/values()` (streaming) · `f.keys_set()` (native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads (#481 W2): east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Disjoint ascending segments are the v5 wire contract; the first keyed read still verifies the fences, and a corrupt (or pre-contract) blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
 | Array sorted search: `f.find_sorted_first/last(target)` → global index · `f.find_sorted_range(target)` → `{start, end}` | Same contract as the eager `EastArray` builtins over the whole file — the fences pick the boundary segment, its in-segment search adds the segment's base, and only that segment decodes. No `key=` projection (the file pages by element order); pair with `f.slice(start, end)` to fetch the matching rows |
 | Compute (#481 W4): `f.map/filter/filter_map/first_map/fold/scan/map_reduce/sum/mean/maximum/minimum/every/some/find_first/find_all/find_maximum/find_minimum/is_sorted/to_set/unique/to_dict/to_array/to_columns/map_batches/string_join/flatten_to_array/set/dict/for_each` · the full `group_*` family (including `group_find_all/first/maximum/minimum`, whose indices are rebased to GLOBAL rows) · Set algebra (`union/intersect/diff/sym_diff/is_subset/is_superset_of/is_disjoint`) | The whole eager read surface, one segment decoded at a time: each segment runs the ordinary eager method — pure lambdas trace to kernels, precompiled kernels pass through — and partials combine through east-c containers in stream order. Order-dependent folds thread ONE accumulator and grouped folds SEED each segment's init from the running per-group accumulators, so results equal `load()` exactly, float ordering included. Array `(el, idx)` callbacks see GLOBAL row indices, and so do the indices `find_*`/`group_find_*` report; `first_map`/`some`/`every`/`is_superset_of` stop decoding at the answer. Dict/Set compute streams disjointness-verified segments (a corrupt blob fails loudly, like keyed reads). Re-keyed collisions in `to_dict`/`flatten_to_dict`/`group_to_dicts` combine left-associatively in stream order — use an associative `combine`. `sorted`/`reversed`/`copy`/`concat`/`merge` stay off the file (they materialize the whole collection — `load()` first) |
+| Column projection (#599, finishing #481 W3) — INFERRED: automatic on the compute family above; EXPLICIT: `open_beast2_file(path, project=NARROW)` | The compute family traces its callbacks FIRST and decodes each segment to exactly the struct fields the traced IR reads (skipped fields are parsed-and-hopped through the inflated bytes, never built into values — value materialisation, not byte-walking, dominates decode cost). Struct fields subset by name at ANY depth; a subtree used any way other than a further field read stays whole, so every comparison and builtin sees full values and results are unchanged. Dict KEYS and Set elements never narrow (they order the container). Runner-opened task inputs get the same inference from the compiled body's loop IR — no API change at either site. Non-inferable cases decode whole and are COUNTED in `eager_stats()` (`beast2_segments_projected/whole`, `beast2_projection_declined_*` by reason: an impure callback, the element escaping whole, a `.bind` kernel with no retraceable source, an unpageable blob) — an inferred optimisation that silently stops applying is an invisible cliff. The explicit form serves the subset from EVERY read (point reads, keyed gets, `load()`); `project` must be a subset of the wire type — a missing field raises `ValueError` naming it and the wire's fields — while a declared `T` keeps its exact meaning; `find_sorted_*` refuse under it (the file sorts by whole elements). Cache rule: a segment decoded under one mask is never served to an operation needing more. Zero wire change — every blob stays readable by every runtime |
 | Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
 
 ```python

@@ -388,7 +388,9 @@ void b2v5_dec_ctx_init(B2V5DecodeCtx *ctx, EastSourceMap *sm)
 void b2v5_dec_ctx_free(B2V5DecodeCtx *ctx)
 {
     free(ctx->defs);
+    free(ctx->def_plans);
     ctx->defs = NULL;
+    ctx->def_plans = NULL;
     ctx->def_count = 0;
     ctx->def_cap = 0;
 }
@@ -400,8 +402,14 @@ bool b2v5_dec_ctx_push(B2V5DecodeCtx *ctx, EastValue *container)
         EastValue **defs = realloc(ctx->defs, new_cap * sizeof(EastValue *));
         if (!defs) return false;
         ctx->defs = defs;
+        if (ctx->proj_active) {
+            const void **plans = realloc(ctx->def_plans, new_cap * sizeof(const void *));
+            if (!plans) return false;
+            ctx->def_plans = plans;
+        }
         ctx->def_cap = new_cap;
     }
+    if (ctx->proj_active) ctx->def_plans[ctx->def_count] = ctx->cur_shape;
     ctx->defs[ctx->def_count++] = container;
     return true;
 }
@@ -432,9 +440,9 @@ EastValue *b2v5_decode_value(const uint8_t *data, size_t len, size_t *offset, Ea
 }
 
 /* Read a container tag. Returns 1 and sets *aliased (retained) for REF,
- * 0 for NEW, -1 for corruption. */
-static int b2v5_read_container_tag(const uint8_t *data, size_t len, size_t *offset,
-                                   B2V5DecodeCtx *ctx, EastValue **aliased)
+ * 0 for NEW, -1 for corruption (or a projection-shape mismatch). */
+int b2v5_read_container_tag(const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx,
+                            EastValue **aliased)
 {
     *aliased = NULL;
     if (*offset >= len) return -1;
@@ -451,7 +459,16 @@ static int b2v5_read_container_tag(const uint8_t *data, size_t len, size_t *offs
         east_builtin_error(msg);
         return -1;
     }
-    EastValue *target = ctx->defs[ctx->def_count - (size_t)delta];
+    size_t def_idx = ctx->def_count - (size_t)delta;
+    if (ctx->proj_active && ctx->def_plans[def_idx] != ctx->cur_shape) {
+        /* The target decoded under a different shape than this reference
+         * site needs (narrowed differently, or parsed-and-skipped) — serving
+         * it would hand back a value whose layout disagrees with the type
+         * label. The caller falls back to a whole decode. */
+        east_builtin_error(B2V5_PROJ_ALIAS_MSG);
+        return -1;
+    }
+    EastValue *target = ctx->defs[def_idx];
     if (!target) return -1;
     east_value_retain(target);
     *aliased = target;
@@ -462,7 +479,7 @@ static int b2v5_read_container_tag(const uint8_t *data, size_t len, size_t *offs
  * the canonical value — a non-ascending element/key is corruption, never
  * data to repair. Takes ownership decisions away from the caller: on
  * failure `next` is untouched (caller still releases it). */
-static bool b2v5_order_accept(B2V5OrderCheck *order, EastValue *next, bool is_dict)
+bool b2v5_order_accept(B2V5OrderCheck *order, EastValue *next, bool is_dict)
 {
     if (order->prev && east_value_compare(order->prev, next) >= 0) {
         east_builtin_error(is_dict

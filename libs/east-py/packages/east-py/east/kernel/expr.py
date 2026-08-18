@@ -31,6 +31,7 @@ from east.kernel.ops.scalar import _ScalarOps
 from east.kernel.ops.search import _SearchOps
 from east.kernel.ops.sequence import _SequenceOps
 from east.kernel.ops.temporal import _TemporalOps
+from east.kernel.ops.tensor import _TensorOps
 from east.kernel.ops.text import _TextOps
 from east.kernel.ops.transforms import _TransformOps
 from east.types.types import EastType
@@ -99,6 +100,25 @@ _TRACED_SURFACE = {
         # in-place mutation (#578)
         "insert", "insert_or_update", "delete", "try_delete", "clear",
     })),
+    # The tensor surface (#598): structural ops + elementwise arithmetic,
+    # masks, reductions and gather/scatter. Deliberately absent: the callback
+    # builtins (VectorMap/VectorFold, MatrixMapElements/MapRows) — per-element
+    # boxing is inherent to their contract, and the arithmetic builtins are
+    # what replace them for numeric work.
+    "Vector": tuple(sorted({
+        "length", "get", "set", "slice", "concat", "to_array", "to_matrix",
+        "scale", "sum", "add_scaled", "mul", "add_scalar", "dot",
+        "maximum", "minimum", "arg_max", "arg_min", "mean", "cum_sum",
+        "abs", "clamp",
+        "gather", "scatter_add", "search_sorted",
+        "eq", "lt", "gt", "select", "compress", "count_true",
+    })),
+    "Matrix": tuple(sorted({
+        "num_rows", "num_cols", "get", "set", "get_row", "get_col",
+        "transpose", "to_vector", "to_array", "to_rows",
+        "scale", "add_scaled", "mul_elementwise",
+        "row_sums", "col_sums", "vec_mul",
+    })),
 }
 
 
@@ -121,6 +141,11 @@ def _shadowable_names() -> frozenset[str]:
 
 
 class KernelExpr(
+    # _TensorOps sits first: its Vector/Matrix dispatch for the shared names
+    # (length/get/set/slice/concat/to_array/sum/mean/maximum/minimum/abs)
+    # runs before the scalar/collection mixins and delegates non-tensor
+    # receivers to the mixin that owns the name.
+    _TensorOps,
     _ScalarOps,
     _TextOps,
     _TemporalOps,

@@ -247,4 +247,130 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
       return this.mapRows(functionExpr as unknown as Expr<FunctionType<[VectorType<T>, IntegerType], VectorType<any>>>);
     }
   }
+
+  /** Requires a Float or Integer element type for the arithmetic builtins. */
+  private numericElem(method: string): EastType {
+    const t = this.element_type as EastType;
+    if (t.type !== "Float" && t.type !== "Integer") {
+      throw new Error(`Matrix.${method} requires a Float or Integer element type, got ${printType(t)}`);
+    }
+    return t;
+  }
+
+  /**
+   * Multiplies every element by a scalar, producing a new matrix.
+   *
+   * @param alpha - The scalar factor (same type as the elements)
+   * @returns A new MatrixExpr with every element scaled by alpha
+   */
+  scale(alpha: SubtypeExprOrValue<T>): MatrixExpr<T> {
+    const elem = this.numericElem("scale");
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: MatrixType(elem),
+      loc_id: get_location_id(),
+      builtin: "MatrixScale",
+      type_parameters: [elem],
+      arguments: [this[AstSymbol], valueOrExprToAstTyped(alpha, elem)],
+    }) as MatrixExpr<T>;
+  }
+
+  /**
+   * Adds a scaled matrix elementwise: `this + alpha * other`.
+   *
+   * @param other - The matrix to scale and add (same dimensions and element type)
+   * @param alpha - The scalar factor applied to other
+   * @returns A new MatrixExpr holding the combined elements
+   *
+   * @throws East runtime error if the matrix dimensions differ
+   */
+  addScaled(other: SubtypeExprOrValue<MatrixType<T>>, alpha: SubtypeExprOrValue<T>): MatrixExpr<T> {
+    const elem = this.numericElem("addScaled");
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: MatrixType(elem),
+      loc_id: get_location_id(),
+      builtin: "MatrixAddScaled",
+      type_parameters: [elem],
+      arguments: [this[AstSymbol], valueOrExprToAstTyped(other, MatrixType(elem)), valueOrExprToAstTyped(alpha, elem)],
+    }) as MatrixExpr<T>;
+  }
+
+  /**
+   * Multiplies two matrices elementwise (the Hadamard product).
+   *
+   * @param other - The matrix to multiply with (same dimensions and element type)
+   * @returns A new MatrixExpr holding the elementwise products
+   *
+   * @throws East runtime error if the matrix dimensions differ
+   */
+  mulElementwise(other: SubtypeExprOrValue<MatrixType<T>>): MatrixExpr<T> {
+    const elem = this.numericElem("mulElementwise");
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: MatrixType(elem),
+      loc_id: get_location_id(),
+      builtin: "MatrixMulElementwise",
+      type_parameters: [elem],
+      arguments: [this[AstSymbol], valueOrExprToAstTyped(other, MatrixType(elem))],
+    }) as MatrixExpr<T>;
+  }
+
+  /**
+   * Sums each row into a vector of length rows. Each row accumulates in
+   * ascending column order, left to right — the same cross-runtime contract
+   * as the Vector reductions.
+   *
+   * @returns A VectorExpr holding one sum per row
+   */
+  rowSums(): VectorExpr<T> {
+    const elem = this.numericElem("rowSums");
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: VectorType(elem),
+      loc_id: get_location_id(),
+      builtin: "MatrixRowSums",
+      type_parameters: [elem],
+      arguments: [this[AstSymbol]],
+    }) as any;
+  }
+
+  /**
+   * Sums each column into a vector of length cols. Each column accumulates
+   * in ascending row order.
+   *
+   * @returns A VectorExpr holding one sum per column
+   */
+  colSums(): VectorExpr<T> {
+    const elem = this.numericElem("colSums");
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: VectorType(elem),
+      loc_id: get_location_id(),
+      builtin: "MatrixColSums",
+      type_parameters: [elem],
+      arguments: [this[AstSymbol]],
+    }) as any;
+  }
+
+  /**
+   * Multiplies this matrix by a vector: element r of the result is the dot
+   * product of row r with the vector, accumulated in ascending column order.
+   *
+   * @param vector - The vector to multiply by (length must equal cols)
+   * @returns A VectorExpr of length rows
+   *
+   * @throws East runtime error if the vector length does not equal the column count
+   */
+  vecMul(vector: SubtypeExprOrValue<VectorType<T>>): VectorExpr<T> {
+    const elem = this.numericElem("vecMul");
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: VectorType(elem),
+      loc_id: get_location_id(),
+      builtin: "MatrixVecMul",
+      type_parameters: [elem],
+      arguments: [this[AstSymbol], valueOrExprToAstTyped(vector, VectorType(elem))],
+    }) as any;
+  }
 }

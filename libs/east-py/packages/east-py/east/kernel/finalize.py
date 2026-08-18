@@ -152,6 +152,8 @@ def _node_specs():
         "Struct": ((("fields", "structs", lambda: StructFieldIRType, ("value",)),), ()),
         "Variant": (("value",), ()),
         "NewArray": ((("values", "list", ir),), ()),
+        "NewVector": ((("values", "list", ir),), ()),
+        "NewMatrix": ((("values", "list", ir),), ()),
         "NewSet": ((("values", "list", ir),), ()),
         "NewDict": ((("values", "structs", lambda: DictEntryType, ("key", "value")),), ()),
         "Match": (("variant", ("cases", "structs", lambda: MatchCaseType, ("variable", "body"))), ()),

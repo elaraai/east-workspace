@@ -408,4 +408,236 @@ await describe("Vector", (test) => {
         $(assert.equal(d.has(new Float64Array([1.0, 2.0])), true))
         $(assert.equal(d.has(new Float64Array([9.0, 9.0])), false))
     });
+
+    assert.examples(test, {
+        vectorScale: ex.vectorScale,
+        vectorSum: ex.vectorSum,
+        vectorAddScaled: ex.vectorAddScaled,
+        vectorMul: ex.vectorMul,
+        vectorAddScalar: ex.vectorAddScalar,
+        vectorDot: ex.vectorDot,
+        vectorMax: ex.vectorMax,
+        vectorMin: ex.vectorMin,
+        vectorArgMax: ex.vectorArgMax,
+        vectorArgMin: ex.vectorArgMin,
+        vectorMean: ex.vectorMean,
+        vectorCumSum: ex.vectorCumSum,
+        vectorAbs: ex.vectorAbs,
+        vectorClamp: ex.vectorClamp,
+    });
+
+    test("Vector arithmetic on integers", $ => {
+        const v = $.let(East.Vector.fromArray([1n, 2n, 3n]));
+        $(assert.equal(v.scale(2n), new BigInt64Array([2n, 4n, 6n])))
+        $(assert.equal(v.sum(), 6n))
+        $(assert.equal(v.addScaled(East.Vector.fromArray([10n, 20n, 30n]), 2n), new BigInt64Array([21n, 42n, 63n])))
+        $(assert.equal(v.mul(new BigInt64Array([4n, 5n, 6n])), new BigInt64Array([4n, 10n, 18n])))
+        $(assert.equal(v.addScalar(10n), new BigInt64Array([11n, 12n, 13n])))
+        $(assert.equal(v.dot(new BigInt64Array([4n, 5n, 6n])), 32n))
+        $(assert.equal(v.max(), 3n))
+        $(assert.equal(v.min(), 1n))
+        $(assert.equal(v.argMax(), 2n))
+        $(assert.equal(v.argMin(), 0n))
+        $(assert.equal(v.mean(), 2.0))
+        $(assert.equal(v.cumSum(), new BigInt64Array([1n, 3n, 6n])))
+        $(assert.equal(East.Vector.fromArray([-2n, 5n]).abs(), new BigInt64Array([2n, 5n])))
+        $(assert.equal(East.Vector.fromArray([-2n, 1n, 5n]).clamp(0n, 3n), new BigInt64Array([0n, 1n, 3n])))
+    });
+
+    test("Vector sum order is left to right", $ => {
+        // (1e16 + 1) + -1e16 absorbs the 1; any reassociation yields 1.0
+        const v = $.let(East.Vector.fromArray([1e16, 1.0, -1e16]));
+        $(assert.equal(v.sum(), 0.0))
+        $(assert.equal(v.cumSum(), new Float64Array([1e16, 1e16, 0.0])))
+        const ones = $.let(East.Vector.fromArray([1.0, 1.0, 1.0]));
+        $(assert.equal(v.dot(ones), 0.0))
+    });
+
+    test("Vector multiply-add rounds twice (no FP contraction)", $ => {
+        // With b = 1 + 2^-30, b*b rounds to 1 + 2^-29 BEFORE the add, so
+        // -1 + b*b is exactly 2^-29. A fused multiply-add rounds once and
+        // keeps the product's 2^-60 term (1.8626451500983188e-9) — these
+        // constants diverge under contraction, pinning the two-rounding
+        // JS reference semantics on every runtime (east-c builds with
+        // -ffp-contract=off).
+        const b = 1.0000000009313226; // 1 + 2^-30
+        const av = $.let(East.Vector.fromArray([-1.0]));
+        const bv = $.let(East.Vector.fromArray([b]));
+        $(assert.equal(av.addScaled(bv, b), new Float64Array([1.862645149230957e-9])))
+        const x = $.let(East.Vector.fromArray([1.0, b]));
+        const y = $.let(East.Vector.fromArray([-1.0, b]));
+        $(assert.equal(x.dot(y), 1.862645149230957e-9))
+        const merged = $.let(East.Vector.sparseAxpy(
+            new BigInt64Array([0n]), new Float64Array([-1.0]),
+            new BigInt64Array([0n]), new Float64Array([b]),
+            b,
+        ));
+        $(assert.equal(merged.v, new Float64Array([1.862645149230957e-9])))
+    });
+
+    test("Vector reductions follow East float order", $ => {
+        // NaN is greatest under East's total order; ties keep the first index
+        const v = $.let(East.Vector.fromArray([1.0, Number.NaN, 3.0]));
+        $(assert.equal(v.argMax(), 1n))
+        $(assert.equal(v.min(), 1.0))
+        const ties = $.let(East.Vector.fromArray([5.0, 5.0, 1.0]));
+        $(assert.equal(ties.argMax(), 0n))
+        $(assert.equal(ties.argMin(), 2n))
+    });
+
+    test("Vector empty reductions", $ => {
+        const empty = $.let(East.Vector.zeros(0n));
+        $(assert.equal(empty.sum(), 0.0))
+        $(assert.throws(empty.max(), /Cannot reduce empty Vector/))
+        $(assert.throws(empty.min(), /Cannot reduce empty Vector/))
+        $(assert.throws(empty.argMax(), /Cannot reduce empty Vector/))
+        $(assert.throws(empty.argMin(), /Cannot reduce empty Vector/))
+    });
+
+    test("Vector elementwise length mismatch", $ => {
+        const a = $.let(East.Vector.fromArray([1.0, 2.0, 3.0]));
+        const b = $.let(East.Vector.fromArray([1.0, 2.0]));
+        $(assert.throws(a.addScaled(b, 1.0), /Vector length mismatch \(3 vs 2\)/))
+        $(assert.throws(a.mul(b), /Vector length mismatch/))
+        $(assert.throws(a.dot(b), /Vector length mismatch/))
+        $(assert.throws(a.eq(b), /Vector length mismatch/))
+        $(assert.throws(a.lt(b), /Vector length mismatch/))
+        $(assert.throws(a.gt(b), /Vector length mismatch/))
+    });
+
+    assert.examples(test, {
+        vectorGather: ex.vectorGather,
+        vectorScatterAdd: ex.vectorScatterAdd,
+        vectorSearchSorted: ex.vectorSearchSorted,
+    });
+
+    test("Vector gather and scatter bounds", $ => {
+        const v = $.let(East.Vector.fromArray([10.0, 20.0, 30.0]));
+        $(assert.throws(v.gather(new BigInt64Array([3n])), /Vector index 3 out of bounds/))
+        $(assert.throws(v.gather(new BigInt64Array([-1n])), /Vector index -1 out of bounds/))
+        $(assert.throws(v.scatterAdd(new BigInt64Array([3n]), new Float64Array([1.0])), /Vector index 3 out of bounds/))
+        $(assert.throws(v.scatterAdd(new BigInt64Array([0n, 1n]), new Float64Array([1.0])), /Vector length mismatch \(2 vs 1\)/))
+    });
+
+    test("Vector scatterAdd accumulates duplicates in order", $ => {
+        const dst = $.let(East.Vector.fromArray([100.0, 0.0]));
+        const result = $.let(dst.scatterAdd(new BigInt64Array([0n, 0n, 1n]), new Float64Array([1.0, 2.0, 5.0])));
+        $(assert.equal(result, new Float64Array([103.0, 5.0])))
+        // the original is unchanged
+        $(assert.equal(dst.get(0n), 100.0))
+    });
+
+    test("Vector searchSorted edges", $ => {
+        const haystack = $.let(East.Vector.fromArray([10.0, 20.0, 20.0, 30.0]));
+        // leftmost insertion point: before the equal run
+        $(assert.equal(haystack.searchSorted(new Float64Array([20.0])), new BigInt64Array([1n])))
+        $(assert.equal(haystack.searchSorted(new Float64Array([5.0, 35.0])), new BigInt64Array([0n, 4n])))
+        const empty = $.let(East.Vector.zeros(0n));
+        $(assert.equal(empty.searchSorted(new Float64Array([1.0])), new BigInt64Array([0n])))
+    });
+
+    assert.examples(test, {
+        vectorEq: ex.vectorEq,
+        vectorLt: ex.vectorLt,
+        vectorGt: ex.vectorGt,
+        vectorSelect: ex.vectorSelect,
+        vectorCompress: ex.vectorCompress,
+        vectorCountTrue: ex.vectorCountTrue,
+    });
+
+    test("Vector masks follow East float semantics", $ => {
+        // NaN equals NaN; -0 differs from +0; NaN is greatest in the order
+        const a = $.let(East.Vector.fromArray([Number.NaN, -0.0, 1.0]));
+        const b = $.let(East.Vector.fromArray([Number.NaN, 0.0, 2.0]));
+        $(assert.equal(a.eq(b), new Uint8ClampedArray([1, 0, 0])))
+        $(assert.equal(a.lt(b), new Uint8ClampedArray([0, 1, 1])))
+        $(assert.equal(a.gt(b), new Uint8ClampedArray([0, 0, 0])))
+    });
+
+    test("Vector select and compress on integers", $ => {
+        const mask = $.let(East.Vector.fromArray([true, false, true]));
+        const a = $.let(East.Vector.fromArray([1n, 2n, 3n]));
+        const b = $.let(East.Vector.fromArray([10n, 20n, 30n]));
+        $(assert.equal(mask.select(a, b), new BigInt64Array([1n, 20n, 3n])))
+        $(assert.equal(a.compress(mask), new BigInt64Array([1n, 3n])))
+        $(assert.throws(mask.select(East.Vector.fromArray([1n, 2n]), East.Vector.fromArray([1n, 2n])), /Vector length mismatch/))
+        $(assert.throws(a.compress(East.Vector.fromArray([true])), /Vector length mismatch/))
+    });
+
+    assert.examples(test, {
+        vectorSparseAxpy: ex.vectorSparseAxpy,
+        vectorSparseFromPairs: ex.vectorSparseFromPairs,
+        vectorSparseFilterGt: ex.vectorSparseFilterGt,
+    });
+
+    test("Sparse axpy merges the index union", $ => {
+        const merged = $.let(East.Vector.sparseAxpy(
+            new BigInt64Array([0n, 2n, 5n]), new Float64Array([1.0, 2.0, 3.0]),
+            new BigInt64Array([1n, 2n]), new Float64Array([10.0, 20.0]),
+            2.0,
+        ));
+        $(assert.equal(merged.ix, new BigInt64Array([0n, 1n, 2n, 5n])))
+        $(assert.equal(merged.v, new Float64Array([1.0, 20.0, 42.0, 3.0])))
+        // alpha of one is a plain merge; an empty side passes the other through
+        const identity = $.let(East.Vector.sparseAxpy(
+            new BigInt64Array([1n]), new Float64Array([5.0]),
+            new BigInt64Array(0), new Float64Array(0),
+            1.0,
+        ));
+        $(assert.equal(identity.ix, new BigInt64Array([1n])))
+        $(assert.equal(identity.v, new Float64Array([5.0])))
+    });
+
+    test("Sparse axpy on integers", $ => {
+        const merged = $.let(East.Vector.sparseAxpy(
+            new BigInt64Array([0n]), new BigInt64Array([7n]),
+            new BigInt64Array([0n, 3n]), new BigInt64Array([2n, 4n]),
+            10n,
+        ));
+        $(assert.equal(merged.ix, new BigInt64Array([0n, 3n])))
+        $(assert.equal(merged.v, new BigInt64Array([27n, 40n])))
+    });
+
+    test("Sparse invariant validation", $ => {
+        $(assert.throws(East.Vector.sparseAxpy(
+            new BigInt64Array([2n, 1n]), new Float64Array([1.0, 2.0]),
+            new BigInt64Array(0), new Float64Array(0),
+            1.0,
+        ), /Sparse index vector must be strictly ascending/))
+        $(assert.throws(East.Vector.sparseAxpy(
+            new BigInt64Array([0n, 0n]), new Float64Array([1.0, 2.0]),
+            new BigInt64Array(0), new Float64Array(0),
+            1.0,
+        ), /Sparse index vector must be strictly ascending/))
+        $(assert.throws(East.Vector.sparseAxpy(
+            new BigInt64Array([0n]), new Float64Array([1.0, 2.0]),
+            new BigInt64Array(0), new Float64Array(0),
+            1.0,
+        ), /Sparse index and value lengths differ \(1 vs 2\)/))
+        $(assert.throws(East.Vector.sparseFilterGt(
+            new BigInt64Array([1n, 0n]), new Float64Array([1.0, 2.0]), 0.0,
+        ), /Sparse index vector must be strictly ascending/))
+        $(assert.throws(East.Vector.sparseFromPairs(
+            new BigInt64Array([0n]), new Float64Array([1.0, 2.0]),
+        ), /Sparse index and value lengths differ/))
+    });
+
+    test("Sparse from pairs accumulates duplicates in input order", $ => {
+        const sparse = $.let(East.Vector.sparseFromPairs(
+            new BigInt64Array([3n, 0n, 3n, 0n]), new Float64Array([1e16, 5.0, 1.0, 6.0]),
+        ));
+        $(assert.equal(sparse.ix, new BigInt64Array([0n, 3n])))
+        // index 3 sums (1e16 + 1.0) in input order, absorbing the 1.0
+        $(assert.equal(sparse.v, new Float64Array([11.0, 1e16])))
+        const empty = $.let(East.Vector.sparseFromPairs(new BigInt64Array(0), new Float64Array(0)));
+        $(assert.equal(empty.ix.length(), 0n))
+    });
+
+    test("Sparse filter keeps strictly greater entries", $ => {
+        const filtered = $.let(East.Vector.sparseFilterGt(
+            new BigInt64Array([0n, 1n, 2n]), new Float64Array([1.0, 0.5, 2.0]), 1.0,
+        ));
+        $(assert.equal(filtered.ix, new BigInt64Array([2n])))
+        $(assert.equal(filtered.v, new Float64Array([2.0])))
+    });
 });

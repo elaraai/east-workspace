@@ -177,7 +177,30 @@ typedef struct {
      * (task-input decodes). Cleared around Function subtrees — a decoded
      * closure and its captures stay mutable. */
     bool frozen;
+    /* Column projection (issue #599). When a projection drives the decode,
+     * every definition records the SHAPE it decoded under (`def_plans`,
+     * parallel to `defs`): NULL for a wire-shaped decode, a B2V5ProjNode*
+     * for a narrowed one, B2V5_PROJ_SKIPPED for a parsed-and-skipped
+     * subtree. A REF must resolve to a definition of the SAME shape — a
+     * container aliased across the projection boundary would otherwise
+     * serve a value whose layout disagrees with the reference site's type,
+     * which is the worst available failure — so a mismatch posts the
+     * B2V5_PROJ_ALIAS_MSG error and the caller falls back to a whole
+     * decode. All three fields stay zero when no projection is active, and
+     * the tag reader then skips the check entirely. */
+    bool proj_active;
+    const void *cur_shape;  /* shape of the value being decoded right now */
+    const void **def_plans; /* per-definition shape, parallel to defs */
 } B2V5DecodeCtx;
+
+/* def_plans marker for a definition whose bytes were parsed and skipped. */
+extern const void *const B2V5_PROJ_SKIPPED;
+
+/* The detectable prefix of every projection-alias error (python retries the
+ * segment as a whole decode when it sees this). */
+#define B2V5_PROJ_ALIAS_MSG                                                                        \
+    "beast2 v5 projection alias: a shared container crosses the projection "                       \
+    "boundary — decode without a projection"
 
 void b2v5_dec_ctx_init(B2V5DecodeCtx *ctx, EastSourceMap *sm);
 void b2v5_dec_ctx_free(B2V5DecodeCtx *ctx);
@@ -187,6 +210,11 @@ bool b2v5_dec_ctx_push(B2V5DecodeCtx *ctx, EastValue *container);
  * or NULL (error posted where a message helps). */
 EastValue *b2v5_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
                              B2V5DecodeCtx *ctx);
+
+/* Read a container tag (v5/codec.c). Returns 1 and sets *aliased (retained)
+ * for REF, 0 for NEW, -1 for corruption or a projection-shape mismatch. */
+int b2v5_read_container_tag(const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx,
+                            EastValue **aliased);
 
 /* Running strict-ascent state for Set/Dict content. The wire must hold the
  * canonical value — elements/keys strictly ascending across the container's
@@ -206,11 +234,51 @@ static inline void b2v5_order_check_dispose(B2V5OrderCheck *order)
     }
 }
 
+/* Accept `next` into the running strict-ascent state (v5/codec.c); false
+ * posts the canonical-order corruption error and leaves `next` untouched. */
+bool b2v5_order_accept(B2V5OrderCheck *order, EastValue *next, bool is_dict);
+
 /* Decode n elements (pairs for Dict) from the current chunk into container.
  * `order` is required for Set/Dict content (pass NULL for Array). */
 bool b2v5_decode_elements_into(EastValue *container, EastType *container_type, uint64_t n,
                                const uint8_t *data, size_t len, size_t *offset, B2V5DecodeCtx *ctx,
                                B2V5OrderCheck *order);
+
+/* ================================================================== */
+/*  Column projection (v5/project.c, issue #599)                        */
+/* ================================================================== */
+
+/* One node of a validated projection plan, mirroring the wire type. */
+typedef struct B2V5ProjNode {
+    EastType *wire; /* retained */
+    EastType *proj; /* retained */
+    int mode;       /* B2V5_PROJ_WHOLE | B2V5_PROJ_NARROW */
+    /* NARROW struct: one child per WIRE field (NULL = parse-and-skip), with
+     * proj_idx[i] the kept field's index in the projected struct (-1 when
+     * skipped). NARROW variant: one child per case (never NULL). NARROW
+     * array/ref: children[0] = element. NARROW dict: children[0] = value
+     * (keys never project — they order the container). */
+    struct B2V5ProjNode **children;
+    size_t n_children;
+    int *proj_idx;
+} B2V5ProjNode;
+
+#define B2V5_PROJ_WHOLE 0
+#define B2V5_PROJ_NARROW 1
+
+struct Beast2Projection {
+    B2V5ProjNode *root;
+};
+
+/* Decode one projected value from the current chunk (NULL = error posted). */
+EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *offset,
+                                       const B2V5ProjNode *node, B2V5DecodeCtx *ctx);
+
+/* Decode n root elements (pairs for Dict) into container under the plan.
+ * `order` is required for Dict content (Set roots never project narrow). */
+bool b2v5_decode_elements_into_projected(EastValue *container, const B2V5ProjNode *root, uint64_t n,
+                                         const uint8_t *data, size_t len, size_t *offset,
+                                         B2V5DecodeCtx *ctx, B2V5OrderCheck *order);
 
 /* ================================================================== */
 /*  Whole-value entry helpers (v5/container.c)                          */

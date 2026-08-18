@@ -41,6 +41,7 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/codec.c
     src/serialization/beast2/v5/container.c
     src/serialization/beast2/v5/stream.c
+    src/serialization/beast2/v5/project.c
     src/serialization/csv.c
     src/serialization/east_parser.c
     src/serialization/east_printer.c
@@ -49,6 +50,18 @@ set(EAST_C_SOURCES
 )
 
 add_library(east-c ${EAST_C_SOURCES})
+
+# Keep FP contraction off: a fused multiply-add rounds once where the
+# reference TypeScript runtime always rounds twice, so a contracted a*b+c
+# (VectorAddScaled, VectorDot, SparseAxpy, ...) diverges from east-node in
+# the last bit. GCC and Clang contract by default wherever hardware FMA is
+# baseline (arm64). Set on the target so it also applies when east-py builds
+# east-c via add_subdirectory (which bypasses the root CMakeLists options).
+# MSVC has no -ffp-contract; it needs /fp:strict or `#pragma fp_contract`
+# when the MSVC build lands.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(east-c PRIVATE -ffp-contract=off)
+endif()
 
 target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE pcre2-8)
@@ -138,6 +151,9 @@ if(EAST_C_BUILD_OBJECT)
     add_library(east-c-obj OBJECT ${EAST_C_SOURCES})
     target_include_directories(east-c-obj PUBLIC include)
     target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec miniz)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(east-c-obj PRIVATE -ffp-contract=off)
+    endif()
     # Mark east-c's extern DATA singletons (the type/value globals) dllexport so
     # they're in the DLL's export table; consumers see them as dllimport. Functions
     # auto-export via WINDOWS_EXPORT_ALL_SYMBOLS and need no marker. (EAST_DATA is a
@@ -221,6 +237,16 @@ add_test(NAME gc_pacing COMMAND test_gc_pacing)
 add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
+
+# Beast2 v5 column-projection gate (issue #599): plan validation (subset by
+# name, Dict-key/Set-element/variant-case/function-skip refusals with errors
+# naming the field), projected vs whole segment equality, skipped-definition
+# REF alias detection, open-time pager projection + keyed reads, and the
+# sequential reader's projection. Run under ASan/LSan for the skip walker
+# and narrow-construction allocation paths.
+add_executable(test_beast2_projection tests/test_beast2_projection.c)
+target_link_libraries(test_beast2_projection east-c)
+add_test(NAME beast2_projection COMMAND test_beast2_projection)
 
 # Lazy paged collection value gate (issue #505): EAST_VAL_PAGED construction,
 # pager-served size/keyed reads, hydrate-on-demand equivalence with the eager

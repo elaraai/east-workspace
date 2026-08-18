@@ -15,6 +15,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # Compiler warnings
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+    # A fused multiply-add rounds once where the reference TypeScript runtime
+    # always rounds twice, so contraction breaks cross-runtime float
+    # bit-identity (full rationale in packages/east-c/CMakeLists.txt).
+    add_compile_options(-ffp-contract=off)
 endif()
 
 # Fetch PCRE2 for JavaScript-compatible regex

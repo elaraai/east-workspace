@@ -26,7 +26,12 @@ export type BuiltinName = "Is" | "Equal" | "NotEqual" | "Less" | "LessEqual" | "
   | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetScan" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold"
   | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictScan" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold"
   | "VectorLength" | "VectorGet" | "VectorSet" | "VectorSlice" | "VectorConcat" | "VectorFromArray" | "VectorToArray" | "VectorToMatrix" | "VectorZeros" | "VectorOnes" | "VectorFill" | "VectorMap" | "VectorFold"
+  | "VectorScale" | "VectorSum" | "VectorAddScaled" | "VectorMul" | "VectorAddScalar" | "VectorDot" | "VectorMax" | "VectorMin" | "VectorArgMax" | "VectorArgMin" | "VectorMean" | "VectorCumSum" | "VectorAbs" | "VectorClamp"
+  | "VectorGather" | "VectorScatterAdd" | "VectorSearchSorted"
+  | "VectorEq" | "VectorLt" | "VectorGt" | "VectorSelect" | "VectorCompress" | "VectorCountTrue"
+  | "SparseAxpy" | "SparseFromPairs" | "SparseFilterGt"
   | "MatrixRows" | "MatrixCols" | "MatrixGet" | "MatrixSet" | "MatrixGetRow" | "MatrixGetCol" | "MatrixToVector" | "MatrixFromArray" | "MatrixToArray" | "MatrixTranspose" | "MatrixZeros" | "MatrixOnes" | "MatrixFill" | "MatrixMapElements" | "MatrixMapRows" | "MatrixToRows" | "MatrixFromRows"
+  | "MatrixScale" | "MatrixAddScaled" | "MatrixMulElementwise" | "MatrixRowSums" | "MatrixColSums" | "MatrixVecMul"
   ;
 
 /** @internal */
@@ -1145,6 +1150,144 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     output: "T2",
   },
 
+  // Vector elementwise arithmetic + reductions (numeric element types)
+  VectorScale: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), "T"] as const,
+    output: VectorType("T" as any),
+  },
+  VectorSum: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: "T",
+  },
+  VectorAddScaled: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any), "T"] as const,
+    output: VectorType("T" as any),
+  },
+  VectorMul: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorAddScalar: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), "T"] as const,
+    output: VectorType("T" as any),
+  },
+  VectorDot: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any)] as const,
+    output: "T",
+  },
+  VectorMax: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: "T",
+  },
+  VectorMin: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: "T",
+  },
+  VectorArgMax: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: IntegerType,
+  },
+  VectorArgMin: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: IntegerType,
+  },
+  VectorMean: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: FloatType,
+  },
+  VectorCumSum: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorAbs: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorClamp: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), "T", "T"] as const,
+    output: VectorType("T" as any),
+  },
+
+  // Vector gather/scatter and sorted search
+  VectorGather: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType(IntegerType)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorScatterAdd: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType(IntegerType), VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorSearchSorted: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType(IntegerType),
+  },
+
+  // Vector masks and selection
+  VectorEq: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType(BooleanType),
+  },
+  VectorLt: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType(BooleanType),
+  },
+  VectorGt: {
+    type_parameters: ["T"],
+    inputs: [VectorType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType(BooleanType),
+  },
+  VectorSelect: {
+    type_parameters: ["T"],
+    inputs: [VectorType(BooleanType), VectorType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorCompress: {
+    type_parameters: ["T"],
+    inputs: [VectorType(BooleanType), VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  VectorCountTrue: {
+    type_parameters: [],
+    inputs: [VectorType(BooleanType)] as const,
+    output: IntegerType,
+  },
+
+  // Sparse accumulators: parallel (ix, v) vectors with strictly ascending ix
+  SparseAxpy: {
+    type_parameters: ["T"],
+    inputs: [VectorType(IntegerType), VectorType("T" as any), VectorType(IntegerType), VectorType("T" as any), "T"] as const,
+    output: StructType({ ix: VectorType(IntegerType), v: VectorType("T" as any) }),
+  },
+  SparseFromPairs: {
+    type_parameters: ["T"],
+    inputs: [VectorType(IntegerType), VectorType("T" as any)] as const,
+    output: StructType({ ix: VectorType(IntegerType), v: VectorType("T" as any) }),
+  },
+  SparseFilterGt: {
+    type_parameters: ["T"],
+    inputs: [VectorType(IntegerType), VectorType("T" as any), "T"] as const,
+    output: StructType({ ix: VectorType(IntegerType), v: VectorType("T" as any) }),
+  },
+
   // Matrix builtins
   MatrixRows: {
     type_parameters: ["T"],
@@ -1230,6 +1373,38 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     type_parameters: ["T"],
     inputs: [ArrayType(VectorType("T" as any))] as const,
     output: MatrixType("T" as any),
+  },
+
+  // Matrix elementwise arithmetic + reductions (numeric element types)
+  MatrixScale: {
+    type_parameters: ["T"],
+    inputs: [MatrixType("T" as any), "T"] as const,
+    output: MatrixType("T" as any),
+  },
+  MatrixAddScaled: {
+    type_parameters: ["T"],
+    inputs: [MatrixType("T" as any), MatrixType("T" as any), "T"] as const,
+    output: MatrixType("T" as any),
+  },
+  MatrixMulElementwise: {
+    type_parameters: ["T"],
+    inputs: [MatrixType("T" as any), MatrixType("T" as any)] as const,
+    output: MatrixType("T" as any),
+  },
+  MatrixRowSums: {
+    type_parameters: ["T"],
+    inputs: [MatrixType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  MatrixColSums: {
+    type_parameters: ["T"],
+    inputs: [MatrixType("T" as any)] as const,
+    output: VectorType("T" as any),
+  },
+  MatrixVecMul: {
+    type_parameters: ["T"],
+    inputs: [MatrixType("T" as any), VectorType("T" as any)] as const,
+    output: VectorType("T" as any),
   },
 }
 

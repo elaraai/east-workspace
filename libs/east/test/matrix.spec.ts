@@ -542,4 +542,57 @@ await describe("Matrix", (test) => {
         $(assert.equal(m2.get(0n, 0n), 10n))
         $(assert.equal(m2.get(1n, 1n), 40n))
     });
+
+    // ================================================================
+    // Elementwise arithmetic + reductions
+    // ================================================================
+
+    assert.examples(test, {
+        matrixScale: ex.matrixScale,
+        matrixAddScaled: ex.matrixAddScaled,
+        matrixMulElementwise: ex.matrixMulElementwise,
+        matrixRowSums: ex.matrixRowSums,
+        matrixColSums: ex.matrixColSums,
+        matrixVecMul: ex.matrixVecMul,
+    });
+
+    test("Matrix arithmetic on integers", $ => {
+        const a = $.let(East.Matrix.fromArray([[1n, 2n], [3n, 4n]]));
+        const b = $.let(East.Matrix.fromArray([[10n, 20n], [30n, 40n]]));
+        const scaled = $.let(a.scale(3n));
+        $(assert.equal(scaled.get(1n, 0n), 9n))
+        const combined = $.let(a.addScaled(b, 2n));
+        $(assert.equal(combined.get(0n, 1n), 42n))
+        const product = $.let(a.mulElementwise(b));
+        $(assert.equal(product.get(1n, 1n), 160n))
+        $(assert.equal(a.rowSums(), new BigInt64Array([3n, 7n])))
+        $(assert.equal(a.colSums(), new BigInt64Array([4n, 6n])))
+        $(assert.equal(a.vecMul(East.Vector.fromArray([10n, 100n])), new BigInt64Array([210n, 430n])))
+    });
+
+    test("Matrix reductions accumulate in ascending order", $ => {
+        // (1e16 + 1) - 1e16 absorbs the 1 only under left-to-right order
+        const m = $.let(East.Matrix.fromArray([[1e16, 1.0, -1e16]]));
+        $(assert.equal(m.rowSums(), new Float64Array([0.0])))
+        const column = $.let(East.Matrix.fromArray([[1e16], [1.0], [-1e16]]));
+        $(assert.equal(column.colSums(), new Float64Array([0.0])))
+        $(assert.equal(m.vecMul(East.Vector.fromArray([1.0, 1.0, 1.0])), new Float64Array([0.0])))
+    });
+
+    test("Matrix dimension mismatch", $ => {
+        const a = $.let(East.Matrix.zeros(2n, 3n));
+        const b = $.let(East.Matrix.zeros(3n, 2n));
+        $(assert.throws(a.addScaled(b, 1.0), /Matrix dimension mismatch \(2x3 vs 3x2\)/))
+        $(assert.throws(a.mulElementwise(b), /Matrix dimension mismatch/))
+        $(assert.throws(a.vecMul(East.Vector.zeros(4n)), /MatrixVecMul dimension mismatch \(2x3 vs length 4\)/))
+    });
+
+    test("Matrix empty reductions", $ => {
+        const m = $.let(East.Matrix.zeros(0n, 0n));
+        $(assert.equal(m.rowSums().length(), 0n))
+        $(assert.equal(m.colSums().length(), 0n))
+        // zero columns: every row sums to the empty sum
+        const wide = $.let(East.Matrix.zeros(2n, 0n));
+        $(assert.equal(wide.rowSums(), new Float64Array([0.0, 0.0])))
+    });
 });

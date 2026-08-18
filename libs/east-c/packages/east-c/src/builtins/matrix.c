@@ -398,6 +398,214 @@ static EastValue *matrix_from_rows_impl(EastValue **args, size_t n)
     return mat;
 }
 
+/* ------------------------------------------------------------------ */
+/* Elementwise arithmetic + reductions (#598). Sums accumulate in      */
+/* ascending index order (ascending column within each row, ascending  */
+/* row for column sums) — the same left-to-right contract as the       */
+/* Vector reductions.                                                  */
+/* ------------------------------------------------------------------ */
+
+static bool matrix_require_numeric(const char *name, EastType *et)
+{
+    if (et && (et->kind == EAST_TYPE_FLOAT || et->kind == EAST_TYPE_INTEGER)) return true;
+    char msg[96];
+    snprintf(msg, sizeof(msg), "%s requires Float or Integer elements", name);
+    east_builtin_error(msg);
+    return false;
+}
+
+static bool matrix_require_same_dims(EastValue *a, EastValue *b)
+{
+    if (a->data.matrix.rows == b->data.matrix.rows && a->data.matrix.cols == b->data.matrix.cols)
+        return true;
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Matrix dimension mismatch (%zux%zu vs %zux%zu)",
+             a->data.matrix.rows, a->data.matrix.cols, b->data.matrix.rows, b->data.matrix.cols);
+    east_builtin_error(msg);
+    return false;
+}
+
+static EastValue *matrix_scale_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *m = args[0];
+    EastType *et = m->data.matrix.elem_type;
+    if (!matrix_require_numeric("MatrixScale", et)) return NULL;
+    size_t count = m->data.matrix.rows * m->data.matrix.cols;
+    EastValue *result = east_matrix_new_uninit(et, m->data.matrix.rows, m->data.matrix.cols);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *in = (const double *)m->data.matrix.data;
+        double *out = (double *)result->data.matrix.data;
+        double alpha = args[1]->data.float64;
+        for (size_t i = 0; i < count; i++)
+            out[i] = in[i] * alpha;
+    } else {
+        const int64_t *in = (const int64_t *)m->data.matrix.data;
+        int64_t *out = (int64_t *)result->data.matrix.data;
+        int64_t alpha = args[1]->data.integer;
+        for (size_t i = 0; i < count; i++)
+            out[i] = in[i] * alpha;
+    }
+    return result;
+}
+
+static EastValue *matrix_add_scaled_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *a = args[0];
+    EastValue *b = args[1];
+    EastType *et = a->data.matrix.elem_type;
+    if (!matrix_require_numeric("MatrixAddScaled", et)) return NULL;
+    if (!matrix_require_same_dims(a, b)) return NULL;
+    size_t count = a->data.matrix.rows * a->data.matrix.cols;
+    EastValue *result = east_matrix_new_uninit(et, a->data.matrix.rows, a->data.matrix.cols);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *ad = (const double *)a->data.matrix.data;
+        const double *bd = (const double *)b->data.matrix.data;
+        double *out = (double *)result->data.matrix.data;
+        double alpha = args[2]->data.float64;
+        for (size_t i = 0; i < count; i++)
+            out[i] = ad[i] + alpha * bd[i];
+    } else {
+        const int64_t *ad = (const int64_t *)a->data.matrix.data;
+        const int64_t *bd = (const int64_t *)b->data.matrix.data;
+        int64_t *out = (int64_t *)result->data.matrix.data;
+        int64_t alpha = args[2]->data.integer;
+        for (size_t i = 0; i < count; i++)
+            out[i] = ad[i] + alpha * bd[i];
+    }
+    return result;
+}
+
+static EastValue *matrix_mul_elementwise_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *a = args[0];
+    EastValue *b = args[1];
+    EastType *et = a->data.matrix.elem_type;
+    if (!matrix_require_numeric("MatrixMulElementwise", et)) return NULL;
+    if (!matrix_require_same_dims(a, b)) return NULL;
+    size_t count = a->data.matrix.rows * a->data.matrix.cols;
+    EastValue *result = east_matrix_new_uninit(et, a->data.matrix.rows, a->data.matrix.cols);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *ad = (const double *)a->data.matrix.data;
+        const double *bd = (const double *)b->data.matrix.data;
+        double *out = (double *)result->data.matrix.data;
+        for (size_t i = 0; i < count; i++)
+            out[i] = ad[i] * bd[i];
+    } else {
+        const int64_t *ad = (const int64_t *)a->data.matrix.data;
+        const int64_t *bd = (const int64_t *)b->data.matrix.data;
+        int64_t *out = (int64_t *)result->data.matrix.data;
+        for (size_t i = 0; i < count; i++)
+            out[i] = ad[i] * bd[i];
+    }
+    return result;
+}
+
+static EastValue *matrix_row_sums_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *m = args[0];
+    EastType *et = m->data.matrix.elem_type;
+    if (!matrix_require_numeric("MatrixRowSums", et)) return NULL;
+    size_t rows = m->data.matrix.rows;
+    size_t cols = m->data.matrix.cols;
+    EastValue *result = east_vector_new_uninit(et, rows);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *in = (const double *)m->data.matrix.data;
+        double *out = (double *)result->data.vector.data;
+        for (size_t r = 0; r < rows; r++) {
+            double acc = 0.0;
+            for (size_t c = 0; c < cols; c++)
+                acc += in[r * cols + c];
+            out[r] = acc;
+        }
+    } else {
+        const int64_t *in = (const int64_t *)m->data.matrix.data;
+        int64_t *out = (int64_t *)result->data.vector.data;
+        for (size_t r = 0; r < rows; r++) {
+            int64_t acc = 0;
+            for (size_t c = 0; c < cols; c++)
+                acc += in[r * cols + c];
+            out[r] = acc;
+        }
+    }
+    return result;
+}
+
+static EastValue *matrix_col_sums_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *m = args[0];
+    EastType *et = m->data.matrix.elem_type;
+    if (!matrix_require_numeric("MatrixColSums", et)) return NULL;
+    size_t rows = m->data.matrix.rows;
+    size_t cols = m->data.matrix.cols;
+    EastValue *result = east_vector_new_uninit(et, cols);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *in = (const double *)m->data.matrix.data;
+        double *out = (double *)result->data.vector.data;
+        for (size_t c = 0; c < cols; c++) {
+            double acc = 0.0;
+            for (size_t r = 0; r < rows; r++)
+                acc += in[r * cols + c];
+            out[c] = acc;
+        }
+    } else {
+        const int64_t *in = (const int64_t *)m->data.matrix.data;
+        int64_t *out = (int64_t *)result->data.vector.data;
+        for (size_t c = 0; c < cols; c++) {
+            int64_t acc = 0;
+            for (size_t r = 0; r < rows; r++)
+                acc += in[r * cols + c];
+            out[c] = acc;
+        }
+    }
+    return result;
+}
+
+static EastValue *matrix_vec_mul_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *m = args[0];
+    EastValue *v = args[1];
+    EastType *et = m->data.matrix.elem_type;
+    if (!matrix_require_numeric("MatrixVecMul", et)) return NULL;
+    size_t rows = m->data.matrix.rows;
+    size_t cols = m->data.matrix.cols;
+    if (v->data.vector.len != cols) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "MatrixVecMul dimension mismatch (%zux%zu vs length %zu)", rows,
+                 cols, v->data.vector.len);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    EastValue *result = east_vector_new_uninit(et, rows);
+    if (et->kind == EAST_TYPE_FLOAT) {
+        const double *in = (const double *)m->data.matrix.data;
+        const double *vd = (const double *)v->data.vector.data;
+        double *out = (double *)result->data.vector.data;
+        for (size_t r = 0; r < rows; r++) {
+            double acc = 0.0;
+            for (size_t c = 0; c < cols; c++)
+                acc += in[r * cols + c] * vd[c];
+            out[r] = acc;
+        }
+    } else {
+        const int64_t *in = (const int64_t *)m->data.matrix.data;
+        const int64_t *vd = (const int64_t *)v->data.vector.data;
+        int64_t *out = (int64_t *)result->data.vector.data;
+        for (size_t r = 0; r < rows; r++) {
+            int64_t acc = 0;
+            for (size_t c = 0; c < cols; c++)
+                acc += in[r * cols + c] * vd[c];
+            out[r] = acc;
+        }
+    }
+    return result;
+}
+
 /* --- factory functions --- */
 
 static BuiltinImpl matrix_rows_factory(EastType **tp, size_t ntp)
@@ -503,6 +711,43 @@ static BuiltinImpl matrix_from_rows_factory(EastType **tp, size_t ntp)
     return matrix_from_rows_impl;
 }
 
+static BuiltinImpl matrix_scale_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_scale_impl;
+}
+static BuiltinImpl matrix_add_scaled_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_add_scaled_impl;
+}
+static BuiltinImpl matrix_mul_elementwise_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_mul_elementwise_impl;
+}
+static BuiltinImpl matrix_row_sums_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_row_sums_impl;
+}
+static BuiltinImpl matrix_col_sums_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_col_sums_impl;
+}
+static BuiltinImpl matrix_vec_mul_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_vec_mul_impl;
+}
+
 /* --- registration --- */
 
 void east_register_matrix_builtins(BuiltinRegistry *reg)
@@ -524,4 +769,10 @@ void east_register_matrix_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "MatrixMapRows", matrix_map_rows_factory);
     builtin_registry_register(reg, "MatrixToRows", matrix_to_rows_factory);
     builtin_registry_register(reg, "MatrixFromRows", matrix_from_rows_factory);
+    builtin_registry_register(reg, "MatrixScale", matrix_scale_factory);
+    builtin_registry_register(reg, "MatrixAddScaled", matrix_add_scaled_factory);
+    builtin_registry_register(reg, "MatrixMulElementwise", matrix_mul_elementwise_factory);
+    builtin_registry_register(reg, "MatrixRowSums", matrix_row_sums_factory);
+    builtin_registry_register(reg, "MatrixColSums", matrix_col_sums_factory);
+    builtin_registry_register(reg, "MatrixVecMul", matrix_vec_mul_factory);
 }

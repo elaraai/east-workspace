@@ -1295,6 +1295,45 @@ function allocateTypedArray(elementType: EastTypeValue, length: number): Float64
   throw new Error(`Unsupported vector element type: ${elementType.type}`);
 }
 
+/** Wraps to East's 64-bit Integer semantics */
+function wrapI64(x: bigint): bigint {
+  return BigInt.asIntN(64, x);
+}
+
+/** Throws unless the vector/matrix element type parameter is Float or Integer */
+function requireNumericElem(builtin: string, T: EastTypeValue, loc_id: bigint, source_map: SourceMap | null): "Float" | "Integer" {
+  if (T.type !== "Float" && T.type !== "Integer") {
+    throw new EastError(`${builtin} requires Float or Integer elements`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+  }
+  return T.type;
+}
+
+/** Throws the shared length-mismatch error for elementwise vector operands */
+function requireSameLength(a: { length: number }, b: { length: number }, loc_id: bigint, source_map: SourceMap | null): void {
+  if (a.length !== b.length) {
+    throw new EastError(`Vector length mismatch (${a.length} vs ${b.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+  }
+}
+
+/** Throws the shared dimension-mismatch error for elementwise matrix operands */
+function requireSameDims(a: matrix, b: matrix, loc_id: bigint, source_map: SourceMap | null): void {
+  if (a.rows !== b.rows || a.cols !== b.cols) {
+    throw new EastError(`Matrix dimension mismatch (${a.rows}x${a.cols} vs ${b.rows}x${b.cols})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+  }
+}
+
+/** Validates the sparse-accumulator invariant: parallel lengths and strictly ascending indices */
+function requireSparse(ix: BigInt64Array, v: { length: number }, loc_id: bigint, source_map: SourceMap | null): void {
+  if (ix.length !== v.length) {
+    throw new EastError(`Sparse index and value lengths differ (${ix.length} vs ${v.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+  }
+  for (let i = 1; i < ix.length; i++) {
+    if (ix[i]! <= ix[i - 1]!) {
+      throw new EastError(`Sparse index vector must be strictly ascending`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    }
+  }
+}
+
 /** Creates the appropriate TypedArray for a given element type */
 function createTypedArray(elementType: EastTypeValue, values: any[]): Float64Array | BigInt64Array | Uint8ClampedArray {
   if (elementType.type === "Float") {
@@ -3364,6 +3403,448 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return acc;
   },
 
+  // Vector elementwise arithmetic + reductions. Reductions fold in index
+  // order, left to right — part of the cross-runtime contract, since a
+  // reassociated float sum gives a different last bit.
+  VectorScale: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorScale", T, loc_id, source_map);
+    return (v: Float64Array | BigInt64Array, alpha: any) => {
+      if (elem === "Float") {
+        const result = new Float64Array(v.length);
+        for (let i = 0; i < v.length; i++) result[i] = (v[i] as number) * alpha;
+        return result;
+      }
+      const result = new BigInt64Array(v.length);
+      for (let i = 0; i < v.length; i++) result[i] = wrapI64((v[i] as bigint) * alpha);
+      return result;
+    };
+  },
+  VectorSum: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorSum", T, loc_id, source_map);
+    return (v: Float64Array | BigInt64Array) => {
+      if (elem === "Float") {
+        let acc = 0;
+        for (let i = 0; i < v.length; i++) acc += v[i] as number;
+        return acc;
+      }
+      let acc = 0n;
+      for (let i = 0; i < v.length; i++) acc = wrapI64(acc + (v[i] as bigint));
+      return acc;
+    };
+  },
+  VectorAddScaled: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorAddScaled", T, loc_id, source_map);
+    return (a: Float64Array | BigInt64Array, b: Float64Array | BigInt64Array, alpha: any) => {
+      requireSameLength(a, b, loc_id, source_map);
+      if (elem === "Float") {
+        const result = new Float64Array(a.length);
+        for (let i = 0; i < a.length; i++) result[i] = (a[i] as number) + alpha * (b[i] as number);
+        return result;
+      }
+      const result = new BigInt64Array(a.length);
+      for (let i = 0; i < a.length; i++) result[i] = wrapI64((a[i] as bigint) + wrapI64(alpha * (b[i] as bigint)));
+      return result;
+    };
+  },
+  VectorMul: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorMul", T, loc_id, source_map);
+    return (a: Float64Array | BigInt64Array, b: Float64Array | BigInt64Array) => {
+      requireSameLength(a, b, loc_id, source_map);
+      if (elem === "Float") {
+        const result = new Float64Array(a.length);
+        for (let i = 0; i < a.length; i++) result[i] = (a[i] as number) * (b[i] as number);
+        return result;
+      }
+      const result = new BigInt64Array(a.length);
+      for (let i = 0; i < a.length; i++) result[i] = wrapI64((a[i] as bigint) * (b[i] as bigint));
+      return result;
+    };
+  },
+  VectorAddScalar: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorAddScalar", T, loc_id, source_map);
+    return (v: Float64Array | BigInt64Array, c: any) => {
+      if (elem === "Float") {
+        const result = new Float64Array(v.length);
+        for (let i = 0; i < v.length; i++) result[i] = (v[i] as number) + c;
+        return result;
+      }
+      const result = new BigInt64Array(v.length);
+      for (let i = 0; i < v.length; i++) result[i] = wrapI64((v[i] as bigint) + c);
+      return result;
+    };
+  },
+  VectorDot: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorDot", T, loc_id, source_map);
+    return (a: Float64Array | BigInt64Array, b: Float64Array | BigInt64Array) => {
+      requireSameLength(a, b, loc_id, source_map);
+      if (elem === "Float") {
+        let acc = 0;
+        for (let i = 0; i < a.length; i++) acc += (a[i] as number) * (b[i] as number);
+        return acc;
+      }
+      let acc = 0n;
+      for (let i = 0; i < a.length; i++) acc = wrapI64(acc + wrapI64((a[i] as bigint) * (b[i] as bigint)));
+      return acc;
+    };
+  },
+  VectorMax: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    requireNumericElem("VectorMax", T, loc_id, source_map);
+    const less = lessFor(T);
+    return (v: Float64Array | BigInt64Array) => {
+      if (v.length === 0) {
+        throw new EastError("Cannot reduce empty Vector", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      let best = v[0]!;
+      for (let i = 1; i < v.length; i++) {
+        if (less(best, v[i]!)) best = v[i]!;
+      }
+      return best;
+    };
+  },
+  VectorMin: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    requireNumericElem("VectorMin", T, loc_id, source_map);
+    const less = lessFor(T);
+    return (v: Float64Array | BigInt64Array) => {
+      if (v.length === 0) {
+        throw new EastError("Cannot reduce empty Vector", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      let best = v[0]!;
+      for (let i = 1; i < v.length; i++) {
+        if (less(v[i]!, best)) best = v[i]!;
+      }
+      return best;
+    };
+  },
+  VectorArgMax: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    requireNumericElem("VectorArgMax", T, loc_id, source_map);
+    const less = lessFor(T);
+    return (v: Float64Array | BigInt64Array) => {
+      if (v.length === 0) {
+        throw new EastError("Cannot reduce empty Vector", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      let bestIdx = 0;
+      for (let i = 1; i < v.length; i++) {
+        if (less(v[bestIdx]!, v[i]!)) bestIdx = i;
+      }
+      return BigInt(bestIdx);
+    };
+  },
+  VectorArgMin: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    requireNumericElem("VectorArgMin", T, loc_id, source_map);
+    const less = lessFor(T);
+    return (v: Float64Array | BigInt64Array) => {
+      if (v.length === 0) {
+        throw new EastError("Cannot reduce empty Vector", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      let bestIdx = 0;
+      for (let i = 1; i < v.length; i++) {
+        if (less(v[i]!, v[bestIdx]!)) bestIdx = i;
+      }
+      return BigInt(bestIdx);
+    };
+  },
+  VectorMean: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    requireNumericElem("VectorMean", T, loc_id, source_map);
+    return (v: Float64Array | BigInt64Array) => {
+      let acc = 0;
+      for (let i = 0; i < v.length; i++) acc += Number(v[i]!);
+      return acc / v.length;
+    };
+  },
+  VectorCumSum: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorCumSum", T, loc_id, source_map);
+    return (v: Float64Array | BigInt64Array) => {
+      if (elem === "Float") {
+        const result = new Float64Array(v.length);
+        let acc = 0;
+        for (let i = 0; i < v.length; i++) {
+          acc += v[i] as number;
+          result[i] = acc;
+        }
+        return result;
+      }
+      const result = new BigInt64Array(v.length);
+      let acc = 0n;
+      for (let i = 0; i < v.length; i++) {
+        acc = wrapI64(acc + (v[i] as bigint));
+        result[i] = acc;
+      }
+      return result;
+    };
+  },
+  VectorAbs: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorAbs", T, loc_id, source_map);
+    return (v: Float64Array | BigInt64Array) => {
+      if (elem === "Float") {
+        const result = new Float64Array(v.length);
+        for (let i = 0; i < v.length; i++) {
+          const x = v[i] as number;
+          result[i] = x < 0 ? -x : x;
+        }
+        return result;
+      }
+      const result = new BigInt64Array(v.length);
+      for (let i = 0; i < v.length; i++) {
+        const x = v[i] as bigint;
+        result[i] = wrapI64(x < 0n ? -x : x);
+      }
+      return result;
+    };
+  },
+  VectorClamp: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorClamp", T, loc_id, source_map);
+    const less = lessFor(T);
+    return (v: Float64Array | BigInt64Array, lo: any, hi: any) => {
+      const result = elem === "Float" ? new Float64Array(v.length) : new BigInt64Array(v.length);
+      for (let i = 0; i < v.length; i++) {
+        const x = v[i]!;
+        (result as any)[i] = less(x, lo) ? lo : less(hi, x) ? hi : x;
+      }
+      return result;
+    };
+  },
+
+  // Vector gather/scatter and sorted search
+  VectorGather: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (v: Float64Array | BigInt64Array | Uint8ClampedArray, idx: BigInt64Array) => {
+    const result = allocateTypedArray(T, idx.length);
+    for (let j = 0; j < idx.length; j++) {
+      const i = Number(idx[j]!);
+      if (i < 0 || i >= v.length) {
+        throw new EastError(`Vector index ${idx[j]} out of bounds (length ${v.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      result[j] = v[i]! as never;
+    }
+    return result;
+  },
+  VectorScatterAdd: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("VectorScatterAdd", T, loc_id, source_map);
+    return (dst: Float64Array | BigInt64Array, idx: BigInt64Array, src: Float64Array | BigInt64Array) => {
+      requireSameLength(idx, src, loc_id, source_map);
+      const result = dst.slice() as Float64Array | BigInt64Array;
+      for (let j = 0; j < idx.length; j++) {
+        const i = Number(idx[j]!);
+        if (i < 0 || i >= dst.length) {
+          throw new EastError(`Vector index ${idx[j]} out of bounds (length ${dst.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+        }
+        if (elem === "Float") {
+          (result as Float64Array)[i] = ((result as Float64Array)[i]!) + (src[j] as number);
+        } else {
+          (result as BigInt64Array)[i] = wrapI64(((result as BigInt64Array)[i]!) + (src[j] as bigint));
+        }
+      }
+      return result;
+    };
+  },
+  VectorSearchSorted: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const less = lessFor(T);
+    const readElem = T.type === "Boolean"
+      ? (v: any, i: number) => v[i] !== 0
+      : (v: any, i: number) => v[i];
+    return (haystack: Float64Array | BigInt64Array | Uint8ClampedArray, needles: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+      const result = new BigInt64Array(needles.length);
+      for (let j = 0; j < needles.length; j++) {
+        const needle = readElem(needles, j);
+        let lo = 0;
+        let hi = haystack.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (less(readElem(haystack, mid), needle)) {
+            lo = mid + 1;
+          } else {
+            hi = mid;
+          }
+        }
+        result[j] = BigInt(lo);
+      }
+      return result;
+    };
+  },
+
+  // Vector masks and selection (comparisons use East's total order)
+  VectorEq: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const equal = equalFor(T);
+    const readElem = T.type === "Boolean"
+      ? (v: any, i: number) => v[i] !== 0
+      : (v: any, i: number) => v[i];
+    return (a: Float64Array | BigInt64Array | Uint8ClampedArray, b: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+      requireSameLength(a, b, loc_id, source_map);
+      const result = new Uint8ClampedArray(a.length);
+      for (let i = 0; i < a.length; i++) result[i] = equal(readElem(a, i), readElem(b, i)) ? 1 : 0;
+      return result;
+    };
+  },
+  VectorLt: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const less = lessFor(T);
+    const readElem = T.type === "Boolean"
+      ? (v: any, i: number) => v[i] !== 0
+      : (v: any, i: number) => v[i];
+    return (a: Float64Array | BigInt64Array | Uint8ClampedArray, b: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+      requireSameLength(a, b, loc_id, source_map);
+      const result = new Uint8ClampedArray(a.length);
+      for (let i = 0; i < a.length; i++) result[i] = less(readElem(a, i), readElem(b, i)) ? 1 : 0;
+      return result;
+    };
+  },
+  VectorGt: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const greater = greaterFor(T);
+    const readElem = T.type === "Boolean"
+      ? (v: any, i: number) => v[i] !== 0
+      : (v: any, i: number) => v[i];
+    return (a: Float64Array | BigInt64Array | Uint8ClampedArray, b: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+      requireSameLength(a, b, loc_id, source_map);
+      const result = new Uint8ClampedArray(a.length);
+      for (let i = 0; i < a.length; i++) result[i] = greater(readElem(a, i), readElem(b, i)) ? 1 : 0;
+      return result;
+    };
+  },
+  VectorSelect: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (mask: Uint8ClampedArray, a: Float64Array | BigInt64Array | Uint8ClampedArray, b: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+    requireSameLength(mask, a, loc_id, source_map);
+    requireSameLength(a, b, loc_id, source_map);
+    const result = allocateTypedArray(T, mask.length);
+    for (let i = 0; i < mask.length; i++) result[i] = (mask[i] !== 0 ? a[i]! : b[i]!) as never;
+    return result;
+  },
+  VectorCompress: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (mask: Uint8ClampedArray, v: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+    requireSameLength(mask, v, loc_id, source_map);
+    let count = 0;
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] !== 0) count++;
+    }
+    const result = allocateTypedArray(T, count);
+    let j = 0;
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] !== 0) result[j++] = v[i]! as never;
+    }
+    return result;
+  },
+  VectorCountTrue: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[]) => (mask: Uint8ClampedArray) => {
+    let count = 0n;
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] !== 0) count += 1n;
+    }
+    return count;
+  },
+
+  // Sparse accumulators: parallel (ix, v) with strictly ascending ix.
+  // Entries absent from a side are structurally absent, not explicit zeros:
+  // an A-only entry passes through unscaled, a B-only entry contributes
+  // alpha*vB even when alpha is NaN or infinite.
+  SparseAxpy: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("SparseAxpy", T, loc_id, source_map);
+    return (ixA: BigInt64Array, vA: Float64Array | BigInt64Array, ixB: BigInt64Array, vB: Float64Array | BigInt64Array, alpha: any) => {
+      requireSparse(ixA, vA, loc_id, source_map);
+      requireSparse(ixB, vB, loc_id, source_map);
+      let count = 0;
+      let i = 0;
+      let j = 0;
+      while (i < ixA.length && j < ixB.length) {
+        const a = ixA[i]!;
+        const b = ixB[j]!;
+        if (a < b) i++;
+        else if (b < a) j++;
+        else { i++; j++; }
+        count++;
+      }
+      count += (ixA.length - i) + (ixB.length - j);
+      const outIx = new BigInt64Array(count);
+      const outV = elem === "Float" ? new Float64Array(count) : new BigInt64Array(count);
+      i = 0;
+      j = 0;
+      let k = 0;
+      while (i < ixA.length && j < ixB.length) {
+        const a = ixA[i]!;
+        const b = ixB[j]!;
+        if (a < b) {
+          outIx[k] = a;
+          (outV as any)[k] = vA[i]!;
+          i++;
+        } else if (b < a) {
+          outIx[k] = b;
+          (outV as any)[k] = elem === "Float" ? alpha * (vB[j] as number) : wrapI64(alpha * (vB[j] as bigint));
+          j++;
+        } else {
+          outIx[k] = a;
+          (outV as any)[k] = elem === "Float"
+            ? (vA[i] as number) + alpha * (vB[j] as number)
+            : wrapI64((vA[i] as bigint) + wrapI64(alpha * (vB[j] as bigint)));
+          i++;
+          j++;
+        }
+        k++;
+      }
+      for (; i < ixA.length; i++, k++) {
+        outIx[k] = ixA[i]!;
+        (outV as any)[k] = vA[i]!;
+      }
+      for (; j < ixB.length; j++, k++) {
+        outIx[k] = ixB[j]!;
+        (outV as any)[k] = elem === "Float" ? alpha * (vB[j] as number) : wrapI64(alpha * (vB[j] as bigint));
+      }
+      return { ix: outIx, v: outV };
+    };
+  },
+  SparseFromPairs: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("SparseFromPairs", T, loc_id, source_map);
+    return (ix: BigInt64Array, v: Float64Array | BigInt64Array) => {
+      if (ix.length !== v.length) {
+        throw new EastError(`Sparse index and value lengths differ (${ix.length} vs ${v.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      // Stable: order by (index, original position) so equal indices
+      // accumulate in input order and the float result is deterministic.
+      const order = new Array<number>(ix.length);
+      for (let i = 0; i < ix.length; i++) order[i] = i;
+      order.sort((p, q) => {
+        const a = ix[p]!;
+        const b = ix[q]!;
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return p - q;
+      });
+      let count = 0;
+      for (let i = 0; i < order.length; i++) {
+        if (i === 0 || ix[order[i]!]! !== ix[order[i - 1]!]!) count++;
+      }
+      const outIx = new BigInt64Array(count);
+      const outV = elem === "Float" ? new Float64Array(count) : new BigInt64Array(count);
+      let k = -1;
+      for (let i = 0; i < order.length; i++) {
+        const p = order[i]!;
+        if (i === 0 || ix[p]! !== outIx[k]!) {
+          k++;
+          outIx[k] = ix[p]!;
+          (outV as any)[k] = v[p]!;
+        } else {
+          (outV as any)[k] = elem === "Float"
+            ? ((outV as Float64Array)[k]!) + (v[p] as number)
+            : wrapI64(((outV as BigInt64Array)[k]!) + (v[p] as bigint));
+        }
+      }
+      return { ix: outIx, v: outV };
+    };
+  },
+  SparseFilterGt: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("SparseFilterGt", T, loc_id, source_map);
+    const greater = greaterFor(T);
+    return (ix: BigInt64Array, v: Float64Array | BigInt64Array, threshold: any) => {
+      requireSparse(ix, v, loc_id, source_map);
+      let count = 0;
+      for (let i = 0; i < v.length; i++) {
+        if (greater(v[i]!, threshold)) count++;
+      }
+      const outIx = new BigInt64Array(count);
+      const outV = elem === "Float" ? new Float64Array(count) : new BigInt64Array(count);
+      let k = 0;
+      for (let i = 0; i < v.length; i++) {
+        if (greater(v[i]!, threshold)) {
+          outIx[k] = ix[i]!;
+          (outV as any)[k] = v[i]!;
+          k++;
+        }
+      }
+      return { ix: outIx, v: outV };
+    };
+  },
+
   // Matrix builtins
   MatrixRows: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => BigInt(m.rows),
 
@@ -3540,6 +4021,126 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const data = allocateTypedArray(T, arr.length * cols);
     for (let r = 0; r < arr.length; r++) data.set(arr[r] as any, r * cols);
     return matrix(data, arr.length, cols);
+  },
+
+  // Matrix elementwise arithmetic + reductions. Sums accumulate in ascending
+  // index order (row-major for whole-matrix walks, ascending row for column
+  // sums, ascending column within each row for row sums and vec-mul) — the
+  // same left-to-right contract as the Vector reductions.
+  MatrixScale: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("MatrixScale", T, loc_id, source_map);
+    return (m: matrix, alpha: any) => {
+      const src = m.data;
+      if (elem === "Float") {
+        const data = new Float64Array(src.length);
+        for (let i = 0; i < src.length; i++) data[i] = (src[i] as number) * alpha;
+        return matrix(data, m.rows, m.cols);
+      }
+      const data = new BigInt64Array(src.length);
+      for (let i = 0; i < src.length; i++) data[i] = wrapI64((src[i] as bigint) * alpha);
+      return matrix(data, m.rows, m.cols);
+    };
+  },
+  MatrixAddScaled: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("MatrixAddScaled", T, loc_id, source_map);
+    return (a: matrix, b: matrix, alpha: any) => {
+      requireSameDims(a, b, loc_id, source_map);
+      const ad = a.data;
+      const bd = b.data;
+      if (elem === "Float") {
+        const data = new Float64Array(ad.length);
+        for (let i = 0; i < ad.length; i++) data[i] = (ad[i] as number) + alpha * (bd[i] as number);
+        return matrix(data, a.rows, a.cols);
+      }
+      const data = new BigInt64Array(ad.length);
+      for (let i = 0; i < ad.length; i++) data[i] = wrapI64((ad[i] as bigint) + wrapI64(alpha * (bd[i] as bigint)));
+      return matrix(data, a.rows, a.cols);
+    };
+  },
+  MatrixMulElementwise: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("MatrixMulElementwise", T, loc_id, source_map);
+    return (a: matrix, b: matrix) => {
+      requireSameDims(a, b, loc_id, source_map);
+      const ad = a.data;
+      const bd = b.data;
+      if (elem === "Float") {
+        const data = new Float64Array(ad.length);
+        for (let i = 0; i < ad.length; i++) data[i] = (ad[i] as number) * (bd[i] as number);
+        return matrix(data, a.rows, a.cols);
+      }
+      const data = new BigInt64Array(ad.length);
+      for (let i = 0; i < ad.length; i++) data[i] = wrapI64((ad[i] as bigint) * (bd[i] as bigint));
+      return matrix(data, a.rows, a.cols);
+    };
+  },
+  MatrixRowSums: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("MatrixRowSums", T, loc_id, source_map);
+    return (m: matrix) => {
+      const src = m.data;
+      if (elem === "Float") {
+        const result = new Float64Array(m.rows);
+        for (let r = 0; r < m.rows; r++) {
+          let acc = 0;
+          for (let c = 0; c < m.cols; c++) acc += src[r * m.cols + c] as number;
+          result[r] = acc;
+        }
+        return result;
+      }
+      const result = new BigInt64Array(m.rows);
+      for (let r = 0; r < m.rows; r++) {
+        let acc = 0n;
+        for (let c = 0; c < m.cols; c++) acc = wrapI64(acc + (src[r * m.cols + c] as bigint));
+        result[r] = acc;
+      }
+      return result;
+    };
+  },
+  MatrixColSums: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("MatrixColSums", T, loc_id, source_map);
+    return (m: matrix) => {
+      const src = m.data;
+      if (elem === "Float") {
+        const result = new Float64Array(m.cols);
+        for (let c = 0; c < m.cols; c++) {
+          let acc = 0;
+          for (let r = 0; r < m.rows; r++) acc += src[r * m.cols + c] as number;
+          result[c] = acc;
+        }
+        return result;
+      }
+      const result = new BigInt64Array(m.cols);
+      for (let c = 0; c < m.cols; c++) {
+        let acc = 0n;
+        for (let r = 0; r < m.rows; r++) acc = wrapI64(acc + (src[r * m.cols + c] as bigint));
+        result[c] = acc;
+      }
+      return result;
+    };
+  },
+  MatrixVecMul: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
+    const elem = requireNumericElem("MatrixVecMul", T, loc_id, source_map);
+    return (m: matrix, v: Float64Array | BigInt64Array) => {
+      if (v.length !== m.cols) {
+        throw new EastError(`MatrixVecMul dimension mismatch (${m.rows}x${m.cols} vs length ${v.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+      const src = m.data;
+      if (elem === "Float") {
+        const result = new Float64Array(m.rows);
+        for (let r = 0; r < m.rows; r++) {
+          let acc = 0;
+          for (let c = 0; c < m.cols; c++) acc += (src[r * m.cols + c] as number) * (v[c] as number);
+          result[r] = acc;
+        }
+        return result;
+      }
+      const result = new BigInt64Array(m.rows);
+      for (let r = 0; r < m.rows; r++) {
+        let acc = 0n;
+        for (let c = 0; c < m.cols; c++) acc = wrapI64(acc + wrapI64((src[r * m.cols + c] as bigint) * (v[c] as bigint)));
+        result[r] = acc;
+      }
+      return result;
+    };
   },
 }
 
