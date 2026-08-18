@@ -205,6 +205,23 @@ export function createPlanPick(
  * off leaves the previous rows on screen indefinitely
  * (`use-plan-paging.dom.test.tsx` pins both halves of this).
  *
+ * **This makes the key a load-bearing identity on a paged canvas.** The
+ * signature is the joined keys, so it assumes a key NAMES a series: same keys ⇒
+ * same rows. Two consequences worth knowing:
+ *
+ * - Two series sharing a key are safe HERE, because they share one entry in the
+ *   hidden set and so toggle together — the active list is both-in or both-out,
+ *   and the signature moves either way. They break the LIBRARY instead (one
+ *   switch, two labels — `Pick.Panel` reports it).
+ * - A key that stays put while the series it names CHANGES is the real hazard:
+ *   the id does not move, the cache is not dropped, and resident windows keep
+ *   serving rows built by the previous pipeline. Keys must be stable AND
+ *   identifying, which is what they were for.
+ *
+ * Row keys are a separate layer with its own rule: two series emitting the same
+ * ROW key resolve LAST_WINS inside `applySeries`, deterministically by series
+ * order, and identically in every window (#568).
+ *
  * @param all - The series the canvas is built from
  * @returns The series' keys, joined — stable for a given active set
  */

@@ -106,7 +106,7 @@ export type PickStateType = typeof PickStateType;
  * This is the whole of what a panel can render, which is what keeps the panel
  * component-agnostic: it never learns what a "series" or a "column" is.
  *
- * @property id - Stable identity — what the state addresses and what `id` returns
+ * @property id - Stable identity — what the state addresses and what `id` returns; must be unique across the list
  * @property title - The name a user reads (`"Machine jobs"`)
  * @property subtitle - The muted role line (`"one row per machine"`); `none` ⇒ one-line row
  * @property icon - The leading glyph; `none` ⇒ the panel prints no icon
@@ -249,7 +249,17 @@ export type PickHandle<I extends EastType> = ExprType<ReturnType<typeof PickHand
  * @typeParam I - The item type being picked over
  */
 export interface PickOptions<I extends EastType> {
-    /** The item's stable id — what the state addresses. */
+    /**
+     * The item's stable id — what the state addresses.
+     *
+     * @remarks
+     * Must be UNIQUE across `all`. The hidden set is a list of ids, so two
+     * items sharing one are a single switch wearing two labels: toggling either
+     * hides both, and a persisted id cannot say which was meant. `Pick.Panel`
+     * reports a duplicate in development rather than resolving it — dropping
+     * one would silently remove an item that is still in the FEED, since
+     * {@link Pick.active} filters the item list rather than the descriptors.
+     */
     id: (item: ExprType<I>) => SubtypeExprOrValue<StringType>;
     /** The name a user reads. */
     title: (item: ExprType<I>) => SubtypeExprOrValue<StringType>;

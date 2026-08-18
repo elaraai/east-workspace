@@ -15,7 +15,7 @@
  * event rows their kind glyphs.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -1264,6 +1264,37 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
         // Clearing brings everything back.
         await user.click(screen.getByRole("button", { name: "Clear search" }));
         await waitFor(() => expect(screen.getByText("Machine jobs")).toBeTruthy());
+    });
+
+    test("two entries sharing an id are ONE switch — reported, and reconciled correctly", async () => {
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        const user = userEvent.setup();
+        let st: string[] = [];
+        const pick = {
+            key: "k",
+            state: { read: () => st, write: (n: string[]) => { st = n; }, has: () => true },
+            items: [
+                { id: "dup", title: "First", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "dup", title: "Second", subtitle: none, icon: none, count: none, narrowed: false },
+            ],
+        };
+        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
+        await user.click(screen.getByRole("button", { name: "Series library" }));
+        await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
+
+        // Both render — the list is an Array, so duplicates are constructable.
+        expect(screen.getByText("First")).toBeTruthy();
+        expect(screen.getByText("Second")).toBeTruthy();
+        // React reconciles them: position keys them, so no duplicate-key warning
+        // (the list re-renders on every search keystroke, where that would bite).
+        expect(err.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+        // ...but the panel SAYS the ids collide, because nothing can resolve it.
+        expect(err.mock.calls.some((c) => String(c[0]).includes("duplicate item id"))).toBe(true);
+
+        // And the semantics it warns about: one id, so one switch for both.
+        await user.click(screen.getByLabelText("Toggle First"));
+        expect(st).toEqual(["dup"]);
+        err.mockRestore();
     });
 
     test("toggling inside the popover writes the hidden set", async () => {

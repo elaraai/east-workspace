@@ -82,6 +82,26 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
             return i.title.toLowerCase().includes(q) || sub.toLowerCase().includes(q);
         });
 
+    // Ids must be UNIQUE — the state addresses items by id, so two entries
+    // sharing one are a single switch wearing two labels: toggling either hides
+    // both, and a persisted id cannot say which was meant. Nothing can resolve
+    // that for the author (dropping one would silently remove a series that is
+    // still on the canvas, since the FEED filters the item list, not this one),
+    // so it is reported rather than papered over.
+    if (process.env.NODE_ENV !== "production") {
+        const seen = new Set<string>();
+        for (const i of items as ReadonlyArray<PickItemValue>) {
+            if (seen.has(i.id)) {
+                console.error(
+                    `[Pick.Panel] duplicate item id "${i.id}" — ids address the hidden set, so these ` +
+                    `entries share one switch and toggle together. Give each a distinct key.`,
+                );
+                break;
+            }
+            seen.add(i.id);
+        }
+    }
+
     // Read live, then write: two clicks inside one frame must compose.
     const toggle = (id: string) => {
         const live = new Set(pick.state.read());
@@ -119,13 +139,17 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
             {listed.length === 0 && (
                 <Box css={styles.empty} data-slot="pickEmpty">{`No series match "${query.trim()}"`}</Box>
             )}
-            {listed.map((item: PickItemValue) => {
+            {listed.map((item: PickItemValue, i: number) => {
                 const on = !hidden.has(item.id);
                 const icon = getSomeorUndefined(item.icon);
                 const count = getSomeorUndefined(item.count);
                 return (
                     <chakra.button
-                        key={item.id}
+                        // Position, not id: a duplicate id is an author error
+                        // the panel reports rather than crashes on, and React
+                        // must still reconcile correctly while it stands — the
+                        // list re-renders on every search keystroke.
+                        key={`${item.id}#${i}`}
                         type="button"
                         css={styles.row}
                         data-on={on ? "true" : "false"}
