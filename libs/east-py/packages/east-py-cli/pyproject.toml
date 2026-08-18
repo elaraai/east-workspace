@@ -1,6 +1,6 @@
 [project]
 name = "elaraai-east-py-cli"
-version = "1.0.66"
+version = "1.0.67"
 description = "Command-line interface for running East IR programs with Python"
 readme = "README.md"
 requires-python = ">=3.11"
