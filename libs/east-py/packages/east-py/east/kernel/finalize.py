@@ -322,6 +322,112 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
 
     cond_walk(top, False)
 
+    # ── Where a hoisted Let may LAND (issue #595) ───────────────────────────
+    #
+    # A Let at the head of the kernel body is a valid site only for a node
+    # whose free variables are the kernel's own parameters. But the natural
+    # way to write a traced algorithm binds its derived inputs first —
+    # `East.let(derive(p), lambda a: <loop over a, read more than once>)` —
+    # and that loop's free `a` is bound by an enclosing Block, not by a
+    # parameter. The top-of-body site cannot see it, so the node re-emitted,
+    # and re-RAN, at every reference exactly as before #594.
+    #
+    # So each hoistable node gets its OWN site: the innermost enclosing Block
+    # binding every name it needs, at the first index where all of them are
+    # in scope. Two facts make that placement safe without tracking each
+    # occurrence separately. Every occurrence already sits inside that Block
+    # — it references the name the Block binds. And the walk RESETS its path
+    # at every BARRIER (a nested function, a loop body or predicate, a
+    # conditional arm, a guarded body), so a Block seen across one is never
+    # offered as a site: hoisting out of a loop would change how many times
+    # the node runs, and out of a branch whether it runs at all. A node
+    # needing nothing but parameters keeps the kernel-body site, so the #525
+    # loop-invariant hoisting out of nested lambdas is unchanged.
+
+    #: Block id -> {name it binds: the statement index that binds it}
+    block_binds: dict[int, dict[str, int]] = {}
+    #: Block id -> the Block node itself
+    block_node: dict[int, Any] = {}
+    #: node id -> the Block-id path (outermost first) shared by EVERY occurrence
+    region: dict[int, tuple] = {}
+    walked: set[tuple] = set()
+
+    def region_walk(node, path):
+        key = (id(node), path)
+        if key in walked:
+            return
+        walked.add(key)
+        i = id(node)
+        prev = region.get(i)
+        if prev is None:
+            region[i] = path
+        elif prev != path:
+            n = 0
+            while n < len(prev) and n < len(path) and prev[n] == path[n]:
+                n += 1
+            region[i] = prev[:n]
+        inner = path
+        if node.type == "Block":
+            block_node[i] = node
+            binds = block_binds.setdefault(i, {})
+            for n, stmt in enumerate(node.value["statements"]):
+                if getattr(stmt, "type", None) == "Let":
+                    binds[stmt.value["variable"].value["name"]] = n
+            inner = path + (i,)
+        for child in _node_children(node):
+            region_walk(child, inner)
+
+    region_walk(top, ())
+
+    mut_memo: dict[int, set] = {}
+
+    def mutates_within(node):
+        """Every name mutated anywhere inside ``node``, binding IGNORED.
+
+        An anchor must not be one of these. The hoisted Let evaluates just
+        past the anchor's binding, so if the anchor is mutated later in the
+        block — `East.block(a.append(x), <reads of a>)`, or a loop updating
+        the Ref cell its own Block binds — the Let would capture the value
+        from BEFORE the mutation the occurrences see after it.
+        """
+        i = id(node)
+        hit = mut_memo.get(i)
+        if hit is not None:
+            return hit
+        out: set = set()
+        if node.type == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS:
+            target = _root_var_name(node.value["arguments"][0])
+            if target is not None:
+                out.add(target)
+        mut_memo[i] = out          # cycle-safe placeholder; refined below
+        for child in _node_children(node):
+            out = out | mutates_within(child)
+        mut_memo[i] = out
+        return out
+
+    def binding_site(need, path):
+        """``(block id, index)`` for the innermost Block on ``path`` binding
+        every name in ``need``, just past the last of those bindings — or
+        ``(None, 0)`` when a name is bound nowhere on the path, or is mutated
+        inside the Block that binds it (see :func:`mutates_within`)."""
+        depth = -1
+        at = 0
+        for name in need:
+            found = None
+            for d, bid in enumerate(path):
+                idx = block_binds.get(bid, {}).get(name)
+                if idx is not None:
+                    found = (d, idx)       # names are fresh: at most one
+                    if name in mutates_within(block_node[bid]):
+                        return None, 0
+            if found is None:
+                return None, 0
+            if found[0] > depth:
+                depth, at = found[0], found[1] + 1
+            elif found[0] == depth:
+                at = max(at, found[1] + 1)
+        return path[depth], at
+
     def free_vars(node, bound):
         if node.type == "Variable":
             name = node.value["name"]
@@ -418,22 +524,34 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         return out
 
     hoistable: dict[int, str] = {}
+    #: node id -> (Block id, statement index), or (None, 0) for the kernel body
+    site: dict[int, tuple] = {}
     for i, n in counts.items():
         if n < 2:
             continue
         if i not in uncond_seen:
             continue          # every occurrence is branch-guarded — see above
         fv = free_vars(keep[i], set())
-        if not (fv <= param_names) or (fv & scope[i]):
+        if fv & scope[i]:
             continue
         if mutated_free(keep[i], set()):
             continue          # the effect must stay where the trace put it
+        need = fv - param_names
+        if need:
+            home, at = binding_site(need, region.get(i, ()))
+            if home is None:
+                continue      # a name no enclosing Block on this path binds
+        else:
+            home, at = None, 0            # the kernel body, as before #595
+        site[i] = (home, at)
         hoistable[i] = _fresh_name()
 
-    lets: list = []
+    lets: list = []                       # the kernel-body site
+    block_lets: dict[int, list] = {}      # Block id -> [(index, order, let)]
     emitted: set[int] = set()
     memo: dict[int, Any] = {}
     kernel_fn_seen = False
+    emit_order = 0
 
     def arrayify(node, children):
         spec = _specs()[node.type]
@@ -458,12 +576,23 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         return EastVariant(node.type, EastStruct(fields))
 
     def emit_let(i):
+        nonlocal emit_order
         if i in emitted:
             return
         emitted.add(i)
         node = keep[i]
         value = rewrite(node, binding=i)
-        lets.append(ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value))
+        let = ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value)
+        home, at = site[i]
+        if home is None:
+            lets.append(let)
+            return
+        # Emission is post-order, so a hoisted node nested inside another is
+        # appended first; a container's site is never SHALLOWER than what it
+        # contains (its needs are a superset), so ordering by (index, order)
+        # keeps every dependency ahead of its user.
+        emit_order += 1
+        block_lets.setdefault(home, []).append((at, emit_order, let))
 
     def rewrite(node, binding=None):
         nonlocal kernel_fn_seen
@@ -493,6 +622,19 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
                 }))
                 children[-1] = block
         result = arrayify(node, children)
+        own = block_lets.get(i) if node.type == "Block" else None
+        if own:
+            # Splice this Block's own lets in AFTER the rebuild: arrayify
+            # sizes the statements array from the ORIGINAL node, so inserting
+            # into `children` first would desynchronise it.
+            from east.types.type_of_type import IRType
+
+            stmts = list(result.value["statements"])
+            for at, _order, let in sorted(own, reverse=True):
+                stmts.insert(at, let)
+            fields = {k: result.value[k] for k in result.value}
+            fields["statements"] = EastArray(IRType, stmts)
+            result = EastVariant("Block", EastStruct(fields))
         if binding is None:
             memo[i] = result
         return result
