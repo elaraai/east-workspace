@@ -181,14 +181,18 @@ export const globalCss = defineGlobalStyles({
      * broken border. An overlay with its own stacking order paints above them,
      * and `inset: 0` tracks the cell whatever its children do.
      *
-     * The stages are mutually exclusive by construction — `valid` is the
-     * drag-start candidate marking and stays set while a cell is hovered, so
-     * without the `:not()` guards the dashed candidate frame would render
-     * underneath the active/invalid one. */
-    "[data-drag-cell][data-drop-valid], [data-drag-cell][data-drop-active], [data-drag-cell][data-drop-invalid], [data-drag-sink][data-drop-valid], [data-drag-sink][data-drop-active]": {
+     * CELLS only. A sink keeps the plain `outline` treatment (see below) —
+     * anchoring an overlay would mean forcing `position: relative` on it, which
+     * outranks the shared trash zone's own `position: fixed`.
+     *
+     * The stages are mutually exclusive by construction — `valid` is the drag
+     * layer's record of structural validity and stays set while a cell is
+     * hovered, so without the `:not()` guards the dashed candidate frame would
+     * render underneath the active/invalid one. */
+    "[data-drag-cell][data-drop-valid], [data-drag-cell][data-drop-active], [data-drag-cell][data-drop-invalid]": {
         position: "relative",
     },
-    "[data-drag-cell][data-drop-valid]::before, [data-drag-cell][data-drop-active]::before, [data-drag-cell][data-drop-invalid]::before, [data-drag-sink][data-drop-valid]::before, [data-drag-sink][data-drop-active]::before": {
+    "[data-drag-cell][data-drop-valid]::before, [data-drag-cell][data-drop-active]::before, [data-drag-cell][data-drop-invalid]::before": {
         content: '""',
         position: "absolute",
         inset: "0",
@@ -200,19 +204,36 @@ export const globalCss = defineGlobalStyles({
      * stroke — the earlier flat brand wash read washed-out when a whole grid of
      * cells was valid at once. Suppressed once the cell becomes the active or
      * the vetoed one, so exactly one stage is ever painted. */
-    "[data-drag-cell][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before, [data-drag-sink][data-drop-valid]:not([data-drop-active])::before": {
+    "[data-drag-cell][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before": {
         borderWidth: "1px",
         borderStyle: "dashed",
         borderColor: "{colors.brand.500}",
     },
     /* Active: the cell the pointer is actually over. */
-    "[data-drag-cell][data-drop-active]:not([data-drop-invalid])::before, [data-drag-sink][data-drop-active]::before": {
+    "[data-drag-cell][data-drop-active]:not([data-drop-invalid])::before": {
         borderWidth: "2px",
         borderStyle: "solid",
         borderColor: "{colors.brand.600}",
     },
-    "[data-drag-cell][data-drop-active]:not([data-drop-invalid]), [data-drag-sink][data-drop-active]": {
+    "[data-drag-cell][data-drop-active]:not([data-drop-invalid])": {
         background: "bg.brand.subtle",
+    },
+    /* SINKS keep the original outline treatment. The overlay exists for cells
+     * whose children paint over an outline (a Plan row's bucket grid lines); a
+     * sink has no such children, and forcing `position: relative` on one to
+     * anchor an overlay would outrank the shared trash zone's `position: fixed`
+     * — two attribute selectors beat `[data-drag-trash]`, so the trash would
+     * leave the viewport and `remove` would become unreachable. */
+    "[data-drag-sink][data-drop-valid]": {
+        outline: "1px dashed",
+        outlineColor: "{colors.brand.500}",
+        outlineOffset: "-2px",
+    },
+    "[data-drag-sink][data-drop-active]": {
+        background: "bg.brand.subtle",
+        outline: "2px solid",
+        outlineColor: "{colors.brand.600}",
+        outlineOffset: "-3px",
     },
     /* A connected-but-vetoed cell (duplicate person, host `canAssign` veto)
      * while hovered — red frame + the circle-with-cross badge, and the

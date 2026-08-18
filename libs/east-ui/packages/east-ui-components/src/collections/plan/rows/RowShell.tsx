@@ -164,20 +164,22 @@ export function RowShell({
         [drop, row.key],
     );
     const dropVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
-        const fn = drop?.canDrop;
-        if (fn === undefined) return true;
+        if (drop === undefined || drop.canDrop === undefined) return true;
+        const fn = drop.canDrop;
         if (x !== undefined && y !== undefined) {
             return canDropAllows(fn, candidateEvent(payload, resolveCoord(x, y)));
         }
         // The drag-START sweep has no pointer yet — but a Plan cell's identity
-        // is its ROW, and that is known right here. So the sweep answers with
+        // is its ROW, and that is known right here. So the sweep answers for
         // this row at its FIRST bucket rather than blanket-allowing: a row the
-        // predicate will always refuse never lights up as a candidate, instead
-        // of promising a drop and taking it back the moment you hover.
+        // predicate can only ever refuse never lights up as a candidate,
+        // instead of promising a drop and taking it back on hover.
         //
-        // A predicate that also discriminates on the SLOT still resolves per
-        // bucket once the pointer arrives, so nothing is lost by answering for
-        // one representative instant here.
+        // This verdict is only the opening AFFORDANCE. It is never what decides
+        // a drop: `onMove` re-asks at the live pointer position and `endDrag`
+        // re-asks again before delivering, so a predicate that discriminates on
+        // the SLOT still resolves per bucket — this row simply starts out
+        // showing the answer for its first one.
         const first = scale.buckets[0];
         return canDropAllows(fn, candidateEvent(payload, {
             surface: drop.surface,
