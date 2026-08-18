@@ -1393,10 +1393,11 @@ export const planSeriesData = example({
 export const planLibraryDnd = example({
     keywords: [
         "Plan", "data", "series", "library", "Pick", "pick", "Panel", "pickItems", "hidden",
-        "toggle", "eye", "kind icon", "count", "DnD", "drag", "drop", "onDrag", "canDrop",
-        "sources", "add", "Reactive", "State", "#590",
+        "toggle", "eye", "kind icon", "count", "group", "grouped", "discovered", "by", "rows",
+        "chrome", "span", "buckets", "chart", "heat", "table", "cards", "events", "duplicate",
+        "DnD", "drag", "drop", "onDrag", "canDrop", "sources", "add", "Reactive", "State", "#590",
     ],
-    description: "The series library — Plan.pick binds every series to a persisted pick, Pick.Panel lists them with their kind icon and derived row count, and Pick.active feeds the survivors back so a toggle changes the canvas with no data change; the Plan is also a DnD target with the shared onDrag funnel and a canDrop veto",
+    description: "The series library across the whole vocabulary — every row kind as its own entry, two entries of the SAME kind (two spans, two heats) proving a kind is not an identity, three static groups each wrapping a different kind, a discovered group building one strip per line, and literal `rows` chrome; Plan.pick binds them all, Pick.Panel lists each with its kind icon and derived row count, and Pick.active feeds the survivors back so a toggle changes the canvas with no data change",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -1406,68 +1407,207 @@ export const planLibraryDnd = example({
             }));
             const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
             const JobRow = StructType({
-                batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+                key: StringType, label: StringType,
+                start: DateTimeType, end: DateTimeType, state: EventStateType,
             });
             const ShiftRow = StructType({
                 key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
             });
-            // ONE variant-discriminated source, as every canvas has — what was
-            // a template palette is now just more series over the same data.
+            const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
+            // ONE flat source (the `planExpand` shape): `pick` names the series
+            // that claims the row, and every other channel is empty for the
+            // series that do not use it. Each series therefore matches a
+            // DISJOINT slice — two series over the same rows would emit the same
+            // keys and collapse last-wins, which is a different demo.
             const OpsRow = StructType({
-                kind: VariantType({
-                    machine: StructType({ jobs: ArrayType(JobRow) }),
-                    util:    StructType({ points: ArrayType(MeasureRow) }),
-                    crew:    StructType({ shifts: ArrayType(ShiftRow) }),
-                }),
+                pick: StringType, label: StringType, line: StringType,
+                jobs: ArrayType(JobRow),
+                points: ArrayType(MeasureRow),
+                cells: ArrayType(Plan.Types.HeatCell),
+                allocs: ArrayType(AllocRow),
+                nums: ArrayType(Plan.Types.TableCell),
+                shifts: ArrayType(ShiftRow),
+                marks: ArrayType(Plan.Types.EventMark),
             });
-            const loadPcts = $.const([46.0, 58.0, 66.0, 78.0, 90.0, 98.0], ArrayType(FloatType));
-            const load = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
-                ({ week: week(i.multiply(2n).add(27n)), pct: loadPcts.get(i) })));
+            const noJobs = $.const([], ArrayType(JobRow));
+            const noPoints = $.const([], ArrayType(MeasureRow));
+            const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const noAllocs = $.const([], ArrayType(AllocRow));
+            const noNums = $.const([], ArrayType(Plan.Types.TableCell));
+            const noShifts = $.const([], ArrayType(ShiftRow));
+            const noMarks = $.const([], ArrayType(Plan.Types.EventMark));
+            const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
+            const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
+                ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
+            const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
+                at: week(i.multiply(2n).add(27n)),
+                value: some(pcts.get(i)),
+                label: some(East.Float.printFixed(pcts.get(i), 0n)),
+            })));
+            // The lifecycle states as consts, so each tag stays a LITERAL —
+            // `variant(someString, null)` widens to `variant<string, null>` and
+            // stops satisfying `EventStateType`.
+            const ACTUAL = variant("actual", null);
+            const CONFIRMED = variant("confirmed", null);
+            const RUNNING = variant("in-progress", null);
+            const PROPOSED = variant("proposed", variant("recommended", null));
+            type RunState = typeof ACTUAL | typeof CONFIRMED | typeof RUNNING | typeof PROPOSED;
+            const run = (k: string, label: string, from: bigint, to: bigint, state: RunState) =>
+                ({ key: k, label, start: week(from), end: week(to), state });
+            const base = {
+                line: "", jobs: noJobs, points: noPoints, cells: noCells,
+                allocs: noAllocs, nums: noNums, shifts: noShifts, marks: noMarks,
+            };
+            // Keys ORDER the canvas (#568), so they are numbered to place each
+            // series' rows; group strips sort among the ROOTS by their own key.
             const ops = $.const(new Map([
-                ["L1-M03", { kind: variant("machine", { jobs: [
-                    { batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
-                ] }) }],
-                ["L1-M04", { kind: variant("machine", { jobs: [
-                    { batch: "B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
-                ] }) }],
-                ["UTIL", { kind: variant("util", { points: load }) }],
-                ["crewA", { kind: variant("crew", { shifts: [
-                    { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
-                    { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
-                ] }) }],
+                ["10-util",   { ...base, pick: "util",     label: "UTIL %",   points }],
+                ["20-m03",    { ...base, pick: "machines", label: "L1-M03",
+                                jobs: [run("b214", "RUN · B-214", 28n, 31n, RUNNING)] }],
+                ["20-m04",    { ...base, pick: "machines", label: "L1-M04",
+                                jobs: [run("b208", "RUN · B-208", 27n, 30n, ACTUAL)] }],
+                // SAME KIND as the machines series, different entry — a kind is
+                // not an identity, which is why the library keys on `key`.
+                ["25-c01",    { ...base, pick: "contract", label: "CON-01",
+                                jobs: [run("c1", "RUN · C-1", 30n, 34n, CONFIRMED)] }],
+                ["30-load",   { ...base, pick: "load",     label: "L2 load",  cells }],
+                ["35-qual",   { ...base, pick: "quality",  label: "Quality",  cells }],
+                ["40-dock2",  { ...base, pick: "docks",    label: "Dock 2",
+                                allocs: [
+                                    { key: "a1", at: week(28n), state: variant("confirmed", null) },
+                                    { key: "a2", at: week(31n), state: variant("proposed", variant("recommended", null)) },
+                                ] }],
+                ["50-desp",   { ...base, pick: "table",    label: "Despatch t",
+                                nums: [
+                                    { at: week(28n), value: some(128.0), text: none, tone: none },
+                                    { at: week(30n), value: some(-96.0), text: none, tone: none },
+                                ] }],
+                ["60-crewA",  { ...base, pick: "cards",    label: "Crew A",
+                                shifts: [
+                                    { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
+                                    { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
+                                ] }],
+                ["70-ms",     { ...base, pick: "events",   label: "MILESTONES",
+                                marks: [
+                                    { key: "k", at: week(29n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                                    { key: "a", at: week(34n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                                ] }],
+                // Members of the three STATIC groups — they hang under their
+                // strip, so their keys only order within that subtree.
+                ["g1-m11",    { ...base, pick: "gspan",    label: "L3-M11",
+                                jobs: [run("b301", "RUN · B-301", 29n, 33n, CONFIRMED)] }],
+                ["g1-m12",    { ...base, pick: "gspan",    label: "L3-M12",
+                                jobs: [run("b302", "RUN · B-302", 31n, 36n, ACTUAL)] }],
+                ["g2-l1",     { ...base, pick: "gheat",    label: "L4 load",  cells }],
+                ["g3-d5",     { ...base, pick: "gbuckets", label: "Dock 5",
+                                allocs: [{ key: "a3", at: week(33n), state: variant("confirmed", null) }] }],
+                // The DISCOVERED group's members — one strip per `line`.
+                ["p1-a",      { ...base, pick: "programs", label: "PR-A1", line: "Program A",
+                                jobs: [run("p1", "RUN · P-1", 28n, 32n, CONFIRMED)] }],
+                ["p2-a",      { ...base, pick: "programs", label: "PR-A2", line: "Program A",
+                                jobs: [run("p2", "RUN · P-2", 33n, 37n, PROPOSED)] }],
+                ["p3-b",      { ...base, pick: "programs", label: "PR-B1", line: "Program B",
+                                jobs: [run("p3", "RUN · P-3", 30n, 35n, ACTUAL)] }],
             ]), DictType(StringType, OpsRow));
-            const all = $.const([
+
+            // The whole library: every kind once, two kinds TWICE, each of three
+            // static groups wrapping a different kind, the discovered form, and
+            // literal chrome. Fourteen entries, nine distinct arms.
+            const spanOf = (key: string, title: string, subtitle: string) =>
                 Plan.series.span(OpsRow, {
-                    key: "machines", title: "Machine jobs", subtitle: "one row per machine",
-                    match: r => r.kind.hasTag("machine"),
-                    label: (_r, k) => k, id: true,
-                    runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
-                        key: j.batch, start: j.start, end: j.end,
-                        label: East.str`RUN · ${j.batch}`, state: j.state,
+                    key, title, subtitle,
+                    match: r => r.pick.equal(key),
+                    label: r => r.label, id: true,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({
+                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
                     })),
-                }),
+                });
+            const heatOf = (key: string, title: string, subtitle: string) =>
+                Plan.series.heat(OpsRow, {
+                    key, title, subtitle,
+                    match: r => r.pick.equal(key),
+                    label: r => r.label,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                });
+            const bucketsOf = (key: string, title: string, subtitle: string) =>
+                Plan.series.buckets(OpsRow, {
+                    key, title, subtitle,
+                    match: r => r.pick.equal(key),
+                    label: r => r.label,
+                    events: r => r.allocs.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
+                });
+            const all = $.const([
+                // Literal one-off chrome — it names itself, so it can be
+                // switched off like anything else.
+                Plan.series.rows(OpsRow, { key: "chrome", title: "Section header", subtitle: "literal chrome" },
+                    [Plan.events({ key: "00-hdr", label: "PLAN", id: true })]),
                 Plan.series.chart(OpsRow, {
                     key: "util", title: "Utilisation", subtitle: "% per fortnight",
-                    match: r => r.kind.hasTag("util"),
-                    label: (_r, k) => k, id: true, height: "spark",
-                    layers: r => [Chart.Column(r.kind.unwrap("util").points, { x: p => p.week, y: p => p.pct })],
+                    match: r => r.pick.equal("util"),
+                    label: r => r.label, id: true, height: "spark",
+                    layers: r => [Chart.Column(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+                spanOf("machines", "Machine jobs", "one row per machine"),
+                spanOf("contract", "Contractor jobs", "same KIND, own entry"),
+                heatOf("load", "Line load", "% per fortnight"),
+                heatOf("quality", "Quality index", "same KIND, own entry"),
+                bucketsOf("docks", "Dock allocations", "tiles per bucket"),
+                Plan.series.table(OpsRow, {
+                    key: "table", title: "Despatch tonnes", subtitle: "per bucket",
+                    match: r => r.pick.equal("table"),
+                    label: r => r.label,
+                    cells: r => r.nums,
+                    format: Format.Number({ maximumFractionDigits: 0n }),
                 }),
                 Plan.series.cards(OpsRow, {
-                    key: "crew", title: "Crew shifts", subtitle: "assignments",
-                    match: r => r.kind.hasTag("crew"),
-                    label: (_r, k) => k,
-                    chips: r => r.kind.unwrap("crew").shifts.map((_$, s) =>
+                    key: "cards", title: "Crew shifts", subtitle: "assignments",
+                    match: r => r.pick.equal("cards"),
+                    label: r => r.label,
+                    chips: r => r.shifts.map((_$, s) =>
                         Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
                 }),
+                Plan.series.events(OpsRow, {
+                    key: "events", title: "Milestones", subtitle: "instant marks",
+                    match: r => r.pick.equal("events"),
+                    label: r => r.label, id: true,
+                    marks: r => r.marks,
+                }),
+                // STATIC groups — each wrapping a DIFFERENT kind. The strip's
+                // own key / label / meta ARE the library entry's identity, so
+                // "Line 3" is the thing a person picks and switching it off
+                // takes its whole subtree with it.
+                //
+                // The metas are terse because they are read TWICE: as the
+                // strip's meta line in the gutter (which is 168px and truncates
+                // the label if the meta crowds it) and as the entry's subtitle
+                // in the panel. Borrowing identity means one string serves both
+                // — the cost of the group needing nothing extra written.
+                Plan.series.group(OpsRow, { key: "g1-line3", label: "Line 3", meta: "span" },
+                    [spanOf("gspan", "Grouped span", "member")]),
+                Plan.series.group(OpsRow, { key: "g2-lines", label: "Load", meta: "heat" },
+                    [heatOf("gheat", "Grouped heat", "member")]),
+                Plan.series.group(OpsRow, { key: "g3-docks", label: "Docks", meta: "buckets" },
+                    [bucketsOf("gbuckets", "Grouped buckets", "member")]),
+                // The DISCOVERED form — one strip per distinct `line`, and ONE
+                // library entry for all of them, which is why it declares its
+                // own identity instead of borrowing a strip's.
+                Plan.series.group(OpsRow, {
+                    key: "programs", title: "Programs", subtitle: "one strip per line",
+                    by: r => r.line, match: r => r.pick.equal("programs"), prefix: "p-",
+                }, [spanOf("programs", "Program runs", "member")]),
             ], ArrayType(Plan.Types.Series(OpsRow)));
-            // The library. `data` gives each entry its row count, so a series
-            // that selects nothing says `0` rather than switching on silently.
-            const shown = $.let(Plan.pick("ex.plan.library", all, { data: ops, hidden: ["crew"] }));
+
+            // `data` gives each entry its row count, so a series that selects
+            // nothing says `0` rather than switching on to no visible effect.
+            const shown = $.let(Plan.pick("ex.plan.library", all, {
+                data: ops,
+                hidden: ["quality", "cards", "g3-docks"],
+            }));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));
             const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));
             return (
-                <HStack gap="4">
+                <HStack gap="4" align="flex-start">
                     {/* The panel takes its width from the host — it mounts beside
                         a canvas, in a Drawer, or behind a toolbar chip. 320px is
                         the width the spec's figure uses. */}
@@ -1481,6 +1621,7 @@ export const planLibraryDnd = example({
                         id="plan" sources={["row-library"]}
                         onDrag={onDrag}
                         canDrop={canDrop}
+                        style={{ height: "620px" }}
                     />
                 </HStack>
             );

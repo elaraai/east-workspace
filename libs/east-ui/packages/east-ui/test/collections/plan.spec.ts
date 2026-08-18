@@ -974,6 +974,28 @@ describeEast("Plan", (test) => {
         // Omitting `data` omits the counts — what a paged canvas must say.
         const noData = $.let(Plan.pickItems(all));
         $(Assert.equal(noData.get(0n).count.hasTag("none"), true));
+
+        // TWO entries of the same KIND stay two entries. A kind is not an
+        // identity — it only picks the glyph — so a canvas can carry several
+        // heat series and the library keeps them apart by `key`.
+        const twoHeats = $.const([
+            Plan.series.heat(Row, {
+                key: "load", title: "Line load", label: (_r, k) => k,
+                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+            }),
+            Plan.series.heat(Row, {
+                key: "quality", title: "Quality index", label: (_r, k) => k,
+                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+            }),
+        ], ArrayType(Plan.Types.Series(Row)));
+        const pair = $.let(Plan.pickItems(twoHeats));
+        $(Assert.equal(pair.length(), 2n));
+        $(Assert.equal(pair.get(0n).id, "load"));
+        $(Assert.equal(pair.get(1n).id, "quality"));
+        $(Assert.equal(East.equal(pair.get(0n).title, pair.get(1n).title), false));
+        // Same glyph, because the glyph says what a row LOOKS like.
+        $(Assert.equal(pair.get(0n).icon.unwrap("some").name, "table-cells-large"));
+        $(Assert.equal(pair.get(1n).icon.unwrap("some").name, "table-cells-large"));
     });
 
     test("a paged source SIGNS its id with the active series, so a pick change re-reads (#590)", $ => {
