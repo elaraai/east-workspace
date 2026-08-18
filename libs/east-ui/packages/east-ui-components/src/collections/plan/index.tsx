@@ -177,6 +177,27 @@ function dataExtent(rows: ReadonlyArray<PlanRowValue>): { min: Date; max: Date }
     return { min: new Date(min), max: new Date(max) };
 }
 
+/**
+ * The bound slice's applied window as raw millisecond instants, or `undefined`
+ * when no literal datetime range is applied.
+ *
+ * @remarks
+ * Returns PRIMITIVES so a caller can key a memo on them. The decoded state is a
+ * fresh object every read, so its `range` can never be a stable dependency.
+ *
+ * @param state - The decoded slice state, when a slice is bound
+ * @returns `[fromMs, toMs]` for a non-empty datetime range, else `undefined`
+ */
+function sliceRangeInstants(state: { range: unknown } | undefined): readonly [number, number] | undefined {
+    if (state === undefined) return undefined;
+    const r = getSomeorUndefined(state.range as never) as { type: string; value: unknown } | undefined;
+    if (r === undefined || r.type !== "datetime") return undefined;
+    const win = r.value as { from: Date; to: Date };
+    const from = win.from.getTime();
+    const to = win.to.getTime();
+    return to > from ? [from, to] as const : undefined;
+}
+
 /** Renders an East Plan value — the composite temporal canvas. */
 export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }: EastChakraPlanProps) {
     // ── The rows channel: inline rows, or the derived paged source (§3.8)
@@ -244,14 +265,22 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const w = getSomeorUndefined(value.axis.window);
         return w !== undefined ? { min: w.min, max: w.max } : undefined;
     }, [value.axis.window]);
-    const sliceRange = useMemo(() => {
-        if (sliceState === undefined) return undefined;
-        const r = getSomeorUndefined(sliceState.range);
-        if (r === undefined || r.type !== "datetime") return undefined;
-        const win = r.value as { from: Date; to: Date };
-        return win.to.getTime() > win.from.getTime() ? { min: win.from, max: win.to } : undefined;
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceState is a fresh read each render; useSliceReactivity drives updates
-    }, [sliceState?.range]);
+    // Keyed on the INSTANTS, never on the range object. `slice.read()` decodes
+    // fresh state on every render, so `sliceState.range` has a new identity each
+    // time even when the window has not moved. Keying the memo on that identity
+    // rebuilt `sliceRange`, which rebuilt `scale` (up to MAX_PLAN_BUCKETS
+    // buckets, each with a formatted label), which published a new PlanScale to
+    // every row — busting `edges`, `resolveCoord`, `dropVeto` and so the drop
+    // cell's own ref callback, so React detached and re-attached every
+    // registered cell on every render of a slice-bound canvas.
+    const sliceFromMs = sliceRangeInstants(sliceState)?.[0];
+    const sliceToMs = sliceRangeInstants(sliceState)?.[1];
+    const sliceRange = useMemo(
+        () => (sliceFromMs === undefined || sliceToMs === undefined
+            ? undefined
+            : { min: new Date(sliceFromMs), max: new Date(sliceToMs) }),
+        [sliceFromMs, sliceToMs],
+    );
     const sliceResolution = sliceState !== undefined
         ? getSomeorUndefined(sliceState.resolution)?.type
         : undefined;
