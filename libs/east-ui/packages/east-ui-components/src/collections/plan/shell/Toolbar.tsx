@@ -23,6 +23,7 @@ import { usePlanDispatch } from "../context.js";
 import { DatasetKeySearch } from "../../key-search/index.js";
 import { SliceEditPopover } from "../../../slice/edit/index.js";
 import { EastChakraPickPanel } from "../../../pick/panel/index.js";
+import { SliceDensityContext } from "../../../slice/density.js";
 import { transportLabel, type PlanTransport } from "./transport.js";
 import type { PlanSearch } from "../use-seek.js";
 
@@ -169,9 +170,11 @@ type PickBindLike = { items: ReadonlyArray<PickItemLike>; state: { read: () => s
  * already uses, so the library reads as one more piece of the same toolbar
  * rather than a surface of its own.
  *
- * The count rides the popover's head, not the panel's — the popover brings its
- * own heading, and two of them saying the same thing is why the panel has a
- * frameless mode.
+ * The count rides the popover's head, not the panel's. The panel drops its own
+ * frame because the popover provides `editor` density — the house mechanism for
+ * "you are inside the terminal surface now", the same one `Slice.Rail` uses
+ * around its editor content and `SliceEditPopover` reads to decide whether to
+ * nest. No per-call flag.
  */
 function PlanLibraryButton({ pick, open, onOpenChange, btn }: {
     pick: unknown;
@@ -196,7 +199,9 @@ function PlanLibraryButton({ pick, open, onOpenChange, btn }: {
                 </chakra.button>
             }
         >
-            <EastChakraPickPanel value={{ pick, title: "Series" } as never} bare />
+            <SliceDensityContext.Provider value="editor">
+                <EastChakraPickPanel value={{ pick, title: "Series" } as never} />
+            </SliceDensityContext.Provider>
         </SliceEditPopover>
     );
 }

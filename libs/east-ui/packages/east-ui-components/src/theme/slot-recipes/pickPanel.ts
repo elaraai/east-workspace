@@ -42,7 +42,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const pickPanelSlotRecipe = defineSlotRecipe({
     className: "elara-pick-panel",
-    slots: ["headMeta", "row", "kind", "text", "label", "sub", "count", "eye"],
+    slots: ["headMeta", "search", "searchInput", "empty", "row", "kind", "text", "label", "sub", "count", "eye"],
     base: {
         // The header's right-hand count ("2 of 7"). `sliceFrame` has no text
         // slot at this size — its `frameEyebrowMeta` is a flex CONTAINER for
@@ -57,6 +57,34 @@ export const pickPanelSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             lineHeight: "1",
             flexShrink: 0,
+        },
+        // The search row. Sits on the row rhythm and under the same hairline,
+        // so it reads as the head of the list rather than a floating control.
+        search: {
+            padding: "8px 12px",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+        },
+        // The bare input inside `sliceFrame.searchPill` — the pill owns the
+        // border, background and type, so this only has to stop the browser
+        // drawing its own chrome over it.
+        searchInput: {
+            all: "unset",
+            flex: 1,
+            minWidth: 0,
+            fontFamily: "mono",
+            fontSize: "11px",
+            color: "fg",
+            _placeholder: { color: "fg.subtle" },
+        },
+        // A search that matches nothing says so — an empty list under a filled
+        // box reads as a broken panel.
+        empty: {
+            padding: "12px",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            color: "fg.muted",
+            textAlign: "center",
         },
         // One entry. The hairline fences rows from each other; the LAST row
         // drops it so the frame's own border is the only bottom edge.

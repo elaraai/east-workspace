@@ -3,15 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
+import { faEye, faEyeSlash, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Pick } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { toFontAwesomeIcon } from "../../display/icon";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
+import { useSliceDensity } from "../../slice/density";
 
 /** The decoded `PickPanel` arm — DERIVED from the East type, never mirrored. */
 export type PickPanelValue = ValueTypeOf<typeof Pick.Types.Panel>;
@@ -21,16 +22,6 @@ type PickItemValue = ValueTypeOf<typeof Pick.Types.Item>;
 
 export interface EastChakraPickPanelProps {
     value: PickPanelValue;
-    /**
-     * Render the ROWS only, with no frame or header.
-     *
-     * @remarks
-     * For mounting inside a surface that already provides both — the Plan opens
-     * its library in a `SliceEditPopover`, which brings its own head, body and
-     * close. Drawing the panel's own frame in there would be two borders and
-     * two headings saying the same thing.
-     */
-    bare?: boolean;
 }
 
 /**
@@ -58,8 +49,17 @@ export interface EastChakraPickPanelProps {
  * closures, and East compares every function as equal, so a structural
  * comparator would report "unchanged" across a real state change.
  */
-export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value, bare }: EastChakraPickPanelProps) {
+export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: EastChakraPickPanelProps) {
     const { pick, title } = value;
+    // At `editor` density this panel is INSIDE the terminal surface — a
+    // `SliceEditPopover`, which brings its own head, border and close — so it
+    // drops its own frame rather than drawing a second set. That decision rides
+    // the shared density context, not a prop of its own: it is the same call
+    // `SliceEditPopover` makes about nesting, and one mechanism means the panel
+    // is right in ANY editor surface, not only the one call site that knew to
+    // pass a flag. Standalone the context defaults to `focused`, so the frame
+    // stands.
+    const density = useSliceDensity();
     useSliceReactivity(pick.key);
 
     const frame = useSlotRecipe({ key: "sliceFrame" })();
@@ -69,6 +69,19 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value, ba
     const items = pick.items;
     const shownCount = items.filter((i: PickItemValue) => !hidden.has(i.id)).length;
 
+    // Filtering the LIST, not the canvas. A library search answers "where is
+    // the one I want" — it must not change which series are on screen, so it
+    // never touches the hidden set. Purely local: nothing to persist, and a
+    // query surviving a reload would hide most of the library on arrival.
+    const [query, setQuery] = useState("");
+    const q = query.trim().toLowerCase();
+    const listed = q === ""
+        ? items
+        : items.filter((i: PickItemValue) => {
+            const sub = getSomeorUndefined(i.subtitle) ?? "";
+            return i.title.toLowerCase().includes(q) || sub.toLowerCase().includes(q);
+        });
+
     // Read live, then write: two clicks inside one frame must compose.
     const toggle = (id: string) => {
         const live = new Set(pick.state.read());
@@ -76,9 +89,37 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value, ba
         pick.state.write([...live]);
     };
 
+    // Always present, not gated on a length threshold: a library is a thing you
+    // search, and a control that appears once the data grows past some number
+    // is a surprise rather than a discovery.
+    const search = (
+        <Box css={styles.search} data-slot="pickSearch">
+            <Box as="span" css={frame.searchPill}>
+                <FontAwesomeIcon icon={faMagnifyingGlass} style={{ fontSize: "10px" }} />
+                <chakra.input
+                    css={styles.searchInput}
+                    value={query}
+                    placeholder="Search series"
+                    aria-label="Search series"
+                    onChange={(e) => setQuery(e.currentTarget.value)}
+                />
+                {q !== "" && (
+                    <chakra.button type="button" css={frame.searchClear}
+                        aria-label="Clear search" onClick={() => setQuery("")}>
+                        <FontAwesomeIcon icon={faXmark} style={{ fontSize: "10px" }} />
+                    </chakra.button>
+                )}
+            </Box>
+        </Box>
+    );
+
     const rows = (
         <>
-            {items.map((item: PickItemValue) => {
+            {search}
+            {listed.length === 0 && (
+                <Box css={styles.empty} data-slot="pickEmpty">{`No series match "${query.trim()}"`}</Box>
+            )}
+            {listed.map((item: PickItemValue) => {
                 const on = !hidden.has(item.id);
                 const icon = getSomeorUndefined(item.icon);
                 const count = getSomeorUndefined(item.count);
@@ -120,9 +161,11 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value, ba
         </>
     );
 
-    if (bare === true) return <Box data-slot="pickPanel" data-bare="">{rows}</Box>;
+    if (density === "editor") {
+        return <Box data-slot="pickPanel" data-density="editor">{rows}</Box>;
+    }
     return (
-        <Box css={frame.root} data-slot="pickPanel">
+        <Box css={frame.root} data-slot="pickPanel" data-density={density}>
             <Box css={frame.header}>
                 <Box as="span" css={frame.eyebrow}>{title}</Box>
                 <Box as="span" css={styles.headMeta}>{`${shownCount} of ${items.length}`}</Box>
@@ -130,4 +173,4 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value, ba
             {rows}
         </Box>
     );
-}, (prev, next) => prev.bare === next.bare && false);
+}, () => false);

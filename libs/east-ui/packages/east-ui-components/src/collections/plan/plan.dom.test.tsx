@@ -1233,12 +1233,37 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
         await user.click(screen.getByRole("button", { name: "Series library" }));
         await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
         const panel = document.querySelector("[data-slot='pickPanel']") as HTMLElement;
-        // The popover brings its own head and border; the panel must not draw
-        // a second set.
-        expect(panel.hasAttribute("data-bare")).toBe(true);
+        // The popover provides `editor` density — the house signal for "you are
+        // inside the terminal surface" — and the panel drops its frame on that,
+        // not on a flag the call site had to remember.
+        expect(panel.getAttribute("data-density")).toBe("editor");
         expect(screen.getByText("Machine jobs")).toBeTruthy();
         // The count rides the popover's head, not the panel's.
         expect(screen.getByText("2 of 3")).toBeTruthy();
+    });
+
+    test("the list is SEARCHABLE, and searching never touches the hidden set", async () => {
+        const user = userEvent.setup();
+        const pick = fakePick();
+        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
+        await user.click(screen.getByRole("button", { name: "Series library" }));
+        await waitFor(() => expect(document.querySelector("[data-slot='pickSearch']")).not.toBeNull());
+        expect(screen.getByText("Machine jobs")).toBeTruthy();
+
+        await user.type(screen.getByLabelText("Search series"), "crew");
+        await waitFor(() => expect(screen.queryByText("Machine jobs")).toBeNull());
+        expect(screen.getByText("Crew shifts")).toBeTruthy();
+        // Filtering the LIST is not hiding a series — the canvas is untouched.
+        expect(pick.state.read()).toEqual([]);
+
+        // A query that matches nothing says so rather than showing a blank box.
+        await user.clear(screen.getByLabelText("Search series"));
+        await user.type(screen.getByLabelText("Search series"), "zzz");
+        await waitFor(() => expect(document.querySelector("[data-slot='pickEmpty']")).not.toBeNull());
+
+        // Clearing brings everything back.
+        await user.click(screen.getByRole("button", { name: "Clear search" }));
+        await waitFor(() => expect(screen.getByText("Machine jobs")).toBeTruthy());
     });
 
     test("toggling inside the popover writes the hidden set", async () => {
