@@ -55,6 +55,7 @@ import {
 import { PlanReviewType } from "./ir.js";
 import { resolveTag } from "./builders.js";
 import { applySeries, type PlanSeriesInput } from "./series.js";
+import { seriesSignature } from "./pick.js";
 import { resolveRowSource, buildRowSource, type PagedSourceLike } from "../../contracts/source.js";
 
 
@@ -252,6 +253,10 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
         resolved,
         PlanRowsCollectionType,
         (source) => applySeries(config.series, source as ExprType<DictType<StringType, StructType>>),
+        // The paged source's rows depend on WHICH series are active — a pick
+        // narrows the list — so the derived id has to say which. Without it a
+        // toggle leaves resident windows serving rows nobody asked for.
+        seriesSignature(config.series),
     ) as unknown as ExprType<PlanRowsType>;
     const style = config.style;
     const styleValue = style !== undefined

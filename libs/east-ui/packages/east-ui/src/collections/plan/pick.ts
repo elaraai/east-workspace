@@ -190,6 +190,39 @@ export function createPlanPick(
  * @param options - Data for counts ({@link PlanPickOptions})
  * @returns One descriptor per series, in declaration order
  */
+/**
+ * A stable signature of WHICH series a canvas is built from.
+ *
+ * @remarks
+ * Exists for the paged arm. `PagedSourceType` requires that "two sources with
+ * the same `id` must serve the same rows", and a derived source built from a
+ * SUBSET of the series serves different rows than one built from all of them —
+ * so its id has to say so.
+ *
+ * That requirement is not theoretical: the window cache invalidates on
+ * `source.id` alone (`use-plan-paging.ts`), and resident windows are immutable
+ * and served without re-calling `page`. Without a signature, toggling a series
+ * off leaves the previous rows on screen indefinitely
+ * (`use-plan-paging.dom.test.tsx` pins both halves of this).
+ *
+ * @param all - The series the canvas is built from
+ * @returns The series' keys, joined — stable for a given active set
+ */
+export function seriesSignature(all: PlanSeriesInput): ExprType<StringType> {
+    const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
+    const itemType: EastType = (Expr.type(allExpr) as ArrayType<EastType>).value;
+    // An EMPTY series list has no element type (`Never`), so there is no
+    // variant to match on — and nothing to distinguish either. A canvas with no
+    // series is legal (`Plan.Root({ …, series: [] })`).
+    if ((itemType as { type?: string }).type !== "Variant") return East.value("", StringType);
+    const keyOf = planPickOptions(allExpr).id;
+    const keyFn = East.function([itemType], StringType, (_$, s) => keyOf(s));
+    return allExpr.reduce(
+        (_$, acc, s) => East.str`${acc}/${keyFn(s)}`,
+        East.value("", StringType),
+    ) as ExprType<StringType>;
+}
+
 export function createPlanPickItems(
     all: PlanSeriesInput,
     options?: PlanPickOptions,

@@ -217,3 +217,50 @@ describe("paging driver — bounded retention", () => {
         expect(head!.px).toBeGreaterThan(0);
     });
 });
+
+describe("paging driver — a derived source whose rows change (#590)", () => {
+    /** A source whose id and row-label are independent, so the two can be
+     *  varied separately — which is the whole question here. */
+    function labelled(id: string, label: string) {
+        return {
+            id,
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                const rows = new Map<string, PlanRowValue>();
+                const key = `${label}-w${w}`;
+                rows.set(key, { key, parent: none } as unknown as PlanRowValue);
+                return some(rows);
+            },
+            total: () => some(BigInt(PLAN_PAGE_SIZE)),
+            seek: none,
+        } as unknown as PlanPagedSourceValue;
+    }
+
+    test("a NEW page function under the SAME id serves the OLD rows — the window cache is keyed on id alone", async () => {
+        const { rerender } = render(<Harness src={labelled("ops", "before")} />);
+        await waitFor(() => expect(text("rows")).toContain("before-w0"));
+
+        // What a pick toggle does: the Reactive re-runs and the Plan rebuilds
+        // its `page` (the series list inside it changed), but the underlying
+        // handle's id is the author's and does not move.
+        rerender(<Harness src={labelled("ops", "after")} />);
+        await act(async () => { await Promise.resolve(); });
+
+        // Resident windows are immutable and served from cache, so the canvas
+        // keeps showing rows the author no longer asked for.
+        expect(text("rows")).toContain("before-w0");
+        expect(text("rows")).not.toContain("after-w0");
+    });
+
+    test("moving the id re-reads — which is why a derived source must sign its id", async () => {
+        const { rerender } = render(<Harness src={labelled("ops#a", "before")} />);
+        await waitFor(() => expect(text("rows")).toContain("before-w0"));
+
+        // The same rebuild, but the id now carries a signature of what the
+        // source was derived WITH. `PagedSourceType` already requires this:
+        // "two sources with the same `id` must serve the same rows".
+        rerender(<Harness src={labelled("ops#b", "after")} />);
+        await waitFor(() => expect(text("rows")).toContain("after-w0"));
+        expect(text("rows")).not.toContain("before-w0");
+    });
+});

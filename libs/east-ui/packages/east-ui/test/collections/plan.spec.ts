@@ -976,6 +976,45 @@ describeEast("Plan", (test) => {
         $(Assert.equal(noData.get(0n).count.hasTag("none"), true));
     });
 
+    test("a paged source SIGNS its id with the active series, so a pick change re-reads (#590)", $ => {
+        const Row = StructType({ v: FloatType });
+        const Source = DictType(StringType, Row);
+        const rows = $.const(new Map([["m1", { v: 1.0 }]]), Source);
+        const handle = $.const({
+            page: East.function([IntegerType, IntegerType], OptionType(Source), ($, o, _l) => {
+                const noPage = $.const(none, OptionType(Source));
+                return o.equal(0n).ifElse(() => some(rows), () => noPage);
+            }),
+            total: East.function([], OptionType(IntegerType), (_$) => some(1n)),
+            id: East.value("ops"),
+        }, StructType({
+            page: FunctionType([IntegerType, IntegerType], OptionType(Source)),
+            total: FunctionType([], OptionType(IntegerType)),
+            id: StringType,
+        }));
+        const spanSeries = Plan.series.span(Row, { key: "span", title: "Span", label: (_r, k) => k, runs: _r => [] });
+        const heatSeries = Plan.series.heat(Row, {
+            key: "heat", title: "Heat", label: (_r, k) => k,
+            cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+        });
+        const build = (series: ReturnType<typeof Plan.series.span>[]) =>
+            Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: handle, series });
+
+        const both = $.let(build([spanSeries, heatSeries]).unwrap().unwrap("Plan").rows.unwrap("paged"));
+        const one  = $.let(build([spanSeries]).unwrap().unwrap("Plan").rows.unwrap("paged"));
+
+        // The author's handle id is carried, then signed with what the source
+        // was DERIVED with — the contract's own rule that two sources sharing an
+        // id must serve the same rows.
+        $(Assert.equal(both.id.startsWith("ops#"), true));
+        // Narrowing the series list is a different source, and says so. Without
+        // this the window cache (keyed on id alone) serves the old rows forever.
+        $(Assert.equal(East.equal(both.id, one.id), false));
+        // Same series, same id — so an unrelated re-render does NOT drop the cache.
+        const again = $.let(build([spanSeries, heatSeries]).unwrap().unwrap("Plan").rows.unwrap("paged"));
+        $(Assert.equal(East.equal(both.id, again.id), true));
+    });
+
     test("a paged data handle derives the canvas-row source — page wraps the series makes, total passes through", $ => {
         const JobRow = StructType({
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,

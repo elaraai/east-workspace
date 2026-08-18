@@ -373,12 +373,23 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
  * @param resolved - The output of {@link resolveRowSource}
  * @param outType - The component's row collection type
  * @param make - The source collection → the component's row collection
+ * @param idSuffix - Appended to the paged source's `id` — see below
  * @returns The `RowSourceType(outType)` value to store in the IR
+ *
+ * @remarks
+ * `idSuffix` exists because `make` is part of what the derived source SERVES.
+ * {@link PagedSourceType} requires that two sources sharing an `id` serve the
+ * same rows, and a component whose `make` changes — a Plan whose series list was
+ * narrowed by a pick — now serves different rows from the same underlying
+ * handle. Since a window cache keys on `id` alone and resident windows are never
+ * re-read, an unsigned id leaves the previous rows on screen forever. A
+ * component that can vary its `make` must pass a signature of what varied.
  */
 export function buildRowSource<Out extends EastType>(
     resolved: ResolvedRowSource,
     outType: Out,
     make: (collection: ExprType<EastType>) => SubtypeExprOrValue<Out>,
+    idSuffix?: SubtypeExprOrValue<StringType>,
 ): RowSource<Out> {
     const sourceType = RowSourceType(outType);
     if (resolved.kind === "inline") {
@@ -410,7 +421,10 @@ export function buildRowSource<Out extends EastType>(
     // A source predating the contract carries no `id` / `seek`; fall back to a
     // constant identity (it still compares equal to itself) and no seek.
     const fields = structFields(Expr.type(resolved.source)) ?? {};
-    const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
+    const baseId = fields["id"] !== undefined ? handle.id : East.value("", StringType);
+    const id = idSuffix !== undefined
+        ? East.str`${baseId}#${East.value(idSuffix, StringType)}`
+        : baseId;
     const seek = fields["seek"] !== undefined
         ? handle.seek
         : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
