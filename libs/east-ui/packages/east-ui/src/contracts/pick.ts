@@ -317,11 +317,27 @@ export function createPickState(hidden?: readonly string[]): ExprType<PickStateT
  * <Table data={orders} columns={Pick.active(shown)} />
  * ```
  */
-export function createPickBind<I extends EastType>(
-    key: string,
+/**
+ * The library entries alone — every item described, with NO state binding.
+ *
+ * @remarks
+ * {@link Pick.bind} builds `items` with exactly this call, so proving one
+ * proves the other. It is split out for the same reason {@link pickVisible} is:
+ * `State.bind` is not runnable in a `describeEast` spec, and the descriptor
+ * derivation — identity, icons, counts — is the part worth testing.
+ *
+ * Useful in its own right when a host wants to render its own list rather than
+ * mount `Pick.Panel`.
+ *
+ * @typeParam I - The item type being picked over
+ * @param all - Every item that COULD show
+ * @param options - The per-item accessors ({@link PickOptions})
+ * @returns The descriptors, in declaration order
+ */
+export function pickItems<I extends EastType>(
     all: SubtypeExprOrValue<ArrayType<I>>,
     options: PickOptions<I>,
-): PickHandle<I> {
+): ExprType<ArrayType<PickItemType>> {
     const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
     const itemType: EastType = (Expr.type(allExpr) as ArrayType<EastType>).value;
     const opts = options as unknown as PickOptions<EastType>;
@@ -336,13 +352,26 @@ export function createPickBind<I extends EastType>(
         count:    opts.count !== undefined ? opts.count(item) : none,
         narrowed: opts.narrowed !== undefined ? opts.narrowed(item) : false,
     }));
+    return allExpr.map((_$, item) => describe(item)) as unknown as ExprType<ArrayType<PickItemType>>;
+}
+
+export function createPickBind<I extends EastType>(
+    key: string,
+    all: SubtypeExprOrValue<ArrayType<I>>,
+    options: PickOptions<I>,
+): PickHandle<I> {
+    const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
+    const itemType: EastType = (Expr.type(allExpr) as ArrayType<EastType>).value;
+    const opts = options as unknown as PickOptions<EastType>;
+    const idFn = East.function([itemType], StringType, (_$, item) => opts.id(item));
 
     const pick = East.value({
         key:   East.value(key, StringType),
         // The state IS `State.bind`'s handle — nothing bespoke, and per #106 it
         // serializes and re-binds like any other bound value.
         state: State.bind([PickStateType], key, createPickState(options.hidden)),
-        items: allExpr.map((_$, item) => describe(item)),
+        // The SAME derivation `pickItems` exposes — proving one proves the other.
+        items: pickItems(allExpr, opts),
     }, PickBindType);
 
     // Two-step cast (the `Paged.of` idiom): the members are built against the

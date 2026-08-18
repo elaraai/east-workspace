@@ -919,6 +919,63 @@ describeEast("Plan", (test) => {
         $(Assert.equal(chrome.unwrap("rows").title, "Milestones"));
     });
 
+    test("Plan.pick reads identity off every arm and derives each series' row count (#590)", $ => {
+        const Row = StructType({ line: StringType, v: FloatType });
+        const data = $.const(new Map([
+            ["a", { line: "L1", v: 40.0 }],
+            ["b", { line: "L1", v: 60.0 }],
+            ["c", { line: "L2", v: 80.0 }],
+        ]), DictType(StringType, Row));
+        const all = $.const([
+            Plan.series.heat(Row, {
+                key: "load", title: "Line load", subtitle: "per line",
+                label: (_r, k) => k,
+                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+            }),
+            // A series matching nothing — the `0 rs` case the count exists to surface.
+            Plan.series.events(Row, {
+                key: "empty", title: "Nothing",
+                match: (_r, _k) => false,
+                label: (_r, k) => k, marks: _r => [],
+            }),
+            // A GROUP borrows the strip's identity, so the section is what the
+            // library offers — the whole point of #590 §6.1.
+            Plan.series.group(Row, { key: "machines", label: "Machines", meta: "3 rs" }, [
+                Plan.series.span(Row, { key: "inner", title: "Inner", label: (_r, k) => k, runs: _r => [] }),
+            ]),
+        ], ArrayType(Plan.Types.Series(Row)));
+
+        // The DESCRIPTORS — the bound path builds `items` from these same
+        // accessors, so proving these proves it (State.bind is not runnable here).
+        const items = $.let(Plan.pickItems(all, { data }));
+        $(Assert.equal(items.length(), 3n));
+
+        // Identity flows through from each arm's own fields.
+        $(Assert.equal(items.get(0n).id, "load"));
+        $(Assert.equal(items.get(0n).title, "Line load"));
+        $(Assert.equal(items.get(0n).subtitle.unwrap("some"), "per line"));
+        // The kind's documented glyph, rendered for the first time (#590 §4.3).
+        $(Assert.equal(items.get(0n).icon.unwrap("some").name, "table-cells-large"));
+        $(Assert.equal(items.get(1n).icon.unwrap("some").name, "flag"));
+        // A group is listed as its strip: key, label and meta become the
+        // series' identity, so "Machines" is the thing a person picks.
+        $(Assert.equal(items.get(2n).id, "machines"));
+        $(Assert.equal(items.get(2n).title, "Machines"));
+        $(Assert.equal(items.get(2n).subtitle.unwrap("some"), "3 rs"));
+        $(Assert.equal(items.get(2n).icon.unwrap("some").name, "layer-group"));
+
+        // Counts are DERIVED by running each series' own pipeline: three heat
+        // rows, nothing from the unmatched series, and the group's strip plus
+        // its three members.
+        $(Assert.equal(items.get(0n).count.unwrap("some"), 3n));
+        $(Assert.equal(items.get(1n).count.unwrap("some"), 0n));
+        $(Assert.equal(items.get(2n).count.unwrap("some"), 4n));
+
+        // Omitting `data` omits the counts — what a paged canvas must say.
+        const noData = $.let(Plan.pickItems(all));
+        $(Assert.equal(noData.get(0n).count.hasTag("none"), true));
+    });
+
     test("a paged data handle derives the canvas-row source — page wraps the series makes, total passes through", $ => {
         const JobRow = StructType({
             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,

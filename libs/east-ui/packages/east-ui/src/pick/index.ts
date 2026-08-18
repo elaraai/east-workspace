@@ -20,6 +20,7 @@ import {
     createPickBind,
     pickActive,
     pickVisible,
+    pickItems,
     PickStateType,
     PickItemType,
     PickStateHandleType,
@@ -56,6 +57,8 @@ export const Pick = {
     active: pickActive,
     /** The derivation alone — items minus a hidden list, no state binding. */
     visible: pickVisible,
+    /** The library entries alone — described, with no state binding. */
+    items: pickItems,
     /** The library panel — one row per thing, with an eye. */
     Panel: createPickPanel,
     /** East types — the contract, for `$.const` / `$.let` annotations. */

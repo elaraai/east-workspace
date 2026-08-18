@@ -129,6 +129,7 @@ import {
     createSeriesRows,
 } from "./series.js";
 import { createTemplate, createPlanRoot } from "./root.js";
+import { createPlanPick, createPlanPickItems } from "./pick.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -244,6 +245,7 @@ export {
     type PlanTableOfConfig,
 } from "./data-forms.js";
 export { type PlanTemplateInput, type PlanReviewConfig, type PlanConfig } from "./root.js";
+export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
 export {
     PlanSeriesType,
     type PlanSeriesValue,
@@ -351,6 +353,11 @@ export interface PlanNamespace {
     fixed: typeof createFixedHeight;
     /** Builds one row-library template (the binding rides `make`). */
     template: typeof createTemplate;
+    /** Binds the canvas's row series to a persisted pick (#590) — the library
+     *  lists sections and kinds, and `Pick.active` feeds the survivors back. */
+    pick: typeof createPlanPick;
+    /** The library entries for the canvas's series — no state binding. */
+    pickItems: typeof createPlanPickItems;
     /** The Plan East types. */
     Types: {
         /** The Plan root IR ({@link PlanRootType}). */
@@ -515,6 +522,8 @@ export const Plan: PlanNamespace = {
     layer: createLayer,
     fixed: createFixedHeight,
     template: createTemplate,
+    pick: createPlanPick,
+    pickItems: createPlanPickItems,
     Types: {
         Root: PlanRootType,
         Axis: PlanAxisType,
