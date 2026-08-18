@@ -54,8 +54,9 @@ import {
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
 import { resolveTag } from "./builders.js";
-import { applySeries, type PlanSeriesInput } from "./series.js";
+import { applySeries, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 import { seriesSignature } from "./pick.js";
+import { pickActive, PickBindType, type PickHandle } from "../../contracts/pick.js";
 import { resolveRowSource, buildRowSource, type PagedSourceLike } from "../../contracts/source.js";
 
 
@@ -79,7 +80,8 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property axis - The shared time-axis declaration (`Plan.axis`)
  * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
  * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
- * @property series - The row series over `data` — `Plan.series.*` values (declared order resolves key collisions; rows sit in KEY order)
+ * @property series - The row series over `data` — `Plan.series.*` values (declared order resolves key collisions; rows sit in KEY order); exclusive with `pick`
+ * @property pick - A bound series library (`Plan.pick`) — the canvas shows the picked series and mounts the library panel; exclusive with `series`
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
@@ -132,7 +134,26 @@ export interface PlanConfig {
      *  keys (`"10-line1"`, `"20-line2"`).
      *
      *  Literal one-off chrome rides a `Plan.series.rows` entry. */
-    series: PlanSeriesInput;
+    series?: PlanSeriesInput;
+    /**
+     * A bound series library from `Plan.pick` — the pickable form of `series`.
+     *
+     * @remarks
+     * Exclusive with `series`, because the handle already CARRIES the series
+     * list; passing both would say it twice and leave the two free to disagree.
+     * Give one or the other: `series` for a fixed canvas, `pick` for a canvas
+     * whose rows the user chooses.
+     *
+     * The Plan does the rest — it feeds itself the picked series and mounts the
+     * library panel as chrome, the way `slice` mounts the rail. Nothing is left
+     * for the author to wire, because a Plan already holds both things a pick
+     * needs: `series` IS the item list and `data` IS what the counts derive from.
+     *
+     * A pick is STATE, so a Plan carrying one must sit inside a `Reactive` —
+     * `Plan.pick` binds through `State.bind`, and a bind outside a reactive
+     * evaluation promotes the enclosing function to async.
+     */
+    pick?: PickHandle<ReturnType<typeof PlanSeriesType>>;
     /** The link graph (R1) — run-edge quantity links (`Plan.link` values, map-derivable
      *  from data); the links-focus control gathers a row's transitive family over it. */
     links?: SubtypeExprOrValue<ArrayType<PlanLinkType>>;
@@ -225,9 +246,21 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to.
-    if (config.data === undefined || config.series === undefined) {
-        throw new Error("Plan: `data` and `series` are required — a canvas is its data plus the series over it");
+    if (config.data === undefined) {
+        throw new Error("Plan: `data` is required — a canvas is its data plus the series over it");
     }
+    if ((config.series === undefined) === (config.pick === undefined)) {
+        throw new Error(
+            "Plan: give exactly one of `series` or `pick` — `series` for a fixed canvas, " +
+            "`pick` for a pickable one. A `Plan.pick` handle already carries the series list, " +
+            "so passing both says it twice and lets the two disagree.",
+        );
+    }
+    // A pick feeds the canvas its SURVIVING series; everything downstream —
+    // application, the paged signature — sees one series input either way.
+    const seriesInput: PlanSeriesInput = config.pick !== undefined
+        ? (pickActive(config.pick) as unknown as PlanSeriesInput)
+        : config.series as PlanSeriesInput;
     // The shared row-source resolution (#567): inline collection, paged
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
     // and the series pipeline is the `make` that turns each window's domain
@@ -252,11 +285,11 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
     const rowsValue = buildRowSource(
         resolved,
         PlanRowsCollectionType,
-        (source) => applySeries(config.series, source as ExprType<DictType<StringType, StructType>>),
+        (source) => applySeries(seriesInput, source as ExprType<DictType<StringType, StructType>>),
         // The paged source's rows depend on WHICH series are active — a pick
         // narrows the list — so the derived id has to say which. Without it a
         // toggle leaves resident windows serving rows nobody asked for.
-        seriesSignature(config.series),
+        seriesSignature(seriesInput),
     ) as unknown as ExprType<PlanRowsType>;
     const style = config.style;
     const styleValue = style !== undefined
@@ -296,6 +329,11 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
             ? some(East.value(config.expandGutter, FunctionType([PlanRowRefType], UIComponentType)))
             : none,
         review:   config.review !== undefined ? some(buildReview(config.review, PlanReviewType)) : none,
+        // The library rides as chrome, like the slice rail: the non-generic
+        // contract only, since the arm must stay a closed East type.
+        pick:     config.pick !== undefined
+            ? some(East.value((config.pick as unknown as ExprType<StructType<{ pick: PickBindType }>>).pick, PickBindType))
+            : none,
         slice:    sliceChrome,
         footer:   (config.footer ?? []).map(f => East.value({
             text: f.text,

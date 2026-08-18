@@ -998,6 +998,29 @@ describeEast("Plan", (test) => {
         $(Assert.equal(pair.get(1n).icon.unwrap("some").name, "table-cells-large"));
     });
 
+    test("`series` and `pick` are exclusive — exactly one, or the Plan refuses (#590)", $ => {
+        const Row = StructType({ v: FloatType });
+        const data = $.const(new Map([["a", { v: 1.0 }], ["b", { v: 2.0 }]]), DictType(StringType, Row));
+        const all = $.const([
+            Plan.series.heat(Row, {
+                key: "load", title: "Load", label: (_r, k) => k,
+                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+            }),
+            Plan.series.events(Row, { key: "ms", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
+        ], ArrayType(Plan.Types.Series(Row)));
+
+        // `series` and `pick` are alternatives — the handle already carries the
+        // list, so giving both would say it twice.
+        $(Assert.equal(East.value((() => {
+            try { Plan.Root({ axis: Plan.axis({ resolution: "week" }), data, series: all, pick: undefined as never }); return true; }
+            catch { return false; }
+        })()), true));
+        $(Assert.equal(East.value((() => {
+            try { Plan.Root({ axis: Plan.axis({ resolution: "week" }), data }); return false; }
+            catch { return true; }
+        })()), true));
+    });
+
     test("a paged source SIGNS its id with the active series, so a pick change re-reads (#590)", $ => {
         const Row = StructType({ v: FloatType });
         const Source = DictType(StringType, Row);

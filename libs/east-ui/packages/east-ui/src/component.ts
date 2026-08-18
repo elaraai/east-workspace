@@ -189,7 +189,7 @@ import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
 import { SliceBindType, SliceBrushStyleType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
 import { SliceAffordanceType } from "./contracts/slice-affordances.js";
-import { PickPanelType } from "./contracts/pick.js";
+import { PickBindType, PickPanelType } from "./contracts/pick.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
@@ -1159,6 +1159,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
+        // The series library (#590) — chrome, like the slice rail. The
+        // NON-generic contract only: an arm must be a closed East type, so the
+        // author's typed handle stays outside and only its `pick` half rides.
+        pick: OptionType(PickBindType),
         slice: OptionType(SliceChromeType),
         footer: ArrayType(PlanFooterItemType),
         // DnD target role — the shared grammar (`contracts/drag.ts`).

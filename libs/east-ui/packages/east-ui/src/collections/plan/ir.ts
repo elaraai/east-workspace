@@ -26,6 +26,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { PickBindType } from "../../contracts/pick.js";
 import { reviewType, type ReviewStructType } from "../../contracts/approval.js";
 import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 import { SliceChromeType } from "../../platform/slice/index.js";
@@ -90,6 +91,7 @@ export const PlanRootType = StructType({
     // canvas. Same shape as `expandRender`, over the same row ref.
     expandGutter: OptionType(FunctionType([PlanRowRefType], UIComponentType)),
     review: OptionType(PlanReviewType),
+    pick: OptionType(PickBindType),
     slice: OptionType(SliceChromeType),
     footer: ArrayType(PlanFooterItemType),
     // DnD target role — the shared grammar verbatim (contracts/drag.ts).

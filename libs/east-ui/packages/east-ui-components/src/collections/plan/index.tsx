@@ -68,6 +68,7 @@ import {
     usePlanReview, PlanDecisionCell, PlanDecisionHeader, tagOf, DECISION_WIDTH,
 } from "./shell/Review.js";
 import { ReviewFoot } from "../shared/review.js";
+import { EastChakraPickPanel } from "../../pick/panel/index.js";
 import { type PlanTransport } from "./shell/transport.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -206,6 +207,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [chrome],
     );
     const sliceState = slice !== undefined ? slice.read() : undefined;
+
+    // ── The series library (#590) — chrome, like the slice rail. The Plan
+    //    feeds ITSELF the picked series (the factory swapped `series` for
+    //    `Pick.active`), so all that is left here is mounting the panel. The
+    //    noun is not configurable: a Plan's pickable things are series.
+    const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
 
     // ── Window + resolution: slice state ▸ axis ▸ fit-to-data (§3/§8) ─────
     const axisWindow = useMemo(() => {
@@ -843,8 +850,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         display: "flex",
                         flexDirection: "column",
                         minHeight: 0,
-                        height,
-                        maxHeight,
+                        // Inside a library shell the ROW owns the bound and this
+                        // column fills it; standalone, the bound lives here.
+                        ...(pick !== undefined ? { height: "100%", flex: "1" } : { height, maxHeight }),
                     })}
                     onKeyDown={(e) => {
                         const target = e.target as HTMLElement;
@@ -923,8 +931,30 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         </PlanScaleContext.Provider>
     );
 
+    // With a library the canvas is one column of a two-column row. The bound
+    // moves to the ROW — a percentage on a child of an auto-height parent
+    // computes to `auto` and silently unbinds (#567 D1), which is the same trap
+    // the frame/wrapper split exists to avoid.
+    const shell = pick === undefined ? body : (
+        <Box
+            display="flex"
+            gap="{spacing.4}"
+            alignItems="stretch"
+            minWidth={0}
+            data-plan-shell="picked"
+            {...(frameFills && { height, maxHeight, minHeight: 0 })}
+        >
+            <Box width="320px" flexShrink={0} minWidth={0} overflowY="auto">
+                <EastChakraPickPanel value={{ pick, title: "Series" } as never} />
+            </Box>
+            <Box flex="1" minWidth={0} display="flex" flexDirection="column" minHeight={0}>
+                {body}
+            </Box>
+        </Box>
+    );
+
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
     return densityTag !== undefined
-        ? <DensityProvider value={densityTag}>{body}</DensityProvider>
-        : body;
+        ? <DensityProvider value={densityTag}>{shell}</DensityProvider>
+        : shell;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

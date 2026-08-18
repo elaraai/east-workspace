@@ -23,7 +23,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, State, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, HStack, Pick, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
+import { Box, Chart, Format, Plan, Progress, Reactive, Slice, Sparkline, Text, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -1606,24 +1606,19 @@ export const planLibraryDnd = example({
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));
             const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));
+            // `pick` REPLACES `series`: the handle already carries the list, so
+            // the canvas feeds itself the picked ones and mounts the library.
+            // Nothing here wires the panel to the canvas.
             return (
-                <HStack gap="4" align="flex-start">
-                    {/* The panel takes its width from the host — it mounts beside
-                        a canvas, in a Drawer, or behind a toolbar chip. 320px is
-                        the width the spec's figure uses. */}
-                    <Box width="320px" flexShrink="0">
-                        <Pick.Panel value={shown} title="Series" />
-                    </Box>
-                    <Plan
-                        axis={axis}
-                        data={ops}
-                        series={Pick.active(shown)}
-                        id="plan" sources={["row-library"]}
-                        onDrag={onDrag}
-                        canDrop={canDrop}
-                        style={{ height: "620px" }}
-                    />
-                </HStack>
+                <Plan
+                    axis={axis}
+                    data={ops}
+                    pick={shown}
+                    id="plan" sources={["row-library"]}
+                    onDrag={onDrag}
+                    canDrop={canDrop}
+                    style={{ height: "620px" }}
+                />
             );
         }}</Reactive>
     )),
