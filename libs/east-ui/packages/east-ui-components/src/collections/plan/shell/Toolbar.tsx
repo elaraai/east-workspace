@@ -19,6 +19,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
+import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch } from "../context.js";
 import { DatasetKeySearch } from "../../key-search/index.js";
 import { SliceEditPopover } from "../../../slice/edit/index.js";
@@ -80,6 +81,13 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
     const dispatch = usePlanDispatch();
     const btn = useRecipe({ key: "button" });
     const [libraryOpen, setLibraryOpen] = useState(false);
+    // Self-subscribe on the slice key (#611): a store write does not change
+    // any prop identity here, so a memo over STORE READS must key on the
+    // store's own version — a re-render alone never busts a memo whose deps
+    // did not move. This is what keeps the cohort chip, the summary counts
+    // and the scope badge honest on a chrome-only bound slice, where a state
+    // change re-derives no rows.
+    const sliceVersion = useSliceReactivity(slice?.key);
     // Rail-cluster affordances (the Table adopter pattern): route the listed
     // kinds through `railAffordanceKinds` (auto-appended cohort etc.), then
     // drop the kinds that mount as Plan chrome bands rather than rail chips —
@@ -94,7 +102,8 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
         () => (slice === undefined ? [] : railAffordanceKinds(affordances, slice.read())
             .filter((k) => k !== "brush" && k !== "legend" && k !== "resolution" && k !== "summary")
             .filter((k) => !(k === "search" && search !== undefined))),
-        [affordances, slice, search],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of `slice.read()`: the auto-injected cohort chip appears when the STORE moves, not when a prop does (#611)
+        [affordances, slice, search, sliceVersion],
     );
     const clusterKinds = useMemo(() => railKinds.filter((k) => k !== "range"), [railKinds]);
     const rangeKinds = useMemo(() => railKinds.filter((k) => k === "range"), [railKinds]);
@@ -113,7 +122,8 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
         const result = Number(slice.resultCount());
         const active = Number(slice.activeCount());
         return `${result} of ${total}${active > 0 ? ` · ${active} narrowing${active > 1 ? "s" : ""}` : ""}`;
-    }, [showSummary, slice, transport]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of the count reads: they move with the STORE, not with any prop (#611)
+    }, [showSummary, slice, transport, sliceVersion]);
 
     return (
         <Box css={styles.toolbar} data-slot="toolbar">
@@ -159,7 +169,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
 
 /** One pickable thing, as the panel reads it — enough to count what is shown. */
 type PickItemLike = { id: string };
-type PickBindLike = { items: ReadonlyArray<PickItemLike>; state: { read: () => string[] } };
+type PickBindLike = { key: string; items: ReadonlyArray<PickItemLike>; state: { read: () => string[] } };
 
 /**
  * The right-edge **Series** button — the library's only chrome at rest.
@@ -185,6 +195,11 @@ function PlanLibraryButton({ pick, open, onOpenChange, btn, styles }: {
     styles: Styles;
 }) {
     const bind = pick as PickBindLike;
+    // Self-subscribe on the pick's store key — `PickBindType.key` exists for
+    // exactly this ("renderers self-subscribe on it"). Without it, a toggle
+    // that changes no rows (a zero-row series) re-renders nothing, and the
+    // per-render read below never runs again (#611).
+    useSliceReactivity(bind.key);
     const hidden = new Set(bind.state.read());
     const shown = bind.items.filter((i) => !hidden.has(i.id)).length;
     return (

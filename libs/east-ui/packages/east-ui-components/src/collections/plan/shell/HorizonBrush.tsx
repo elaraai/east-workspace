@@ -21,6 +21,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
+import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch } from "../context.js";
 import { resolutionInterval, type PlanResolution, type PlanWindow } from "../scale.js";
 
@@ -56,6 +57,12 @@ export interface HorizonBrushProps {
 /** The 32px horizon band — caption gutter cell + the shared brush strip. */
 export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
+    // Self-subscribe (#611): the histogram is a STORE read, and a re-render
+    // does not bust a memo whose deps did not move — the version has to be
+    // one of them. (The previous disable comment justified the old deps with
+    // "useSliceReactivity re-renders on change", which is exactly the
+    // misconception: it re-renders, and the memo then serves the stale value.)
+    const sliceVersion = useSliceReactivity(slice.key);
     const domain = boundRangeDomain(slice.key);
     // One histogram bucket per resolution period across the domain (the §2
     // mock: 26 weekly bars over a 26-week horizon), clamped to sanity.
@@ -65,8 +72,8 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
         : 0;
     const counts = useMemo(
         () => (domain !== undefined ? boundRangeHistogram(slice.key, buckets) : undefined),
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- histogram derives from the slice store; useSliceReactivity re-renders on change
-        [slice.key, buckets, domain?.min, domain?.max],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the histogram's dependency: it re-derives when the STORE moves (#611)
+        [slice.key, buckets, domain?.min, domain?.max, sliceVersion],
     );
     if (domain === undefined || domain.kind !== "datetime" || domain.max <= domain.min) return null;
 

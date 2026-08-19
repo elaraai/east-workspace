@@ -16,13 +16,13 @@
  */
 
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
-import { initializeStore } from "../../platform/state-runtime.js";
+import { initializeStore, getStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
 
@@ -626,6 +626,68 @@ describe("Plan horizon brush — live pan preview (§7)", () => {
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
         expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
+    });
+});
+
+describe("Plan chrome tracks the slice store (#611)", () => {
+    // The trap under test: `useSliceReactivity` re-renders the canvas when
+    // the store moves, but a re-render does not bust a memo whose deps did
+    // not move. On a CHROME-ONLY bound slice (rows not routed through it) a
+    // state write changes no value identity, so store-read memos must key on
+    // the store's own version.
+    test("the toolbar summary re-derives on a store write that changes NO rows", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        // Two datable rows live in the SLICE; the canvas's own row is inline
+        // and never narrows.
+        const handle = buildSliceHandle("plan.summary.chrome", cfg as never, initial as never,
+            [{ at: W27 }, { at: W39 }] as never, none) as never as { setRange(r: unknown): void };
+        renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [variant("summary", null)] }),
+        }), "plan-611-summary");
+        expect(screen.getByText(/^2 of 2/)).toBeTruthy();
+
+        act(() => {
+            handle.setRange(some(variant("datetime", { from: W27, to: NOW })));
+        });
+        expect(screen.getByText(/^1 of 2/)).toBeTruthy();
+    });
+
+    test("the Series count re-derives on a pick-store write that changes NO rows", async () => {
+        initializeStore(new UIStore());
+        const user = userEvent.setup();
+        let hidden: string[] = [];
+        const pick = {
+            key: "plan.pick.zero-rows",
+            state: { read: () => hidden, write: (n: string[]) => { hidden = n; }, has: () => true },
+            items: [
+                { id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "b", title: "Line load", subtitle: none, icon: none, count: none, narrowed: false },
+            ],
+        };
+        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }), "plan-611-pick");
+        // The count rides the OPEN popover's head.
+        await user.click(screen.getByRole("button", { name: "Series library" }));
+        await waitFor(() => expect(screen.getByText("2 of 2")).toBeTruthy());
+
+        // What a ZERO-ROW series toggle does: the state moves and the store
+        // key notifies — no rows change, no value identity moves. The count
+        // must re-read, not serve the mount-time value.
+        act(() => {
+            hidden = ["a"];
+            getStore().write("plan.pick.zero-rows", new Uint8Array());
+        });
+        expect(screen.getByText("1 of 2")).toBeTruthy();
     });
 });
 
