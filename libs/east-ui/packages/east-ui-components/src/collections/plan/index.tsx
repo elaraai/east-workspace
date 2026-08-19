@@ -23,7 +23,7 @@
  * full canvas stays intact).
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
@@ -41,8 +41,8 @@ import { useElementHeight } from "./use-element-height.js";
 import { WindowBand } from "./rows/WindowBand.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
-    initialPlanState, planReducer,
-    type PlanCtx, type PlanEffect, type PlanEvent, type PlanUiState,
+    initialPlanStore, planStoreReducer,
+    type PlanAction, type PlanCtx, type PlanEffect, type PlanEvent, type PlanStore,
 } from "./plan-state.js";
 import {
     GAP_H, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, rowHeight, visibleRows,
@@ -205,8 +205,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
     // The ledger needs a window's pixel height, which is `rowHeight()` over its
     // rows — and that needs density / chart state defined further down. A ref
-    // breaks the ordering: the driver only calls this when a window LANDS (in an
-    // effect), by which point the current render has assigned it.
+    // breaks the ordering: the driver only calls this when a window LANDS (in a
+    // passive effect), and the layout effect below `heightCtx` has re-assigned
+    // the closure by then (#610 — no render-phase ref writes).
     const heightOfRef = useRef<(rows: readonly PlanRowValue[]) => number>(() => 0);
     const heightOf = useCallback((rows: readonly PlanRowValue[]) => heightOfRef.current(rows), []);
     const paging = usePlanPaging(pagedSource, { heightOf });
@@ -325,42 +326,42 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return r !== undefined ? { start: r.start, end: r.end } : undefined;
     }, [index]);
     const initGrain = getSomeorUndefined(value.grain)?.type ?? "resource";
-    const [ui, setUi] = useState<PlanUiState>(() => initialPlanState(initGrain, index.initiallyCollapsed));
-    const uiRef = useRef(ui);
-    uiRef.current = ui;
-    // Data change re-seeds the ephemeral UI state (the interactive-state rule).
-    const seededCollapse = useRef<Set<string>>(new Set(index.initiallyCollapsed));
+    // THE state machine — one `useReducer(planStoreReducer)` (#610). The
+    // reducer's scale context rides the closure, so a queued dispatch is
+    // answered against the current buckets and no ref is written during
+    // render; the reducer stays pure either way.
+    const ctx = useMemo<PlanCtx>(() => ({
+        bucketAtFrac: (f) => (scale === undefined ? -1 : scale.buckets.findIndex((b) => f >= b.x0 && f < b.x1)),
+    }), [scale]);
+    const storeReducer = useCallback(
+        (s: PlanStore, a: PlanAction) => planStoreReducer(s, a, ctx),
+        [ctx]);
+    const [store, dispatchStore] = useReducer(
+        storeReducer, undefined,
+        () => initialPlanStore(initGrain, index.initiallyCollapsed));
+    const ui = store.ui;
+    // A host data commit RECONCILES the ephemeral UI state instead of
+    // resetting it (#610): entries whose rows vanished drop, never-seen
+    // declared collapse seeds once, and everything the user set survives —
+    // an Approve click changes the verdict presentation and nothing else.
     useEffect(() => {
-        const next = initialPlanState(initGrain, index.initiallyCollapsed);
-        setUi(next);
-        uiRef.current = next;
-        seededCollapse.current = new Set(index.initiallyCollapsed);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- reset tracks the VALUE identity
+        dispatchStore({
+            t: "reconcile",
+            alive: new Set(index.byKey.keys()),
+            declaredCollapsed: index.initiallyCollapsed,
+            declaredGrain: initGrain,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile fires on the VALUE identity; the index it prunes against is read fresh
     }, [value]);
 
-    // Rows that arrive LATE carry their own declared collapse. A paged canvas
-    // streams its windows in against an unchanging `value`, so the reset above
-    // — which keys on value identity — never sees them, and an IR-declared
-    // collapsed strip would render open. Seed each declared key ONCE, the
-    // first time its row appears; never re-seed, so a group the user has since
-    // opened stays open when the next window lands.
+    // Rows that arrive WITHOUT a data change — a paged canvas streams its
+    // windows in against an unchanging `value` — carry their own declared
+    // collapse. Seed each declared key ONCE, the first time its row appears,
+    // and drop nothing: eviction must not erase state the user still owns,
+    // and a group the user has since opened stays open when the next window
+    // lands.
     useEffect(() => {
-        const fresh: string[] = [];
-        for (const key of index.initiallyCollapsed) {
-            if (!seededCollapse.current.has(key)) {
-                seededCollapse.current.add(key);
-                fresh.push(key);
-            }
-        }
-        if (fresh.length === 0) return;
-        // Compute `next` OUTSIDE the updater, then assign the ref and set the
-        // state as two statements — the mandatory interactive-state shape (a
-        // StrictMode double-invoked updater must stay pure).
-        const collapsed = new Set(uiRef.current.collapsed);
-        for (const key of fresh) collapsed.add(key);
-        const next = { ...uiRef.current, collapsed };
-        uiRef.current = next;
-        setUi(next);
+        dispatchStore({ t: "seed", declaredCollapsed: index.initiallyCollapsed });
     }, [index]);
 
     // Row focus (R1 links / R2 expand) — family closure + height context.
@@ -417,18 +418,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         hover: getSomeorUndefined(value.hover),
     }), [value.popover, value.hover]);
 
-    const scaleRef = useRef(scale);
-    scaleRef.current = scale;
-    const ctxRef = useRef<PlanCtx>({ bucketAtFrac: () => -1 });
-    ctxRef.current = {
-        bucketAtFrac: (f) => {
-            const sc = scaleRef.current;
-            if (sc === undefined) return -1;
-            const i = sc.buckets.findIndex((b) => f >= b.x0 && f < b.x1);
-            return i;
-        },
-    };
-
     // Host callbacks (behavior props — queueMicrotask per the mandatory pattern).
     const onSelect = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onGroupToggle = useMemo(() => getSomeorUndefined(value.onGroupToggle), [value.onGroupToggle]);
@@ -476,7 +465,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [dropEligible, value.id, canDropFn],
     );
 
-    const runEffects = useCallback((effects: PlanEffect[]) => {
+    const runEffects = useCallback((effects: readonly PlanEffect[]) => {
         for (const eff of effects) {
             switch (eff.t) {
                 case "slice.setRange":
@@ -492,7 +481,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         // column count (12 weeks showing → DAY shows 12 days),
                         // anchored at the window start on the new period edges
                         // — a same-width window would cram unusable columns.
-                        const sc = scaleRef.current;
+                        const sc = scale;
                         if (sc !== undefined) {
                             const interval = resolutionInterval(eff.resolution as PlanResolution);
                             const min = interval.floor(sc.window.min);
@@ -516,16 +505,20 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     break;
             }
         }
-    }, [slice, onSelect, onGroupToggle, onGrainChange]);
+    }, [slice, scale, onSelect, onGroupToggle, onGrainChange]);
 
-    const dispatch = useCallback((e: PlanEvent) => {
-        const { state, effects } = planReducer(uiRef.current, e, ctxRef.current);
-        if (state !== uiRef.current) {
-            uiRef.current = state;
-            setUi(state);
-        }
-        if (effects.length > 0) runEffects(effects);
-    }, [runEffects]);
+    const dispatch = useCallback((e: PlanEvent) => dispatchStore({ t: "event", e }), []);
+    // The store's effect batch, drained EXACTLY ONCE per bump — post-commit
+    // but before paint, so a brush preview's slice write lands in the same
+    // visual frame the old synchronous path gave it. The seq gate is a ref so
+    // a re-created `runEffects` (new slice / scale identity) cannot re-fire an
+    // already-drained batch.
+    const drainedFx = useRef(0);
+    useLayoutEffect(() => {
+        if (store.fxSeq === drainedFx.current) return;
+        drainedFx.current = store.fxSeq;
+        runEffects(store.fx);
+    }, [store.fxSeq, store.fx, runEffects]);
 
     // The focus overlay's positioning parent (the canvas body wrapper).
     const focusBodyRef = useRef<HTMLDivElement | null>(null);
@@ -569,13 +562,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const frameFills = height !== undefined || maxHeight !== undefined;
     const barHeight = dense ? 16 : 20;
 
-    // The ledger's window height, now that density and chart state exist. Exact
-    // rather than measured: the canvas is fixed-height by kind and mounts with
-    // `measureRows={false}`, so `rowHeight()` IS the layout.
-    heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
-        windowRows.reduce((sum, row) =>
-            sum + rowHeight({ row, depth: 0, collapsed: false }, dense, ui.chartsExpanded, heightCtx, derived), 0);
-
     // ── Rows ──────────────────────────────────────────────────────────────
     const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
     const pinned = useMemo(() => pinnedRows(index), [index]);
@@ -616,6 +602,17 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const heightCtx = useMemo<PlanFocusCtx | undefined>(
         () => (focusCtx?.kind === "expand" ? { ...focusCtx, renderPx: expandRenderPx } : focusCtx),
         [focusCtx, expandRenderPx]);
+    // The ledger's window height, now that density / chart state / the focus
+    // height context exist. Exact rather than measured: the canvas is
+    // fixed-height by kind and mounts with `measureRows={false}`, so
+    // `rowHeight()` IS the layout. Assigned in a layout effect — every commit,
+    // before the paging hook's landed (passive) effect can call it — because a
+    // render-phase ref write leaves a discarded render's closure behind (#610).
+    useLayoutEffect(() => {
+        heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
+            windowRows.reduce((sum, row) =>
+                sum + rowHeight({ row, depth: 0, collapsed: false }, dense, ui.chartsExpanded, heightCtx, derived), 0);
+    });
     // R1 at scale — the links-focus body elides runs of unrelated rows into
     // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
     const bodyItems = useMemo<PlanBodyItem[]>(() => {

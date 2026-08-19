@@ -33,10 +33,10 @@ const W31 = new Date("2026-08-03T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
 /** One span row, with the verdict its DATA carries. */
-function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected"; state?: string }): PlanRowValue {
+function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected"; state?: string; parent?: string }): PlanRowValue {
     return {
         key,
-        parent: none,
+        parent: opts?.parent !== undefined ? some(opts.parent) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind: variant("span", {
             runs: [{
@@ -50,6 +50,17 @@ function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected
         pinned: none, height: none, status: none,
         approval: opts?.approval !== undefined ? some(variant(opts.approval, null)) : none,
         expand: none,
+    } as unknown as PlanRowValue;
+}
+
+/** A DECLARED-collapsed group band. */
+function groupRow(key: string): PlanRowValue {
+    return {
+        key,
+        parent: none,
+        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        kind: variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) }),
+        pinned: none, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanRowValue;
 }
 
@@ -150,6 +161,37 @@ describe("Plan review chrome (#569)", () => {
         );
         await waitFor(() => expect(pressed()).toBe("true"));
         expect(verdict()).toBe("approved");
+    });
+
+    test("an Approve write-back repaints the verdict and NOTHING else — the opened group and the selection survive (#610)", async () => {
+        const onApprove = vi.fn();
+        const v = (approval?: "approved") => planRoot(
+            [groupRow("g1"), row("m1", { parent: "g1" }),
+                row("m2", approval !== undefined ? { approval } : undefined)],
+            reviewCfg({ onApprove }));
+        const { container, rerender } = renderPlan(v());
+
+        // The user opens the declared-collapsed group and selects the member.
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
+        fireEvent.click(container.querySelector('[data-plan-group="g1"]')!);
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        fireEvent.click(container.querySelector('[data-plan-row="m1"]')!);
+        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(true);
+
+        // Approve m2; the author's write lands and comes back through the data.
+        fireEvent.click(container.querySelector('[data-plan-approve="m2"]')!);
+        await waitFor(() => expect(onApprove).toHaveBeenCalledWith({ key: "m2" }));
+        rerender(
+            <ChakraProvider value={system}>
+                <EastChakraPlan value={v("approved")} storageKey="plan-review" />
+            </ChakraProvider>,
+        );
+        await waitFor(() => expect(
+            container.querySelector('[data-slot="decisionCell"][data-verdict="approved"]')).toBeTruthy());
+        // The verdict is ALL that changed: the group is still open, the
+        // selection held — a data commit reconciles, it does not reset.
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("appearance is DERIVED — the same write can repaint the bar, not just the button", async () => {

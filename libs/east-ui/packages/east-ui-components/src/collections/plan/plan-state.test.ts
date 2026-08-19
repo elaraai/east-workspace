@@ -4,7 +4,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { initialPlanState, planReducer, type PlanCtx, type PlanEvent, type PlanUiState } from './plan-state';
+import {
+    initialPlanState, planReducer, initialPlanStore, planStoreReducer,
+    type PlanCtx, type PlanEvent, type PlanUiState, type PlanStore,
+} from './plan-state';
 
 const ctx: PlanCtx = { bucketAtFrac: (f) => (f < 0 || f >= 1 ? -1 : Math.floor(f * 12)) };
 
@@ -218,6 +221,157 @@ describe('planReducer', () => {
             expect(run(init(), { t: "key", key: "n" }).effects).toEqual([{ t: "scroll.toNow" }]);
             expect(run(init(), { t: "key", key: "[" }).effects).toEqual([{ t: "pan", buckets: -1 }]);
             expect(run(init(), { t: "key", key: "]" }).effects).toEqual([{ t: "pan", buckets: 1 }]);
+        });
+    });
+});
+
+describe('planStoreReducer (#610)', () => {
+    const store0 = () => initialPlanStore("resource", ["g1"]);
+    const event = (s: PlanStore, e: PlanEvent) => planStoreReducer(s, { t: "event", e }, ctx);
+    const keys = (...k: string[]) => new Set(k);
+
+    describe('event actions', () => {
+        it('a no-op event returns the store identity (React skips the render)', () => {
+            const s = store0();
+            expect(event(s, { t: "key", key: "esc" })).toBe(s);
+        });
+
+        it('an effectless transition changes ui and leaves the batch alone', () => {
+            const s = store0();
+            const out = event(s, { t: "chart.toggle", key: "c1" });
+            expect(out.ui.chartsExpanded.has("c1")).toBe(true);
+            expect(out.fx).toBe(s.fx);
+            expect(out.fxSeq).toBe(s.fxSeq);
+        });
+
+        it('an effectful event replaces the batch and bumps the seq — even at unchanged ui', () => {
+            const s = store0();
+            const selected = event(s, { t: "row.select", key: "r1" });
+            expect(selected.ui.selected).toBe("r1");
+            expect(selected.fx).toEqual([{ t: "emit.select", key: "r1" }]);
+            expect(selected.fxSeq).toBe(s.fxSeq + 1);
+            // brush.preview transitions to the SAME ui but must still deliver
+            // its slice write — the store changes so the drain can run.
+            const min = new Date("2026-07-13T00:00:00Z");
+            const max = new Date("2026-08-10T00:00:00Z");
+            const down = event(selected, { t: "brush.down" });
+            const preview = event(down, { t: "brush.preview", min, max });
+            expect(preview.ui).toBe(down.ui);
+            expect(preview.fx).toEqual([{ t: "slice.setRange", min, max }]);
+            expect(preview.fxSeq).toBe(down.fxSeq + 1);
+        });
+    });
+
+    describe('reconcile (a host data commit)', () => {
+        it('keeps every entry whose row survives — the whole store by identity', () => {
+            let s = store0();
+            s = event(s, { t: "row.select", key: "r1" });
+            s = event(s, { t: "chart.toggle", key: "c1" });
+            s = event(s, { t: "cursor.move", frac: 0.5 });
+            s = event(s, { t: "focus.expand", key: "r1" });
+            const out = planStoreReducer(s, {
+                t: "reconcile", alive: keys("g1", "r1", "c1"),
+                declaredCollapsed: keys("g1"), declaredGrain: "resource",
+            }, ctx);
+            expect(out).toBe(s);
+            expect(out.ui.selected).toBe("r1");
+            expect(out.ui.focus).toEqual({ kind: "expand", key: "r1" });
+            expect(out.ui.chartsExpanded.has("c1")).toBe(true);
+            expect(out.ui.collapsed.has("g1")).toBe(true);
+            expect(out.ui.cursor).not.toBeNull();
+        });
+
+        it('drops selection / focus / collapse / chart entries for vanished rows', () => {
+            let s = store0();
+            s = event(s, { t: "row.select", key: "r1" });
+            s = event(s, { t: "chart.toggle", key: "c1" });
+            s = event(s, { t: "focus.links", key: "r2" });
+            const out = planStoreReducer(s, {
+                t: "reconcile", alive: keys("r3"),
+                declaredCollapsed: keys(), declaredGrain: "resource",
+            }, ctx);
+            expect(out.ui.selected).toBeNull();
+            expect(out.ui.focus).toBeNull();
+            expect(out.ui.chartsExpanded.size).toBe(0);
+            expect(out.ui.collapsed.size).toBe(0);
+            // The positional state has no row to lose.
+            expect(out.ui.grain).toBe("resource");
+        });
+
+        it('a declared-collapsed group the user opened is NOT re-collapsed', () => {
+            let s = store0();                                          // g1 declared + seeded
+            s = event(s, { t: "group.toggle", key: "g1" });            // user opens it
+            expect(s.ui.collapsed.has("g1")).toBe(false);
+            const out = planStoreReducer(s, {
+                t: "reconcile", alive: keys("g1", "r1"),
+                declaredCollapsed: keys("g1"), declaredGrain: "resource",
+            }, ctx);
+            expect(out.ui.collapsed.has("g1")).toBe(false);
+        });
+
+        it('a NEVER-SEEN declared key seeds collapsed once', () => {
+            const s = store0();
+            const out = planStoreReducer(s, {
+                t: "reconcile", alive: keys("g1", "g2"),
+                declaredCollapsed: keys("g1", "g2"), declaredGrain: "resource",
+            }, ctx);
+            expect(out.ui.collapsed.has("g2")).toBe(true);
+            // ... and only once: opening it survives the next reconcile.
+            const opened = event(out, { t: "group.toggle", key: "g2" });
+            const again = planStoreReducer(opened, {
+                t: "reconcile", alive: keys("g1", "g2"),
+                declaredCollapsed: keys("g1", "g2"), declaredGrain: "resource",
+            }, ctx);
+            expect(again.ui.collapsed.has("g2")).toBe(false);
+        });
+
+        it('a vanished-then-returning declared key is a NEW row and re-seeds', () => {
+            let s = store0();
+            s = event(s, { t: "group.toggle", key: "g1" });            // user opens g1
+            const gone = planStoreReducer(s, {
+                t: "reconcile", alive: keys("r1"),
+                declaredCollapsed: keys(), declaredGrain: "resource",
+            }, ctx);
+            const back = planStoreReducer(gone, {
+                t: "reconcile", alive: keys("g1", "r1"),
+                declaredCollapsed: keys("g1"), declaredGrain: "resource",
+            }, ctx);
+            expect(back.ui.collapsed.has("g1")).toBe(true);
+        });
+
+        it('a changed declared grain adopts and clears selection + focus', () => {
+            let s = store0();
+            s = event(s, { t: "row.select", key: "r1" });
+            s = event(s, { t: "focus.links", key: "r1" });
+            const out = planStoreReducer(s, {
+                t: "reconcile", alive: keys("r1"),
+                declaredCollapsed: keys(), declaredGrain: "group",
+            }, ctx);
+            expect(out.ui.grain).toBe("group");
+            expect(out.ui.selected).toBeNull();
+            expect(out.ui.focus).toBeNull();
+            // No emit.grainChange: the HOST changed it; echoing it back loops.
+            expect(out.fxSeq).toBe(s.fxSeq);
+        });
+    });
+
+    describe('seed (rows arrived without a data change)', () => {
+        it('applies never-seen declared collapse and drops nothing', () => {
+            let s = store0();
+            s = event(s, { t: "row.select", key: "r1" });
+            const out = planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1", "late") }, ctx);
+            expect(out.ui.collapsed.has("late")).toBe(true);
+            expect(out.ui.collapsed.has("g1")).toBe(true);
+            expect(out.ui.selected).toBe("r1");
+        });
+
+        it('is the store identity when every declared key is seeded — and an opened group stays open', () => {
+            let s = store0();
+            expect(planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1") }, ctx)).toBe(s);
+            s = event(s, { t: "group.toggle", key: "g1" });            // user opens it
+            const out = planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1") }, ctx);
+            expect(out).toBe(s);
+            expect(out.ui.collapsed.has("g1")).toBe(false);
         });
     });
 });

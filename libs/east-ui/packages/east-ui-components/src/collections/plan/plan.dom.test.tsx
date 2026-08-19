@@ -307,6 +307,69 @@ describe("Plan selection + esc ladder", () => {
     });
 });
 
+describe("Plan ephemeral UI state survives a data commit (#610)", () => {
+    // A Reactive write the series read — an approval, a committed drop — makes
+    // a NEW decoded value. The canvas RECONCILES its ephemeral state against
+    // the new rows instead of resetting it: only the entries whose rows
+    // vanished drop, and declared collapse seeds ONCE, never again.
+    const rowsAt = (tag: string, opts?: { withM2?: boolean; withGroup?: boolean }) => [
+        ...(opts?.withGroup === false ? [] : [
+            planRow("line1", variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) })),
+            planRow("m1", spanKind([]), { parent: "line1" }),
+        ]),
+        ...(opts?.withM2 === false ? [] : [
+            planRow("m2", spanKind([]), { gutter: gutter("m2", { value: tag }) }),
+        ]),
+        planRow("keep", spanKind([])),
+    ];
+    const remount = (rerender: (ui: Parameters<typeof render>[0]) => void, rows: PlanRowValue[], key: string) => {
+        rerender(
+            <ChakraProvider value={system}>
+                <EastChakraPlan value={planRoot(rows)} storageKey={key} />
+            </ChakraProvider>,
+        );
+    };
+
+    test("a data change keeps the opened group and the selection; a vanished row drops its entry", () => {
+        const { container, rerender } = renderPlan(planRoot(rowsAt("v1")), "plan-reconcile");
+        // The DECLARED-collapsed group starts collapsed; the user opens it...
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
+        fireEvent.click(container.querySelector('[data-plan-group="line1"]')!);
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        // ... and selects m2.
+        fireEvent.click(container.querySelector('[data-plan-row="m2"]')!);
+        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(true);
+
+        // The host commits: same rows, new numbers.
+        remount(rerender, rowsAt("v2"), "plan-reconcile");
+        // The group the user opened stays open; the selection survives.
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(true);
+
+        // m2 vanishes → its entry goes with it: back in a LATER commit, it
+        // renders unselected rather than resurrecting the old selection.
+        remount(rerender, rowsAt("v3", { withM2: false }), "plan-reconcile");
+        expect(container.querySelector('[data-plan-row="m2"]')).toBeNull();
+        remount(rerender, rowsAt("v4"), "plan-reconcile");
+        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(false);
+        // The opened group survived all three commits.
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+    });
+
+    test("a group that vanishes and returns re-seeds its declared collapse", () => {
+        const { container, rerender } = renderPlan(planRoot(rowsAt("v1")), "plan-reseed");
+        fireEvent.click(container.querySelector('[data-plan-group="line1"]')!);   // the user opens it
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        // The group leaves the data entirely, then returns declared-collapsed:
+        // a returning key is a NEW row, so the declaration applies again.
+        remount(rerender, rowsAt("v2", { withGroup: false }), "plan-reseed");
+        expect(container.querySelector('[data-plan-group="line1"]')).toBeNull();
+        remount(rerender, rowsAt("v3"), "plan-reseed");
+        expect(container.querySelector('[data-plan-group="line1"]')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
+    });
+});
+
 function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: string; label?: string; stretch?: string; tone?: string }) {
     return {
         key, at,

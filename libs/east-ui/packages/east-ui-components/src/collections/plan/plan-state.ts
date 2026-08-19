@@ -6,10 +6,13 @@
 /**
  * THE Plan state machine (`Plan Spec.md` §6.1) — every piece of interaction
  * state in one pure reducer: no React, no DOM, no East values. The component
- * holds exactly one `useReducer(planReducer)` (plus the shared review
+ * holds exactly one `useReducer(planStoreReducer)` (plus the shared review
  * controller, which stays separate — it is the cross-component review
- * contract). Side effects are returned as data (`PlanEffect[]`) and run in one
- * place by the component; the reducer never performs them.
+ * contract); {@link planReducer} answers one event, and the store around it
+ * carries the effect batch plus the declared-collapse bookkeeping that lets a
+ * host data commit RECONCILE the UI state instead of resetting it (#610).
+ * Side effects are returned as data (`PlanEffect[]`) and run in one place by
+ * the component's post-commit drain; no reducer ever performs them.
  *
  * The slice is the single source of truth for window / resolution / filters —
  * the machine holds only ephemeral UI state and emits `slice.*` effects for
@@ -236,6 +239,156 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
             return {
                 state: { ...s, grain: next, selected: null, focus: null },
                 effects: [{ t: "emit.grainChange", grain: next }],
+            };
+        }
+    }
+}
+
+// ── The component-facing store (#610) ──────────────────────────────────────
+//
+// `planReducer` answers one event. The STORE reducer is what the component's
+// single `useReducer` runs: it adds the effect batch — drained by the
+// component exactly once per `fxSeq` bump, post-commit — and the bookkeeping
+// that lets a host data commit RECONCILE the ephemeral UI state instead of
+// resetting it. An Approve click, a committed drop, any Reactive write the
+// series read is "the data changed"; open groups, expanded charts, selection
+// and focus must all survive it, dropping only the entries whose rows are
+// actually gone.
+
+/** The one `useReducer` store: UI state + effect batch + collapse seeding. */
+export interface PlanStore {
+    /** The ephemeral UI state. */
+    ui: PlanUiState;
+    /**
+     * Declared-collapse keys already applied once. A declared key seeds
+     * `collapsed` the FIRST time its row appears and never again, so a group
+     * the user has since opened stays open across value changes and paged
+     * window landings alike. A key that vanishes is pruned; if it later
+     * returns it is a NEW row and re-seeds.
+     */
+    seeded: ReadonlySet<RowKey>;
+    /** The declared initial grain, as of the last reconcile — a CHANGED
+     *  declaration is adopted (it re-derives the rows, like `grain.set`);
+     *  an unchanged one leaves the user's grain alone. */
+    declaredGrain: PlanGrain;
+    /**
+     * The latest effectful event's batch — REPLACED per such event, never
+     * appended. The component drains it in a layout effect, which commits
+     * before the next event handler can dispatch, so at most one undrained
+     * batch ever exists.
+     */
+    fx: readonly PlanEffect[];
+    /** Bumps when an event yields effects; the component's drain gates on it. */
+    fxSeq: number;
+}
+
+/** Everything the store reducer handles. */
+export type PlanAction =
+    /** An interaction event — the machine transition plus its effects. */
+    | { t: "event"; e: PlanEvent }
+    /**
+     * The host's data changed (a new decoded value): drop per-row state whose
+     * rows vanished, seed never-seen declared collapse, keep everything else.
+     */
+    | {
+        t: "reconcile";
+        /** Every row key the new value holds. */
+        alive: ReadonlySet<RowKey>;
+        /** The new value's declared-collapsed group keys. */
+        declaredCollapsed: ReadonlySet<RowKey>;
+        /** The new value's declared initial grain. */
+        declaredGrain: PlanGrain;
+    }
+    /**
+     * Rows arrived WITHOUT a data change (a paged window landed): seed
+     * never-seen declared collapse and drop nothing — eviction must not
+     * erase state the user still owns.
+     */
+    | { t: "seed"; declaredCollapsed: ReadonlySet<RowKey> };
+
+/** The initial store for a decoded root (declared collapse counts as seeded). */
+export function initialPlanStore(grain: PlanGrain, collapsedKeys: Iterable<RowKey>): PlanStore {
+    const seeded = new Set(collapsedKeys);
+    return {
+        ui: initialPlanState(grain, seeded),
+        seeded,
+        declaredGrain: grain,
+        fx: [],
+        fxSeq: 0,
+    };
+}
+
+/** `set` minus the keys `alive` lacks — the same identity when nothing drops. */
+function pruned(set: ReadonlySet<RowKey>, alive: ReadonlySet<RowKey>): ReadonlySet<RowKey> {
+    let changed = false;
+    const next = new Set<RowKey>();
+    for (const key of set) {
+        if (alive.has(key)) next.add(key);
+        else changed = true;
+    }
+    return changed ? next : set;
+}
+
+/** `set` plus `keys` — the same identity when every key is already present. */
+function grown(set: ReadonlySet<RowKey>, keys: readonly RowKey[]): ReadonlySet<RowKey> {
+    const missing = keys.filter((key) => !set.has(key));
+    if (missing.length === 0) return set;
+    const next = new Set(set);
+    for (const key of missing) next.add(key);
+    return next;
+}
+
+/**
+ * The store transition — pure, like everything here: StrictMode double-invokes
+ * reducers, so the effect batch rides the RETURNED store and is run by the
+ * component's seq-gated drain, never from inside a reducer.
+ *
+ * @param store - The current store
+ * @param a - The action
+ * @param ctx - Scale-derived context (fraction → bucket), consulted by events
+ * @returns The next store — `store` itself when nothing changed, so React
+ *   skips the re-render
+ */
+export function planStoreReducer(store: PlanStore, a: PlanAction, ctx: PlanCtx): PlanStore {
+    switch (a.t) {
+        case "event": {
+            const { state, effects } = planReducer(store.ui, a.e, ctx);
+            if (state === store.ui && effects.length === 0) return store;
+            return effects.length === 0
+                ? { ...store, ui: state }
+                : { ...store, ui: state, fx: effects, fxSeq: store.fxSeq + 1 };
+        }
+        case "reconcile": {
+            const fresh = [...a.declaredCollapsed].filter((key) => !store.seeded.has(key));
+            const collapsed = grown(pruned(store.ui.collapsed, a.alive), fresh);
+            const chartsExpanded = pruned(store.ui.chartsExpanded, a.alive);
+            const grainChanged = a.declaredGrain !== store.declaredGrain;
+            // Selection / focus follow their row out; a changed declared grain
+            // clears both (grain changes rows — the `grain.set` rule), with no
+            // `emit.grainChange`: the HOST changed it, echoing it back loops.
+            const selected = !grainChanged && store.ui.selected !== null && a.alive.has(store.ui.selected)
+                ? store.ui.selected : null;
+            const focus = !grainChanged && store.ui.focus !== null && a.alive.has(store.ui.focus.key)
+                ? store.ui.focus : null;
+            const grain = grainChanged ? a.declaredGrain : store.ui.grain;
+            const seeded = grown(pruned(store.seeded, a.alive), fresh);
+            const uiSame = collapsed === store.ui.collapsed && chartsExpanded === store.ui.chartsExpanded
+                && selected === store.ui.selected && focus === store.ui.focus && grain === store.ui.grain;
+            if (uiSame && seeded === store.seeded && !grainChanged) return store;
+            return {
+                ...store,
+                seeded,
+                declaredGrain: a.declaredGrain,
+                ui: uiSame ? store.ui : { ...store.ui, collapsed, chartsExpanded, selected, focus, grain },
+            };
+        }
+        case "seed": {
+            const fresh = [...a.declaredCollapsed].filter((key) => !store.seeded.has(key));
+            if (fresh.length === 0) return store;
+            return {
+                ...store,
+                seeded: grown(store.seeded, fresh),
+                ui: { ...store.ui, collapsed: grown(store.ui.collapsed, fresh) },
             };
         }
     }
