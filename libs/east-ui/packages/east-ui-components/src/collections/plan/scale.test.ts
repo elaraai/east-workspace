@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { chipAnchor } from "./shell/Ruler.js";
-import { defaultTickLabel, effectiveResolution, isoWeekUTC, planScale } from './scale';
+import { MAX_PLAN_BUCKETS, defaultTickLabel, effectiveResolution, isoWeekUTC, planScale } from './scale';
 
 const d = (s: string) => new Date(s);
 
@@ -110,6 +110,31 @@ describe('planScale', () => {
             const scale = planScale({ min: d("2026-03-23T00:00:00Z"), max: d("2026-04-06T00:00:00Z") }, "week")!;
             expect(scale.n).toBe(2);
             expect(scale.buckets[0]!.x1).toBeCloseTo(0.5, 10);
+        });
+    });
+
+    describe('truncation (MAX_PLAN_BUCKETS)', () => {
+        it('bucketOf answers −1 past the last bucket instead of piling into the final column (#618)', () => {
+            // 600 days at day resolution truncates the GRID to 500 buckets;
+            // the window — and the continuous axis — stays 600 days wide.
+            const min = d("2026-01-01T00:00:00Z");
+            const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const scale = planScale({ min, max }, "day")!;
+            expect(warn).toHaveBeenCalledOnce();
+            warn.mockRestore();
+            expect(scale.n).toBe(MAX_PLAN_BUCKETS);
+            const lastEnd = scale.buckets[MAX_PLAN_BUCKETS - 1]!.end;
+            // Inside the covered range: the last bucket, as before.
+            expect(scale.bucketOf(new Date(lastEnd.getTime() - 1))).toBe(MAX_PLAN_BUCKETS - 1);
+            // Past the truncation point but inside the WINDOW: no bucket —
+            // a quantised cell there renders out-of-window, never stacked
+            // into column 499.
+            expect(scale.bucketOf(lastEnd)).toBe(-1);
+            expect(scale.bucketOf(new Date(Date.UTC(2026, 0, 1) + 550 * 86_400_000))).toBe(-1);
+            // The continuous mapping still spans the whole window.
+            expect(scale.buckets[MAX_PLAN_BUCKETS - 1]!.x1).toBeLessThan(1);
+            expect(scale.xOf(new Date(max.getTime() - 1))).toBeCloseTo(1, 3);
         });
     });
 

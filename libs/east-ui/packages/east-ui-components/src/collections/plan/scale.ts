@@ -191,9 +191,16 @@ export function planScale(
     }
     if (buckets.length === 0) return undefined;
 
+    // The instant PAST which no bucket exists. Equal to `max` except on a
+    // truncated axis, where the buckets cover less than the window: an
+    // instant between the last bucket's end and `max` is in NO bucket, and
+    // answering 499 for it would quietly pile every beyond-truncation cell
+    // into the final grid column (#618). Continuous marks still span the
+    // whole window — truncation narrows the GRID, not the axis.
+    const coveredMaxMs = buckets[buckets.length - 1]!.end.getTime();
     const bucketOf = (t: Date): number => {
         const ms = t.getTime();
-        if (ms < minMs || ms >= maxMs) return -1;
+        if (ms < minMs || ms >= coveredMaxMs) return -1;
         // Buckets are contiguous and ordered — binary search the start edges.
         let lo = 0, hi = buckets.length - 1;
         while (lo < hi) {
