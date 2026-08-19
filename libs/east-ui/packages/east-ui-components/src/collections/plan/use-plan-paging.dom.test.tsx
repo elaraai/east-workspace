@@ -13,7 +13,7 @@
  * between, and the run stays bounded no matter how far you go.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import { some, none } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
@@ -205,6 +205,65 @@ describe("paging driver — a far scrollbar position rebases (#612)", () => {
         await waitFor(() => expect(text("resident")).toBe("0-1200"));
         expect(text("head")).toBe("-");
         expect([...new Set(asked)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+    });
+});
+
+describe("paging driver — pins and totals (#614)", () => {
+    test("a landed jump's pin is RELEASED — the target window is evictable again", async () => {
+        const { value } = source(250, 100);
+        render(<Harness src={value} />);
+        await waitFor(() => expect(latest?.resident).toBeDefined());
+
+        act(() => { latest?.jumpToElement(40_000); });
+        await waitFor(() => {
+            const [from] = text("resident").split("-").map(Number) as [number, number];
+            expect(from).toBeGreaterThanOrEqual(39_800);
+        });
+
+        // Walk far past the target. The pin protected window 200 only until
+        // it LANDED; leaked, it would block the head trim there forever and
+        // the run's floor would freeze at element 40,000 for the session.
+        for (let i = 0; i < 60; i++) report({ kind: "band", at: "tail" });
+        const [from] = text("resident").split("-").map(Number) as [number, number];
+        expect(from).toBeGreaterThan(40_000);
+    });
+
+    test("a total() change under ONE id warns and drops the cached windows", async () => {
+        // The contract says same id ⇒ same rows — this source violates it,
+        // which must be LOUD (the author's derived source needs a signed id)
+        // and must not leave the old rows serving against the new geometry.
+        const asked: number[] = [];
+        let total = 800n;                                     // 4 windows
+        const value = {
+            id: "drift-test",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                asked.push(w);
+                const rows = new Map<string, PlanRowValue>();
+                rows.set(`w${w}`, { key: `w${w}`, parent: none } as unknown as PlanRowValue);
+                return some(rows);
+            },
+            total: () => some(total),
+            seek: none,
+        } as unknown as PlanPagedSourceValue;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toContain("w0"));
+
+        total = 1_600n;
+        report({ kind: "band", at: "tail" });                 // any re-evaluation
+        await waitFor(() => expect(warn).toHaveBeenCalled());
+        expect(String(warn.mock.calls[0]![0])).toMatch(/changed total\(\)/);
+        // The read-once cache went with the geometry: a window read before
+        // the flip is ASKED AGAIN when the run returns to it, rather than
+        // served stale against the new extent. (With the cache kept, no
+        // window is ever asked twice — read-once is the cache's contract.)
+        await waitFor(() => {
+            const counts = new Map<number, number>();
+            for (const w of asked) counts.set(w, (counts.get(w) ?? 0) + 1);
+            expect([...counts.values()].some((n) => n > 1)).toBe(true);
+        });
+        warn.mockRestore();
     });
 });
 

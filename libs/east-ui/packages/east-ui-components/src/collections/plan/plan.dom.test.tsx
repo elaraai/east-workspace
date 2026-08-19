@@ -1178,6 +1178,12 @@ describe("Plan paged source (P-c)", () => {
         expect(queries[0]!.value).toBe("l2");
         // ... and the answer surfaces as the control's match count.
         await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
+        // The popup labels arrive on the FIRST search, anchored by the sought
+        // KEY over the loaded rows (#614) — the control awaits `find` and then
+        // calls `listRange`, which used to answer from state captured before
+        // the search existed (empty), and to index a ROW array by an ELEMENT
+        // delta (the answer's row 12) when it didn't.
+        await waitFor(() => expect(screen.getByRole("option", { name: "l2m9" })).toBeTruthy());
     });
 
     test("a source WITHOUT seek keeps `search` as a scope-badged row filter", async () => {

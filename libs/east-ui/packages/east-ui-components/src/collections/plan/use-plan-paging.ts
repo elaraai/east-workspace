@@ -126,6 +126,8 @@ export interface PlanPaging {
     reportViewport: (at: PlanViewport, isScrolling: boolean) => void;
     /** Jump to a source element (a seek result): pin its window and rebase. */
     jumpToElement: (element: number) => void;
+    /** Drop any pending jump pin — a cleared search has no target (#614). */
+    clearJump: () => void;
 }
 
 const IDLE: PlanPaging = {
@@ -134,6 +136,7 @@ const IDLE: PlanPaging = {
     sizeVersion: 0,
     reportViewport: () => {},
     jumpToElement: () => {},
+    clearJump: () => {},
 };
 
 /** One line naming why a source read failed. */
@@ -199,10 +202,19 @@ export function usePlanPaging(
     const total = value?.total;
     useEffect(() => {
         if (total === undefined || total === ledger.total) return;
+        // Same id ⇒ same rows is the source contract, so a total that MOVES
+        // under one id has violated it. The geometry rebuilds either way —
+        // and the read-once cache must go with it, or the canvas silently
+        // serves the OLD rows against the new geometry (#614). Loud, because
+        // the author's derived source is what needs fixing (sign the id).
+        if (ledger.total > 0) {
+            console.warn(`[Plan] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${total} under one id — same id must serve same rows; dropping cached windows.`);
+            cacheRef.current = { id: cacheRef.current.id, cache: new Map() };
+        }
         setLedger(createLedger(total, PLAN_PAGE_SIZE));
         setResidency(NO_RESIDENCY);
         setSizeVersion((v) => v + 1);
-    }, [total, ledger.total]);
+    }, [total, ledger.total, source]);
 
     // ── Landed windows teach the ledger ───────────────────────────────────
     const landed = value?.resident;
@@ -330,6 +342,22 @@ export function usePlanPaging(
         setResidency((r) => pin(unpinAll(r), w));
     }, []);
 
+    const clearJump = useCallback(() => {
+        setResidency((r) => unpinAll(r));
+    }, []);
+
+    // A pin protects the jump target only until it LANDS — then it drops, as
+    // `window-residency`'s own doc always promised. Leaving it would keep one
+    // window trim-exempt for the session per search (#614).
+    const landedWindows = value?.resident;
+    useEffect(() => {
+        if (residency.pins.size === 0 || landedWindows === undefined) return;
+        const landedSet = new Set(landedWindows.map((r) => r.w));
+        if ([...residency.pins].every((w) => landedSet.has(w))) {
+            setResidency((r) => unpinAll(r));
+        }
+    }, [residency.pins, landedWindows]);
+
     if (source === undefined) return IDLE;
 
     return {
@@ -344,6 +372,7 @@ export function usePlanPaging(
         sizeVersion,
         reportViewport,
         jumpToElement,
+        clearJump,
     };
 }
 

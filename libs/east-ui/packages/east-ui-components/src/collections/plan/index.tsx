@@ -248,7 +248,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // Key search over the source (`search` becomes seek — #567 D9's affordance
     // table). A jump asks the driver to rebase on the matched ELEMENT; the
     // canvas then positions by key, since a leaf row's key IS its data key.
-    const { search, targetKey } = usePlanSeek(pagedSource, rows, paging.jumpToElement);
+    const { search, targetKey } = usePlanSeek(pagedSource, rows, paging.jumpToElement, paging.clearJump);
 
     // ── Review chrome (#569) — ACTIONS only. The verdict is not held here:
     //    it lives wherever the author's callback wrote it and arrives back as

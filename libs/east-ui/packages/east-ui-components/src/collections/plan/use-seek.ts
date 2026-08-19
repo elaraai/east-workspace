@@ -41,7 +41,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     StringType, compareFor, none, parseFor, some, toEastTypeValue, variant,
     type EastTypeValue,
@@ -67,7 +67,8 @@ export interface PlanSearch {
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */
     find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
-    /** Label the popup's rows, in match order, from the rows already loaded. */
+    /** Label the popup from the LOADED head of the match run (anchored by the
+     *  sought key; empty until the target's windows land). */
     listRange: (row: number, limit: number) => Promise<string[]>;
     /** Jump to match at global element `row`. */
     jump: (row: number) => void;
@@ -111,17 +112,27 @@ function toSeekQuery(query: DatasetKeyQuery): unknown {
  * @param source - The decoded `paged` arm (undefined ⇒ inline canvas)
  * @param rows - The loaded canvas rows, in canonical key order
  * @param jumpToElement - Ask the driver to rebase residency on an element
+ * @param clearJump - Drop the driver's pending jump pin (a cleared search has no target)
  * @returns The search mount and the scroll target
  */
 export function usePlanSeek(
     source: PlanPagedSourceValue | undefined,
     rows: ReadonlyArray<PlanRowValue>,
     jumpToElement: (element: number) => void,
+    clearJump: () => void,
 ): PlanSeekState {
     /** The query being searched — `null` between searches. */
     const [query, setQuery] = useState<unknown>(null);
     /** The key the query sought, and where its run started in the source. */
     const [sought, setSought] = useState<{ key: string; row: number } | null>(null);
+    // What `listRange` reads — REFS, not the state above. The control awaits
+    // `onFind` and then calls the `onListRange` it captured BEFORE `find()`'s
+    // state committed, so a state-derived closure answers from the previous
+    // search (empty, on the first) every time (#614). The sought key is
+    // written synchronously in `find()`; the rows ref tracks the last commit.
+    const soughtKeyRef = useRef("");
+    const rowsRef = useRef(rows);
+    useLayoutEffect(() => { rowsRef.current = rows; });
     // NOTE: there is deliberately no "which match" index here. `seek` answers in
     // SOURCE ELEMENT indices and a series can emit any number of canvas rows per
     // element, so an element delta cannot index the canvas-row run — doing that
@@ -178,17 +189,26 @@ export function usePlanSeek(
         // sequence guard ignores a late answer anyway.
         pending.current?.reject(new Error("superseded by a newer query"));
         pending.current = { resolve, reject };
-        setSought({ key: soughtKeyOf(q) ?? "", row: 0 });
+        soughtKeyRef.current = soughtKeyOf(q) ?? "";
+        setSought({ key: soughtKeyRef.current, row: 0 });
         setQuery(toSeekQuery(q));
     }), []);
 
-    const listRange = useCallback(async (row: number, limit: number): Promise<string[]> => {
-        // Labels come from the rows already loaded: the run is contiguous in
-        // key order, so match `i` is `run[i]` whether or not the source has
-        // been walked that far yet.
-        const from = sought === null ? 0 : row - sought.row;
-        return run.slice(Math.max(0, from), Math.max(0, from) + limit).map((r) => r.key);
-    }, [run, sought]);
+    const listRange = useCallback(async (_row: number, limit: number): Promise<string[]> => {
+        // Labels preview the LOADED head of the match run: the first canvas
+        // row at-or-after the sought key, onward, in key order. Anchored by
+        // the KEY through the refs above — never by element arithmetic into
+        // a row array (the #582 fallacy this file's header derides, which the
+        // old `row - sought.row` delta re-committed), and never through state
+        // a pre-`find()` closure captured (#614). A far match whose windows
+        // have not landed yet has nothing loaded there and lists nothing —
+        // the match count still shows; the labels arrive with the rows.
+        const key = soughtKeyRef.current;
+        const loaded = rowsRef.current;
+        const first = loaded.findIndex((r) => KEY_ORDER(r.key, key) >= 0);
+        if (first < 0) return [];
+        return loaded.slice(first, first + limit).map((r) => r.key);
+    }, []);
 
     const jump = useCallback((row: number) => {
         // Hand the driver the matched ELEMENT: residency rebases there and the
@@ -199,9 +219,13 @@ export function usePlanSeek(
     const clear = useCallback(() => {
         pending.current?.reject(new Error("search cleared"));
         pending.current = null;
+        soughtKeyRef.current = "";
         setQuery(null);
         setSought(null);
-    }, []);
+        // The driver's pin protects the jump target until it lands; a cleared
+        // search has no target, so its pin goes with it (#614).
+        clearJump();
+    }, [clearJump]);
 
     const search = useMemo<PlanSearch | undefined>(
         () => (seekFn === undefined ? undefined : { keyType: CANVAS_KEY_TYPE, find, listRange, jump, clear }),
