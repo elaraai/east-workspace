@@ -1130,6 +1130,45 @@ describe("Plan paged source (P-c)", () => {
         expect(band!.getAttribute("data-plan-partial")).toBe("");
     });
 
+    test("ledger heights are the AT-REST render — declared collapse applied, pinned rows excluded (#613)", async () => {
+        // Window 0: a declared-collapsed group hiding 20 members, 7 plain rows
+        // and a pinned row (it renders in the header). Its at-rest body height
+        // is GROUP_H + 7×ROW_H = 250px — NOT the 922px the flat row list
+        // costs. The ledger seeds its frozen slot rate from this FIRST
+        // measurement (250 / 200 elements), so the never-visited remainder —
+        // two windows, 400 elements — must describe itself as 500px. The old
+        // measure (every row at full height, pinned included) would have said
+        // 1,844.
+        const w0 = [
+            planRow("g1", variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) })),
+            ...Array.from({ length: 20 }, (_u, i) => planRow(`m${i}`, spanKind([]), { parent: "g1" })),
+            ...Array.from({ length: 7 }, (_u, i) => planRow(`p${i}`, spanKind([]))),
+            { ...planRow("pin", spanKind([])), pinned: some(true) } as PlanRowValue,
+        ];
+        const source = {
+            page: (offset: bigint) => {
+                if (offset === 0n) return some(rowCollection(w0));
+                if (offset === 200n) return some(rowCollection([planRow("w1", spanKind([]))]));
+                if (offset === 400n) return some(rowCollection([planRow("w2", spanKind([]))]));
+                return some(rowCollection([]));
+            },
+            total: () => some(1_000n),                    // 5 windows; [0..2] land
+            id: "dom-test-rest-height",
+            seek: none,
+        };
+        const { container } = renderPlan(planRoot([], { source }), "plan-rest-height");
+        await screen.findByText("p0");
+
+        await waitFor(() => {
+            const band = container.querySelector('[data-plan-window-band="tail"]');
+            expect(band).not.toBeNull();
+            expect(band!.getAttribute("data-plan-px")).toBe("500");
+        });
+        // The window renders the way it was measured: collapsed, pin in header.
+        expect(container.querySelector('[data-plan-row="m0"]')).toBeNull();
+        expect(container.querySelector('[data-plan-group="g1"]')).toBeTruthy();
+    });
+
     test("a source that cannot be READ renders the reason, not a blank axis (#567 D10)", async () => {
         // There is no offline stand-in for `Data.bindPaged` — paging is a server
         // capability — so a bound canvas rendered outside a workspace has

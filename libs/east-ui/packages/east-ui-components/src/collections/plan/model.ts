@@ -19,7 +19,7 @@
 
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import type { PlanGrain, PlanUiState, RowKey } from "./plan-state.js";
+import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
 
 /** The decoded Plan root value. */
 export type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
@@ -284,6 +284,42 @@ export function rowHeight(
         }
         default: return floor(dense ? ROW_H_DENSE : ROW_H);
     }
+}
+
+/**
+ * The pixel height a window's rows render AT REST (#613) — declared collapse
+ * applied, chart expansion at its declared state, no focus context, pinned
+ * rows excluded (they render in the header, not the body).
+ *
+ * The window ledger freezes a window's FIRST measurement, and seeds its
+ * frozen slot rate from the first window ever measured — so the recorded
+ * number must not depend on transient UI state. Measuring through the live
+ * state recorded strip-compressed rows when a window landed during an expand
+ * focus, full heights for rows an IR-collapsed group renders hidden, and
+ * whatever a chart toggle happened to be at the moment — breaking the
+ * band px == rendered px equality the eviction-moves-nothing invariant
+ * rests on, and (worst) poisoning the slot rate for the life of the source
+ * when the FIRST window landed mid-focus.
+ *
+ * A window is a complete forest (#577: any union of whole windows is
+ * orphan-free), so its own index derives everything {@link rowHeight}
+ * consults — including a subtotal parent's derived positions.
+ *
+ * @param windowRows - One window's rows, as the source served them
+ * @param grain - The DECLARED grain (`value.grain`; user grain is transient)
+ * @param dense - The declared density
+ * @returns The at-rest pixel height of the window's body rows
+ */
+export function windowRestHeight(
+    windowRows: ReadonlyArray<PlanRowValue>,
+    grain: PlanGrain,
+    dense: boolean,
+): number {
+    const index = indexRows(windowRows);
+    const rest = initialPlanState(grain, index.initiallyCollapsed);
+    const derived = derivePlan(index);
+    return visibleRows(index, rest).reduce(
+        (sum, v) => sum + rowHeight(v, dense, rest.chartsExpanded, undefined, derived), 0);
 }
 
 // ── Renderer-side derivations (§4.2 — the Table idiom) ─────────────────────

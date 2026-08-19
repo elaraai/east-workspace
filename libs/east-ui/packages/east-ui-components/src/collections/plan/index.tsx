@@ -46,6 +46,7 @@ import {
 } from "./plan-state.js";
 import {
     GAP_H, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, rowHeight, visibleRows,
+    windowRestHeight,
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { EastChakraComponent } from "../../component.js";
@@ -203,13 +204,22 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The rows channel: inline rows, or the derived paged source (§3.8)
     //    streamed in as a contiguous prefix by the loader hook. ──────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
-    // The ledger needs a window's pixel height, which is `rowHeight()` over its
-    // rows — and that needs density / chart state defined further down. A ref
-    // breaks the ordering: the driver only calls this when a window LANDS (in a
-    // passive effect), and the layout effect below `heightCtx` has re-assigned
-    // the closure by then (#610 — no render-phase ref writes).
-    const heightOfRef = useRef<(rows: readonly PlanRowValue[]) => number>(() => 0);
-    const heightOf = useCallback((rows: readonly PlanRowValue[]) => heightOfRef.current(rows), []);
+    // Declared style facts, hoisted above the paging hook because the window
+    // measure consumes them (the recipe section below reads them too). Both
+    // are value-derived and UI-state-independent — which is exactly what makes
+    // the measure canonical.
+    const dense = getSomeorUndefined(getSomeorUndefined(value.style)?.density)?.type === "compact";
+    const initGrain = getSomeorUndefined(value.grain)?.type ?? "resource";
+    // The ledger's window height (#613): the height the window renders AT
+    // REST — declared collapse applied, chart expansion at its declared
+    // state, no focus context, pinned rows excluded. The ledger freezes a
+    // window's first measurement and seeds its frozen slot rate from the
+    // very first one, so the recorded number must not depend on transient
+    // UI state — a window landing during an expand focus must not record
+    // strip-compressed rows.
+    const heightOf = useCallback(
+        (rows: readonly PlanRowValue[]) => windowRestHeight(rows, initGrain, dense),
+        [initGrain, dense]);
     const paging = usePlanPaging(pagedSource, { heightOf });
     // The inline arm is the canvas's KEYED collection (#568) — decoded as a
     // SortedMap, so its values are already in canonical key order.
@@ -325,7 +335,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const r = row.kind.value.runs.find((x) => x.key === runKey);
         return r !== undefined ? { start: r.start, end: r.end } : undefined;
     }, [index]);
-    const initGrain = getSomeorUndefined(value.grain)?.type ?? "resource";
     // THE state machine — one `useReducer(planStoreReducer)` (#610). The
     // reducer's scale context rides the closure, so a queued dispatch is
     // answered against the current buckets and no ref is written during
@@ -542,7 +551,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // ── Recipe + layout ───────────────────────────────────────────────────
     const recipe = useSlotRecipe({ key: "plan" });
-    const dense = getSomeorUndefined(getSomeorUndefined(value.style)?.density)?.type === "compact";
     const styles = useMemo(
         () => recipe({ density: dense ? "dense" : "default" } as Record<string, unknown>) as unknown as Styles,
         [recipe, dense],
@@ -602,17 +610,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const heightCtx = useMemo<PlanFocusCtx | undefined>(
         () => (focusCtx?.kind === "expand" ? { ...focusCtx, renderPx: expandRenderPx } : focusCtx),
         [focusCtx, expandRenderPx]);
-    // The ledger's window height, now that density / chart state / the focus
-    // height context exist. Exact rather than measured: the canvas is
-    // fixed-height by kind and mounts with `measureRows={false}`, so
-    // `rowHeight()` IS the layout. Assigned in a layout effect — every commit,
-    // before the paging hook's landed (passive) effect can call it — because a
-    // render-phase ref write leaves a discarded render's closure behind (#610).
-    useLayoutEffect(() => {
-        heightOfRef.current = (windowRows: readonly PlanRowValue[]): number =>
-            windowRows.reduce((sum, row) =>
-                sum + rowHeight({ row, depth: 0, collapsed: false }, dense, ui.chartsExpanded, heightCtx, derived), 0);
-    });
     // R1 at scale — the links-focus body elides runs of unrelated rows into
     // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
     const bodyItems = useMemo<PlanBodyItem[]>(() => {

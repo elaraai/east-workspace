@@ -45,6 +45,10 @@ export function WindowBand({ band, styles, loading }: WindowBandProps) {
             height={`${Math.max(0, band.px)}px`}
             data-plan-window-band={band.at}
             data-plan-elements={count}
+            // The ledger-derived height, as data: the height itself compiles
+            // to a class, so this is what a DOM test (jsdom resolves no
+            // Chakra classes) can hold the geometry contract against (#613).
+            data-plan-px={Math.round(Math.max(0, band.px))}
             aria-busy={loading ? "true" : undefined}
         >
             <Box css={styles.windowBandCaption}>{caption}</Box>

@@ -12,6 +12,7 @@ import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, deriveLinkFamily, derivePlan, elideForFocus, indexRows, linkedRowKeys,
+    windowRestHeight,
     HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
     RAIL_H,
     type PlanLinkValue, type PlanRowValue, type VisibleRow,
@@ -181,6 +182,74 @@ describe("Plan row focus heights (R1 rails)", () => {
         const g = { ...row(variant("group", { summary: none, summaryAggregate: none, collapsed: none })),
             key: "g" } as PlanRowValue;
         expect(rowHeight(visible(g), false, new Set(), focus)).toBe(GROUP_H);
+    });
+});
+
+describe("Plan windowRestHeight (#613)", () => {
+    // The signature is the guarantee: it takes NO focus context, NO toggled
+    // chart set, NO live UI state — a window landing mid-focus cannot record
+    // strip-compressed rows because the transient state cannot reach it.
+    const mk = (key: string, kind: unknown, extra?: Partial<PlanRowValue>): PlanRowValue =>
+        ({ ...row(kind), key, ...extra } as PlanRowValue);
+    const groupOf = (collapsed: boolean) => variant("group", {
+        summary: none, summaryAggregate: none,
+        collapsed: collapsed ? some(true) : none,
+    });
+
+    test("declared collapse hides the subtree; pinned rows measure nothing (they render in the header)", () => {
+        const rows = [
+            mk("g", groupOf(true)),
+            mk("a", spanKind, { parent: some("g") } as Partial<PlanRowValue>),
+            mk("b", spanKind, { parent: some("g") } as Partial<PlanRowValue>),
+            mk("plain", spanKind),
+            mk("pin", spanKind, { pinned: some(true) } as Partial<PlanRowValue>),
+        ];
+        expect(windowRestHeight(rows, "resource", false)).toBe(GROUP_H + ROW_H);
+        // An OPEN declared group measures its members.
+        const open = [
+            mk("g", groupOf(false)),
+            mk("a", spanKind, { parent: some("g") } as Partial<PlanRowValue>),
+        ];
+        expect(windowRestHeight(open, "resource", false)).toBe(GROUP_H + ROW_H);
+    });
+
+    test("chart expansion measures at its DECLARED state, never a toggle's", () => {
+        const chart = (height: unknown) => variant("chart", {
+            layers: [], left: none, right: none, height, expandedHeight: none, expandable: some(true),
+        });
+        expect(windowRestHeight([mk("s", chart(variant("spark", null)))], "resource", false)).toBe(32);
+        expect(windowRestHeight([mk("e", chart(variant("expanded", null)))], "resource", false)).toBe(88);
+    });
+
+    test("the GROUP grain collapses root groups at rest", () => {
+        const rows = [
+            mk("g", groupOf(false)),
+            mk("a", spanKind, { parent: some("g") } as Partial<PlanRowValue>),
+        ];
+        expect(windowRestHeight(rows, "group", false)).toBe(GROUP_H);
+        expect(windowRestHeight(rows, "resource", false)).toBe(GROUP_H + ROW_H);
+    });
+
+    test("a vertical subtotal parent measures with its window-local DERIVED width", () => {
+        const vmulti = variant("table", {
+            series: [
+                { cells: [{ at: W27, value: some(1), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: W27, value: some(2), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: W27, value: some(3), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+            ],
+            split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
+        });
+        const parent = variant("table", {
+            series: [], split: variant("vertical", null),
+            aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
+        });
+        const rows = [
+            mk("p", parent),
+            mk("x", vmulti, { parent: some("p") } as Partial<PlanRowValue>),
+        ];
+        // Both stack three derived positions: 6 + 3×11 each — the parent must
+        // not fall back to its own (empty) series and measure one line.
+        expect(windowRestHeight(rows, "resource", false)).toBe(39 + 39);
     });
 });
 
